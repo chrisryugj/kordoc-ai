@@ -1,0 +1,54 @@
+# 빌드
+dist/
+build/
+*.exe
+# PyInstaller
+!python-sidecar/sidecar.spec
+python-sidecar/dist/
+python-sidecar/build/
+
+# v1 레거시 PyInstaller spec
+mvp_tool_gui.spec
+
+# v1 레거시 (python-sidecar로 이전됨)
+src/mvp1_converter/
+src/mvp2_extractor/
+src/mvp3_analyzer/
+src/shared/
+src/cli.py
+src/gui*.py
+src/web.py
+config/settings.yaml
+config/ocr-rules.yaml
+
+# 출력
+output/
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/python-sidecar*
+
+# Node
+node_modules/
+
+# Python
+.env
+*.pyc
+__pycache__/
+.venv/
+uv.lock
+
+# 테스트 출력
+tests/test_data/mvp2/*/
+
+# 로그
+logs/
+tests/test_logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

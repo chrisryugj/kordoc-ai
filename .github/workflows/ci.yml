@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-test:
+    name: Python Tests (offline)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r python-sidecar/requirements-ci.txt
+          pip install playwright
+          python -m playwright install chromium
+
+      - name: Run offline tests
+        run: |
+          python -m pytest tests/ -v -m "not online" --tb=short
+
+  typescript-check:
+    name: TypeScript Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tsc --noEmit
+
+  rust-check:
+    name: Rust Check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Create frontend dist placeholder
+        run: mkdir dist && echo "<!-- placeholder -->" > dist/index.html
+
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check --lib

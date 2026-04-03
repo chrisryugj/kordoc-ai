@@ -1,0 +1,259 @@
+/* ============================================
+   EduPlan AI Component Styles
+   ============================================ */
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-hover);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Focus Indicator - keyboard navigation only */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+input:focus-visible, select:focus-visible {
+  outline-offset: -1px;
+}
+
+/* Skip to main content link */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 0.5rem 1rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: white;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* Lucide Icons */
+.lucide { stroke-width: 1.5 !important; }
+
+/* Typography */
+.ts-hero, .ts-2xl, .ts-xl { letter-spacing: -0.03em; }
+.ts-lg { letter-spacing: -0.02em; }
+.text-display { font-family: var(--font-display); }
+.text-mono { font-family: var(--font-mono); }
+
+/* Type Scale */
+.ts-2xs { font-size: var(--text-2xs); }
+.ts-xs { font-size: var(--text-xs); }
+.ts-sm { font-size: var(--text-sm); }
+.ts-base { font-size: var(--text-base); }
+.ts-md { font-size: var(--text-md); }
+.ts-lg { font-size: var(--text-lg); }
+.ts-xl { font-size: var(--text-xl); }
+
+/* Buttons */
+.btn-primary {
+  background: var(--color-accent);
+  color: white;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  box-shadow: 0 2px 8px var(--color-accent-glow);
+}
+.btn-primary:active { transform: scale(0.98); }
+
+.hover-btn-primary:hover { background-color: var(--color-accent-hover) !important; }
+.hover-btn-secondary:hover { background-color: var(--color-bg-tertiary) !important; }
+.hover-btn-ghost:hover { background-color: var(--color-bg-tertiary) !important; }
+.hover-btn-danger:hover { background-color: var(--color-error-hover) !important; }
+
+/* Input */
+.input-modern {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-inner);
+  transition: all 0.2s var(--ease-out-expo);
+}
+.input-modern:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  background: var(--color-bg-secondary);
+  outline: none;
+}
+
+/* Card */
+.card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-fast);
+}
+.card:hover { box-shadow: var(--shadow-card-hover); }
+
+/* File Badges */
+.file-badge {
+  @apply px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider;
+}
+.file-badge-hwp { color: var(--color-file-hwp); background: var(--color-file-hwp-bg); }
+.file-badge-pdf { color: var(--color-file-pdf); background: var(--color-file-pdf-bg); }
+.file-badge-xlsx { color: var(--color-file-xlsx); background: var(--color-file-xlsx-bg); }
+
+/* Pipeline Step Indicator */
+.step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: all var(--transition-normal);
+}
+.step-dot--pending {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  border: 2px solid var(--color-border);
+}
+.step-dot--active {
+  background: var(--color-accent);
+  color: white;
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-subtle);
+}
+.step-dot--done {
+  background: var(--color-success);
+  color: white;
+  border: 2px solid var(--color-success);
+}
+.step-line {
+  height: 2px;
+  flex: 1;
+  background: var(--color-border);
+  transition: background var(--transition-normal);
+}
+.step-line--done { background: var(--color-success); }
+
+/* Drop Zone */
+.drop-zone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-tertiary);
+  transition: all var(--transition-normal);
+}
+.drop-zone--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  box-shadow: 0 0 0 4px var(--color-accent-subtle);
+}
+
+/* Progress Bar */
+.progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+  transition: width 0.3s var(--ease-out-expo);
+}
+.progress-bar-indeterminate {
+  width: 40% !important;
+  animation: indeterminate-slide 1.4s ease-in-out infinite;
+}
+@keyframes indeterminate-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Glass effect */
+.glass {
+  background: color-mix(in srgb, var(--color-bg-secondary) 85%, transparent);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-subtle);
+}
+
+/* Hover background helpers */
+.hover-bg-tertiary:hover { background-color: var(--color-bg-tertiary); }
+.hover-sidebar-item:hover { background-color: var(--color-sidebar-hover); }
+.btn-icon-hover { transition: background-color var(--transition-fast); }
+.btn-icon-hover:hover { background-color: var(--color-bg-tertiary); }
+
+/* Select/Option dark mode */
+select.input-modern option {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* Input placeholder */
+.input-modern::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+.input-modern {
+  color: var(--color-text-primary);
+}
+
+/* Text gradient */
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-accent) 0%, #0EA5E9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ============================================
+   Responsive: narrow window (< 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 64px;
+  }
+  /* Compact sidebar: icons only, centered */
+  .sidebar-label, .sidebar-desc, .sidebar-credit { display: none; }
+  .sidebar-logo-text { display: none; }
+  .sidebar-section-title { display: none; }
+  /* Center nav items when sidebar collapsed */
+  aside[role="navigation"] nav button,
+  aside[role="navigation"] > div:nth-last-child(2) button {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  aside[role="navigation"] nav { padding-left: 0.25rem; padding-right: 0.25rem; }
+}
+
+@media (max-width: 900px) {
+  /* WebToolsView: stack tool list and detail vertically */
+  .tools-layout { flex-direction: column !important; }
+  .tools-list { width: 100% !important; max-height: 200px; overflow-y: auto; }
+  .tools-detail { border-left: none !important; border-top: 1px solid var(--color-border); }
+}

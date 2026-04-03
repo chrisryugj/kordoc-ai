@@ -1,0 +1,246 @@
+/* ============================================
+   EduPlan AI Design System
+   World-Class Premium Identity
+   Deep Navy + Cobalt Blue palette
+   ============================================ */
+
+/* Pretendard 폰트 번들링 */
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Regular.otf') format('opentype');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Pretendard-SemiBold.otf') format('opentype');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Bold.otf') format('opentype');
+}
+
+@theme {
+  --font-sans: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
+  --font-mono: 'Consolas', 'D2Coding', 'Fira Code', monospace;
+  --font-display: 'Pretendard', system-ui, sans-serif;
+
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+  --color-primary-950: #172554;
+
+  --shadow-glass: 0 8px 32px 0 rgba(15, 23, 42, 0.06);
+
+  /* Fluid Spacing & Micro-Typography */
+  --space-fluid-sm: clamp(1rem, 2vw, 1.5rem);
+  --space-fluid-md: clamp(1.5rem, 3vw, 2.5rem);
+  --space-fluid-lg: clamp(2rem, 5vw, 4rem);
+  
+  --tracking-hero: -0.04em;
+  --tracking-heading: -0.02em;
+  --tracking-body: 0.01em;
+  --tracking-tight: -0.01em;
+}
+
+:root {
+  --color-bg-primary: #F8FAFC;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary: #F1F5F9;
+  --color-bg-subtle: #E2E8F0;
+
+  --sidebar-width: 220px;
+  --color-sidebar-bg: #FFFFFF;
+  --color-sidebar-text: #0F172A;
+  --color-sidebar-muted: #64748B;
+  --color-sidebar-hover: rgba(15, 23, 42, 0.04);
+  --color-sidebar-active: rgba(37, 99, 235, 0.08);
+  --color-sidebar-border: #E2E8F0;
+  --color-sidebar-section: #94A3B8;
+
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748B;
+  --color-text-inverse: #F8FAFC;
+
+  --color-border: #E2E8F0;
+  --color-border-subtle: #F1F5F9;
+  --color-border-hover: #CBD5E1;
+
+  --color-accent: #2563EB;
+  --color-accent-hover: #1D4ED8;
+  --color-accent-active: #1e40af;
+  --color-accent-subtle: rgba(37, 99, 235, 0.06);
+  --color-accent-light: rgba(37, 99, 235, 0.06);
+  --color-accent-glow: rgba(37, 99, 235, 0.25);
+
+  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+  --glass-blur: blur(12px);
+
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-error: #BE123C;
+  --color-error-hover: #9F1239;
+  --color-error-bg: rgba(190, 18, 60, 0.1);
+  --color-info: #0284C7;
+  --color-info-bg: rgba(2, 132, 199, 0.1);
+
+  --color-backdrop: rgba(15, 23, 42, 0.4);
+  --color-primary-rgb: 37, 99, 235;
+  --color-primary-light: #3B82F6;
+  --color-accent-bg: var(--color-accent-subtle);
+
+  /* Semantic badge/status backgrounds */
+  --color-success-bg: rgba(5, 150, 105, 0.15);
+  --color-warning-bg: rgba(217, 119, 6, 0.15);
+  --color-danger-bg: rgba(190, 18, 60, 0.15);
+  --color-success-subtle: rgba(5, 150, 105, 0.1);
+  --color-warning-subtle: rgba(217, 119, 6, 0.1);
+  --color-error-subtle: rgba(190, 18, 60, 0.1);
+
+  /* File type colors */
+  --color-file-hwp: #0EA5E9;
+  --color-file-pdf: #E11D48;
+  --color-file-xlsx: #10B981;
+  --color-file-txt: #64748B;
+  --color-file-hwp-bg: rgba(14, 165, 233, 0.06);
+  --color-file-pdf-bg: rgba(225, 29, 72, 0.05);
+  --color-file-xlsx-bg: rgba(16, 185, 129, 0.05);
+  --color-file-txt-bg: rgba(100, 116, 139, 0.05);
+
+  /* Pipeline step colors */
+  --color-step-active: var(--color-accent);
+  --color-step-done: var(--color-success);
+  --color-step-pending: var(--color-text-muted);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.03);
+  --shadow-card-hover: 0 4px 12px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(37, 99, 235, 0.12);
+  --shadow-inner: inset 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+
+  /* Radii */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  /* Type Scale */
+  --text-2xs: 0.75rem;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.125rem;
+  --text-hero: 3rem;
+
+  /* Easing */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-sine: cubic-bezier(0.37, 0, 0.63, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Transitions */
+  --transition-fast: 120ms var(--ease-out-expo);
+  --transition-normal: 200ms var(--ease-out-expo);
+  --transition-spring: 400ms var(--ease-spring);
+}
+
+/* Dark Mode */
+.dark {
+  color-scheme: dark;
+  --color-bg-primary: #020617;
+  --color-bg-secondary: #0F172A;
+  --color-bg-tertiary: #1E293B;
+  --color-bg-subtle: #334155;
+
+  --color-sidebar-bg: #020617;
+  --color-sidebar-text: #F8FAFC;
+  --color-sidebar-muted: #94A3B8;
+  --color-sidebar-hover: rgba(255, 255, 255, 0.05);
+  --color-sidebar-active: rgba(56, 189, 248, 0.12);
+  --color-sidebar-border: rgba(255, 255, 255, 0.06);
+
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #CBD5E1;
+  --color-text-muted: #94A3B8;
+  --color-text-inverse: #0F172A;
+
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-subtle: rgba(255, 255, 255, 0.04);
+  --color-border-hover: rgba(255, 255, 255, 0.14);
+
+  --color-accent: #38BDF8;
+  --color-accent-hover: #7DD3FC;
+  --color-accent-active: #0284C7;
+  --color-accent-subtle: rgba(56, 189, 248, 0.10);
+  --color-accent-light: rgba(56, 189, 248, 0.10);
+  --color-accent-glow: rgba(56, 189, 248, 0.25);
+
+  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  --glass-blur: blur(16px);
+
+  --color-backdrop: rgba(2, 6, 23, 0.6);
+  --color-primary-rgb: 56, 189, 248;
+
+  --color-success-bg: rgba(16, 185, 129, 0.2);
+  --color-warning-bg: rgba(251, 191, 36, 0.2);
+  --color-danger-bg: rgba(225, 29, 72, 0.2);
+  --color-success-subtle: rgba(16, 185, 129, 0.15);
+  --color-warning-subtle: rgba(217, 119, 6, 0.15);
+  --color-error-subtle: rgba(225, 29, 72, 0.15);
+
+  --color-file-hwp: #38BDF8;
+  --color-file-pdf: #FB7185;
+  --color-file-xlsx: #34D399;
+  --color-file-txt: #94A3B8;
+  --color-file-hwp-bg: rgba(56, 189, 248, 0.08);
+  --color-file-pdf-bg: rgba(251, 113, 133, 0.08);
+  --color-file-xlsx-bg: rgba(52, 211, 153, 0.08);
+  --color-file-txt-bg: rgba(148, 163, 184, 0.08);
+
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 40px -8px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(56, 189, 248, 0.2);
+  --shadow-inner: inset 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* Global Reset */
+html, body, #root {
+  height: 100%;
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-primary);
+  background-image: var(--bg-noise);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  letter-spacing: var(--tracking-body);
+  word-break: keep-all;
+}

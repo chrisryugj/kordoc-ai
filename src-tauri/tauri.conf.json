@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EduPlan AI",
+  "version": "1.0.0",
+  "identifier": "com.eduplan-ai.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "pnpm build:all",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "EduPlan AI",
+        "visible": false,
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: asset: https://asset.localhost; connect-src ipc: http://ipc.localhost 'self'; object-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "교육시설안전원 사전기획팀",
+    "shortDescription": "사전기획 적정성 검토 AI 통합 도구",
+    "license": "MIT",
+    "resources": {
+      "../python-sidecar/dist/eduplan-sidecar.exe": "python-sidecar/eduplan-sidecar.exe",
+      "../python-sidecar/main.py": "python-sidecar/main.py",
+      "../python-sidecar/rpc_handler.py": "python-sidecar/rpc_handler.py",
+      "../python-sidecar/pyproject.toml": "python-sidecar/pyproject.toml",
+      "../python-sidecar/config/": "python-sidecar/config/",
+      "../python-sidecar/src/": "python-sidecar/src/"
+    },
+    "windows": {
+      "wix": {
+        "upgradeCode": "213AB368-C5C7-4FFC-BA1B-3B56095BD135",
+        "language": "ko-KR"
+      },
+      "nsis": {
+        "languages": ["Korean"],
+        "displayLanguageSelector": false,
+        "installMode": "both"
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
