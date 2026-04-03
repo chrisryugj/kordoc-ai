@@ -1,0 +1,45 @@
+# 테스트용 설정 (tests/test_data 기준 상대경로)
+mvp1:
+  target_dir: "mvp1"
+  model_name: "gemini-3.1-flash"
+  temperature: 0.0
+  max_workers: 2
+  timeout_seconds: 60
+  chunk_size: 10
+  dpi: 100
+  max_retries: 2
+  base_delay: 5
+
+mvp2:
+  base_dir: "mvp2"
+  source_subdir: "source"
+  index_file: "pages.xlsx"
+  source_files:
+    C: "1_사업계획서.pdf"
+    D: "2_보고서.pdf"
+  topic_folders:
+    2: "a_학급수 및 학생수"
+    3: "b_각종 면적"
+    4: "c_사업 유형"
+    5: "d_사업 기간"
+    6: "e_설계발주방식"
+    7: "f_사업비 내역"
+    8: "g_스페이스 프로그램"
+    9: "h_설문조사 결과"
+  label:
+    font_size: 10
+    x: 20
+    y: 20
+    color: [0, 0, 0]
+
+mvp3:
+  base_dir: "mvp3"
+  input_subdir: "input_data"
+  processed_subdir: "input_processed"
+  output_subdir: "output"
+  model_name: "gemini-3.1-flash"
+  step1_temperature: 0.0
+  step2_temperature: 0.7
+  timeout_seconds: 120
+  wait_time: 5
+  num_variants: 1

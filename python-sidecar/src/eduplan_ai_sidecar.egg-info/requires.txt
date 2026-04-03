@@ -1,0 +1,14 @@
+google-genai<2.0,>=1.9.0
+PyMuPDF<2.0,>=1.24.0
+pypdf<6.0,>=4.0.0
+openpyxl<4.0,>=3.1.0
+python-docx<1.0,>=0.8.11
+reportlab<5.0,>=4.0.0
+pyyaml<7.0,>=6.0
+Pillow<12.0,>=10.0.0
+
+[browser]
+playwright<2.0,>=1.40.0
+
+[hwp]
+pyhwpx<1.0,>=0.3.0

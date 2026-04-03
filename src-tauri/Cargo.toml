@@ -1,0 +1,37 @@
+[package]
+name = "eduplan-ai"
+version = "1.0.0"
+description = "교육시설 사전기획 AI 통합 도구"
+authors = ["Chris"]
+edition = "2021"
+
+[lib]
+name = "eduplan_ai_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "^2.5", features = [] }
+
+[dependencies]
+tauri = { version = "^2.10", features = [] }
+tauri-plugin-dialog = "^2.6"
+tauri-plugin-process = "^2.3"
+tauri-plugin-shell = "^2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
+
+[profile.release]
+panic = "unwind"
+codegen-units = 4
+lto = "thin"
+opt-level = 3
+strip = "debuginfo"

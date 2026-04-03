@@ -1,0 +1,221 @@
+<head><title></title><meta charset="utf-8"><link rel="stylesheet" href="./styles.css"></head><body class="light-theme blue_sky" style="padding: 20px;"><div class="shine-editor"><h2>MVP 2 — 원하는 페이지 발췌하여 추출</h2><div>2026. 3. 6. 10:32 — 본 매뉴얼 최종 수정</div><div><br></div><div><br></div><div><br></div><div><br></div><div><hr></div><h1># 사전 세팅 방법</h1><div>이 워크플로우는 엑셀(Index)에 기재된 페이지 번호를 바탕으로 여러 PDF에서 특정 페이지만 골라내고,&nbsp;</div><div>좌측 하단에 <b>테마명 라벨(워터마크)</b>&nbsp;을 자동으로 입혀 정리하는 프로세스입니다. MVP 1과 마찬가지로 <code spellcheck="false">uv</code> 패키지 매니저를 통해 환경을 구축합니다.</div><div><br></div><div><br></div><h2>1. 📂 폴더 구조 세팅 (Project Structure)</h2><div>작업의 편의를 위해 <code spellcheck="false">D:\mvp_2</code> 폴더를 기준으로 아래와 같이 파일을 배치합니다.</div><pre spellcheck="false">D:\mvp_2/                &lt;-- 프로젝트 루트 폴더
+│
+├── source/              # [필수] 원본 PDF 파일들을 모아두는 곳
+│   ├── 1_사업계획서.pdf
+│   ├── 2_보고서.pdf
+│   └── 3_지침서.pdf
+│
+├── pages.xlsx           # [필수] 추출할 페이지 번호가 기재된 엑셀 파일
+├── extract_pages.py     # [실행 파일] 추출 및 라벨링을 담당하는 메인 스크립트
+│
+├── .python-version      # (uv init 시 생성됨)
+├── pyproject.toml       # (uv init 시 생성됨 - 라이브러리 목록 관리)
+└── uv.lock              # (uv add 시 생성됨)
+</pre><div><b>⚠️ 주의사항 (경로 및 파일 확인)</b></div><ul><li><b>작업 대상 폴더:</b> <code spellcheck="false">D:\mvp_2</code> 폴더가 실제로 존재해야 하며, 그 안에 <code spellcheck="false">source</code> 폴더를 만들어 원본 PDF를 넣어야 합니다.</li><li><b>엑셀 파일명:</b> <code spellcheck="false">pages.xlsx</code> 파일의 <b>Sheet1</b> 탭을 사용하며, 행/열 구조가 코드 내 <code spellcheck="false">TOPIC_FOLDERS</code> 및 <code spellcheck="false">SOURCE_FILES</code> 정의와 일치해야 합니다.</li><li><b>폰트 경로:</b> 윈도우 기본 폰트인 '맑은 고딕(<code spellcheck="false">malgun.ttf</code>)'을 사용하여 라벨을 생성합니다.</li></ul><div><br></div><div><br></div><div><br></div><div><hr></div><h2>2. ⚡ uv 가상환경 설정 및 실행 방법</h2><div>터미널을 열고 <code spellcheck="false">D:\mvp_2</code> 폴더로 이동한 뒤 아래 명령어를 순서대로 입력하세요.</div><div><b><br></b></div><div><b>Step 1. uv 초기화 (기존에 생성하지 않은 경우)</b></div><pre spellcheck="false">uv init
+</pre><div><b><br></b></div><div><b>Step 2. 필수 라이브러리 설치</b></div><div>PDF 편집, 라벨 생성, 엑셀 읽기를 위한 라이브러리를 한 번에 설치합니다.</div><pre spellcheck="false">uv add pypdf reportlab openpyxl
+</pre><div><b><br></b></div><div><b>Step 3. 실행</b></div><pre spellcheck="false">uv run extract_pages.py
+</pre><div><br></div><div><br></div><div><br></div><h2><hr></h2><h2>3. 📝 코드 요약 및 주요 기능</h2><h3><b>extract_pages.py</b></h3><ul><li><b>기능:</b> 엑셀의 페이지 범위를 해석(ex: 1, 3-5)하여 해당 페이지만 추출합니다.</li><li><b>라벨링:</b> 추출된 각 페이지 좌측 하단(x=20, y=20)에 해당 테마명을 검은색 글자로 인쇄합니다.</li><li><b>이중 저장:</b> 개별 페이지는 테마별 폴더에 저장하고, 해당 테마의 모든 페이지를 합친 <b>통합 PDF</b>를 루트 폴더에 생성합니다.</li><li><b>안전성:</b> <code spellcheck="false">copy.copy</code>를 활용하여 원본 PDF 객체가 오염되는 것을 방지하며 병렬적인 추출을 지원합니다.</li></ul><div><br></div><div><br></div><div><br></div><div><hr></div><h2>4.💡 실행 전 체크리스트</h2><ol><li><b>엑셀 데이터 확인:</b> <code spellcheck="false">pages.xlsx</code>의 C, D, E열에 페이지 번호가 적절히 입력되어 있는지 확인하세요 (예: <code spellcheck="false">12, 15-18, 20</code>).</li><li><b>원본 파일명:</b> <code spellcheck="false">source</code> 폴더 내 파일명이 코드의 <code spellcheck="false">SOURCE_FILES</code> 정의(<code spellcheck="false">1_사업계획서.pdf</code> 등)와 정확히 일치해야 합니다.</li><li><b>결과물 확인:</b> 실행 후 <code spellcheck="false">D:\mvp_2</code> 루트에 생성된 <code spellcheck="false">a_학급수 및 학생수.pdf</code> 등 통합 파일과 각 폴더 내 개별 파일들을 확인하세요.</li></ol><div><br></div><div><br></div><div><br></div><div><br></div><div><br></div><div><hr></div><h1># 코드 내용</h1><div><br></div><h3>[ extract_pages.py ]</h3><pre spellcheck="false">import os
+import re
+import io
+import openpyxl
+import copy
+
+# PDF 처리 라이브러리 (uv add pypdf)
+from pypdf import PdfReader, PdfWriter
+
+# 텍스트(라벨) 생성을 위한 라이브러리 (uv add reportlab)
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# ============================================================
+# 1) 경로 및 파일 설정
+# ============================================================
+BASE_DIR = r"D:\mvp_2"
+SOURCE_DIR = os.path.join(BASE_DIR, "source")
+INDEX_FILE = os.path.join(BASE_DIR, "pages.xlsx")
+
+SOURCE_FILES = {
+    "C": "1_사업계획서.pdf",
+    "D": "2_보고서.pdf",
+    "E": "3_지침서.pdf",
+}
+
+TOPIC_FOLDERS = {
+    2: "a_학급수 및 학생수",
+    3: "b_각종 면적",
+    4: "c_사업 유형",
+    5: "d_사업 기간",
+    6: "e_설계발주방식",
+    7: "f_사업비 내역",
+    8: "g_스페이스 프로그램",
+    9: "h_설문조사 결과",
+}
+
+
+# ============================================================
+# 2) 한글 폰트 등록 (ReportLab용)
+# ============================================================
+def register_korean_font():
+    font_name = "MalgunGothic"
+    font_paths = [
+        r"C:\Windows\Fonts\malgun.ttf",
+        r"C:\Windows\Fonts\gulim.ttc"
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, path))
+                return font_name
+            except:
+                continue
+    return "Helvetica"
+
+
+KOREAN_FONT = register_korean_font()
+
+
+# ============================================================
+# 3) 라벨(워터마크) 생성 함수
+# ============================================================
+def create_label_packet(text):
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet)
+    can.setFont(KOREAN_FONT, 10)
+    can.setFillColorRGB(0, 0, 0)
+    can.drawString(20, 20, text)  # 좌측 하단 출력
+    can.save()
+    packet.seek(0)
+    return packet
+
+
+# ============================================================
+# 4) 유틸리티 함수 (엑셀 파싱 등)
+# ============================================================
+def parse_page_numbers(cell_value):
+    if cell_value is None: return []
+    s = str(cell_value).strip().replace("\n", ",").replace(" ", "").replace(";", ",")
+    if s in ["", "-"]: return []
+
+    pages = set()
+    for part in [p for p in s.split(",") if p]:
+        normalized = part.replace("–", "-").replace("~", "-")
+        if "-" in normalized:
+            try:
+                a_str, b_str = normalized.split("-", 1)
+                a, b = int(float(a_str)), int(float(b_str))
+                if a &gt; b: a, b = b, a
+                pages.update(range(a, b + 1))
+            except:
+                continue
+        else:
+            try:
+                pages.add(int(float(normalized)))
+            except:
+                continue
+    return sorted(pages)
+
+
+# ============================================================
+# 5) 메인 실행 로직
+# ============================================================
+def process_extraction():
+    # 폴더 생성
+    for folder in TOPIC_FOLDERS.values():
+        os.makedirs(os.path.join(BASE_DIR, folder), exist_ok=True)
+
+    wb = openpyxl.load_workbook(INDEX_FILE, data_only=True, read_only=True)
+    sheet = wb["Sheet1"]
+
+    print("\n" + "=" * 60)
+    print("PDF 페이지 추출 + 라벨링 + 테마별 병합 시작")
+    print("=" * 60)
+
+    total_extracted = 0
+    readers = {}
+    handles = {}
+
+    try:
+        for row_num, folder_name in TOPIC_FOLDERS.items():
+            folder_path = os.path.join(BASE_DIR, folder_name)
+            print(f"\n📂 [{folder_name}] 처리 중...")
+
+            label_packet = create_label_packet(folder_name)
+            label_page = PdfReader(label_packet).pages[0]
+            merged_writer = PdfWriter()
+            topic_has_pages = False
+
+            for col_letter, source_filename in SOURCE_FILES.items():
+                target_pages = parse_page_numbers(sheet[f"{col_letter}{row_num}"].value)
+                if not target_pages: continue
+
+                # Reader 캐싱
+                if source_filename not in readers:
+                    f = open(os.path.join(SOURCE_DIR, source_filename), "rb")
+                    handles[source_filename] = f
+                    readers[source_filename] = PdfReader(f)
+
+                reader = readers[source_filename]
+                source_basename = os.path.splitext(source_filename)[0]
+
+                for p_num in target_pages:
+                    if p_num &lt; 1 or p_num &gt; len(reader.pages): continue
+
+                    # 페이지 복제 및 라벨링 (원본 오염 방지)
+                    working_page = copy.copy(reader.pages[p_num - 1])
+                    working_page.merge_page(label_page)
+
+                    # 1. 개별 파일 저장
+                    single_writer = PdfWriter()
+                    single_writer.add_page(working_page)
+                    out_path = os.path.join(folder_path, f"{source_basename}__p.{p_num}__{folder_name}.pdf")
+                    with open(out_path, "wb") as f_out:
+                        single_writer.write(f_out)
+
+                    # 2. 통합 파일용 추가
+                    merged_writer.add_page(working_page)
+                    topic_has_pages = True
+                    total_extracted += 1
+
+
+
+            if topic_has_pages:
+                with open(os.path.join(BASE_DIR, f"{folder_name}.pdf"), "wb") as f_merged:
+                    merged_writer.write(f_merged)
+                print(f"  ⭐ 통합 저장 완료: {folder_name}.pdf")
+
+        # [최종 마스터 통합본 생성 추가] --------------------------------------------
+        print("\n" + "★" * 60)
+        print("모든 테마 PDF를 순서대로 합쳐 '통합본.pdf'를 생성합니다.")
+
+        master_merger = PdfWriter()
+        # TOPIC_FOLDERS의 폴더명들을 이름순(a, b, c...)으로 정렬
+        sorted_topic_files = sorted([f"{name}.pdf" for name in TOPIC_FOLDERS.values()])
+
+        topic_count = 0
+        for pdf_name in sorted_topic_files:
+            pdf_path = os.path.join(BASE_DIR, pdf_name)
+
+            if os.path.exists(pdf_path):
+                # 생성된 테마 PDF를 읽어서 마스터 병합기에 추가
+                temp_reader = PdfReader(pdf_path)
+                for page in temp_reader.pages:
+                    master_merger.add_page(page)
+                print(f"  + {pdf_name} 병합 추가 완료")
+                topic_count += 1
+
+        if topic_count &gt; 0:
+            master_final_path = os.path.join(BASE_DIR, "통합본.pdf")
+            with open(master_final_path, "wb") as f_master:
+                master_merger.write(f_master)
+            print(f"📂 최종 통합본 저장 완료: {master_final_path}")
+        # --------------------------------------------------------------------------
+
+    finally:
+        for f in handles.values(): f.close()
+        print(f"\n✅ 작업 완료. 총 {total_extracted}장 추출됨.")
+
+
+if __name__ == "__main__":
+    process_extraction()
+</pre><div><br></div><div><br></div></div></body>

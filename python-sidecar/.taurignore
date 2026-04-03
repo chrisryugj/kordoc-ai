@@ -1,0 +1,19 @@
+# PyInstaller 빌드 산출물
+dist/
+build/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# 가상환경
+.venv/
+venv/
+.env
+
+# IDE/기타
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
