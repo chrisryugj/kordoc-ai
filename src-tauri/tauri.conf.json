@@ -38,12 +38,9 @@
     "shortDescription": "한국 문서 변환 AI 데스크톱 도구",
     "license": "MIT",
     "resources": {
-      "../python-sidecar/dist/eduplan-sidecar.exe": "python-sidecar/eduplan-sidecar.exe",
-      "../python-sidecar/main.py": "python-sidecar/main.py",
-      "../python-sidecar/rpc_handler.py": "python-sidecar/rpc_handler.py",
-      "../python-sidecar/pyproject.toml": "python-sidecar/pyproject.toml",
-      "../python-sidecar/config/": "python-sidecar/config/",
-      "../python-sidecar/src/": "python-sidecar/src/"
+      "../node-sidecar/dist/": "node-sidecar/dist/",
+      "../node-sidecar/package.json": "node-sidecar/package.json",
+      "../node-sidecar/config/": "node-sidecar/config/"
     },
     "windows": {
       "wix": {

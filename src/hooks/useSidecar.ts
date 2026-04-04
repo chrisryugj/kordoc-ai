@@ -15,8 +15,7 @@ export function useSidecar(): UseSidecarReturn {
 
   /** Rust 영문 에러를 사용자 친화적 한글로 변환 */
   const translateError = (msg: string): string => {
-    if (msg.includes("spawn sidecar exe")) return "Python 엔진 실행 파일을 찾을 수 없습니다";
-    if (msg.includes("Failed to spawn sidecar")) return "Python 엔진을 시작할 수 없습니다";
+    if (msg.includes("Failed to spawn sidecar")) return "엔진을 시작할 수 없습니다 (Node.js 설치 확인)";
     if (msg.includes("Unexpected ping")) return "엔진이 응답하지 않습니다";
     if (msg.includes("프로세스 종료됨")) return "엔진이 비정상 종료되었습니다";
     if (msg.includes("Timeout")) return "엔진 응답 시간 초과";

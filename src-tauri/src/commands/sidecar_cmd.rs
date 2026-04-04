@@ -5,23 +5,27 @@ use crate::error::AppError;
 use crate::sidecar::manager::{SidecarManager, SidecarStatus};
 
 /// Allowed RPC methods (whitelist for security)
+/// Synced with node-sidecar/src/rpc/methods/index.ts
 const ALLOWED_METHODS: &[&str] = &[
+    // Phase 2 실구현
     "ping",
     "cancel",
     "get_settings",
     "update_settings",
-    "set_api_key",
-    "set_models",
-    "ocr_files",
-    "text_extract",
-    "summarize",
     "open_folder",
     "open_file",
-    "inspect_pipeline_output",
-    "save_pipeline_state",
     "list_files",
-    "save_report",
-    "read_report",
+    // Phase 4~5 스텁
+    "convert",
+    "convert_batch",
+    "diff",
+    "form_extract",
+    "generate_hwpx",
+    "extract_tables",
+    "merge_files",
+    "ocr",
+    "summarize",
+    "scan_receipt",
 ];
 
 #[tauri::command]
