@@ -1,0 +1,16 @@
+# KorDoc AI Sidecar 설정
+gemini:
+  model: gemini-2.5-flash-preview-05-20
+  lite_model: gemini-2.0-flash-lite
+  api_key: ""
+  proxy_url: ""
+  max_retries: 5
+  timeout_ms: 60000
+  mode: online  # online | offline
+
+convert:
+  output_dir: ""
+  ocr_fallback: true
+
+general:
+  log_level: info  # debug | info | warn | error
