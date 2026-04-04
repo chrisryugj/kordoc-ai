@@ -14,12 +14,15 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
-    "kordoc": "^1.7.2",
+    "kordoc": "link:C:/github_project/kordoc",
     "pdfjs-dist": "^5.6.205",
     "yaml": "^2.7.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["canvas", "esbuild"]
+    "onlyBuiltDependencies": [
+      "canvas",
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

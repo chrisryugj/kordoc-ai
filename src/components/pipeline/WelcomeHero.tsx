@@ -1,6 +1,6 @@
 import {
-  Scan, FileText, GitCompareArrows, Sparkles,
-  BookOpen, Upload, AlertTriangle, Blocks,
+  FileText, Scan, GitCompareArrows, Sparkles,
+  BookOpen, Upload, AlertTriangle,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { motion } from "framer-motion";
@@ -202,40 +202,43 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
             }}
           />
 
-          {/* Center Glass Card (Represents the processed document) */}
-          <motion.div 
+          {/* Center Glass Card */}
+          <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.2, type: "spring" }}
             className="relative z-10 p-8 rounded-3xl glass shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] dark:shadow-none flex flex-col items-center border"
-            style={{ borderColor: "var(--color-border)", minWidth: "240px" }}
+            style={{ borderColor: "var(--color-border)", minWidth: "260px" }}
           >
-            {/* Document icon stack */}
+            {/* Document icon stack with file type labels */}
             <div className="flex gap-3 mb-6 relative">
-              <motion.div 
-                animate={{ y: [0, -5, 0] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 0 }}
-                className="w-12 h-16 rounded shadow-sm border opacity-70" 
-                style={{ backgroundColor: "var(--color-bg-primary)", borderColor: "var(--color-border)" }} 
-              />
-              <motion.div 
-                animate={{ y: [0, -8, 0] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-                className="w-12 h-16 rounded shadow-md border -translate-y-2 z-10" 
-                style={{ backgroundColor: "var(--color-bg-primary)", borderColor: "var(--color-accent-light)" }} 
-              >
-                <div className="w-full h-full flex items-center justify-center text-accent">
-                  <Scan size={20} style={{ color: "var(--color-accent)" }} />
-                </div>
-              </motion.div>
-              <motion.div 
-                animate={{ y: [0, -5, 0] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                className="w-12 h-16 rounded shadow-sm border opacity-70" 
-                style={{ backgroundColor: "var(--color-bg-primary)", borderColor: "var(--color-border)" }} 
-              />
+              {([
+                { label: "HWP", color: "var(--color-file-hwp)", bg: "var(--color-file-hwp-bg)", delay: 0 },
+                { label: "PDF", color: "var(--color-file-pdf)", bg: "var(--color-file-pdf-bg)", delay: 0.5 },
+                { label: "HWPX", color: "var(--color-file-hwp)", bg: "var(--color-file-hwp-bg)", delay: 1 },
+              ] as const).map((f, i) => (
+                <motion.div key={f.label}
+                  animate={{ y: [0, i === 1 ? -8 : -5, 0] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: f.delay }}
+                  className={`w-14 h-[4.5rem] rounded-lg shadow-md border flex flex-col items-center justify-center gap-1 ${i === 1 ? "-translate-y-2 z-10" : "opacity-80"}`}
+                  style={{ backgroundColor: "var(--color-bg-primary)", borderColor: i === 1 ? "var(--color-accent-light)" : "var(--color-border)" }}
+                >
+                  <FileText size={18} style={{ color: f.color }} />
+                  <span className="text-[9px] font-bold tracking-wider" style={{ color: f.color }}>{f.label}</span>
+                </motion.div>
+              ))}
             </div>
-            
-            <div className="flex items-center justify-center gap-2 px-4 py-2 rounded-full" style={{ backgroundColor: "var(--color-bg-primary)" }}>
-              <Blocks size={16} style={{ color: "var(--color-accent)" }} />
-              <span className="ts-xs font-bold tracking-widest text-display">AI PROCESSING</span>
+
+            {/* Arrow → Markdown output */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-px" style={{ backgroundColor: "var(--color-border)" }} />
+              <Sparkles size={16} style={{ color: "var(--color-accent)" }} />
+              <div className="w-8 h-px" style={{ backgroundColor: "var(--color-border)" }} />
+            </div>
+
+            <div className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl" style={{ backgroundColor: "var(--color-accent-subtle)", border: "1px solid var(--color-accent-light)" }}>
+              <FileText size={15} style={{ color: "var(--color-accent)" }} />
+              <span className="ts-xs font-bold tracking-wide" style={{ color: "var(--color-accent)" }}>MARKDOWN</span>
             </div>
           </motion.div>
         </div>
