@@ -11,44 +11,6 @@ mvp1:
   step_delay: 2
   max_retries: 5
   base_delay: 10
-mvp2:
-  base_dir: ''
-  source_subdir: source
-  index_file: pages.xlsx
-  source_files: {}
-  themes:
-  - 학급수 및 학생수
-  - 각종 면적
-  - 사업 유형
-  - 사업 기간
-  - 설계발주방식
-  - 사업비 내역
-  - 스페이스 프로그램
-  - 설문조사 결과
-  - 기타
-  vision_tag_batch_size: 5
-  text_tag_batch_size: 10
-  text_tag_page_snippet: 1200
-  topic_folders:
-    2: a_학급수 및 학생수
-    3: b_각종 면적
-    4: c_사업 유형
-    5: d_사업 기간
-    6: e_설계발주방식
-    7: f_사업비 내역
-    8: g_스페이스 프로그램
-    9: h_설문조사 결과
-  label:
-    enabled: true
-    font_size: 12
-    x: 20
-    y: 20
-    position: bottom-left
-    format: '{theme}'
-    color:
-    - 0
-    - 0
-    - 0
 mvp3:
   base_dir: ''
   input_subdir: input_data
@@ -56,21 +18,5 @@ mvp3:
   output_subdir: output
   model_name: gemini-3-flash-preview
   step1_temperature: 0.0
-  step2_temperature: 0.7
   timeout_seconds: 120
   wait_time: 10
-  num_variants: 1
-  evaluate: true
-browser_tools:
-  default_timeout_ms: 30000
-  login_timeout_sec: 120
-  viewport_width: 1280
-  viewport_height: 900
-  headless: true
-  ignore_https_errors: false
-  popup_wait_ms: 500
-  search_wait_ms: 2000
-  detail_wait_ms: 1000
-  page_load_wait_ms: 3000
-  gis_load_wait_ms: 5000
-  map_capture_wait_ms: 1500

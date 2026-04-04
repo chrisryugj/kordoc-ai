@@ -44,15 +44,20 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
     const droppedFiles = Array.from(e.dataTransfer.files);
     const existingPaths = new Set(files.map((f) => f.path));
     const newFiles: ImportedFile[] = droppedFiles
-      .filter((f) => /\.(hwp|hwpx|pdf)$/i.test(f.name))
-      .map((f) => ({
+      .filter((f) => /\.(hwp|hwpx|pdf|xlsx)$/i.test(f.name))
+      .map((f) => {
+        const lower = f.name.toLowerCase();
+        return {
         path: (f as File & { path?: string }).path ?? f.name,
         name: f.name,
         size: f.size,
-        type: f.name.toLowerCase().endsWith(".pdf") ? "pdf" as const
-          : f.name.toLowerCase().match(/\.hwpx?$/) ? "hwp" as const
+        type: lower.endsWith(".pdf") ? "pdf" as const
+          : lower.endsWith(".hwpx") ? "hwpx" as const
+          : lower.endsWith(".hwp") ? "hwp" as const
+          : lower.endsWith(".xlsx") ? "xlsx" as const
           : "unknown" as const,
-      }))
+      };
+      })
       .filter((f) => !existingPaths.has(f.path));
     if (newFiles.length > 0) {
       onFilesChange([...files, ...newFiles]);
@@ -80,7 +85,7 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
         <Upload size={40} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
         <div className="text-center">
           <p className="ts-md font-medium" style={{ color: "var(--color-text-primary)" }}>
-            HWP/PDF 파일을 여기에 드래그하세요
+            HWP/HWPX/PDF/XLSX 파일을 여기에 드래그하세요
           </p>
           <p className="ts-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
             또는 클릭하여 파일 선택

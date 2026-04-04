@@ -1,7 +1,7 @@
 import { useCallback } from "react";
-import { FileText, Globe, Settings, HelpCircle } from "lucide-react";
+import { FileText, Settings, HelpCircle } from "lucide-react";
 
-type NavItem = "pipeline" | "tools" | "settings" | "help";
+type NavItem = "pipeline" | "settings" | "help";
 
 interface SidebarProps {
   active: NavItem;
@@ -12,8 +12,7 @@ interface SidebarProps {
 }
 
 const navItems: { id: NavItem; label: string; icon: React.ReactNode; description: string }[] = [
-  { id: "pipeline", label: "문서 처리", icon: <FileText size={18} />, description: "OCR · 분류 · 분석" },
-  { id: "tools", label: "자료 수집", icon: <Globe size={18} />, description: "웹 자동 수집 도구" },
+  { id: "pipeline", label: "문서 변환", icon: <FileText size={18} />, description: "HWP · HWPX · PDF → 마크다운" },
 ];
 
 const bottomItems: { id: NavItem; label: string; icon: React.ReactNode }[] = [
@@ -56,14 +55,14 @@ export function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKe
       <div className="px-5 py-4 flex items-center gap-3">
         <img
           src="/logo.png"
-          alt="EduPlan AI"
+          alt="KorDoc AI"
           className="w-8 h-8 rounded-lg shrink-0 object-cover"
         />
         <div className="sidebar-logo-text">
           <h1 className="text-sm font-bold text-display" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em" }}>
-            EduPlan AI
+            KorDoc AI
           </h1>
-          <span className="ts-2xs" style={{ color: "var(--color-sidebar-muted)" }}>사전기획 AI 도구</span>
+          <span className="ts-2xs" style={{ color: "var(--color-sidebar-muted)" }}>한국 문서 변환 도구</span>
         </div>
       </div>
 
@@ -112,7 +111,6 @@ export function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKe
 
       {/* Footer */}
       <div className="px-5 py-3 border-t" style={{ borderColor: "var(--color-sidebar-border)" }}>
-        {/* 엔진 + API 상태 한 줄 */}
         <div className="flex items-center gap-2.5 ts-2xs sidebar-label" style={{ color: "var(--color-sidebar-muted)" }}>
           <span className="flex items-center gap-1" title={sidecarError || undefined}>
             <span
@@ -130,7 +128,6 @@ export function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKe
             API {apiKeySet ? "설정됨" : "미설정"}
           </span>
         </div>
-        {/* 카피라이트 */}
         <div
           className="ts-2xs mt-1 sidebar-credit"
           style={{ color: "var(--color-sidebar-muted)", cursor: "default", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.6 }}

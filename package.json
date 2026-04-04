@@ -1,7 +1,7 @@
 {
-  "name": "eduplan-ai",
-  "version": "1.0.0",
-  "description": "교육시설 사전기획 AI 통합 도구",
+  "name": "kordoc-ai",
+  "version": "0.1.0",
+  "description": "한국 문서 변환 AI 데스크톱 도구",
   "type": "module",
   "scripts": {
     "dev": "vite",

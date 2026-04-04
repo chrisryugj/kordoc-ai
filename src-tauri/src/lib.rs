@@ -47,7 +47,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building EduPlan AI")
+        .expect("error while building KorDoc AI")
         .run(move |_app, event| {
             if let tauri::RunEvent::Exit = event {
                 // Graceful sidecar shutdown — orphan process 방지

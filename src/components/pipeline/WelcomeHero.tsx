@@ -68,7 +68,7 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
             }}
           >
             <Sparkles size={12} />
-            사전기획 적정성 검토 AI 통합 도구
+            한국 문서 변환 AI 도구
           </div>
 
           {/* Title */}
@@ -81,7 +81,7 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
             }}
           >
             문서를 넣으세요. <br />
-            <span className="text-gradient">AI가 분석</span>합니다.
+            <span className="text-gradient">AI가 변환</span>합니다.
           </h1>
 
           <p
@@ -93,8 +93,8 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
               maxWidth: "500px" 
             }}
           >
-            HWP, PDF 형식의 방대한 사전기획 문서. <br />
-            이제 AI가 텍스트와 도면을 분리하고, 교육과정 테마를 스스로 찾아 분석 데이터를 추출합니다.
+            HWP, HWPX, PDF, XLSX 등 한국 공공문서를 <br />
+            마크다운으로 변환하고, AI로 요약·비교·분석합니다.
           </p>
 
           {/* CTA Group */}
@@ -132,7 +132,7 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
               </div>
               <div className="w-px h-4" style={{ backgroundColor: "var(--color-border)" }} />
               <div className="flex items-center gap-1.5">
-                {["HWP", "HWPX", "PDF"].map((ft) => (
+                {["HWP", "HWPX", "PDF", "XLSX"].map((ft) => (
                   <span
                     key={ft}
                     className="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider opacity-80"

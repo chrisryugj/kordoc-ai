@@ -1,5 +1,5 @@
 /* ============================================
-   EduPlan AI Component Styles
+   KorDoc AI Component Styles
    ============================================ */
 
 /* Custom Scrollbar */
@@ -251,9 +251,3 @@ select.input-modern option {
   aside[role="navigation"] nav { padding-left: 0.25rem; padding-right: 0.25rem; }
 }
 
-@media (max-width: 900px) {
-  /* WebToolsView: stack tool list and detail vertically */
-  .tools-layout { flex-direction: column !important; }
-  .tools-list { width: 100% !important; max-height: 200px; overflow-y: auto; }
-  .tools-detail { border-left: none !important; border-top: 1px solid var(--color-border); }
-}

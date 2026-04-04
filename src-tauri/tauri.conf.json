@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EduPlan AI",
-  "version": "1.0.0",
-  "identifier": "com.eduplan-ai.app",
+  "productName": "KorDoc AI",
+  "version": "0.1.0",
+  "identifier": "com.kordoc-ai.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "EduPlan AI",
+        "title": "KorDoc AI",
         "visible": false,
         "width": 1200,
         "height": 800,
@@ -34,8 +34,8 @@
       "icons/128x128.png",
       "icons/icon.ico"
     ],
-    "publisher": "교육시설안전원 사전기획팀",
-    "shortDescription": "사전기획 적정성 검토 AI 통합 도구",
+    "publisher": "KorDoc",
+    "shortDescription": "한국 문서 변환 AI 데스크톱 도구",
     "license": "MIT",
     "resources": {
       "../python-sidecar/dist/eduplan-sidecar.exe": "python-sidecar/eduplan-sidecar.exe",
