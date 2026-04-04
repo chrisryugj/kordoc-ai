@@ -235,10 +235,31 @@ function collectChanges(diffs: BlockDiff[]): { totalChanges: number; entries: Ch
   for (const d of diffs) {
     if (d.type === "unchanged") continue;
 
-    // 테이블: 셀 단위로 카운트
+    // 테이블: 실제 셀만 카운트 (covered placeholder 제외)
     if (d.cellDiffs) {
-      for (const row of d.cellDiffs) {
-        for (const cell of row) {
+      // before 또는 after 테이블에서 skip set 구축
+      const spanSkip = new Set<string>();
+      const refTable = d.before?.table ?? d.after?.table;
+      if (refTable) {
+        for (let ri = 0; ri < refTable.cells.length; ri++) {
+          for (let ci = 0; ci < refTable.cells[ri].length; ci++) {
+            const c = refTable.cells[ri][ci];
+            if (c.rowSpan > 1 || c.colSpan > 1) {
+              for (let dr = 0; dr < c.rowSpan; dr++) {
+                for (let dc = 0; dc < c.colSpan; dc++) {
+                  if (dr === 0 && dc === 0) continue;
+                  spanSkip.add(`${ri + dr},${ci + dc}`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      for (let ri = 0; ri < d.cellDiffs.length; ri++) {
+        for (let ci = 0; ci < d.cellDiffs[ri].length; ci++) {
+          if (spanSkip.has(`${ri},${ci}`)) continue; // covered 셀 건너뛰기
+          const cell = d.cellDiffs[ri][ci];
           if (cell.type === "unchanged") continue;
           totalChanges++;
           if (cell.type === "modified" && cell.before && cell.after && cell.before !== cell.after) {
@@ -278,12 +299,28 @@ function MiniTable({ table, cellDiffs, side }: {
   cellDiffs?: CellDiff[][];
   side: "left" | "right";
 }) {
+  // rowSpan/colSpan으로 가려진 셀 위치를 skip set으로 관리
+  const skip = new Set<string>();
+
   return (
     <table className="w-full ts-2xs" style={{ borderCollapse: "collapse" }}>
       <tbody>
         {table.cells.map((row, ri) => (
           <tr key={ri}>
             {row.map((cell, ci) => {
+              // covered 셀이면 렌더링 건너뛰기
+              if (skip.has(`${ri},${ci}`)) return null;
+
+              // 이 셀이 차지하는 영역을 skip에 등록
+              if (cell.rowSpan > 1 || cell.colSpan > 1) {
+                for (let dr = 0; dr < cell.rowSpan; dr++) {
+                  for (let dc = 0; dc < cell.colSpan; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    skip.add(`${ri + dr},${ci + dc}`);
+                  }
+                }
+              }
+
               const cd = cellDiffs?.[ri]?.[ci];
               const isChanged = cd && cd.type !== "unchanged";
               const text = side === "left" ? (cd?.before ?? cell.text) : (cd?.after ?? cell.text);
