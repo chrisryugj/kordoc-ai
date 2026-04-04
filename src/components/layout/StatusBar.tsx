@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import type { PipelineStep, PipelineProgress } from "../../types/pipeline";
+import { formatElapsed } from "../../utils/format";
 
 interface StatusBarProps {
   step: PipelineStep;
   progress: PipelineProgress;
-  apiKeySet: boolean;
 }
 
 const ACTIVE_STEPS: PipelineStep[] = ["converting"];
@@ -15,11 +15,6 @@ const stepMeta: Record<PipelineStep, { label: string; color: string }> = {
   converting: { label: "변환 중",    color: "var(--color-warning)" },
   complete:   { label: "완료",       color: "var(--color-success)" },
 };
-
-function formatElapsed(s: number) {
-  const m = Math.floor(s / 60);
-  return m > 0 ? `${m}분 ${s % 60}초` : `${s}초`;
-}
 
 export function StatusBar({ step, progress }: StatusBarProps) {
   const [elapsed, setElapsed] = useState(0);

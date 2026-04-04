@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// JSON-RPC 2.0 Request (sent to Python sidecar)
+/// JSON-RPC 2.0 Request (sent to Node.js sidecar)
 #[derive(Debug, Serialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
@@ -21,7 +21,7 @@ impl JsonRpcRequest {
     }
 }
 
-/// JSON-RPC 2.0 Response (received from Python sidecar)
+/// JSON-RPC 2.0 Response (received from Node.js sidecar)
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcResponse {
     #[allow(dead_code)]

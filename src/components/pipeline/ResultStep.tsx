@@ -7,7 +7,6 @@ interface ResultStepProps {
   result: PipelineResult | null;
   onReset: () => void;
   onOpenFolder: () => void;
-  sidecarCall?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 }
 
 export function ResultStep({ result, onReset, onOpenFolder }: ResultStepProps) {

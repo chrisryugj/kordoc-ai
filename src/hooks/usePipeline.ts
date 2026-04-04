@@ -113,7 +113,7 @@ export function usePipeline(): UsePipelineReturn {
 
   async function dispatchMerge(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string): Promise<PipelineResult> {
     const dir = outputDir || fileDir(currentFiles[0].path);
-    const outputPath = `${dir}\\merged.md`;
+    const outputPath = `${dir}${dir.includes('/') ? '/' : '\\'}merged.md`;
     const raw = await call("merge_files", { files: currentFiles.map((f) => f.path), output_path: outputPath }) as Record<string, unknown>;
     return {
       total: currentFiles.length, successCount: 1, failCount: 0,
@@ -143,6 +143,13 @@ export function usePipeline(): UsePipelineReturn {
     cancelledRef.current = false;
     const currentFiles = filesRef.current;
     if (currentFiles.length === 0) throw new Error("처리할 파일이 없습니다");
+
+    // 액션별 최소 파일 수 검증
+    const minFiles: Partial<Record<PipelineAction, number>> = { diff: 2, merge_files: 2 };
+    const required = minFiles[action] ?? 1;
+    if (currentFiles.length < required) {
+      throw new Error(`"${action}" 액션은 최소 ${required}개 파일이 필요합니다 (현재 ${currentFiles.length}개)`);
+    }
 
     setStep("converting");
     setProgress({ current: 0, total: currentFiles.length, message: "처리 준비 중..." });

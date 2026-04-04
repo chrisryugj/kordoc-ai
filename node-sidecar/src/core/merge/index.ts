@@ -47,7 +47,7 @@ export async function mergeFiles(
     const filePath = files[i];
     try {
       const buffer = await readFile(filePath);
-      const result = await parse(buffer.buffer as ArrayBuffer);
+      const result = await parse(new Uint8Array(buffer).buffer);
 
       if (result.success) {
         const fileName = basename(filePath);

@@ -37,7 +37,7 @@ export async function convert(params: ConvertParams): Promise<ConvertResult> {
 
   const buffer = await readFile(input_path);
 
-  const result: ParseResult = await parse(buffer.buffer as ArrayBuffer, {
+  const result: ParseResult = await parse(new Uint8Array(buffer).buffer, {
     pages,
     ocr: ocrProvider,
     onProgress: (current, total) => {

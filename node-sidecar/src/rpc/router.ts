@@ -7,6 +7,8 @@ export class RpcRouter {
   private methods = new Map<string, RpcHandler>();
   /** 활성 요청의 AbortController (cancel용) */
   private active = new Map<number | string, AbortController>();
+  /** id 없는 요청에 고유 키 부여 */
+  private nextAnonymousId = 0;
 
   /** 메서드 등록 */
   register(name: string, handler: RpcHandler): void {
@@ -35,7 +37,7 @@ export class RpcRouter {
     }
 
     const ac = new AbortController();
-    const reqId = id ?? '__no_id__';
+    const reqId = id ?? `__anon_${this.nextAnonymousId++}__`;
     this.active.set(reqId, ac);
 
     try {

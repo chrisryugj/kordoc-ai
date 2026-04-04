@@ -3,6 +3,7 @@ import { Upload, FileText, X, FolderOpen, AlertTriangle, Trash2 } from "lucide-r
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
 import type { ImportedFile } from "../../types/pipeline";
+import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 
 interface ImportStepProps {
   files: ImportedFile[];
@@ -44,20 +45,13 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
     const droppedFiles = Array.from(e.dataTransfer.files);
     const existingPaths = new Set(files.map((f) => f.path));
     const newFiles: ImportedFile[] = droppedFiles
-      .filter((f) => /\.(hwp|hwpx|pdf|xlsx)$/i.test(f.name))
-      .map((f) => {
-        const lower = f.name.toLowerCase();
-        return {
+      .filter((f) => SUPPORTED_EXT_RE.test(f.name))
+      .map((f) => ({
         path: (f as File & { path?: string }).path ?? f.name,
         name: f.name,
         size: f.size,
-        type: lower.endsWith(".pdf") ? "pdf" as const
-          : lower.endsWith(".hwpx") ? "hwpx" as const
-          : lower.endsWith(".hwp") ? "hwp" as const
-          : lower.endsWith(".xlsx") ? "xlsx" as const
-          : "unknown" as const,
-      };
-      })
+        type: detectFileType(f.name),
+      }))
       .filter((f) => !existingPaths.has(f.path));
     if (newFiles.length > 0) {
       onFilesChange([...files, ...newFiles]);
@@ -117,7 +111,7 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
             </Button>
           </div>
           <div className="space-y-1 max-h-[300px] overflow-y-auto">
-            {files.map((file, _i) => (
+            {files.map((file) => (
               <div
                 key={file.path}
                 className="flex items-center gap-3 px-3 py-2 rounded-md"

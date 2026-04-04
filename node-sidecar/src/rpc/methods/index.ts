@@ -1,6 +1,6 @@
 /** RPC 메서드 등록 — 7개 유틸리티 + 10개 핵심 기능 */
 
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RpcHandler } from '../protocol.js';
@@ -26,10 +26,15 @@ export function registerAllMethods(router: RpcRouter): void {
 
   // 2. cancel — router에서 직접 처리 (등록 불필요)
 
-  // 3. get_settings
+  // 3. get_settings (API 키 마스킹)
   router.register('get_settings', (params) => {
     const section = params.section as string | undefined;
-    const settings = getSettings();
+    const settings = structuredClone(getSettings());
+    // 프론트엔드에 raw API key 노출 방지 (빈 문자열은 그대로)
+    if (settings.gemini?.api_key && settings.gemini.api_key.trim()) {
+      const key = settings.gemini.api_key;
+      settings.gemini.api_key = key.length > 4 ? key.slice(0, 4) + '****' : '****';
+    }
     if (section && section in settings) {
       return settings[section as keyof typeof settings];
     }
@@ -37,7 +42,7 @@ export function registerAllMethods(router: RpcRouter): void {
   });
 
   // 4. update_settings
-  router.register('update_settings', (params) => {
+  router.register('update_settings', async (params) => {
     const patch = params.settings as Record<string, unknown> | undefined;
     if (!patch) throw new Error('Missing "settings" parameter');
     return updateSettings(patch);
@@ -48,13 +53,17 @@ export function registerAllMethods(router: RpcRouter): void {
     const folderPath = params.path as string;
     if (!folderPath) throw new Error('Missing "path" parameter');
     return new Promise<boolean>((resolve, reject) => {
-      const cmd = process.platform === 'win32'
-        ? `explorer "${folderPath.replace(/\//g, '\\')}"`
-        : `open "${folderPath}"`;
-      exec(cmd, (err) => {
-        if (err) reject(err);
-        else resolve(true);
-      });
+      if (process.platform === 'win32') {
+        execFile('explorer', [folderPath.replace(/\//g, '\\')], (err) => {
+          // explorer returns exit code 1 even on success
+          resolve(true);
+        });
+      } else {
+        execFile('open', [folderPath], (err) => {
+          if (err) reject(err);
+          else resolve(true);
+        });
+      }
     });
   });
 
@@ -63,13 +72,18 @@ export function registerAllMethods(router: RpcRouter): void {
     const filePath = params.path as string;
     if (!filePath) throw new Error('Missing "path" parameter');
     return new Promise<boolean>((resolve, reject) => {
-      const cmd = process.platform === 'win32'
-        ? `start "" "${filePath.replace(/\//g, '\\')}"`
-        : `open "${filePath}"`;
-      exec(cmd, { shell: process.platform === 'win32' ? 'cmd.exe' : undefined }, (err) => {
-        if (err) reject(err);
-        else resolve(true);
-      });
+      if (process.platform === 'win32') {
+        // explorer.exe로 연결 프로그램 실행 — cmd 셸 우회로 metachar injection 방지
+        execFile('explorer', [filePath.replace(/\//g, '\\')], (err) => {
+          // explorer returns exit code 1 even on success
+          resolve(true);
+        });
+      } else {
+        execFile('open', [filePath], (err) => {
+          if (err) reject(err);
+          else resolve(true);
+        });
+      }
     });
   });
 
