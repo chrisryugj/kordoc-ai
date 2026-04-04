@@ -220,7 +220,7 @@ export default function App() {
     <div className="h-screen flex flex-col">
       <a href="#main-content" className="skip-link">본문으로 이동</a>
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} />
+        <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} aiMode={aiMode} onToggleMode={settings.toggleAiMode} />
 
         <main id="main-content" className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-primary)" }}>
           <ErrorBoundary>
@@ -235,6 +235,8 @@ export default function App() {
                   onBrowse={handleBrowseFiles}
                   onBrowseFolder={handleBrowseFolder}
                   apiKeySet={apiKey.trim().length > 0}
+                  aiMode={aiMode}
+                  onToggleMode={settings.toggleAiMode}
                   onOpenSettings={() => setSettingsOpen(true)}
                   sidecarReady={sidecarReady}
                   sidecarError={sidecar.status === "error" ? sidecar.errorMessage : undefined}

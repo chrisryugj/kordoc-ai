@@ -13,6 +13,7 @@ export interface SettingsState {
 
 export interface UseSettingsReturn extends SettingsState {
   setTheme: (theme: "light" | "dark") => void;
+  toggleAiMode: () => void;
   handleSettingsSave: (values: {
     apiKey: string;
     ocrModel: string;
@@ -101,8 +102,12 @@ export function useSettings(sidecarReady: boolean, sidecarCall: SidecarCall, isP
     setTheme(values.theme);
   }, [apiKey, outputDir]);
 
+  const toggleAiMode = useCallback(() => {
+    setAiMode((prev) => prev === "online" ? "offline" : "online");
+  }, []);
+
   return {
     apiKey, apiKeyMasked, ocrModel, analysisModel, aiMode, outputDir, theme,
-    setTheme, handleSettingsSave,
+    setTheme, toggleAiMode, handleSettingsSave,
   };
 }
