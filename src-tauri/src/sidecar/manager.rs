@@ -50,7 +50,7 @@ impl SidecarManager {
         *self.app_handle.write().await = Some(handle);
     }
 
-    pub async fn start(&self, python_path: &str) -> AppResult<()> {
+    pub async fn start(&self) -> AppResult<()> {
         // Clean up any existing state before starting
         if let Some(mut old_child) = self.child.lock().unwrap().take() {
             let _ = old_child.kill();
@@ -63,31 +63,11 @@ impl SidecarManager {
         let sidecar_dir = self.get_sidecar_dir();
         tracing::info!("Starting sidecar from: {:?}", sidecar_dir);
 
-        // Check for PyInstaller-bundled exe first (MZ 헤더로 실제 PE 여부 검증, placeholder 제외)
-        let sidecar_exe = sidecar_dir.join("eduplan-sidecar.exe");
-        let is_real_exe = sidecar_exe.exists() && {
-            let mut buf = [0u8; 2];
-            std::fs::File::open(&sidecar_exe)
-                .and_then(|mut f| {
-                    use std::io::Read;
-                    f.read_exact(&mut buf)
-                })
-                .map(|_| buf == *b"MZ")
-                .unwrap_or(false)
-        };
-
-        let mut cmd = if is_real_exe {
-            tracing::info!("Using bundled sidecar exe: {:?}", sidecar_exe);
-            let mut cmd = std::process::Command::new(&sidecar_exe);
-            cmd.current_dir(&sidecar_dir)
-                .env("PYTHONUNBUFFERED", "1");
-            cmd
-        } else {
-            let mut cmd = std::process::Command::new(python_path);
-            cmd.args(["-u", "main.py"])
-                .current_dir(&sidecar_dir);
-            cmd
-        };
+        // Node.js sidecar: 빌드된 dist/main.js 실행
+        let node = if cfg!(windows) { "node" } else { "node" };
+        let mut cmd = std::process::Command::new(node);
+        cmd.arg("dist/main.js")
+            .current_dir(&sidecar_dir);
 
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -250,11 +230,10 @@ impl SidecarManager {
             return self.send_fire_and_forget(method, params);
         }
 
-        // Long-running methods: pipeline tasks 10min, browser tools 3min, others 60s
+        // Long-running methods: pipeline tasks 10min, others 60s
         let timeout_secs = match method {
-            "ocr_files" | "extract_pages" | "summarize" | "integrate"
-            | "tag_pages" => 600,
-            "browser_tool" => 180,
+            "convert" | "convert_batch" | "ocr" | "summarize"
+            | "diff" | "form_extract" | "extract_tables" => 600,
             _ => 60,
         };
         let params_preview = summarize_value(params.as_ref());
@@ -478,8 +457,7 @@ impl SidecarManager {
         match status {
             SidecarStatus::Error(_) | SidecarStatus::Stopped => {
                 tracing::info!("Sidecar crashed or stopped, restarting...");
-                let python = if cfg!(windows) { "python" } else { "python3" };
-                self.start(python).await
+                self.start().await
             }
             _ => Ok(()),
         }
@@ -496,37 +474,33 @@ impl SidecarManager {
     }
 
     fn get_sidecar_dir(&self) -> std::path::PathBuf {
-        if let Ok(dir) = std::env::var("EDUPLAN_SIDECAR_DIR") {
+        if let Ok(dir) = std::env::var("KORDOC_SIDECAR_DIR") {
             return std::path::PathBuf::from(dir);
         }
 
-        // 개발 환경 우선: 소스 main.py가 있으면 source 디렉토리 사용 (최신 코드 반영)
-        // Tauri dev 빌드는 리소스를 target/debug/python-sidecar/에 복사하므로
-        // 소스 경로를 먼저 확인해야 번들 exe 대신 python main.py를 사용함
+        // 개발 환경 우선: dist/main.js가 있으면 source 디렉토리 사용
         let dev_candidates = [
-            std::path::PathBuf::from("../python-sidecar"),
-            std::path::PathBuf::from("python-sidecar"),
+            std::path::PathBuf::from("../node-sidecar"),
+            std::path::PathBuf::from("node-sidecar"),
         ];
 
         for c in &dev_candidates {
-            if c.join("main.py").exists() {
+            if c.join("dist/main.js").exists() {
                 return c.clone();
             }
         }
 
-        // 프로덕션: exe 옆 python-sidecar/ (MSI 설치 후 경로)
+        // 프로덕션: exe 옆 node-sidecar/ (MSI 설치 후 경로)
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
-                let prod_dir = exe_dir.join("python-sidecar");
-                if prod_dir.join("eduplan-sidecar.exe").exists()
-                    || prod_dir.join("main.py").exists()
-                {
+                let prod_dir = exe_dir.join("node-sidecar");
+                if prod_dir.join("dist/main.js").exists() {
                     return prod_dir;
                 }
             }
         }
 
-        std::path::PathBuf::from("python-sidecar")
+        std::path::PathBuf::from("node-sidecar")
     }
 
     async fn emit_runtime_log(&self, line: String) {
