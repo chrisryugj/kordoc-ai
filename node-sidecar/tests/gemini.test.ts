@@ -73,6 +73,27 @@ describe('Gemini client', () => {
       .rejects.toThrow('Aborted');
   });
 
+  it('Vision API 호출 (멀티모달)', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: { text: () => 'OCR 결과 텍스트' },
+    });
+
+    const { callGeminiVision, resetClient } = await import('../src/infra/gemini.js');
+    resetClient();
+
+    const result = await callGeminiVision({
+      prompt: 'OCR',
+      imageBase64: 'dGVzdA==', // "test" base64
+      mimeType: 'image/png',
+    });
+    expect(result).toBe('OCR 결과 텍스트');
+    // generateContent에 이미지 파트가 포함되었는지 확인
+    expect(mockGenerateContent).toHaveBeenCalledWith([
+      'OCR',
+      { inlineData: { data: 'dGVzdA==', mimeType: 'image/png' } },
+    ]);
+  });
+
   it('오프라인 모드 차단', async () => {
     // 기존 mock의 getConfig를 offline 모드로 임시 변경
     const configModule = await import('../src/infra/config.js');
