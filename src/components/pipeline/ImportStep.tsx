@@ -41,8 +41,11 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    // In Tauri, drag-drop provides file paths via dataTransfer
+    // Tauri 환경에서는 onDragDropEvent(App.tsx)가 파일 경로를 처리하므로 HTML5 drop 무시
     const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length === 0) return;
+    // 비-Tauri 환경 폴백 (웹 미리보기 등)
+    if ('__TAURI_INTERNALS__' in window) return;
     const existingPaths = new Set(files.map((f) => f.path));
     const newFiles: ImportedFile[] = droppedFiles
       .filter((f) => SUPPORTED_EXT_RE.test(f.name))
@@ -145,6 +148,8 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
           {ctxMenu && (
             <div
               className="fixed z-50 rounded-lg shadow-lg py-1 min-w-[140px]"
+              role="menu"
+              aria-label="파일 컨텍스트 메뉴"
               style={{
                 top: ctxMenu.y,
                 left: ctxMenu.x,
@@ -152,8 +157,11 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
                 border: "1px solid var(--color-border)",
               }}
               onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => { if (e.key === "Escape") setCtxMenu(null); }}
             >
               <button
+                role="menuitem"
+                autoFocus
                 className="w-full text-left px-3 py-1.5 ts-xs flex items-center gap-2 transition-colors"
                 style={{ color: "var(--color-error)" }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-bg-tertiary)"; }}

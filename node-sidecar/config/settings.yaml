@@ -1,11 +1,11 @@
 gemini:
   model: gemini-3-flash-preview
   lite_model: gemini-3-flash-preview
-  api_key: ""
+  api_key: ***REMOVED***
   proxy_url: ""
   max_retries: 5
   timeout_ms: 60000
-  mode: online
+  mode: offline
 convert:
   output_dir: ""
   ocr_fallback: true

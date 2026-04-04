@@ -4,18 +4,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Sidebar } from "./components/layout/Sidebar";
 import { StatusBar } from "./components/layout/StatusBar";
-import { PipelineStepper } from "./components/pipeline/PipelineStepper";
-import { WelcomeHero } from "./components/pipeline/WelcomeHero";
-import { ImportStep } from "./components/pipeline/ImportStep";
-import { ActionSelector } from "./components/pipeline/ActionSelector";
+import { Workspace } from "./components/pipeline/Workspace";
 import { OcrProgressStep } from "./components/pipeline/OcrProgressStep";
 import { ResultStep } from "./components/pipeline/ResultStep";
 import { ToastContainer } from "./components/ui/Toast";
-import { SettingsModal, type SettingsSaveValues, SAVED_API_KEY_SENTINEL } from "./components/settings/SettingsModal";
+import { SettingsModal } from "./components/settings/SettingsModal";
 import { HelpModal } from "./components/help/HelpModal";
-import { OnboardingTour } from "./components/ui/OnboardingTour";
+import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useSidecar } from "./hooks/useSidecar";
 import { usePipeline } from "./hooks/usePipeline";
+import { useSettings } from "./hooks/useSettings";
+import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
 import type { ImportedFile, PipelineAction } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
@@ -24,71 +23,23 @@ import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
 export default function App() {
   const [nav, setNav] = useState<NavItem>("pipeline");
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyMasked, setApiKeyMasked] = useState("");
-  const [ocrModel, setOcrModel] = useState("gemini-3-flash-preview");
-  const [analysisModel, setAnalysisModel] = useState("gemini-3-flash-preview");
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    try {
-      const saved = localStorage.getItem("kordoc-theme");
-      return saved === "dark" ? "dark" : "light";
-    } catch { return "light"; }
-  });
-  const [logs, setLogs] = useState<string[]>([]);
+  const logsRef = useRef<string[]>([]);
+  const [, setLogsVersion] = useState(0);
   const logUnlistenRef = useRef<UnlistenFn | null>(null);
   const stderrUnlistenRef = useRef<UnlistenFn | null>(null);
-  const [aiMode, setAiMode] = useState<"online" | "offline">("online");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [outputDir, setOutputDir] = useState(() => {
-    try { return localStorage.getItem("kordoc-output-dir") || ""; } catch { return ""; }
-  });
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   const sidecar = useSidecar();
   const pipeline = usePipeline();
   const { toasts, showToast, dismissToast } = useToast();
 
-  // Apply theme to document and persist
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    try { localStorage.setItem("kordoc-theme", theme); } catch {}
-  }, [theme]);
-
   const sidecarReady = sidecar.status === "ready";
-
-  // Load saved settings from sidecar on startup
-  useEffect(() => {
-    if (sidecarReady && !apiKey) {
-      sidecar.call("get_settings", {}).then((resp) => {
-        const s = resp as { gemini?: { api_key?: string; model?: string; lite_model?: string; mode?: string } };
-        const g = s?.gemini;
-        if (g?.api_key) {
-          setApiKey(SAVED_API_KEY_SENTINEL);
-          // 마스킹: 앞 4자 + ****
-          setApiKeyMasked(g.api_key.length > 4 ? g.api_key.slice(0, 4) + "****" : "****");
-        }
-        if (g?.model) setOcrModel(g.model);
-        if (g?.lite_model) setAnalysisModel(g.lite_model);
-        if (g?.mode === "offline" || g?.mode === "online") setAiMode(g.mode);
-      }).catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when sidecar becomes ready
-  }, [sidecarReady]);
-
-  // Sync API key to sidecar when changed
   const isProcessing = pipeline.step === "converting";
-  useEffect(() => {
-    if (sidecarReady && apiKey && apiKey !== SAVED_API_KEY_SENTINEL && !isProcessing) {
-      sidecar.call("update_settings", { settings: { gemini: { api_key: apiKey } } }).catch(() => {});
-    }
-  }, [sidecarReady, apiKey, isProcessing, sidecar.call]);
-
-  // Sync model selections and mode to sidecar when changed
-  useEffect(() => {
-    if (sidecarReady && !isProcessing) {
-      sidecar.call("update_settings", { settings: { gemini: { model: ocrModel, lite_model: analysisModel, mode: aiMode } } }).catch(() => {});
-    }
-  }, [sidecarReady, ocrModel, analysisModel, aiMode, isProcessing, sidecar.call]);
+  const settings = useSettings(sidecarReady, sidecar.call, isProcessing);
+  const { apiKey, apiKeyMasked, ocrModel, analysisModel, aiMode, outputDir, theme } = settings;
+  const elapsed = useElapsed(pipeline.step);
 
   // Listen for progress events and sidecar logs
   useEffect(() => {
@@ -96,7 +47,10 @@ export default function App() {
     listen<{ current: number; total: number; message: string }>("pipeline:progress", (event) => {
       if (!mounted) return;
       const { message } = event.payload;
-      if (message) setLogs((prev) => [...prev.slice(-200), message]);
+      if (message) {
+        logsRef.current = [...logsRef.current.slice(-200), message];
+        setLogsVersion((v) => v + 1);
+      }
     }).then((unlisten) => {
       if (mounted) logUnlistenRef.current = unlisten;
       else unlisten();
@@ -104,7 +58,10 @@ export default function App() {
     listen<string>("sidecar:log", (event) => {
       if (!mounted) return;
       const line = event.payload;
-      if (line) setLogs((prev) => [...prev.slice(-200), line]);
+      if (line) {
+        logsRef.current = [...logsRef.current.slice(-200), line];
+        setLogsVersion((v) => v + 1);
+      }
     }).then((unlisten) => {
       if (mounted) stderrUnlistenRef.current = unlisten;
       else unlisten();
@@ -118,14 +75,19 @@ export default function App() {
     };
   }, []);
 
-  // Tauri drag-and-drop (window-level — HTML5 dataTransfer doesn't include paths)
+  // Tauri drag-and-drop
+  const filesRef = useRef(pipeline.files);
+  filesRef.current = pipeline.files;
+
   useEffect(() => {
-    const unlisten = getCurrentWindow().onDragDropEvent((event) => {
+    let mounted = true;
+    let unlistenFn: (() => void) | null = null;
+    getCurrentWindow().onDragDropEvent((event) => {
+      if (!mounted) return;
       if (event.payload.type !== "drop") return;
       const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
       if (!paths?.length) return;
-
-      const existingPaths = new Set(pipeline.files.map((f) => f.path));
+      const existingPaths = new Set(filesRef.current.map((f) => f.path));
       const newFiles: ImportedFile[] = paths
         .filter((p) => SUPPORTED_EXT_RE.test(p))
         .filter((p) => !existingPaths.has(p))
@@ -134,19 +96,22 @@ export default function App() {
           return { path: p, name, size: 0, type: detectFileType(name) };
         });
       if (newFiles.length > 0) {
-        pipeline.setFiles([...pipeline.files, ...newFiles]);
-        pipeline.setStep("import");
+        pipeline.setFiles([...filesRef.current, ...newFiles]);
+        if (pipeline.step === "idle") pipeline.setStep("import");
       }
+    }).then((fn) => {
+      if (mounted) unlistenFn = fn;
+      else fn();
     });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [pipeline.files, pipeline.setFiles, pipeline.setStep]);
+    return () => { mounted = false; unlistenFn?.(); };
+  }, [pipeline.setFiles, pipeline.setStep, pipeline.step]);
 
-  // File browser via Tauri dialog
+  // File browser
   const handleBrowseFiles = useCallback(async () => {
     try {
       const selected = await open({
         multiple: true,
-        filters: [{ name: "문서", extensions: ["hwp", "hwpx", "pdf", "xlsx"] }],
+        filters: [{ name: "문서", extensions: ["hwp", "hwpx", "pdf", "xlsx", "docx", "txt", "md"] }],
       });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
@@ -157,14 +122,11 @@ export default function App() {
           const name = p.split(/[/\\]/).pop() ?? p;
           return { path: p, name, size: 0, type: detectFileType(name) };
         });
-      if (newFiles.length > 0) {
-        pipeline.setFiles([...pipeline.files, ...newFiles]);
-      }
-      pipeline.setStep("import");
+      if (newFiles.length > 0) pipeline.setFiles([...pipeline.files, ...newFiles]);
     } catch (e) {
       showToast(`파일 선택 실패: ${e}`, "error");
     }
-  }, [pipeline.files, pipeline.setFiles, pipeline.setStep, showToast]);
+  }, [pipeline.files, pipeline.setFiles, showToast]);
 
   // Folder browser
   const handleBrowseFolder = useCallback(async () => {
@@ -174,83 +136,71 @@ export default function App() {
       const folderPath = Array.isArray(selected) ? selected[0] : selected;
       if (!folderPath) return;
       const entries = await sidecar.call("list_files", { path: folderPath }) as { name: string; is_dir: boolean; size: number }[];
-      // 지원 확장자만 필터
       const supported = entries.filter((e) => !e.is_dir && SUPPORTED_EXT_RE.test(e.name));
-      if (supported.length === 0) {
-        showToast("선택한 폴더에 지원 파일이 없습니다", "info");
-        return;
-      }
+      if (supported.length === 0) { showToast("선택한 폴더에 지원 파일이 없습니다", "info"); return; }
       const existingPaths = new Set(pipeline.files.map((f) => f.path));
+      const sep = folderPath.includes("/") ? "/" : "\\";
       const newFiles: ImportedFile[] = supported
-        .map((e) => ({ path: `${folderPath}\\${e.name}`, name: e.name, size: e.size }))
+        .map((e) => ({ path: `${folderPath}${sep}${e.name}`, name: e.name, size: e.size }))
         .filter((f) => !existingPaths.has(f.path))
-        .map((f) => ({
-          path: f.path, name: f.name, size: f.size,
-          type: detectFileType(f.name),
-        }));
+        .map((f) => ({ path: f.path, name: f.name, size: f.size, type: detectFileType(f.name) }));
       if (newFiles.length > 0) {
         pipeline.setFiles([...pipeline.files, ...newFiles]);
         showToast(`${newFiles.length}개 파일 추가됨`, "success");
       } else {
         showToast("추가할 새 파일이 없습니다", "info");
       }
-      pipeline.setStep("import");
     } catch (e) {
       showToast(`폴더 선택 실패: ${e}`, "error");
     }
-  }, [pipeline.files, pipeline.setFiles, pipeline.setStep, sidecar.call, showToast]);
+  }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
-  const handleStartFromHero = useCallback(() => {
-    pipeline.setStep("import");
-  }, [pipeline.setStep]);
-
+  // Start action
   const handleStartAction = useCallback(async (action: PipelineAction) => {
-    if (pipeline.files.length === 0) {
-      showToast("파일을 먼저 추가하세요", "error");
-      return;
-    }
-
-    setLogs([`${action} 시작: ${pipeline.files.length}개 파일`]);
+    if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
+    logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
+    setLogsVersion((v) => v + 1);
     try {
       await pipeline.startAction(action, sidecar.call, outputDir ? { outputDir } : undefined);
       showToast("처리 완료", "success");
     } catch (e) {
       const msg = String(e).replace(/^Error:\s*/, "").replace(/^JSON-RPC error:\s*/, "");
-      setLogs((prev) => [...prev, `ERROR: ${msg}`]);
+      logsRef.current = [...logsRef.current, `ERROR: ${msg}`];
+      setLogsVersion((v) => v + 1);
       showToast(msg, "error");
     }
   }, [pipeline.files, pipeline.startAction, sidecar.call, outputDir, showToast]);
 
   const handleCancel = useCallback(() => {
     pipeline.cancel(sidecar.call);
-    setLogs([]);
+    logsRef.current = [];
     showToast("취소됨", "info");
   }, [pipeline.cancel, sidecar.call, showToast]);
 
   const handleOpenFolder = useCallback(async () => {
     if (pipeline.result?.outputPath) {
-      try {
-        await sidecar.call("open_folder", { path: pipeline.result.outputPath });
-      } catch {
-        showToast(`출력 경로: ${pipeline.result.outputPath}`, "info");
-      }
+      try { await sidecar.call("open_folder", { path: pipeline.result.outputPath }); }
+      catch { showToast(`출력 경로: ${pipeline.result.outputPath}`, "info"); }
     }
   }, [pipeline.result, sidecar.call, showToast]);
 
-  const handleSettingsSave = useCallback((values: SettingsSaveValues) => {
-    if (values.apiKey !== apiKey) {
-      setApiKey(values.apiKey);
-      if (values.apiKey !== SAVED_API_KEY_SENTINEL) setApiKeyMasked("");
+  // AI 요약 from result viewer
+  const handleSummarize = useCallback(async (markdown: string) => {
+    if (!apiKey.trim()) { showToast("Gemini API 키가 필요합니다", "error"); return; }
+    setIsSummarizing(true);
+    try {
+      const raw = await sidecar.call("summarize", { text: markdown }) as Record<string, unknown>;
+      if (typeof raw.summary === "string") {
+        showToast("요약 완료", "success");
+        // 요약 결과를 클립보드에 복사
+        try { await navigator.clipboard.writeText(raw.summary as string); showToast("요약이 클립보드에 복사되었습니다", "success"); } catch { /* ok */ }
+      }
+    } catch (e) {
+      showToast(`요약 실패: ${e}`, "error");
+    } finally {
+      setIsSummarizing(false);
     }
-    setOcrModel(values.ocrModel);
-    setAnalysisModel(values.analysisModel);
-    setAiMode(values.aiMode);
-    if (values.outputDir !== outputDir) {
-      setOutputDir(values.outputDir);
-      try { localStorage.setItem("kordoc-output-dir", values.outputDir); } catch {}
-    }
-    setTheme(values.theme);
-  }, [apiKey, outputDir]);
+  }, [apiKey, sidecar.call, showToast]);
 
   const handleNavigate = useCallback((item: NavItem) => {
     if (item === "settings") setSettingsOpen(true);
@@ -263,7 +213,8 @@ export default function App() {
     }
   }, [isProcessing, showToast]);
 
-  const showPipelineSteps = pipeline.step !== "idle";
+  // 현재 화면 결정: workspace (idle/import) | converting | complete
+  const isWorkspace = pipeline.step === "idle" || pipeline.step === "import";
 
   return (
     <div className="h-screen flex flex-col">
@@ -272,91 +223,51 @@ export default function App() {
         <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} />
 
         <main id="main-content" className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-primary)" }}>
-          <div className="flex-1 flex flex-col overflow-hidden" style={{ display: nav === "pipeline" ? "flex" : "none" }}>
-            {showPipelineSteps && (
-              <>
-                <div className="px-8 pt-5 pb-1 flex items-center justify-between">
-                  <div>
-                    <h2 className="ts-lg font-bold text-display" style={{ color: "var(--color-text-primary)" }}>
-                      {pipeline.step === "complete" ? "변환 완료!" :
-                       pipeline.step === "converting" ? "문서를 변환하고 있어요" :
-                       "변환할 문서를 선택하세요"}
-                    </h2>
-                    <p className="ts-2xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                      {pipeline.step === "complete" ? "결과를 확인하고 출력 폴더를 열어보세요" :
-                       pipeline.step === "converting" ? "HWP, HWPX, PDF 문서를 마크다운으로 변환합니다" :
-                       "HWP, HWPX, PDF 파일을 드래그하거나 파일 선택 버튼을 클릭하세요"}
-                    </p>
-                  </div>
-                  {pipeline.step !== "idle" && pipeline.step !== "complete" && (
-                    <button
-                      onClick={async () => {
-                        if (isProcessing) {
-                          try { await pipeline.cancel(sidecar.call); } catch {}
-                        }
-                        pipeline.reset();
-                      }}
-                      className="ts-2xs px-2 py-1 rounded-md transition-colors"
-                      style={{ color: "var(--color-text-muted)", backgroundColor: "var(--color-bg-tertiary)" }}
-                    >
-                      처음으로
-                    </button>
-                  )}
-                </div>
-                <PipelineStepper
-                  currentStep={pipeline.step}
-                  onStepClick={(step) => pipeline.setStep(step)}
-                />
-              </>
-            )}
+          <ErrorBoundary>
+            <div className="flex-1 flex flex-col overflow-hidden" style={{ display: nav === "pipeline" ? "flex" : "none" }}>
 
-            <div className="flex-1 overflow-y-auto">
-              {pipeline.step === "idle" && (
-                <WelcomeHero
+              {/* Workspace — idle/import 합친 메인 화면 */}
+              {isWorkspace && (
+                <Workspace
+                  files={pipeline.files}
+                  onFilesChange={pipeline.setFiles}
+                  onAction={handleStartAction}
+                  onBrowse={handleBrowseFiles}
+                  onBrowseFolder={handleBrowseFolder}
+                  apiKeySet={apiKey.trim().length > 0}
+                  onOpenSettings={() => setSettingsOpen(true)}
                   sidecarReady={sidecarReady}
                   sidecarError={sidecar.status === "error" ? sidecar.errorMessage : undefined}
-                  apiKeySet={apiKey.trim().length > 0}
-                  onStart={handleStartFromHero}
-                  onHelp={() => setHelpOpen(true)}
-                  onSettings={() => setSettingsOpen(true)}
                 />
               )}
-              {pipeline.step === "import" && (
-                <>
-                  <ImportStep
-                    files={pipeline.files}
-                    onFilesChange={pipeline.setFiles}
-                    onStartOcr={() => handleStartAction("convert")}
-                    onBrowse={handleBrowseFiles}
-                    onBrowseFolder={handleBrowseFolder}
-                    apiKeySet={apiKey.trim().length > 0}
-                    onOpenSettings={() => setSettingsOpen(true)}
-                  />
-                  {pipeline.files.length > 0 && (
-                    <ActionSelector
-                      files={pipeline.files}
-                      onSelect={handleStartAction}
-                      apiKeySet={apiKey.trim().length > 0}
-                    />
-                  )}
-                </>
-              )}
+
+              {/* Converting */}
               {pipeline.step === "converting" && (
-                <OcrProgressStep progress={pipeline.progress} onCancel={handleCancel} logs={logs} step={pipeline.step} />
+                <div className="flex-1 overflow-y-auto">
+                  <OcrProgressStep progress={pipeline.progress} onCancel={handleCancel} logs={logsRef.current} step={pipeline.step} elapsed={elapsed} />
+                </div>
               )}
+
+              {/* Result */}
               {pipeline.step === "complete" && (
-                <ResultStep
-                  result={pipeline.result}
-                  onReset={pipeline.reset}
-                  onOpenFolder={handleOpenFolder}
-                />
+                <div className="flex-1 overflow-y-auto">
+                  <ResultStep
+                    result={pipeline.result}
+                    onReset={pipeline.reset}
+                    onOpenFolder={handleOpenFolder}
+                    onSummarize={handleSummarize}
+                    isSummarizing={isSummarizing}
+                    logs={logsRef.current}
+                    elapsed={elapsed}
+                  />
+                </div>
               )}
             </div>
-          </div>
+          </ErrorBoundary>
         </main>
       </div>
 
-      <StatusBar step={pipeline.step} progress={pipeline.progress} />
+      <StatusBar step={pipeline.step} progress={pipeline.progress} elapsed={elapsed} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <SettingsModal
@@ -371,12 +282,11 @@ export default function App() {
         sidecarError={sidecar.errorMessage}
         outputDir={outputDir}
         theme={theme}
-        onThemePreview={setTheme}
-        onSave={handleSettingsSave}
+        onThemePreview={settings.setTheme}
+        onSave={settings.handleSettingsSave}
       />
 
       <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
-      <OnboardingTour enabled={sidecarReady && pipeline.step === "idle"} />
     </div>
   );
 }

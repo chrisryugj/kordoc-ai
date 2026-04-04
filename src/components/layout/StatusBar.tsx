@@ -1,13 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import type { PipelineStep, PipelineProgress } from "../../types/pipeline";
 import { formatElapsed } from "../../utils/format";
 
 interface StatusBarProps {
   step: PipelineStep;
   progress: PipelineProgress;
+  elapsed: number;
 }
-
-const ACTIVE_STEPS: PipelineStep[] = ["converting"];
 
 const stepMeta: Record<PipelineStep, { label: string; color: string }> = {
   idle:       { label: "대기 중",    color: "var(--color-text-muted)" },
@@ -16,21 +15,8 @@ const stepMeta: Record<PipelineStep, { label: string; color: string }> = {
   complete:   { label: "완료",       color: "var(--color-success)" },
 };
 
-export function StatusBar({ step, progress }: StatusBarProps) {
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isActive = ACTIVE_STEPS.includes(step);
-
-  useEffect(() => {
-    if (isActive) {
-      setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (step === "idle") setElapsed(0);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isActive, step]);
+export const StatusBar = memo(function StatusBar({ step, progress, elapsed }: StatusBarProps) {
+  const isActive = step === "converting";
 
   const [displayMsg, setDisplayMsg] = useState("");
   const [msgVisible, setMsgVisible] = useState(false);
@@ -94,4 +80,4 @@ export function StatusBar({ step, progress }: StatusBarProps) {
       </div>
     </div>
   );
-}
+});

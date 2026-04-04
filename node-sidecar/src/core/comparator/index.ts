@@ -19,15 +19,18 @@ export interface DiffResponse {
   diffs: DiffResult['diffs'];
 }
 
-export async function diff(params: DiffParams): Promise<DiffResponse> {
+export async function diff(params: DiffParams, signal?: AbortSignal): Promise<DiffResponse> {
   const { file_a, file_b, pages } = params;
 
   logger.info(`[diff] ${file_a} ↔ ${file_b}`);
+  signal?.throwIfAborted();
 
   const [bufA, bufB] = await Promise.all([
     readFile(file_a),
     readFile(file_b),
   ]);
+
+  signal?.throwIfAborted();
 
   const result = await compare(
     new Uint8Array(bufA).buffer,

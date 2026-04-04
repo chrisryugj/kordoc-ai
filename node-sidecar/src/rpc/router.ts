@@ -1,14 +1,29 @@
-/** RPC 메서드 라우팅 + 화이트리스트 + cancel 관리 */
+/** RPC 메서드 라우팅 + 화이트리���트 + cancel 관리 + 동시성 제한 */
 
 import { RPC_ERRORS, type RpcHandler } from './protocol.js';
 import { logger } from '../infra/logger.js';
+
+/** 파일 I/O + AI API를 동반하는 무거운 메서드 (동시성 제한 대상) */
+const HEAVY_METHODS = new Set([
+  'convert', 'convert_batch', 'ocr', 'summarize',
+  'diff', 'form_extract', 'extract_tables', 'generate_hwpx',
+  'merge_files', 'scan_receipt',
+]);
+
+/** 최대 동시 실행 수 (Python 이전 구현의 max_workers=2와 동일) */
+const MAX_CONCURRENT = 2;
+/** 세마포어 큐 최대 대기 수 — 초과 시 즉시 에러 반환 */
+const MAX_QUEUE_SIZE = 10;
 
 export class RpcRouter {
   private methods = new Map<string, RpcHandler>();
   /** 활성 요청의 AbortController (cancel용) */
   private active = new Map<number | string, AbortController>();
-  /** id 없는 요청에 고유 키 부여 */
+  /** id 없는 요청에 고유 키 부�� */
   private nextAnonymousId = 0;
+  /** 무거운 메서드 동시 실행 세마포어 */
+  private heavyRunning = 0;
+  private heavyQueue: Array<() => void> = [];
 
   /** 메서드 등록 */
   register(name: string, handler: RpcHandler): void {
@@ -18,6 +33,30 @@ export class RpcRouter {
   /** 등록된 메서드 목록 */
   listMethods(): string[] {
     return [...this.methods.keys()];
+  }
+
+  /** 세마포어 acquire: 동시 실행 수 제한 + 큐 크기 제한 */
+  private acquireSlot(): Promise<void> {
+    if (this.heavyRunning < MAX_CONCURRENT) {
+      this.heavyRunning++;
+      return Promise.resolve();
+    }
+    if (this.heavyQueue.length >= MAX_QUEUE_SIZE) {
+      return Promise.reject(new Error(`처리 대기열이 가득 찼습니다 (최대 ${MAX_QUEUE_SIZE}). 잠시 후 다시 시도하세요.`));
+    }
+    return new Promise<void>((resolve) => {
+      this.heavyQueue.push(resolve);
+    });
+  }
+
+  /** 세마포어 release */
+  private releaseSlot(): void {
+    if (this.heavyQueue.length > 0) {
+      const next = this.heavyQueue.shift()!;
+      next();
+    } else {
+      this.heavyRunning--;
+    }
   }
 
   /** 메서드 디스패치 */
@@ -36,6 +75,9 @@ export class RpcRouter {
       return { error: { code: RPC_ERRORS.METHOD_NOT_FOUND, message: `Method not found: ${method}` } };
     }
 
+    const isHeavy = HEAVY_METHODS.has(method);
+    if (isHeavy) await this.acquireSlot();
+
     const ac = new AbortController();
     const reqId = id ?? `__anon_${this.nextAnonymousId++}__`;
     this.active.set(reqId, ac);
@@ -52,6 +94,7 @@ export class RpcRouter {
       return { error: { code: RPC_ERRORS.INTERNAL_ERROR, message } };
     } finally {
       this.active.delete(reqId);
+      if (isHeavy) this.releaseSlot();
     }
   }
 

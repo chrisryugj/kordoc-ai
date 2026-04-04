@@ -37,6 +37,11 @@ export async function summarize(
     throw new Error('text 또는 input_path 중 하나를 제공해야 합니다');
   }
 
+  const MAX_INPUT_LENGTH = 100_000;
+  if (text.length > MAX_INPUT_LENGTH) {
+    throw new Error(`입력 텍스트가 너무 깁니다 (${text.length}자). 최대 ${MAX_INPUT_LENGTH}자까지 지원합니다.`);
+  }
+
   const language = params.language ?? '한국어';
   const lengthGuide = params.length ? `분량: ${params.length}. ` : '';
 

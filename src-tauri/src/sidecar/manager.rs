@@ -64,10 +64,15 @@ impl SidecarManager {
         let sidecar_dir = self.get_sidecar_dir();
         tracing::info!("Starting sidecar from: {:?}", sidecar_dir);
 
-        // Node.js sidecar: 빌드된 dist/main.js 실행
-        let node = "node";
-        let mut cmd = std::process::Command::new(node);
-        cmd.arg("dist/main.js")
+        // Node.js sidecar: 번들 파일 우선, 없으면 원본 main.js
+        let entry = if sidecar_dir.join("dist/bundle.js").exists() {
+            "dist/bundle.js"
+        } else {
+            "dist/main.js"
+        };
+        let node = Self::get_node_path()?;
+        let mut cmd = std::process::Command::new(&node);
+        cmd.arg(entry)
             .current_dir(&sidecar_dir);
 
         cmd.stdin(std::process::Stdio::piped())
@@ -250,7 +255,7 @@ impl SidecarManager {
 
         match timeout(
             Duration::from_secs(timeout_secs),
-            self.call_inner(method, params),
+            self.call_inner(method, params, timeout_secs),
         )
         .await
         {
@@ -332,6 +337,7 @@ impl SidecarManager {
         &self,
         method: &str,
         params: Option<serde_json::Value>,
+        outer_timeout_secs: u64,
     ) -> AppResult<JsonRpcResponse> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let request = JsonRpcRequest::new(id, method, params);
@@ -369,24 +375,25 @@ impl SidecarManager {
 
         let mut read_count: u32 = 0;
         loop {
-            // Per-message timeout: 120s without any response from channel
-            let trimmed = match timeout(Duration::from_secs(120), rx.recv()).await {
+            // Per-message timeout: 외부 메서드 타임아웃의 80%로 연동 (최소 60s)
+            let per_msg_secs = (outer_timeout_secs * 4 / 5).max(60);
+            let trimmed = match timeout(Duration::from_secs(per_msg_secs), rx.recv()).await {
                 Ok(Some(line)) => line,
                 Ok(None) => {
                     return Err(AppError::Sidecar("Sidecar process closed".into()));
                 }
                 Err(_) => {
                     let timeout_msg = format!(
-                        "[sidecar] channel timeout: no response for 120s, method={}, id={}, reads={}",
-                        method, id, read_count
+                        "[sidecar] channel timeout: no response for {}s, method={}, id={}, reads={}",
+                        per_msg_secs, method, id, read_count
                     );
                     tracing::warn!("{}", timeout_msg);
                     if let Some(handle) = app_handle.as_ref() {
                         let _ = handle.emit("sidecar:log", &timeout_msg);
                     }
                     return Err(AppError::Sidecar(format!(
-                        "Sidecar response timeout 120s (method={}, reads={})",
-                        method, read_count
+                        "Sidecar response timeout {}s (method={}, reads={})",
+                        per_msg_secs, method, read_count
                     )));
                 }
             };
@@ -469,38 +476,120 @@ impl SidecarManager {
     }
 
     pub async fn stop(&self) {
+        // Graceful shutdown: JSON-RPC shutdown 먼저 시도 → 3초 대기 → force kill
+        let _ = self.send_fire_and_forget("shutdown", None);
+
+        // Grace period: 최대 3초 동안 프로세스 종료 대기
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let exited = {
+                let mut guard = self.child.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(child) = guard.as_mut() {
+                    matches!(child.try_wait(), Ok(Some(_)))
+                } else {
+                    true
+                }
+            };
+            if exited || Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // Force kill if still alive
         if let Some(mut child) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
             let _ = child.kill();
+            let _ = child.wait(); // reap zombie
         }
         *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.stdout_rx.lock().await = None;
         *self.status.write().await = SidecarStatus::Stopped;
     }
 
+    /// Node.js 실행 파일 경로를 탐색.
+    /// 1. 환경변수 KORDOC_NODE_PATH (개발용)
+    /// 2. 번들된 Node.js (exe 옆 node/node.exe)
+    /// 3. 시스템 PATH의 node
+    fn get_node_path() -> AppResult<std::path::PathBuf> {
+        // 개발 환경: 환경 변수 오버라이드
+        #[cfg(debug_assertions)]
+        if let Ok(p) = std::env::var("KORDOC_NODE_PATH") {
+            let path = std::path::PathBuf::from(p);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+
+        // 프로덕션: exe 옆 번들된 node
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                let bundled = exe_dir.join("node").join(if cfg!(windows) { "node.exe" } else { "node" });
+                if bundled.exists() {
+                    return Ok(bundled);
+                }
+            }
+        }
+
+        // 시스템 PATH에서 탐색
+        let cmd = if cfg!(windows) { "where" } else { "which" };
+        match std::process::Command::new(cmd).arg("node").output() {
+            Ok(output) if output.status.success() => {
+                let path_str = String::from_utf8_lossy(&output.stdout);
+                if let Some(first_line) = path_str.lines().next() {
+                    let path = std::path::PathBuf::from(first_line.trim());
+                    if path.exists() {
+                        return Ok(path);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Err(AppError::Sidecar(
+            "Node.js를 찾을 수 없습니다. Node.js 20 이상을 설치하세요. (https://nodejs.org)".into()
+        ))
+    }
+
     fn get_sidecar_dir(&self) -> std::path::PathBuf {
+        // 환경 변수 오버라이드는 개발 환경에서만 허용 (보안: DLL/JS 하이재킹 방지)
+        #[cfg(debug_assertions)]
         if let Ok(dir) = std::env::var("KORDOC_SIDECAR_DIR") {
             return std::path::PathBuf::from(dir);
         }
 
-        // 개발 환경 우선: dist/main.js가 있으면 source 디렉토리 사용
-        let dev_candidates = [
-            std::path::PathBuf::from("../node-sidecar"),
-            std::path::PathBuf::from("node-sidecar"),
-        ];
-
-        for c in &dev_candidates {
-            if c.join("dist/main.js").exists() {
-                return c.clone();
+        // 개발 환경: 상대 경로 후보 (node_modules 포함된 소스 디렉토리)
+        // target/debug/에 dist만 복사되고 node_modules는 없으므로 dev를 먼저 확인
+        #[cfg(debug_assertions)]
+        {
+            let dev_candidates = [
+                std::path::PathBuf::from("../node-sidecar"),
+                std::path::PathBuf::from("node-sidecar"),
+            ];
+            for c in &dev_candidates {
+                if c.join("dist/main.js").exists() && c.join("node_modules").exists() {
+                    return c.clone();
+                }
             }
         }
 
-        // 프로덕션: exe 옆 node-sidecar/ (MSI 설치 후 경로)
+        // 프로덕션: exe 옆 node-sidecar/ (번들 파일 또는 main.js)
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 let prod_dir = exe_dir.join("node-sidecar");
-                if prod_dir.join("dist/main.js").exists() {
+                if prod_dir.join("dist/bundle.js").exists() || prod_dir.join("dist/main.js").exists() {
                     return prod_dir;
                 }
+            }
+        }
+
+        // Fallback: 상대 경로 (node_modules 유무 불문)
+        let fallback_candidates = [
+            std::path::PathBuf::from("../node-sidecar"),
+            std::path::PathBuf::from("node-sidecar"),
+        ];
+        for c in &fallback_candidates {
+            if c.join("dist/main.js").exists() {
+                return c.clone();
             }
         }
 

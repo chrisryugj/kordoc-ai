@@ -20,7 +20,7 @@ export interface ImportedFile {
   path: string;
   name: string;
   size: number;
-  type: "hwp" | "hwpx" | "pdf" | "txt" | "xlsx" | "unknown";
+  type: "hwp" | "hwpx" | "pdf" | "txt" | "xlsx" | "docx" | "md" | "unknown";
 }
 
 export interface PipelineProgress {

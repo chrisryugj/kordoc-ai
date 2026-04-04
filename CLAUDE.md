@@ -1,12 +1,12 @@
-# edu-facility-ai
+# kordoc-ai
 
-한국교육시설안전원 사전기획팀 AI 전환 자문 프로젝트.
+한국 문서 변환 AI 데스크톱 도구.
 
 ## 프로젝트 개요
 
-- **배경**: 교육시설안전원의 "사전기획 적정성 검토 업무 AI 전환" 전문가 자문
-- **역할**: 12인 자문위원 중 1인 (류승인, 광진구청 주무관)
-- **산출물**: 서면자문 의견서 + MVP 개선 구현체(데스크톱 앱)
+- **목적**: HWP/HWPX/PDF/XLSX/DOCX 문서를 마크다운으로 변환하는 데스크톱 앱
+- **배경**: 교육시설안전원 사전기획팀 AI 전환 자문 (자문위원 류승인)
+- **핵심 엔진**: [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS 한국 문서 파서
 
 ## 아키텍처
 
@@ -15,7 +15,9 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
                                                         │
                                                stdin/stdout JSON-RPC 2.0
                                                         │
-                                              Python Sidecar (PyInstaller)
+                                              Node.js Sidecar (tsc 빌드)
+                                                        │
+                                              kordoc (로컬) + Gemini API (AI)
 ```
 
 ## 폴더 구조
@@ -24,29 +26,35 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 |------|------|
 | `src/` | React 프론트엔드 (components, hooks, types, styles) |
 | `src-tauri/` | Tauri/Rust 백엔드 (sidecar manager, commands) |
-| `python-sidecar/` | Python 백엔드 (JSON-RPC 서버, MVP 파이프라인) |
-| `python-sidecar/src/` | MVP 모듈 (shared, mvp1_converter, mvp2_extractor, mvp3_analyzer, browser_tools) |
-| `python-sidecar/config/` | YAML 설정 (settings.yaml, ocr-rules.yaml) |
-| `tests/` | pytest 테스트 + 더미 데이터 생성 |
-| `docs/` | 원본자료, 기존MVP, 의견서, 계획, 참고자료 |
+| `node-sidecar/` | Node.js 백엔드 (JSON-RPC 서버, kordoc 연동, Gemini API) |
+| `node-sidecar/src/core/` | 10개 핵심 비즈니스 모듈 |
+| `node-sidecar/config/` | YAML 설정 (settings.yaml) |
+| `docs/` | 의견서, 계획, 참고자료 |
 | `assets/fonts/` | Pretendard 폰트 |
 
 ## 기술 스택
 
 - **프론트엔드**: React 19, TypeScript 5.9, Tailwind CSS 4, Vite 7
 - **데스크톱**: Tauri 2.10 (Rust)
-- **백엔드**: Python 3.10+ (JSON-RPC 2.0 sidecar)
-- **AI**: Google Gemini (gemini-3-flash-preview, gemini-3.1-flash-lite-preview)
-- **브라우저 자동화**: Playwright (7개 공공데이터 수집 도구)
-- **빌드**: PyInstaller (sidecar exe) → Tauri MSI 인스톨러
+- **백엔드**: Node.js (JSON-RPC 2.0 sidecar)
+- **문서 파싱**: kordoc v1.8+ (순수 JS — HWP/HWPX/PDF/XLSX/DOCX, 한컴오피스 불필요)
+- **AI**: Google Gemini (gemini-3-flash-preview)
+- **빌드**: tsc (sidecar) → Tauri MSI 인스톨러
 
-## MVP 구성
+## 핵심 기능 (10개)
 
-| MVP | 기능 | API |
-|-----|------|-----|
-| MVP 1 | HWPX/HWP/PDF → 텍스트 직접추출 → OCR 폴백 → AI 태깅 | Gemini (이미지 PDF만) |
-| MVP 2 | AI 태그 기반 PDF 페이지 추출 + 테마별 라벨링 | 불필요 |
-| MVP 3 | 교육과정 2단계 요약 + 통합 분석 리포트 | Gemini (필수) |
+| 기능 | RPC 메서드 | 엔진 | API |
+|------|-----------|------|-----|
+| 마크다운 변환 | `convert` | kordoc parse() | 로컬 |
+| 배치 변환 | `convert_batch` | convert 반복 + progress | 로컬 |
+| 문서 비교 | `diff` | kordoc compare() | 로컬 |
+| 양식 추출 | `form_extract` | kordoc extractFormFields() | 로컬 |
+| HWPX 생성 | `generate_hwpx` | kordoc markdownToHwpx() | 로컬 |
+| 표 추출 | `extract_tables` | kordoc parse → table 필터 | 로컬 |
+| 파일 병합 | `merge_files` | 다중 parse + 병합 | 로컬 |
+| AI OCR | `ocr` | Gemini Vision (PDF 직접 전송) | API |
+| AI 요약 | `summarize` | Gemini text | API |
+| 영수증 스캔 | `scan_receipt` | Gemini Vision + JSON 추출 | API |
 
 ## 빌드
 
@@ -54,39 +62,36 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 # 프론트엔드 개발
 pnpm tauri:dev
 
+# Node.js sidecar 빌드
+cd node-sidecar && pnpm build
+
 # 프로덕션 빌드 (MSI 인스톨러)
 pnpm tauri:build
-
-# Python sidecar만 빌드
-cd python-sidecar && pyinstaller sidecar.spec
 ```
 
 ## 테스트
 
 ```bash
-# 오프라인 테스트
-python -m pytest tests/ -v -m "not online"
+# Node.js sidecar 테스트
+cd node-sidecar && pnpm test
 
-# 전체 (API 포함)
-python -m pytest tests/ -v
-
-# 레거시 호환
-python tests/test_all.py --online
+# 전체 (vitest 31개)
+cd node-sidecar && npx vitest run
 ```
 
 ## IPC 프로토콜
 
 - JSON-RPC 2.0 over stdin/stdout
-- 18개 RPC 메서드 (whitelist 기반 보안)
+- 17개 RPC 메서드 (whitelist 기반 보안)
 - progress notification (비동기)
-- ThreadPoolExecutor (max 2 workers)
+- Semaphore 동시성 제한 (max 2)
 - cancel 지원 (fire-and-forget)
 
 ## 주의사항
 
-- Gemini SDK는 `google.genai`로 마이그레이션 완료
-- HWP 처리는 Windows + 한컴오피스 필수 (pyhwpx COM)
+- kordoc이 HWP/HWPX/PDF를 순수 JS로 파싱 — **한컴오피스 불필요**
 - stdout은 JSON-RPC 전용 — 로깅은 반드시 stderr로
+- Gemini 기본 모델: `gemini-3-flash-preview` (3.x가 최신)
 
 ## 일정
 

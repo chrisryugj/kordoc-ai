@@ -7,9 +7,11 @@ export function detectFileType(filename: string): ImportedFile["type"] {
   if (lower.endsWith(".hwpx")) return "hwpx";
   if (lower.endsWith(".hwp")) return "hwp";
   if (lower.endsWith(".xlsx")) return "xlsx";
+  if (lower.endsWith(".docx")) return "docx";
   if (lower.endsWith(".txt")) return "txt";
+  if (lower.endsWith(".md")) return "md";
   return "unknown";
 }
 
 /** 지원 확장자 정규식 */
-export const SUPPORTED_EXT_RE = /\.(hwp|hwpx|pdf|xlsx)$/i;
+export const SUPPORTED_EXT_RE = /\.(hwp|hwpx|pdf|xlsx|docx|txt|md)$/i;

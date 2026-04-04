@@ -2,6 +2,8 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, basename, extname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { markdownToHwpx } from 'kordoc';
 import { logger } from '../../infra/logger.js';
 
@@ -21,10 +23,11 @@ export interface GenerateHwpxResult {
   error?: string;
 }
 
-export async function generateHwpx(params: GenerateHwpxParams): Promise<GenerateHwpxResult> {
+export async function generateHwpx(params: GenerateHwpxParams, signal?: AbortSignal): Promise<GenerateHwpxResult> {
   let markdown = params.markdown ?? '';
 
   if (!markdown && params.input_path) {
+    signal?.throwIfAborted();
     markdown = await readFile(params.input_path, 'utf-8');
   }
 
@@ -33,6 +36,7 @@ export async function generateHwpx(params: GenerateHwpxParams): Promise<Generate
   }
 
   logger.info(`[generate_hwpx] ${markdown.length}자 → HWPX`);
+  signal?.throwIfAborted();
 
   const hwpxBuffer = await markdownToHwpx(markdown);
 
@@ -44,7 +48,7 @@ export async function generateHwpx(params: GenerateHwpxParams): Promise<Generate
     outputPath = join(dir, `${name}.hwpx`);
   }
   if (!outputPath) {
-    outputPath = 'output.hwpx';
+    outputPath = join(tmpdir(), `kordoc-${randomUUID().slice(0, 8)}.hwpx`);
   }
 
   await mkdir(dirname(outputPath), { recursive: true });

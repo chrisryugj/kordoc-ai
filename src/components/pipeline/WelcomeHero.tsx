@@ -102,7 +102,14 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button size="lg" onClick={onStart} disabled={!sidecarReady} className="shadow-lg h-14 px-8 text-base">
                 <span className="flex items-center gap-2">
-                  <Upload size={18} /> 시작하기 (문서 가져오기)
+                  {!sidecarReady ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-current rounded-full animate-spin" style={{ borderTopColor: "transparent" }} />
+                      엔진 시작 중...
+                    </>
+                  ) : (
+                    <><Upload size={18} /> 시작하기 (문서 가져오기)</>
+                  )}
                 </span>
               </Button>
             </motion.div>
