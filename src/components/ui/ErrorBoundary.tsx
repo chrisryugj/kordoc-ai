@@ -21,8 +21,16 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(_error: Error, _info: React.ErrorInfo) {
-    // Error details captured in state — no console.log in production
+  componentDidCatch(_error: Error, info: React.ErrorInfo) {
+    // 컴포넌트 스택 캡처 (에러 리포트용)
+    if (info.componentStack) {
+      this.setState((prev) => ({
+        ...prev,
+        error: prev.error
+          ? Object.assign(prev.error, { componentStack: info.componentStack })
+          : prev.error,
+      }));
+    }
   }
 
   handleReset = () => {
@@ -32,7 +40,13 @@ export class ErrorBoundary extends Component<Props, State> {
   handleCopyError = async () => {
     if (!this.state.error) return;
     try {
-      await navigator.clipboard.writeText(this.state.error.message);
+      const err = this.state.error;
+      const parts = [err.message];
+      if (err.stack) parts.push('\n--- Stack ---\n' + err.stack);
+      if ((err as Error & { componentStack?: string }).componentStack) {
+        parts.push('\n--- Component ---\n' + (err as Error & { componentStack?: string }).componentStack);
+      }
+      await navigator.clipboard.writeText(parts.join(''));
       this.setState({ copied: true });
       setTimeout(() => this.setState({ copied: false }), 2000);
     } catch {

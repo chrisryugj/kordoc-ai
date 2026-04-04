@@ -90,7 +90,7 @@ export function ActionSelector({ files, onSelect, apiKeySet }: ActionSelectorPro
       <h3 className="ts-sm font-semibold mb-3" style={{ color: "var(--color-text-primary)" }}>
         어떤 작업을 할까요?
       </h3>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
         {ACTIONS.map((a) => {
           const { ok, reason } = isActionAvailable(a, files, apiKeySet);
           return (

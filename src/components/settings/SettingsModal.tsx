@@ -166,6 +166,7 @@ export function SettingsModal({
   };
 
   const handleReset = () => {
+    if (!window.confirm("모델·출력·테마 설정을 기본값으로 되돌립니다.\nAPI 키는 유지됩니다. 계속하시겠습니까?")) return;
     setLocalOcrModel(DEFAULT_OCR_MODEL);
     setLocalAnalysisModel(DEFAULT_ANALYSIS_MODEL);
     setLocalAiMode("online");
@@ -367,7 +368,7 @@ export function SettingsModal({
           <button onClick={handleReset}
             className="px-3 py-1.5 rounded-lg ts-xs font-medium transition-colors"
             style={{ color: "var(--color-text-muted)", backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)" }}>
-            기본값 초기화
+            모델·출력 초기화
           </button>
           <div className="flex gap-2">
             <button onClick={handleCancel}

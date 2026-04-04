@@ -1,6 +1,6 @@
-/** Gemini API 클라이언트 — 재시도, 취소, 프록시 지원 */
+/** Gemini API 클라이언트 — 재시도, 취소, 타임아웃, 프록시 지원 */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, type SingleRequestOptions } from '@google/generative-ai';
 import { getConfig } from './config.js';
 import { logger } from './logger.js';
 
@@ -14,6 +14,28 @@ function getClient(): GoogleGenerativeAI {
   }
   client = new GoogleGenerativeAI(cfg.api_key);
   return client;
+}
+
+/** 프록시 URL + 타임아웃 + signal을 반영한 RequestOptions 생성 */
+function getRequestOptions(signal?: AbortSignal): SingleRequestOptions {
+  const cfg = getConfig('gemini');
+  const opts: SingleRequestOptions = {};
+
+  // proxy_url이 설정되어 있으면 baseUrl로 적용 (CF Workers 프록시 등)
+  if (cfg.proxy_url) {
+    opts.baseUrl = cfg.proxy_url;
+    logger.info(`[gemini] using proxy: ${cfg.proxy_url}`);
+  }
+
+  // SDK 내장 timeout 활용 (milliseconds)
+  opts.timeout = cfg.timeout_ms || 60_000;
+
+  // 외부 AbortSignal 전달 (cancel 연동)
+  if (signal) {
+    opts.signal = signal;
+  }
+
+  return opts;
 }
 
 /** 클라이언트 재초기화 (API key 변경 시) */
@@ -112,9 +134,11 @@ export async function callGemini(options: GeminiCallOptions): Promise<string> {
     ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
   });
 
+  const requestOptions = getRequestOptions(options.signal);
+
   return withRetry(
     async () => {
-      const result = await model.generateContent(options.prompt);
+      const result = await model.generateContent(options.prompt, requestOptions);
       return result.response.text();
     },
     'gemini',
@@ -144,9 +168,11 @@ export async function callGeminiVision(options: GeminiVisionOptions): Promise<st
     },
   };
 
+  const requestOptions = getRequestOptions(options.signal);
+
   return withRetry(
     async () => {
-      const result = await model.generateContent([options.prompt, imagePart]);
+      const result = await model.generateContent([options.prompt, imagePart], requestOptions);
       return result.response.text();
     },
     'gemini-vision',

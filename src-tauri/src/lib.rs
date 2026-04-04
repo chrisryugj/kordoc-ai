@@ -4,7 +4,7 @@ mod sidecar;
 
 use sidecar::manager::SidecarManager;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -37,9 +37,10 @@ pub fn run() {
 
             // Auto-start Node.js sidecar in background
             tauri::async_runtime::spawn(async move {
-                mgr_for_setup.set_app_handle(handle).await;
+                mgr_for_setup.set_app_handle(handle.clone()).await;
                 if let Err(e) = mgr_for_setup.start().await {
                     tracing::error!("Failed to start sidecar: {}", e);
+                    let _ = handle.emit("sidecar:error", e.to_string());
                 }
             });
 

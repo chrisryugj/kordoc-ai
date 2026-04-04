@@ -87,11 +87,11 @@ describe('Gemini client', () => {
       mimeType: 'image/png',
     });
     expect(result).toBe('OCR 결과 텍스트');
-    // generateContent에 이미지 파트가 포함되었는지 확인
-    expect(mockGenerateContent).toHaveBeenCalledWith([
-      'OCR',
-      { inlineData: { data: 'dGVzdA==', mimeType: 'image/png' } },
-    ]);
+    // generateContent에 이미지 파트가 포함되었는지 확인 (2번째 인자는 requestOptions)
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      ['OCR', { inlineData: { data: 'dGVzdA==', mimeType: 'image/png' } }],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
   });
 
   it('오프라인 모드 차단', async () => {

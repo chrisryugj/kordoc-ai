@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { memo, useCallback } from "react";
 import { FileText, Settings, HelpCircle } from "lucide-react";
 import type { NavItem } from "../../types/nav";
 
@@ -24,7 +24,7 @@ const ALL_NAV_IDS: NavItem[] = [
   ...bottomItems.map((i) => i.id),
 ];
 
-export function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKeySet }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKeySet }: SidebarProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -137,4 +137,4 @@ export function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKe
       </div>
     </aside>
   );
-}
+});

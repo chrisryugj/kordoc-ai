@@ -13,7 +13,12 @@ export function sendNotification(method: string, params: Record<string, unknown>
   process.stdout.write(JSON.stringify(notification) + '\n');
 }
 
-/** progress notification 헬퍼 */
-export function sendProgress(data: ProgressData): void {
-  sendNotification('progress', data as unknown as Record<string, unknown>);
+/** progress notification 헬퍼 — request_id로 동시 요청 구분 */
+export function sendProgress(data: ProgressData, requestId?: number | string): void {
+  sendNotification('progress', {
+    current: data.current,
+    total: data.total,
+    message: data.message,
+    ...(requestId != null && { request_id: requestId }),
+  });
 }
