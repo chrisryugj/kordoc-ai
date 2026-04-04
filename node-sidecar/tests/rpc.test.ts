@@ -25,7 +25,7 @@ describe('RpcRouter', () => {
   it('convert — 누락 파라미터 에러', async () => {
     const res = await router.dispatch('convert', {}, 3);
     expect(res.error).toBeDefined();
-    expect(res.error!.message).toContain('input_path');
+    expect(res.error!.message).toMatch(/input_path|경로가 비어/);
   });
 
   it('cancel — 활성 요청 없음', async () => {
@@ -41,7 +41,7 @@ describe('RpcRouter', () => {
   it('list_files — 누락 파라미터 에러', async () => {
     const res = await router.dispatch('list_files', {}, 6);
     expect(res.error).toBeDefined();
-    expect(res.error!.message).toContain('path');
+    expect(res.error!.message).toContain('경로');
   });
 
   it('list_files — 실제 디렉토리 읽기', async () => {

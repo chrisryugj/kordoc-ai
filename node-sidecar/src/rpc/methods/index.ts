@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import type { RpcHandler } from '../protocol.js';
 import type { RpcRouter } from '../router.js';
 import { getSettings, updateSettings } from '../../infra/config.js';
+import { validatePath } from '../../infra/pathGuard.js';
+import { logger } from '../../infra/logger.js';
 import { convert } from '../../core/converter/index.js';
 import { convertBatch } from '../../core/batch/index.js';
 import { ocr } from '../../core/ocr/index.js';
@@ -48,49 +50,49 @@ export function registerAllMethods(router: RpcRouter): void {
     return updateSettings(patch);
   });
 
-  // 5. open_folder
-  router.register('open_folder', (params) => {
-    const folderPath = params.path as string;
-    if (!folderPath) throw new Error('Missing "path" parameter');
-    return new Promise<boolean>((resolve, reject) => {
+  // 5. open_folder — 디렉토리 확인 후 열기
+  router.register('open_folder', async (params) => {
+    const folderPath = validatePath(params.path as string);
+    const info = await stat(folderPath);
+    if (!info.isDirectory()) throw new Error('경로가 디렉토리가 아닙니다');
+    return new Promise<boolean>((resolve) => {
       if (process.platform === 'win32') {
-        execFile('explorer', [folderPath.replace(/\//g, '\\')], (err) => {
-          // explorer returns exit code 1 even on success
+        execFile('explorer', [folderPath.replace(/\//g, '\\')], (err, _stdout, stderr) => {
+          // Windows explorer는 exit code 1을 자주 반환하므로 허용
+          if (err && (err as NodeJS.ErrnoException).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+            const code = (err as { status?: number }).status;
+            if (code !== undefined && code !== 0 && code !== 1) {
+              logger.warn(`[open_folder] explorer exited with code ${code}: ${stderr}`);
+            }
+          }
           resolve(true);
         });
       } else {
-        execFile('open', [folderPath], (err) => {
-          if (err) reject(err);
-          else resolve(true);
-        });
+        execFile('open', [folderPath], (err) => { if (err) throw err; resolve(true); });
       }
     });
   });
 
-  // 6. open_file
-  router.register('open_file', (params) => {
-    const filePath = params.path as string;
-    if (!filePath) throw new Error('Missing "path" parameter');
-    return new Promise<boolean>((resolve, reject) => {
+  // 6. open_file — 허용 확장자 화이트리스트 + 파일 확인 후 열기
+  const OPENABLE_EXT = new Set(['.hwp', '.hwpx', '.pdf', '.xlsx', '.docx', '.txt', '.md', '.csv', '.png', '.jpg', '.jpeg']);
+  router.register('open_file', async (params) => {
+    const filePath = validatePath(params.path as string);
+    const info = await stat(filePath);
+    if (!info.isFile()) throw new Error('경로가 파일이 아닙니다');
+    const ext = filePath.toLowerCase().match(/\.[^.]+$/)?.[0] ?? '';
+    if (!OPENABLE_EXT.has(ext)) throw new Error(`허용되지 않은 파일 형식입니다: ${ext}`);
+    return new Promise<boolean>((resolve) => {
       if (process.platform === 'win32') {
-        // explorer.exe로 연결 프로그램 실행 — cmd 셸 우회로 metachar injection 방지
-        execFile('explorer', [filePath.replace(/\//g, '\\')], (err) => {
-          // explorer returns exit code 1 even on success
-          resolve(true);
-        });
+        execFile('explorer', [filePath.replace(/\//g, '\\')], () => resolve(true));
       } else {
-        execFile('open', [filePath], (err) => {
-          if (err) reject(err);
-          else resolve(true);
-        });
+        execFile('open', [filePath], (err) => { if (err) throw err; resolve(true); });
       }
     });
   });
 
   // 7. list_files
   router.register('list_files', async (params) => {
-    const dirPath = params.path as string;
-    if (!dirPath) throw new Error('Missing "path" parameter');
+    const dirPath = validatePath(params.path as string);
     const entries = await readdir(dirPath);
     const results = await Promise.all(
       entries.map(async (name) => {
@@ -109,98 +111,105 @@ export function registerAllMethods(router: RpcRouter): void {
   // ── 핵심 기능 (10개) ──
 
   // 8. convert — 문서 변환 (HWP/HWPX/PDF → 마크다운)
-  router.register('convert', async (params) => {
-    const input_path = params.input_path as string;
-    if (!input_path) throw new Error('Missing "input_path" parameter');
+  router.register('convert', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    signal.throwIfAborted();
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
     return convert({
       input_path,
-      output_path: params.output_path as string | undefined,
+      output_path,
       pages: params.pages as string | undefined,
-    });
+    }, signal);
   });
 
   // 9. convert_batch — 배치 변환
   router.register('convert_batch', async (params, signal) => {
     const files = params.files as string[] | undefined;
     if (!files?.length) throw new Error('Missing "files" parameter');
+    const validatedFiles = files.map((f) => validatePath(f));
+    const output_dir = params.output_dir ? validatePath(params.output_dir as string) : undefined;
     return convertBatch({
-      files,
-      output_dir: params.output_dir as string | undefined,
+      files: validatedFiles,
+      output_dir,
       pages: params.pages as string | undefined,
     }, signal);
   });
 
   // 10. ocr — 이미지 PDF OCR (Gemini Vision)
   router.register('ocr', async (params, signal) => {
-    const input_path = params.input_path as string;
-    if (!input_path) throw new Error('Missing "input_path" parameter');
+    const input_path = validatePath(params.input_path as string);
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
     return ocr({
       input_path,
-      output_path: params.output_path as string | undefined,
+      output_path,
       pages: params.pages as string | undefined,
     }, signal);
   });
 
   // 11. summarize — AI 요약 (Gemini)
   router.register('summarize', async (params, signal) => {
+    const input_path = params.input_path ? validatePath(params.input_path as string) : undefined;
     return summarize({
       text: params.text as string | undefined,
-      input_path: params.input_path as string | undefined,
+      input_path,
       length: params.length as string | undefined,
       language: params.language as string | undefined,
     }, signal);
   });
 
   // 12. diff — 문서 비교 (신구대조표)
-  router.register('diff', async (params) => {
-    const file_a = params.file_a as string;
-    const file_b = params.file_b as string;
-    if (!file_a || !file_b) throw new Error('Missing "file_a" or "file_b" parameter');
+  router.register('diff', async (params, signal) => {
+    const file_a = validatePath(params.file_a as string);
+    const file_b = validatePath(params.file_b as string);
+    signal.throwIfAborted();
     return diff({
       file_a,
       file_b,
       pages: params.pages as string | undefined,
-    });
+    }, signal);
   });
 
   // 13. form_extract — 양식 필드 추출
-  router.register('form_extract', async (params) => {
-    const input_path = params.input_path as string;
-    if (!input_path) throw new Error('Missing "input_path" parameter');
+  router.register('form_extract', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    signal.throwIfAborted();
     return formExtract({
       input_path,
       pages: params.pages as string | undefined,
-    });
+    }, signal);
   });
 
   // 14. generate_hwpx — 마크다운 → HWPX 역변환
-  router.register('generate_hwpx', async (params) => {
+  router.register('generate_hwpx', async (params, signal) => {
+    signal.throwIfAborted();
+    const input_path = params.input_path ? validatePath(params.input_path as string) : undefined;
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
     return generateHwpx({
       markdown: params.markdown as string | undefined,
-      input_path: params.input_path as string | undefined,
-      output_path: params.output_path as string | undefined,
-    });
+      input_path,
+      output_path,
+    }, signal);
   });
 
   // 15. extract_tables — 문서에서 표 추출
-  router.register('extract_tables', async (params) => {
-    const input_path = params.input_path as string;
-    if (!input_path) throw new Error('Missing "input_path" parameter');
+  router.register('extract_tables', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    signal.throwIfAborted();
     return extractTables({
       input_path,
       pages: params.pages as string | undefined,
       as_markdown: params.as_markdown as boolean | undefined,
-    });
+    }, signal);
   });
 
   // 16. merge_files — 다중 문서 병합
   router.register('merge_files', async (params, signal) => {
     const files = params.files as string[] | undefined;
-    const output_path = params.output_path as string;
     if (!files?.length) throw new Error('Missing "files" parameter');
-    if (!output_path) throw new Error('Missing "output_path" parameter');
+    const validatedFiles = files.map((f) => validatePath(f));
+    const output_path = validatePath(params.output_path as string);
     return mergeFiles({
-      files,
+      files: validatedFiles,
       output_path,
       separator: params.separator as string | undefined,
     }, signal);
@@ -208,8 +217,7 @@ export function registerAllMethods(router: RpcRouter): void {
 
   // 17. scan_receipt — 영수증 스캔 (Gemini Vision)
   router.register('scan_receipt', async (params, signal) => {
-    const input_path = params.input_path as string;
-    if (!input_path) throw new Error('Missing "input_path" parameter');
+    const input_path = validatePath(params.input_path as string);
     return scanReceipt({ input_path }, signal);
   });
 }

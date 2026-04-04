@@ -39,7 +39,6 @@
     "license": "MIT",
     "resources": {
       "../node-sidecar/dist/": "node-sidecar/dist/",
-      "../node-sidecar/package.json": "node-sidecar/package.json",
       "../node-sidecar/config/": "node-sidecar/config/"
     },
     "windows": {

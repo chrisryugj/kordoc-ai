@@ -6,13 +6,16 @@
  *    (pdfjs-dist canvas 렌더링 불필요 — Gemini가 PDF를 네이티브 지원)
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { dirname, basename, extname, join } from 'node:path';
 import { parse } from 'kordoc';
 import { callGeminiVision } from '../../infra/gemini.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import { getConfig } from '../../infra/config.js';
+
+/** Gemini 인라인 데이터 상한 (20MB) */
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 export interface OcrParams {
   /** 입력 PDF 경로 */
@@ -59,6 +62,12 @@ export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrRe
   const { input_path, pages } = params;
 
   logger.info(`[ocr] ${input_path}`);
+
+  // 파일 크기 체크 — Gemini 인라인 데이터 상한 초과 시 즉시 에러
+  const fileInfo = await stat(input_path);
+  if (fileInfo.size > MAX_FILE_SIZE) {
+    throw new Error(`파일이 너무 큽니다 (${Math.round(fileInfo.size / 1024 / 1024)}MB). 최대 ${MAX_FILE_SIZE / 1024 / 1024}MB까지 지원합니다.`);
+  }
 
   const buffer = await readFile(input_path);
 

@@ -47,7 +47,6 @@ export async function convertBatch(
       const convertParams: ConvertParams = {
         input_path: files[i],
         pages,
-        ...(output_dir ? { output_path: undefined } : {}),
       };
 
       // output_dir이 지정된 경우 출력 경로를 수동 설정
@@ -56,7 +55,7 @@ export async function convertBatch(
         convertParams.output_path = join(output_dir, outName);
       }
 
-      const result = await convert(convertParams);
+      const result = await convert(convertParams, signal);
       results.push(result);
       if (result.success) succeeded++;
       else failed++;

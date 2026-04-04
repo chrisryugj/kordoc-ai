@@ -3,7 +3,7 @@ import { Modal } from "../ui/Modal";
 import { Badge } from "../ui/Badge";
 import {
   PlayCircle, FileText, Lightbulb, Scan, Key, Upload, FolderOpen,
-  CheckCircle, AlertTriangle, Zap, HelpCircle,
+  CheckCircle, Zap, HelpCircle,
   GitCompareArrows, Table, FileOutput, Merge, Receipt, Sparkles, ClipboardList,
 } from "lucide-react";
 
@@ -152,19 +152,20 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   <Badge variant="hwp">HWPX</Badge>
                   <Badge variant="pdf">PDF</Badge>
                   <Badge variant="xlsx">XLSX</Badge>
+                  <Badge variant="default">DOCX</Badge>
                 </div>
                 <div className="space-y-1.5">
                   <p className="ts-2xs flex items-start gap-1.5" style={{ color: "var(--color-text-muted)" }}>
                     <CheckCircle size={11} className="shrink-0 mt-0.5" style={{ color: "var(--color-success)" }} />
-                    HWPX는 kordoc이 직접 파싱 (한컴오피스 불필요)
+                    HWP/HWPX 모두 kordoc이 직접 파싱 (한컴오피스 불필요)
                   </p>
                   <p className="ts-2xs flex items-start gap-1.5" style={{ color: "var(--color-text-muted)" }}>
                     <CheckCircle size={11} className="shrink-0 mt-0.5" style={{ color: "var(--color-success)" }} />
                     PDF는 텍스트 기반 / 이미지 스캔본 모두 처리 가능
                   </p>
                   <p className="ts-2xs flex items-start gap-1.5" style={{ color: "var(--color-text-muted)" }}>
-                    <AlertTriangle size={11} className="shrink-0 mt-0.5" style={{ color: "var(--color-warning)" }} />
-                    HWP(구형)는 한컴오피스가 설치된 Windows에서만 변환 가능
+                    <CheckCircle size={11} className="shrink-0 mt-0.5" style={{ color: "var(--color-success)" }} />
+                    XLSX, DOCX도 지원 — 별도 프로그램 설치 없이 변환
                   </p>
                 </div>
               </Section>
@@ -242,7 +243,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 />
                 <FaqItem
                   q="HWP 파일이 변환되지 않아요"
-                  a="구형 HWP(.hwp) 변환에는 한컴오피스가 필요합니다. HWPX(.hwpx)는 한컴오피스 없이 직접 파싱됩니다. 가능하면 HWPX로 저장 후 사용하세요."
+                  a="kordoc 엔진이 HWP/HWPX를 직접 파싱합니다 (한컴오피스 불필요). 변환 실패 시 파일이 손상되었거나 암호가 걸려 있을 수 있습니다. 다른 파일로 시도해 보세요."
                 />
                 <FaqItem
                   q="이미지 PDF가 빈 텍스트로 나와요"
@@ -277,10 +278,10 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   </div>
 
                   <div className="p-3.5 rounded-lg" style={{ backgroundColor: "var(--color-bg-tertiary)" }}>
-                    <h4 className="ts-sm font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>HWPX 우선 사용</h4>
+                    <h4 className="ts-sm font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>다양한 형식 지원</h4>
                     <p className="ts-2xs leading-relaxed" style={{ color: "var(--color-text-muted)" }}>
-                      가능하면 HWP 대신 HWPX 형식으로 저장 후 사용하세요.
-                      HWPX는 한컴오피스 없이 직접 파싱되어 더 빠르고 정확합니다.
+                      HWP, HWPX, PDF, XLSX, DOCX 모두 kordoc이 직접 파싱합니다.
+                      한컴오피스나 MS Office 없이도 변환 가능합니다.
                     </p>
                   </div>
 

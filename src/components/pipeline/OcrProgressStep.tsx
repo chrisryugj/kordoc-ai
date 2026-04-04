@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { XCircle, Loader2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { PipelineProgress, PipelineStep } from "../../types/pipeline";
@@ -9,25 +9,18 @@ interface OcrProgressStepProps {
   onCancel: () => void;
   logs: string[];
   step?: PipelineStep;
+  elapsed: number;
 }
 
 const stepTitles: Partial<Record<PipelineStep, string>> = {
   converting: "문서 변환 중",
 };
 
-export function OcrProgressStep({ progress, onCancel, logs, step }: OcrProgressStepProps) {
+export function OcrProgressStep({ progress, onCancel, logs, step, elapsed }: OcrProgressStepProps) {
   const isIndeterminate = progress.total <= 0;
   const pct = isIndeterminate ? 0 : Math.round((progress.current / progress.total) * 100);
   const title = (step && stepTitles[step]) || "처리 중";
   const logEndRef = useRef<HTMLDivElement>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    setElapsed(0);
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });

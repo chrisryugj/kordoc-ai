@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { SidecarStatus } from "../types/sidecar";
 
 interface UseSidecarReturn {
@@ -64,9 +65,22 @@ export function useSidecar(): UseSidecarReturn {
     };
 
     checkStatus();
+
+    // sidecar:error 이벤트 즉시 수신 — 3초 폴링 대기 없이 에러 표시
+    let unlistenError: (() => void) | null = null;
+    listen<string>("sidecar:error", (event) => {
+      if (cancelled) return;
+      setStatus("error");
+      setErrorMessage(translateError(event.payload || "엔진 시작 실패"));
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlistenError = fn;
+    });
+
     return () => {
       cancelled = true;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      unlistenError?.();
     };
   }, []);
 
@@ -79,17 +93,22 @@ export function useSidecar(): UseSidecarReturn {
       const errStr = String(e).toLowerCase();
       const isProcessDead = errStr.includes("not started") || errStr.includes("closed") || errStr.includes("write failed");
       if (isProcessDead) {
-        // 최대 2회 재시작 시도 (연속 크래시 대응)
-        for (let attempt = 0; attempt < 2; attempt++) {
+        setStatus("starting");
+        // 최대 2회 재시작 시도 (지수 백오프: 800ms, 2000ms)
+        const delays = [800, 2000];
+        for (let attempt = 0; attempt < delays.length; attempt++) {
           try {
             await invoke("sidecar_start");
-            // sidecar ready 대기 (짧은 딜레이)
-            await new Promise((r) => setTimeout(r, 500));
-            return await invoke("sidecar_call", { method, params: params ?? null });
+            await new Promise((r) => setTimeout(r, delays[attempt]));
+            const result = await invoke("sidecar_call", { method, params: params ?? null });
+            setStatus("ready");
+            return result;
           } catch {
             // 다음 시도로
           }
         }
+        setStatus("error");
+        setErrorMessage("엔진 재시작 실패");
       }
       throw e;
     }

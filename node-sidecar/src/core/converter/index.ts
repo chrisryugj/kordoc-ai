@@ -30,17 +30,21 @@ export interface ConvertResult {
   code?: string;
 }
 
-export async function convert(params: ConvertParams): Promise<ConvertResult> {
+export async function convert(params: ConvertParams, signal?: AbortSignal): Promise<ConvertResult> {
   const { input_path, pages, ocrProvider } = params;
 
   logger.info(`[convert] ${input_path}`);
+  signal?.throwIfAborted();
 
   const buffer = await readFile(input_path);
+
+  signal?.throwIfAborted();
 
   const result: ParseResult = await parse(new Uint8Array(buffer).buffer, {
     pages,
     ocr: ocrProvider,
     onProgress: (current, total) => {
+      signal?.throwIfAborted();
       sendProgress({ current, total, message: `페이지 ${current}/${total} 처리 중` });
     },
   });

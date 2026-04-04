@@ -39,6 +39,8 @@ export function usePipeline(): UsePipelineReturn {
   const [result, setResult] = useState<PipelineResult | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
   const cancelledRef = useRef(false);
+  /** 즉시 플래그 — setState 배치보다 빠르게 중복 실행 차단 */
+  const isRunningRef = useRef(false);
 
   const filesRef = useRef(files);
   filesRef.current = files;
@@ -83,10 +85,11 @@ export function usePipeline(): UsePipelineReturn {
 
   async function dispatchSingle(method: string, call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
     const raw = await call(method, { input_path: file.path }) as Record<string, unknown>;
+    const success = raw.success !== false;
     return {
-      total: 1, successCount: 1, failCount: 0,
+      total: 1, successCount: success ? 1 : 0, failCount: success ? 0 : 1,
       outputPath: (raw.output_path as string) || fileDir(file.path),
-      warnings: [],
+      warnings: raw.error ? [String(raw.error)] : [],
       data: raw,
     };
   }
@@ -113,7 +116,8 @@ export function usePipeline(): UsePipelineReturn {
 
   async function dispatchMerge(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string): Promise<PipelineResult> {
     const dir = outputDir || fileDir(currentFiles[0].path);
-    const outputPath = `${dir}${dir.includes('/') ? '/' : '\\'}merged.md`;
+    const sep = dir.includes("/") ? "/" : "\\";
+    const outputPath = `${dir}${sep}merged.md`;
     const raw = await call("merge_files", { files: currentFiles.map((f) => f.path), output_path: outputPath }) as Record<string, unknown>;
     return {
       total: currentFiles.length, successCount: 1, failCount: 0,
@@ -140,6 +144,9 @@ export function usePipeline(): UsePipelineReturn {
     sidecarCall: SidecarCall,
     options?: { outputDir?: string },
   ): Promise<void> => {
+    // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
     cancelledRef.current = false;
     const currentFiles = filesRef.current;
     if (currentFiles.length === 0) throw new Error("처리할 파일이 없습니다");
@@ -199,19 +206,21 @@ export function usePipeline(): UsePipelineReturn {
       setStep("complete");
     } catch (e) {
       if (cancelledRef.current) return;
-      setStep("idle");
+      setStep("import");
       throw e;
     } finally {
+      isRunningRef.current = false;
       cleanup();
     }
   }, [listenProgress, cleanup]);
 
   const cancel = useCallback(async (sidecarCall: SidecarCall) => {
     cancelledRef.current = true;
+    // sidecar에 cancel 먼저 전송 후 UI 상태 초기화
+    try { await sidecarCall("cancel"); } catch { /* fire-and-forget */ }
     setProgress({ current: 0, total: 0, message: "" });
     cleanup();
-    setStep("idle");
-    sidecarCall("cancel").catch(() => {});
+    setStep("import");
   }, [cleanup]);
 
   const reset = useCallback(() => {

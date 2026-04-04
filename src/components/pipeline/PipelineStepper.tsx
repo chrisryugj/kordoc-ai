@@ -39,13 +39,20 @@ export function PipelineStepper({ currentStep, onStepClick }: StepperProps) {
         return (
           <div key={step.id} className="flex items-center" style={{ flex: i < steps.length - 1 ? 1 : undefined }}>
             <div className="flex flex-col items-center gap-1">
-              <div
-                className={`step-dot step-dot--${state}${canClick ? " cursor-pointer hover:opacity-70 transition-opacity" : ""}`}
-                onClick={canClick ? () => onStepClick(step.id) : undefined}
-                title={canClick ? `${step.label}(으)로 돌아가기` : undefined}
-              >
-                {state === "done" ? <Check size={16} /> : step.num}
-              </div>
+              {canClick ? (
+                <button
+                  type="button"
+                  className={`step-dot step-dot--${state} cursor-pointer hover:opacity-70 transition-opacity`}
+                  onClick={() => onStepClick(step.id)}
+                  aria-label={`${step.label}(으)로 돌아가기`}
+                >
+                  {state === "done" ? <Check size={16} /> : step.num}
+                </button>
+              ) : (
+                <div className={`step-dot step-dot--${state}`} aria-current={state === "active" ? "step" : undefined}>
+                  {state === "done" ? <Check size={16} /> : step.num}
+                </div>
+              )}
               <span
                 className={`ts-2xs font-medium whitespace-nowrap${canClick ? " cursor-pointer hover:opacity-70 transition-opacity" : ""}`}
                 style={{ color: state === "active" ? "var(--color-accent)" : state === "done" ? "var(--color-success)" : "var(--color-text-muted)" }}

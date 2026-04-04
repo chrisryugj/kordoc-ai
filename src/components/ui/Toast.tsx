@@ -17,7 +17,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
       <span className="w-4 h-4" style={{ color: iconColor }}>
         {toast.type === "success" ? "✓" : toast.type === "error" ? "✕" : "●"}
       </span>
-      <span className="flex-1">{toast.message}</span>
+      <span className="flex-1 line-clamp-3">{toast.message}</span>
       {toast.type !== "loading" && (
         <button onClick={handleDismiss} className="p-1 rounded hover-bg-tertiary" aria-label="닫기">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

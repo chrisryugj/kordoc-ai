@@ -18,6 +18,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
   const handleClose = useMemo(() => onClose ?? NOOP, [onClose]);
   const titleId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<Element | null>(null);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape" && closable) { handleClose(); return; }
@@ -32,12 +33,22 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
 
   useEffect(() => {
     if (!isOpen) return;
+    // 열기 전 포커스 저장 (닫을 때 복원용)
+    previousFocusRef.current = document.activeElement;
     document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
     requestAnimationFrame(() => {
       modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE)?.[0]?.focus();
     });
-    return () => { document.removeEventListener("keydown", handleKeyDown); document.body.style.overflow = ""; };
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+      // 모달 닫힘 시 이전 포커스 복원 (WCAG 2.1 Level A)
+      const prev = previousFocusRef.current;
+      if (prev && prev instanceof HTMLElement) {
+        requestAnimationFrame(() => prev.focus());
+      }
+    };
   }, [isOpen, handleKeyDown]);
 
   if (!isOpen) return null;
