@@ -226,7 +226,35 @@ function extractDiff(data: unknown): { stats: DiffStats; diffs: BlockDiff[] } | 
 
 // ── 셀 단위 변경 건수 집계 ──
 
-interface ChangeEntry { before: string; after: string }
+type ChangeKind = "spacing" | "punctuation" | "content" | "added" | "removed";
+interface ChangeEntry { before: string; after: string; kind: ChangeKind }
+
+/** before/after 비교해서 변경 유형 판별 */
+function classifyChange(before: string, after: string): ChangeKind {
+  if (!before) return "added";
+  if (!after) return "removed";
+  // 공백 제거 후 동일 → 띄어쓰기 변경
+  if (before.replace(/\s+/g, "") === after.replace(/\s+/g, "")) return "spacing";
+  // 문자·숫자만 추출 후 동일 → 문장부호/특수문자 변경
+  const strip = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "");
+  if (strip(before) === strip(after)) return "punctuation";
+  return "content";
+}
+
+const KIND_LABEL: Record<ChangeKind, string> = {
+  spacing: "띄어쓰기",
+  punctuation: "문장부호",
+  content: "내용 변경",
+  added: "추가",
+  removed: "삭제",
+};
+const KIND_COLOR: Record<ChangeKind, string> = {
+  spacing: "var(--color-text-muted)",
+  punctuation: "var(--color-text-muted)",
+  content: "var(--color-warning)",
+  added: "var(--color-success)",
+  removed: "var(--color-error)",
+};
 
 function collectChanges(diffs: BlockDiff[]): { totalChanges: number; entries: ChangeEntry[] } {
   let totalChanges = 0;
@@ -262,13 +290,9 @@ function collectChanges(diffs: BlockDiff[]): { totalChanges: number; entries: Ch
           const cell = d.cellDiffs[ri][ci];
           if (cell.type === "unchanged") continue;
           totalChanges++;
-          if (cell.type === "modified" && cell.before && cell.after && cell.before !== cell.after) {
-            entries.push({ before: cell.before, after: cell.after });
-          } else if (cell.type === "added" && cell.after) {
-            entries.push({ before: "", after: cell.after });
-          } else if (cell.type === "removed" && cell.before) {
-            entries.push({ before: cell.before, after: "" });
-          }
+          const b = cell.before ?? "";
+          const a = cell.after ?? "";
+          if (b || a) entries.push({ before: b, after: a, kind: classifyChange(b, a) });
         }
       }
       continue;
@@ -276,13 +300,9 @@ function collectChanges(diffs: BlockDiff[]): { totalChanges: number; entries: Ch
 
     // 텍스트 블록
     totalChanges++;
-    if (d.type === "modified" && d.before?.text && d.after?.text) {
-      entries.push({ before: d.before.text, after: d.after.text });
-    } else if (d.type === "added" && d.after?.text) {
-      entries.push({ before: "", after: d.after.text });
-    } else if (d.type === "removed" && d.before?.text) {
-      entries.push({ before: d.before.text, after: "" });
-    }
+    const b = d.before?.text ?? "";
+    const a = d.after?.text ?? "";
+    if (b || a) entries.push({ before: b, after: a, kind: classifyChange(b, a) });
   }
 
   // 빈 문자열 엔트리 제거, 긴 텍스트 생략
@@ -478,19 +498,21 @@ function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
         <div className="px-5 py-3 shrink-0 space-y-1" style={{ borderBottom: "1px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)" }}>
           <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>변경 내역</p>
           {entries.map((e, i) => (
-            <div key={i} className="ts-2xs flex items-baseline gap-1" style={{ color: "var(--color-text-secondary)" }}>
-              <span style={{ color: "var(--color-text-muted)" }}>•</span>
-              {e.before && !e.after && (
-                <span><span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 40)}</span> 삭제</span>
+            <div key={i} className="ts-2xs flex items-baseline gap-1.5" style={{ color: "var(--color-text-secondary)" }}>
+              <span className="px-1 py-0.5 rounded shrink-0" style={{ backgroundColor: `color-mix(in srgb, ${KIND_COLOR[e.kind]} 15%, transparent)`, color: KIND_COLOR[e.kind], fontSize: "0.65rem" }}>
+                {KIND_LABEL[e.kind]}
+              </span>
+              {e.kind === "removed" && (
+                <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 50)}</span>
               )}
-              {!e.before && e.after && (
-                <span><span style={{ color: "var(--color-success)" }}>{truncate(e.after, 40)}</span> 추가</span>
+              {e.kind === "added" && (
+                <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 50)}</span>
               )}
-              {e.before && e.after && (
+              {(e.kind === "content" || e.kind === "spacing" || e.kind === "punctuation") && (
                 <span>
-                  <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 30)}</span>
+                  <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 35)}</span>
                   <span style={{ color: "var(--color-text-muted)", margin: "0 0.3em" }}>→</span>
-                  <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 30)}</span>
+                  <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 35)}</span>
                 </span>
               )}
             </div>
