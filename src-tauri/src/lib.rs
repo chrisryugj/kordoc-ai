@@ -35,11 +35,10 @@ pub fn run() {
 
             let handle = app.handle().clone();
 
-            // Auto-start sidecar in background
+            // Auto-start Node.js sidecar in background
             tauri::async_runtime::spawn(async move {
                 mgr_for_setup.set_app_handle(handle).await;
-                let python = if cfg!(windows) { "python" } else { "python3" };
-                if let Err(e) = mgr_for_setup.start(python).await {
+                if let Err(e) = mgr_for_setup.start().await {
                     tracing::error!("Failed to start sidecar: {}", e);
                 }
             });
