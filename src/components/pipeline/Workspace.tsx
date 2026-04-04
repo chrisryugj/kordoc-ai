@@ -1,8 +1,9 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import {
   Upload, FileText, X, FolderOpen, Trash2,
   Scan, Sparkles, GitCompareArrows,
-  Table, ClipboardList, FileOutput, Merge, Receipt, AlertTriangle,
+  Table, ClipboardList, FileOutput, Merge, Receipt, AlertTriangle, Wifi,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
@@ -32,7 +33,7 @@ const ACTIONS: ActionDef[] = [
   { action: "generate_hwpx", label: "HWPX 생성", desc: "마크다운 → 한글 문서", icon: <FileOutput size={18} />, color: "#059669", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt", "md"] },
   { action: "ocr", label: "AI OCR", desc: "이미지 PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf"] },
   { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
-  { action: "scan_receipt", label: "영수증 스캔", desc: "영수증 → 구조화 데이터", icon: <Receipt size={18} />, color: "#D97706", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf"] },
+  { action: "scan_receipt", label: "영수증 스캔", desc: "영수증/이미지 → 구조화 데이터", icon: <Receipt size={18} />, color: "#D97706", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
 ];
 
 function getAvailability(a: ActionDef, files: ImportedFile[], apiKeySet: boolean): { ok: boolean; reason?: string } {
@@ -46,13 +47,52 @@ function getAvailability(a: ActionDef, files: ImportedFile[], apiKeySet: boolean
   return { ok: true };
 }
 
-// ── 사이즈 포맷 ──
-
 function formatSize(bytes: number): string {
   if (bytes <= 0) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ── ActionCard ──
+
+function ActionCard({ a, ok, reason, needsFiles, onClick }: {
+  a: ActionDef; ok: boolean; reason?: string; needsFiles: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={() => ok && onClick()}
+      disabled={!ok}
+      className="group flex items-center gap-3 p-3 rounded-lg text-left transition-all"
+      style={{
+        backgroundColor: ok ? "var(--color-bg-secondary)" : "var(--color-bg-tertiary)",
+        opacity: ok ? 1 : needsFiles ? 0.55 : 0.4,
+        border: `1px solid ${ok ? "var(--color-border)" : "var(--color-border-subtle)"}`,
+        cursor: ok ? "pointer" : "default",
+      }}
+      title={reason}
+      onMouseEnter={(e) => { if (ok) e.currentTarget.style.borderColor = a.color; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = ok ? "var(--color-border)" : "var(--color-border-subtle)"; }}
+    >
+      <div
+        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+        style={{ backgroundColor: `color-mix(in srgb, ${a.color} ${ok ? "12%" : "5%"}, transparent)`, color: ok ? a.color : "var(--color-text-muted)" }}
+      >
+        {a.icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="ts-xs font-semibold truncate" style={{ color: ok ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+          {a.label}
+        </div>
+        <div className="ts-2xs mt-0.5" style={{ color: reason ? "var(--color-error)" : "var(--color-text-muted)" }}>
+          {reason || a.desc}
+        </div>
+      </div>
+      {ok && (
+        <ArrowRight size={14} className="shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" style={{ color: a.color }} />
+      )}
+    </button>
+  );
 }
 
 // ── Props ──
@@ -64,6 +104,8 @@ interface WorkspaceProps {
   onBrowse: () => void;
   onBrowseFolder: () => void;
   apiKeySet: boolean;
+  aiMode: "online" | "offline";
+  onToggleMode: () => void;
   onOpenSettings: () => void;
   sidecarReady: boolean;
   sidecarError?: string;
@@ -71,10 +113,12 @@ interface WorkspaceProps {
 
 export function Workspace({
   files, onFilesChange, onAction, onBrowse, onBrowseFolder,
-  apiKeySet, onOpenSettings, sidecarReady, sidecarError,
+  apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError,
 }: WorkspaceProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [modeConfirm, setModeConfirm] = useState<{ action: PipelineAction; label: string } | null>(null);
+  const pendingActionRef = useRef<PipelineAction | null>(null);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -99,28 +143,42 @@ export function Workspace({
 
   const removeFile = (path: string) => onFilesChange(files.filter((f) => f.path !== path));
 
+  const handleActionClick = useCallback((action: PipelineAction) => {
+    const def = ACTIONS.find((a) => a.action === action);
+    if (def?.needsApi && aiMode === "offline") {
+      pendingActionRef.current = action;
+      setModeConfirm({ action, label: def.label });
+      return;
+    }
+    onAction(action);
+  }, [aiMode, onAction]);
+
+  const handleConfirmSwitch = useCallback(() => {
+    onToggleMode();
+    const action = pendingActionRef.current;
+    setModeConfirm(null);
+    pendingActionRef.current = null;
+    if (action) setTimeout(() => onAction(action), 50);
+  }, [onToggleMode, onAction]);
+
   const hasFiles = files.length > 0;
+  const localActions = ACTIONS.filter((a) => !a.needsApi);
+  const aiActions = ACTIONS.filter((a) => a.needsApi);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="px-8 pt-6 pb-4">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="ts-lg font-bold text-display" style={{ color: "var(--color-text-primary)" }}>
-            문서 작업
-          </h2>
-          <div className="flex items-center gap-3">
-            {/* Sidecar status */}
-            <div className="flex items-center gap-2 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-              {sidecarError ? (
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--color-error)" }} />
-              ) : !sidecarReady ? (
-                <div className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: "var(--color-warning)", borderTopColor: "transparent" }} />
-              ) : (
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--color-success)" }} />
-              )}
-              <span>{sidecarError ? "엔진 오류" : sidecarReady ? "준비 완료" : "시작 중..."}</span>
-            </div>
+      <div className="sidebar-header px-8 flex-col justify-center" style={{ borderBottom: "1px solid var(--color-border)" }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-display" style={{ color: "var(--color-text-primary)", letterSpacing: "-0.02em", fontSize: "1.125rem" }}>
+              모든 문서, 하나로 읽다
+            </h2>
+            <p className="ts-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              HWP · HWPX · PDF · XLSX · DOCX · TXT — 변환 · 추출 · 비교 · AI 분석
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
             {!apiKeySet && (
               <button
                 onClick={onOpenSettings}
@@ -130,71 +188,97 @@ export function Workspace({
                 <AlertTriangle size={12} /> API 키 설정
               </button>
             )}
+            {sidecarError ? (
+              <div className="flex items-center gap-1.5 ts-2xs" style={{ color: "var(--color-error)" }}>
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--color-error)" }} />
+                엔진 오류
+              </div>
+            ) : !sidecarReady ? (
+              <div className="flex items-center gap-1.5 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                <div className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: "var(--color-warning)", borderTopColor: "transparent" }} />
+                시작 중...
+              </div>
+            ) : null}
           </div>
         </div>
-        <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-          파일을 추가하고 원하는 작업을 선택하세요
-        </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 pb-8">
-        {/* Drop Zone — compact */}
-        <div
-          className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex items-center gap-4 px-5 py-4 cursor-pointer mb-4`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={handleDrop}
-          onContextMenu={(e) => e.preventDefault()}
-          onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest(".drop-zone")) onBrowse(); }}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
-        >
+      <div className="flex-1 overflow-y-auto px-8 pb-8 pt-6">
+        {/* ── 1. 파일 영역 ── */}
+        {!hasFiles ? (
+          /* 파일 없음: 큰 드롭존 */
           <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: "var(--color-accent-subtle)" }}
+            className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-3 py-12 cursor-pointer mb-6`}
+            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={handleDrop}
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest(".drop-zone")) onBrowse(); }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
           >
-            <Upload size={20} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{ backgroundColor: "var(--color-accent-subtle)" }}
+            >
+              <Upload size={28} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+            </div>
+            <div className="text-center">
+              <p className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                파일을 드래그하거나 클릭하여 선택
+              </p>
+              <p className="ts-2xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+                파일을 추가하면 아래 기능이 활성화됩니다
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="hwp">HWP</Badge>
+              <Badge variant="hwp">HWPX</Badge>
+              <Badge variant="pdf">PDF</Badge>
+              <Badge variant="xlsx">XLSX</Badge>
+              <Badge variant="txt">DOCX</Badge>
+              <Badge variant="txt">TXT</Badge>
+            </div>
+            <Button
+              variant="secondary" size="sm"
+              onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}
+              className="mt-1"
+            >
+              <span className="flex items-center gap-1.5"><FolderOpen size={14} /> 폴더 선택</span>
+            </Button>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="ts-sm font-medium" style={{ color: "var(--color-text-primary)" }}>
-              {hasFiles ? "파일 추가하기" : "HWP/HWPX/PDF/XLSX 파일을 드래그하거나 클릭"}
-            </p>
-            {!hasFiles && (
-              <div className="flex gap-1.5 mt-1">
-                <Badge variant="hwp">HWP</Badge>
-                <Badge variant="hwp">HWPX</Badge>
-                <Badge variant="pdf">PDF</Badge>
-                <Badge variant="xlsx">XLSX</Badge>
-              </div>
-            )}
-          </div>
-          <Button
-            variant="secondary" size="sm"
-            onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}
-          >
-            <span className="flex items-center gap-1.5">
-              <FolderOpen size={14} /> 폴더
-            </span>
-          </Button>
-        </div>
-
-        {/* File list — compact */}
-        {hasFiles && (
+        ) : (
+          /* 파일 있음: 컴팩트 드롭존 + 파일 리스트 */
           <div className="mb-6">
+            <div
+              className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex items-center gap-4 px-4 py-3 cursor-pointer mb-3`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              onContextMenu={(e) => e.preventDefault()}
+              onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest(".drop-zone")) onBrowse(); }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
+            >
+              <Upload size={18} style={{ color: "var(--color-text-muted)" }} />
+              <span className="ts-xs" style={{ color: "var(--color-text-muted)" }}>파일 추가</span>
+              <div className="flex-1" />
+              <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}>
+                <span className="flex items-center gap-1.5"><FolderOpen size={13} /> 폴더</span>
+              </Button>
+            </div>
+
             <div className="flex items-center justify-between mb-2">
               <h3 className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
                 선택된 파일 ({files.length})
               </h3>
-              <button
-                onClick={() => onFilesChange([])}
-                className="ts-2xs font-medium px-2 py-0.5 rounded transition-colors"
-                style={{ color: "var(--color-text-muted)" }}
-              >
+              <button onClick={() => onFilesChange([])} className="ts-2xs font-medium px-2 py-0.5 rounded" style={{ color: "var(--color-text-muted)" }}>
                 전체 삭제
               </button>
             </div>
-            <div className="space-y-1 max-h-[180px] overflow-y-auto">
+            <div className="space-y-1 max-h-[160px] overflow-y-auto">
               {files.map((file) => (
                 <div
                   key={file.path}
@@ -215,7 +299,6 @@ export function Workspace({
               ))}
             </div>
 
-            {/* Context menu */}
             {ctxMenu && (
               <div
                 className="fixed z-50 rounded-lg shadow-lg py-1 min-w-[140px]"
@@ -223,8 +306,7 @@ export function Workspace({
                 style={{ top: ctxMenu.y, left: ctxMenu.x, backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)" }}
               >
                 <button
-                  role="menuitem"
-                  autoFocus
+                  role="menuitem" autoFocus
                   className="w-full text-left px-3 py-1.5 ts-xs flex items-center gap-2 transition-colors"
                   style={{ color: "var(--color-error)" }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-bg-tertiary)"; }}
@@ -238,48 +320,30 @@ export function Workspace({
           </div>
         )}
 
-        {/* Action Grid — always visible */}
+        {/* ── 2. 기능 그리드 ── */}
         <div>
-          <h3 className="ts-xs font-semibold mb-3" style={{ color: "var(--color-text-primary)" }}>
-            {hasFiles ? "어떤 작업을 할까요?" : "사용 가능한 기능"}
-          </h3>
-
           {/* 로컬 기능 */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
-            {ACTIONS.filter((a) => !a.needsApi).map((a) => {
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h3 className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                {hasFiles ? "어떤 작업을 할까요?" : "로컬 기능"}
+              </h3>
+              <span className="ts-2xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-subtle)", color: "var(--color-success)" }}>
+                오프라인 · 문서 보안 안심
+              </span>
+            </div>
+            {!hasFiles && (
+              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                파일을 추가하면 활성화됩니다
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 mb-5">
+            {localActions.map((a) => {
               const { ok, reason } = getAvailability(a, files, apiKeySet);
               const needsFiles = !ok && files.length === 0 && !reason;
               return (
-                <button
-                  key={a.action}
-                  onClick={() => ok && onAction(a.action)}
-                  disabled={!ok}
-                  className="flex items-start gap-3 p-3 rounded-lg text-left transition-all"
-                  style={{
-                    backgroundColor: ok ? "var(--color-bg-secondary)" : "var(--color-bg-tertiary)",
-                    opacity: ok ? 1 : needsFiles ? 0.6 : 0.4,
-                    border: "1px solid var(--color-border)",
-                    cursor: ok ? "pointer" : "default",
-                  }}
-                  title={reason}
-                  onMouseEnter={(e) => { if (ok) e.currentTarget.style.borderColor = a.color; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border)"; }}
-                >
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: `color-mix(in srgb, ${a.color} 10%, transparent)`, color: ok ? a.color : "var(--color-text-muted)" }}
-                  >
-                    {a.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="ts-xs font-semibold truncate" style={{ color: ok ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
-                      {a.label}
-                    </div>
-                    <div className="ts-2xs mt-0.5" style={{ color: ok ? "var(--color-text-muted)" : reason ? "var(--color-error)" : "var(--color-text-muted)" }}>
-                      {ok ? a.desc : reason || a.desc}
-                    </div>
-                  </div>
-                </button>
+                <ActionCard key={a.action} a={a} ok={ok} reason={reason} needsFiles={needsFiles} onClick={() => handleActionClick(a.action)} />
               );
             })}
           </div>
@@ -290,47 +354,52 @@ export function Workspace({
             <span className="ts-2xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
               Gemini API
             </span>
+            {aiMode === "offline" && (
+              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>· 오프라인 — 실행 시 전환 확인</span>
+            )}
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-            {ACTIONS.filter((a) => a.needsApi).map((a) => {
+            {aiActions.map((a) => {
               const { ok, reason } = getAvailability(a, files, apiKeySet);
               const needsFiles = !ok && files.length === 0 && !reason;
               return (
-                <button
-                  key={a.action}
-                  onClick={() => ok && onAction(a.action)}
-                  disabled={!ok}
-                  className="flex items-start gap-3 p-3 rounded-lg text-left transition-all"
-                  style={{
-                    backgroundColor: ok ? "var(--color-bg-secondary)" : "var(--color-bg-tertiary)",
-                    opacity: ok ? 1 : needsFiles ? 0.6 : 0.4,
-                    border: "1px solid var(--color-border)",
-                    cursor: ok ? "pointer" : "default",
-                  }}
-                  title={reason}
-                  onMouseEnter={(e) => { if (ok) e.currentTarget.style.borderColor = a.color; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border)"; }}
-                >
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: `color-mix(in srgb, ${a.color} 10%, transparent)`, color: ok ? a.color : "var(--color-text-muted)" }}
-                  >
-                    {a.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="ts-xs font-semibold truncate" style={{ color: ok ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
-                      {a.label}
-                    </div>
-                    <div className="ts-2xs mt-0.5" style={{ color: ok ? "var(--color-text-muted)" : reason ? "var(--color-error)" : "var(--color-text-muted)" }}>
-                      {ok ? a.desc : reason || a.desc}
-                    </div>
-                  </div>
-                </button>
+                <ActionCard key={a.action} a={a} ok={ok} reason={reason} needsFiles={needsFiles} onClick={() => handleActionClick(a.action)} />
               );
             })}
           </div>
         </div>
       </div>
+
+      {/* 오프라인 → 온라인 전환 확인 */}
+      {modeConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "var(--color-backdrop)" }}
+          onClick={() => { setModeConfirm(null); pendingActionRef.current = null; }}
+        >
+          <div className="card p-6 max-w-sm mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-accent-subtle)" }}>
+                <Wifi size={20} style={{ color: "var(--color-accent)" }} />
+              </div>
+              <div>
+                <h3 className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>온라인 모드 전환</h3>
+                <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>현재 오프라인 모드입니다</p>
+              </div>
+            </div>
+            <p className="ts-sm" style={{ color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
+              <strong>{modeConfirm.label}</strong> 기능은 Gemini API가 필요합니다.<br />
+              온라인 모드로 전환하고 실행할까요?
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" size="sm" onClick={() => { setModeConfirm(null); pendingActionRef.current = null; }}>취소</Button>
+              <Button size="sm" onClick={handleConfirmSwitch}>
+                <span className="flex items-center gap-1.5"><Wifi size={14} /> 전환 후 실행</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

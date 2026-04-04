@@ -105,6 +105,15 @@ input:focus-visible, select:focus-visible {
   outline: none;
 }
 
+/* Shared header height — sidebar & main content aligned */
+.sidebar-header {
+  display: flex;
+  height: 68px;
+  min-height: 68px;
+  max-height: 68px;
+  box-sizing: border-box;
+}
+
 /* Card */
 .card {
   background: var(--color-bg-secondary);

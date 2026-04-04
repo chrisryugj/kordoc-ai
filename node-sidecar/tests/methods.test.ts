@@ -325,8 +325,8 @@ describe('extract_tables', () => {
       markdown: '',
       blocks: [
         { type: 'paragraph', text: '문단' },
-        { type: 'table', table: { rows: 2, cols: 3, cells: [[]], hasHeader: true }, pageNumber: 1 },
-        { type: 'table', table: { rows: 4, cols: 2, cells: [[]], hasHeader: false }, pageNumber: 2 },
+        { type: 'table', table: { rows: 2, cols: 3, cells: [[{ text: '항목', colSpan: 1, rowSpan: 1 }, { text: '수량', colSpan: 1, rowSpan: 1 }, { text: '금액', colSpan: 1, rowSpan: 1 }], [{ text: '사과', colSpan: 1, rowSpan: 1 }, { text: '10', colSpan: 1, rowSpan: 1 }, { text: '5000', colSpan: 1, rowSpan: 1 }]], hasHeader: true }, pageNumber: 1 },
+        { type: 'table', table: { rows: 4, cols: 2, cells: [[{ text: '구분', colSpan: 1, rowSpan: 1 }, { text: '값', colSpan: 1, rowSpan: 1 }], [{ text: '합계', colSpan: 1, rowSpan: 1 }, { text: '100', colSpan: 1, rowSpan: 1 }]], hasHeader: false }, pageNumber: 2 },
       ],
       fileType: 'pdf',
     });

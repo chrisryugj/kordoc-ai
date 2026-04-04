@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { FileText, Settings, HelpCircle } from "lucide-react";
+import { FileText, Settings, HelpCircle, Wifi, WifiOff } from "lucide-react";
 import type { NavItem } from "../../types/nav";
 
 interface SidebarProps {
@@ -8,10 +8,12 @@ interface SidebarProps {
   sidecarStatus: string;
   sidecarError?: string;
   apiKeySet?: boolean;
+  aiMode?: string;
+  onToggleMode?: () => void;
 }
 
 const navItems: { id: NavItem; label: string; icon: React.ReactNode; description: string }[] = [
-  { id: "pipeline", label: "문서 변환", icon: <FileText size={18} />, description: "HWP · HWPX · PDF → 마크다운" },
+  { id: "pipeline", label: "문서 작업", icon: <FileText size={18} />, description: "변환 · 추출 · 비교 · AI 분석" },
 ];
 
 const bottomItems: { id: NavItem; label: string; icon: React.ReactNode }[] = [
@@ -19,56 +21,45 @@ const bottomItems: { id: NavItem; label: string; icon: React.ReactNode }[] = [
   { id: "help", label: "도움말", icon: <HelpCircle size={18} /> },
 ];
 
-const ALL_NAV_IDS: NavItem[] = [
-  ...navItems.map((i) => i.id),
-  ...bottomItems.map((i) => i.id),
-];
+const ALL_NAV_IDS: NavItem[] = [...navItems.map((i) => i.id), ...bottomItems.map((i) => i.id)];
 
-export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKeySet }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus, sidecarError, apiKeySet, aiMode, onToggleMode }: SidebarProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       e.preventDefault();
       const idx = ALL_NAV_IDS.indexOf(active);
       if (idx === -1) return;
-      const next =
-        e.key === "ArrowDown"
-          ? (idx + 1) % ALL_NAV_IDS.length
-          : (idx - 1 + ALL_NAV_IDS.length) % ALL_NAV_IDS.length;
+      const next = e.key === "ArrowDown" ? (idx + 1) % ALL_NAV_IDS.length : (idx - 1 + ALL_NAV_IDS.length) % ALL_NAV_IDS.length;
       onNavigate(ALL_NAV_IDS[next]);
     },
     [active, onNavigate],
   );
+
+  const isOnline = aiMode === "online";
+
   return (
     <aside
       role="navigation"
       aria-label="주 메뉴"
       className="h-full flex flex-col shrink-0 select-none"
-      style={{
-        width: "var(--sidebar-width)",
-        backgroundColor: "var(--color-sidebar-bg)",
-        borderRight: "1px solid var(--color-sidebar-border)",
-      }}
+      style={{ width: "var(--sidebar-width)", backgroundColor: "var(--color-sidebar-bg)", borderRight: "1px solid var(--color-border)" }}
     >
       {/* Logo */}
-      <div className="px-5 py-4 flex items-center gap-3">
-        <img
-          src="/logo.png"
-          alt="KorDoc AI"
-          className="w-8 h-8 rounded-lg shrink-0 object-cover"
-        />
-        <div className="sidebar-logo-text">
-          <h1 className="text-sm font-bold text-display" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em" }}>
+      <div className="sidebar-header px-4 flex items-center gap-3" style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
+        <img src="/logo.png" alt="KorDoc AI" className="w-9 h-9 rounded-lg shrink-0 object-cover" />
+        <div className="sidebar-logo-text" style={{ lineHeight: 1.15 }}>
+          <h1 className="font-bold text-display" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "0.9375rem" }}>
             KorDoc AI
           </h1>
-          <span className="ts-2xs" style={{ color: "var(--color-sidebar-muted)" }}>한국 문서 변환 도구</span>
+          <span style={{ color: "var(--color-sidebar-muted)", fontSize: "0.6875rem" }}>다 파싱해버리겠다.</span>
         </div>
       </div>
 
-      {/* Main Nav */}
-      <nav className="flex-1 px-3 py-2 space-y-1" onKeyDown={handleKeyDown}>
-        <div className="px-2 py-1.5 ts-2xs font-semibold uppercase tracking-wider sidebar-section-title" style={{ color: "var(--color-sidebar-section)" }}>
-          도구
+      {/* Nav — 도구 + AI 모드 */}
+      <nav className="flex-1 px-4 pt-4 space-y-0.5" onKeyDown={handleKeyDown}>
+        <div className="ts-2xs font-semibold uppercase tracking-wider pb-2" style={{ color: "var(--color-sidebar-section)" }}>
+          <span className="sidebar-section-title">도구</span>
         </div>
         {navItems.map((item) => (
           <button
@@ -88,10 +79,45 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
             </div>
           </button>
         ))}
+
+        {/* AI 모드 토글 */}
+        {onToggleMode && (
+          <>
+            <div className="ts-2xs font-semibold uppercase tracking-wider pt-5 pb-2" style={{ color: "var(--color-sidebar-section)" }}>
+              <span className="sidebar-section-title">AI 모드</span>
+            </div>
+            <button
+              onClick={onToggleMode}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors hover-sidebar-item"
+              style={{ color: "var(--color-sidebar-text)" }}
+              title={isOnline ? "클릭하면 오프라인(로컬 전용)으로 전환" : "클릭하면 온라인(Gemini API)으로 전환"}
+            >
+              {isOnline
+                ? <Wifi size={18} style={{ color: "var(--color-success)" }} />
+                : <WifiOff size={18} style={{ color: "var(--color-text-muted)" }} />
+              }
+              <div className="sidebar-label flex-1 min-w-0">
+                <div className="ts-sm font-medium">{isOnline ? "온라인" : "오프라인"}</div>
+                <div className="ts-2xs sidebar-desc" style={{ color: "var(--color-sidebar-muted)" }}>
+                  {isOnline ? "Gemini API 사용" : "로컬 변환만"}
+                </div>
+              </div>
+              <div
+                className="w-8 h-[18px] rounded-full relative shrink-0 transition-colors sidebar-label"
+                style={{ backgroundColor: isOnline ? "var(--color-success)" : "var(--color-bg-subtle)" }}
+              >
+                <div
+                  className="absolute top-[2px] w-[14px] h-[14px] rounded-full transition-all"
+                  style={{ backgroundColor: "white", left: isOnline ? "calc(100% - 16px)" : "2px", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }}
+                />
+              </div>
+            </button>
+          </>
+        )}
       </nav>
 
-      {/* Bottom Nav */}
-      <div className="px-3 py-2 space-y-1 border-t" style={{ borderColor: "var(--color-sidebar-border)" }} onKeyDown={handleKeyDown}>
+      {/* Bottom — 설정, 도움말 */}
+      <div className="px-4 py-2 space-y-0.5 border-t" style={{ borderColor: "var(--color-sidebar-border)" }} onKeyDown={handleKeyDown}>
         {bottomItems.map((item) => (
           <button
             key={item.id}
@@ -108,28 +134,28 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
         ))}
       </div>
 
-      {/* Footer */}
-      <div className="px-5 py-3 border-t" style={{ borderColor: "var(--color-sidebar-border)" }}>
+      {/* Status Footer */}
+      <div className="px-4 py-3 border-t" style={{ borderColor: "var(--color-sidebar-border)" }}>
         <div className="flex items-center gap-2.5 ts-2xs sidebar-label" style={{ color: "var(--color-sidebar-muted)" }}>
-          <span className="flex items-center gap-1" title={sidecarError || undefined}>
+          <span className="flex items-center gap-1.5" title={sidecarError || undefined}>
             <span
-              className="w-1.5 h-1.5 rounded-full shrink-0 inline-block"
+              className="w-1.5 h-1.5 rounded-full shrink-0"
               style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
             />
             {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? "오류" : "시작중"}
           </span>
           <span style={{ color: "var(--color-sidebar-border)" }}>·</span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1.5">
             <span
-              className="w-1.5 h-1.5 rounded-full shrink-0 inline-block"
+              className="w-1.5 h-1.5 rounded-full shrink-0"
               style={{ backgroundColor: apiKeySet ? "var(--color-success)" : "var(--color-warning)" }}
             />
             API {apiKeySet ? "설정됨" : "미설정"}
           </span>
         </div>
         <div
-          className="ts-2xs mt-1 sidebar-credit"
-          style={{ color: "var(--color-sidebar-muted)", cursor: "default", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.6 }}
+          className="ts-2xs mt-1.5 sidebar-credit"
+          style={{ color: "var(--color-sidebar-muted)", cursor: "default", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.5 }}
           title="광진구청 류주임"
         >
           2026 © Chris Ryu.
