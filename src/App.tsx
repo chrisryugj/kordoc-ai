@@ -57,19 +57,15 @@ export default function App() {
   useEffect(() => {
     if (sidecarReady && !apiKey) {
       sidecar.call("get_settings", {}).then((resp) => {
-        const settings = resp as Record<string, unknown>;
-        if (settings?.api_key_set) {
+        const s = resp as { gemini?: { api_key?: string; model?: string; lite_model?: string } };
+        const g = s?.gemini;
+        if (g?.api_key) {
           setApiKey(SAVED_API_KEY_SENTINEL);
-          if (typeof settings.api_key_masked === "string" && settings.api_key_masked) {
-            setApiKeyMasked(settings.api_key_masked);
-          }
+          // 마스킹: 앞 4자 + ****
+          setApiKeyMasked(g.api_key.length > 4 ? g.api_key.slice(0, 4) + "****" : "****");
         }
-        if (typeof settings.ocr_model === "string" && settings.ocr_model) {
-          setOcrModel(settings.ocr_model);
-        }
-        if (typeof settings.analysis_model === "string" && settings.analysis_model) {
-          setAnalysisModel(settings.analysis_model);
-        }
+        if (g?.model) setOcrModel(g.model);
+        if (g?.lite_model) setAnalysisModel(g.lite_model);
       }).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when sidecar becomes ready
@@ -79,14 +75,14 @@ export default function App() {
   const isProcessing = pipeline.step === "converting";
   useEffect(() => {
     if (sidecarReady && apiKey && apiKey !== SAVED_API_KEY_SENTINEL && !isProcessing) {
-      sidecar.call("set_api_key", { api_key: apiKey }).catch(() => {});
+      sidecar.call("update_settings", { settings: { gemini: { api_key: apiKey } } }).catch(() => {});
     }
   }, [sidecarReady, apiKey, isProcessing, sidecar.call]);
 
   // Sync model selections to sidecar when changed
   useEffect(() => {
     if (sidecarReady && !isProcessing) {
-      sidecar.call("set_models", { ocr_model: ocrModel, analysis_model: analysisModel }).catch(() => {});
+      sidecar.call("update_settings", { settings: { gemini: { model: ocrModel, lite_model: analysisModel } } }).catch(() => {});
     }
   }, [sidecarReady, ocrModel, analysisModel, isProcessing, sidecar.call]);
 
@@ -158,13 +154,16 @@ export default function App() {
       if (!selected) return;
       const folderPath = Array.isArray(selected) ? selected[0] : selected;
       if (!folderPath) return;
-      const resp = await sidecar.call("list_files", { folder: folderPath }) as { files: { path: string; name: string; size: number }[] };
-      if (!resp.files || resp.files.length === 0) {
+      const entries = await sidecar.call("list_files", { path: folderPath }) as { name: string; is_dir: boolean; size: number }[];
+      // 지원 확장자만 필터
+      const supported = entries.filter((e) => !e.is_dir && /\.(hwp|hwpx|pdf|xlsx)$/i.test(e.name));
+      if (supported.length === 0) {
         showToast("선택한 폴더에 지원 파일이 없습니다", "info");
         return;
       }
       const existingPaths = new Set(pipeline.files.map((f) => f.path));
-      const newFiles: ImportedFile[] = resp.files
+      const newFiles: ImportedFile[] = supported
+        .map((e) => ({ path: `${folderPath}/${e.name}`.replace(/\//g, "\\"), name: e.name, size: e.size }))
         .filter((f) => !existingPaths.has(f.path))
         .map((f) => {
           const lower = f.name.toLowerCase();

@@ -69,22 +69,33 @@ export function usePipeline(): UsePipelineReturn {
 
     try {
       const filePaths = currentFiles.map((f) => f.path);
-      const targetDir = fileDir(filePaths[0] ?? "");
-      const ocrParams: Record<string, unknown> = {
-        files: filePaths,
-        target_dir: targetDir,
-      };
+      const batchParams: Record<string, unknown> = { files: filePaths };
       if (options?.outputDir) {
-        ocrParams.config = { output_dir: options.outputDir };
+        batchParams.output_dir = options.outputDir;
       }
-      const resp = await sidecarCall("ocr_files", ocrParams) as PipelineResult;
+      const raw = await sidecarCall("convert_batch", batchParams) as {
+        total: number; succeeded: number; failed: number;
+        results: { success: boolean; output_path: string; error?: string }[];
+      };
 
       if (cancelledRef.current) return;
 
+      // 첫 번째 성공 결과에서 출력 디렉토리 추출
+      const firstSuccess = raw.results.find((r) => r.success && r.output_path);
+      const outputPath = firstSuccess ? fileDir(firstSuccess.output_path) : "";
+      const warnings = raw.results.filter((r) => r.error).map((r) => r.error!);
+
+      const resp: PipelineResult = {
+        total: raw.total,
+        successCount: raw.succeeded,
+        failCount: raw.failed,
+        outputPath,
+        warnings,
+      };
       setResult(resp);
 
-      if (!resp.outputPath || (resp.total > 0 && resp.successCount === 0)) {
-        throw new Error(`변환 실패: ${resp.total}개 파일 중 성공 0개`);
+      if (raw.total > 0 && raw.succeeded === 0) {
+        throw new Error(`변환 실패: ${raw.total}개 파일 중 성공 0개`);
       }
 
       setStep("complete");
