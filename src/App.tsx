@@ -35,6 +35,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const logUnlistenRef = useRef<UnlistenFn | null>(null);
   const stderrUnlistenRef = useRef<UnlistenFn | null>(null);
+  const [aiMode, setAiMode] = useState<"online" | "offline">("online");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [outputDir, setOutputDir] = useState(() => {
@@ -57,7 +58,7 @@ export default function App() {
   useEffect(() => {
     if (sidecarReady && !apiKey) {
       sidecar.call("get_settings", {}).then((resp) => {
-        const s = resp as { gemini?: { api_key?: string; model?: string; lite_model?: string } };
+        const s = resp as { gemini?: { api_key?: string; model?: string; lite_model?: string; mode?: string } };
         const g = s?.gemini;
         if (g?.api_key) {
           setApiKey(SAVED_API_KEY_SENTINEL);
@@ -66,6 +67,7 @@ export default function App() {
         }
         if (g?.model) setOcrModel(g.model);
         if (g?.lite_model) setAnalysisModel(g.lite_model);
+        if (g?.mode === "offline" || g?.mode === "online") setAiMode(g.mode);
       }).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when sidecar becomes ready
@@ -79,12 +81,12 @@ export default function App() {
     }
   }, [sidecarReady, apiKey, isProcessing, sidecar.call]);
 
-  // Sync model selections to sidecar when changed
+  // Sync model selections and mode to sidecar when changed
   useEffect(() => {
     if (sidecarReady && !isProcessing) {
-      sidecar.call("update_settings", { settings: { gemini: { model: ocrModel, lite_model: analysisModel } } }).catch(() => {});
+      sidecar.call("update_settings", { settings: { gemini: { model: ocrModel, lite_model: analysisModel, mode: aiMode } } }).catch(() => {});
     }
-  }, [sidecarReady, ocrModel, analysisModel, isProcessing, sidecar.call]);
+  }, [sidecarReady, ocrModel, analysisModel, aiMode, isProcessing, sidecar.call]);
 
   // Listen for progress events and sidecar logs
   useEffect(() => {
@@ -232,6 +234,7 @@ export default function App() {
     }
     setOcrModel(values.ocrModel);
     setAnalysisModel(values.analysisModel);
+    setAiMode(values.aiMode);
     if (values.outputDir !== outputDir) {
       setOutputDir(values.outputDir);
       try { localStorage.setItem("kordoc-output-dir", values.outputDir); } catch {}
@@ -345,6 +348,7 @@ export default function App() {
         apiKeyMasked={apiKeyMasked}
         ocrModel={ocrModel}
         analysisModel={analysisModel}
+        aiMode={aiMode}
         sidecarStatus={sidecar.status}
         sidecarError={sidecar.errorMessage}
         outputDir={outputDir}

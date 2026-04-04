@@ -5,7 +5,7 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import {
   Key, Cpu, Zap, Info, ChevronDown, ExternalLink,
-  Sun, Moon, FolderOutput,
+  Sun, Moon, FolderOutput, Wifi, WifiOff,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ export interface SettingsSaveValues {
   apiKey: string;          // SAVED_API_KEY_SENTINEL = unchanged; "" = cleared
   ocrModel: string;
   analysisModel: string;
+  aiMode: "online" | "offline";
   outputDir: string;
   theme: "light" | "dark";
 }
@@ -26,6 +27,7 @@ interface SettingsModalProps {
   apiKeyMasked: string;
   ocrModel: string;
   analysisModel: string;
+  aiMode: "online" | "offline";
   sidecarStatus: string;
   sidecarError?: string;
   outputDir: string;
@@ -109,7 +111,7 @@ function ModelSelect({ value, onChange, models, label, icon }: {
 
 export function SettingsModal({
   isOpen, onClose,
-  apiKey, apiKeyMasked, ocrModel, analysisModel,
+  apiKey, apiKeyMasked, ocrModel, analysisModel, aiMode,
   sidecarStatus, sidecarError, outputDir, theme,
   onThemePreview, onSave,
 }: SettingsModalProps) {
@@ -119,6 +121,7 @@ export function SettingsModal({
   const [localApiKey, setLocalApiKey] = useState(apiKey);
   const [localOcrModel, setLocalOcrModel] = useState(ocrModel);
   const [localAnalysisModel, setLocalAnalysisModel] = useState(analysisModel);
+  const [localAiMode, setLocalAiMode] = useState(aiMode);
   const [localOutputDir, setLocalOutputDir] = useState(outputDir);
   const [localTheme, setLocalTheme] = useState(theme);
   const originalThemeRef = useRef(theme);
@@ -130,6 +133,7 @@ export function SettingsModal({
       setLocalApiKey(apiKey);
       setLocalOcrModel(ocrModel);
       setLocalAnalysisModel(analysisModel);
+      setLocalAiMode(aiMode);
       setLocalOutputDir(outputDir);
       setLocalTheme(theme);
       originalThemeRef.current = theme;
@@ -147,6 +151,7 @@ export function SettingsModal({
       apiKey: localApiKey,
       ocrModel: localOcrModel,
       analysisModel: localAnalysisModel,
+      aiMode: localAiMode,
       outputDir: localOutputDir,
       theme: localTheme,
     });
@@ -163,6 +168,7 @@ export function SettingsModal({
   const handleReset = () => {
     setLocalOcrModel(DEFAULT_OCR_MODEL);
     setLocalAnalysisModel(DEFAULT_ANALYSIS_MODEL);
+    setLocalAiMode("online");
     setLocalOutputDir("");
     setLocalTheme("light");
     onThemePreview("light");
@@ -210,6 +216,27 @@ export function SettingsModal({
             </a>
             에서 무료 발급 (하루 1,500회 호출)
           </p>
+        </div>
+
+        {/* AI 모드 토글 */}
+        <div>
+          <label className="ts-2xs font-semibold flex items-center gap-1.5 mb-1.5" style={{ color: "var(--color-text-muted)" }}>
+            {localAiMode === "online" ? <Wifi size={12} /> : <WifiOff size={12} />} AI 동작 모드
+          </label>
+          <div className="flex gap-2">
+            {([["online", "온라인", <Wifi size={13} key="on" />, "Gemini API로 OCR·요약·분석"], ["offline", "오프라인", <WifiOff size={13} key="off" />, "API 없이 로컬 변환만"]] as const).map(([val, label, icon, desc]) => (
+              <button key={val} onClick={() => setLocalAiMode(val)}
+                className="flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg ts-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: localAiMode === val ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
+                  color: localAiMode === val ? "var(--color-accent)" : "var(--color-text-muted)",
+                  border: `1.5px solid ${localAiMode === val ? "var(--color-accent)" : "var(--color-border)"}`,
+                }}>
+                <span className="flex items-center gap-1.5">{icon} {label}</span>
+                <span className="ts-2xs font-normal" style={{ color: "var(--color-text-muted)" }}>{desc}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     ),
