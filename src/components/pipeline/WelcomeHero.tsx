@@ -1,6 +1,6 @@
 import {
-  Scan, Tag, Scissors, BarChart3,
-  Sparkles, BookOpen, Upload, AlertTriangle, Blocks
+  Scan, FileText, GitCompareArrows, Sparkles,
+  BookOpen, Upload, AlertTriangle, Blocks,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { motion } from "framer-motion";
@@ -15,10 +15,10 @@ interface WelcomeHeroProps {
 }
 
 const FEATURES = [
-  { icon: <Scan size={18} />, label: "OCR 변환", desc: "텍스트 및 표 인식", color: "var(--color-accent)" },
-  { icon: <Tag size={18} />, label: "AI 분류", desc: "페이지 테마 판별", color: "#7C3AED" },
-  { icon: <Scissors size={18} />, label: "테마 추출", desc: "도면/문서 분리", color: "#2563EB" },
-  { icon: <BarChart3 size={18} />, label: "교육과정", desc: "핵심 데이터 분석", color: "#059669" },
+  { icon: <FileText size={18} />, label: "문서 변환", desc: "HWP/PDF → 마크다운", color: "var(--color-accent)" },
+  { icon: <Scan size={18} />, label: "AI OCR", desc: "이미지 PDF 인식", color: "#7C3AED" },
+  { icon: <Sparkles size={18} />, label: "AI 요약", desc: "문서 핵심 요약", color: "#2563EB" },
+  { icon: <GitCompareArrows size={18} />, label: "문서 비교", desc: "신구대조표 생성", color: "#059669" },
 ];
 
 export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, onHelp, onSettings }: WelcomeHeroProps) {
