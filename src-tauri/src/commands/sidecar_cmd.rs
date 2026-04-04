@@ -14,11 +14,7 @@ const ALLOWED_METHODS: &[&str] = &[
     "set_models",
     "ocr_files",
     "text_extract",
-    "extract_pages",
     "summarize",
-    "integrate",
-    "tag_pages",
-    "get_thumbnails",
     "open_folder",
     "open_file",
     "inspect_pipeline_output",
@@ -26,7 +22,6 @@ const ALLOWED_METHODS: &[&str] = &[
     "list_files",
     "save_report",
     "read_report",
-    "browser_tool",
 ];
 
 #[tauri::command]

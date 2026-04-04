@@ -127,8 +127,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
           {/* Bottom credit */}
           <div className="mt-auto pt-4 px-2">
             <p className="ts-2xs leading-relaxed" style={{ color: "var(--color-text-muted)" }}>
-              한국교육시설안전원
-              <br />사전기획팀 자문
+              KorDoc AI
+              <br />한국 문서 변환 도구
             </p>
             <p className="ts-2xs mt-1" style={{ color: "var(--color-border-hover)", cursor: "default" }} title="광진구청 류주임">
               2026 © Chris Ryu.

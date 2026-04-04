@@ -38,11 +38,6 @@ class RpcHandler:
                 self._analysis_model = mvp3_config["model_name"]
         except Exception:
             pass  # Use None defaults if loading fails
-        # Playwright 싱글톤: 매 호출마다 재생성 대신 캐시하여
-        # Windows에서 node.js/Chromium 좀비 프로세스 누적 방지
-        self._playwright_instance = None
-        self._pw_lock = threading.Lock()
-        self._chromium_verified = False
         self._methods = {
             "ping": self._ping,
             "get_settings": self._get_settings,
@@ -51,18 +46,13 @@ class RpcHandler:
             "set_models": self._set_models,
             "ocr_files": self._ocr_files,
             "text_extract": self._text_extract,
-            "extract_pages": self._extract_pages,
             "summarize": self._summarize,
-            "integrate": self._integrate,
-            "tag_pages": self._tag_pages,
-            "get_thumbnails": self._get_thumbnails,
             "cancel": self._cancel,
             "open_folder": self._open_folder,
             "open_file": self._open_file,
             "read_report": self._read_report,
             "inspect_pipeline_output": self._inspect_pipeline_output,
             "save_pipeline_state": self._save_pipeline_state,
-            "browser_tool": self._browser_tool,
             "list_files": self._list_files,
             "save_report": self._save_report,
         }

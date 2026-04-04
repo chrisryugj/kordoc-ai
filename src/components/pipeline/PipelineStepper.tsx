@@ -1,8 +1,7 @@
 import { Check } from "lucide-react";
 import type { PipelineStep } from "../../types/pipeline";
 
-// 클릭으로 이동 가능한 UI 스텝 (OCR·추출은 재실행 필요하므로 제외)
-const NAVIGABLE_STEPS = new Set<PipelineStep>(["import", "review", "complete"]);
+const NAVIGABLE_STEPS = new Set<PipelineStep>(["import", "complete"]);
 
 interface StepperProps {
   currentStep: PipelineStep;
@@ -11,32 +10,21 @@ interface StepperProps {
 
 const steps: { id: PipelineStep; label: string; num: number }[] = [
   { id: "import", label: "가져오기", num: 1 },
-  { id: "ocr", label: "OCR", num: 2 },
-  { id: "review", label: "태깅/검토", num: 3 },
-  { id: "extract", label: "추출/분석", num: 4 },
-  { id: "complete", label: "결과", num: 5 },
+  { id: "converting", label: "변환", num: 2 },
+  { id: "complete", label: "결과", num: 3 },
 ];
 
-const stepOrder: PipelineStep[] = ["idle", "import", "ocr", "tagging", "review", "extract", "analyze", "complete"];
+const stepOrder: PipelineStep[] = ["idle", "import", "converting", "complete"];
 
 function getStepState(stepId: PipelineStep, current: PipelineStep): "pending" | "active" | "done" {
   const currentIdx = stepOrder.indexOf(current);
-  // 각 UI 스텝이 active인 파이프라인 인덱스 범위 [start, end]
-  const stepRanges: Record<string, [number, number]> = {
-    import: [1, 1],
-    ocr: [2, 2],
-    review: [3, 4],   // tagging + review
-    extract: [5, 6],  // extract + analyze
-    complete: [7, 7],
-  };
-  const [start, end] = stepRanges[stepId] ?? [0, 0];
-  if (currentIdx > end) return "done";
-  if (currentIdx >= start) return "active";
+  const stepIdx = stepOrder.indexOf(stepId);
+  if (currentIdx > stepIdx) return "done";
+  if (currentIdx === stepIdx) return "active";
   return "pending";
 }
 
-const isProcessing = (step: PipelineStep) =>
-  ["ocr", "tagging", "extract", "analyze"].includes(step);
+const isProcessing = (step: PipelineStep) => step === "converting";
 
 export function PipelineStepper({ currentStep, onStepClick }: StepperProps) {
   return (

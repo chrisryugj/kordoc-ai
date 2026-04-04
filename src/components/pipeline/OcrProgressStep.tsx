@@ -11,10 +11,7 @@ interface OcrProgressStepProps {
 }
 
 const stepTitles: Partial<Record<PipelineStep, string>> = {
-  ocr: "OCR 처리 중",
-  tagging: "AI 태깅 중",
-  extract: "페이지 추출 중",
-  analyze: "교육과정 분석 중",
+  converting: "문서 변환 중",
 };
 
 function formatElapsed(s: number) {
@@ -55,7 +52,6 @@ export function OcrProgressStep({ progress, onCancel, logs, step }: OcrProgressS
           </Button>
         </div>
 
-        {/* Progress bar */}
         <div className="progress-bar mb-2" role="progressbar" aria-valuenow={isIndeterminate ? undefined : pct} aria-valuemin={0} aria-valuemax={100} aria-label={title}>
           <div
             className={`progress-bar-fill${isIndeterminate ? " progress-bar-indeterminate" : ""}`}
@@ -71,7 +67,6 @@ export function OcrProgressStep({ progress, onCancel, logs, step }: OcrProgressS
         </div>
       </div>
 
-      {/* Log panel */}
       {logs.length > 0 && (
         <div className="card p-4">
           <h4 className="ts-sm font-semibold mb-2" style={{ color: "var(--color-text-secondary)" }}>실행 로그</h4>

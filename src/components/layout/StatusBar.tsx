@@ -4,20 +4,16 @@ import type { PipelineStep, PipelineProgress } from "../../types/pipeline";
 interface StatusBarProps {
   step: PipelineStep;
   progress: PipelineProgress;
-  apiKeySet: boolean; // kept for prop compat, no longer displayed
+  apiKeySet: boolean;
 }
 
-const ACTIVE_STEPS: PipelineStep[] = ["ocr", "tagging", "extract", "analyze"];
+const ACTIVE_STEPS: PipelineStep[] = ["converting"];
 
 const stepMeta: Record<PipelineStep, { label: string; color: string }> = {
-  idle:     { label: "대기 중",        color: "var(--color-text-muted)" },
-  import:   { label: "파일 선택",      color: "var(--color-accent)" },
-  ocr:      { label: "OCR 처리 중",    color: "var(--color-warning)" },
-  tagging:  { label: "AI 태깅 중",     color: "var(--color-warning)" },
-  review:   { label: "태그 검토",      color: "var(--color-accent)" },
-  extract:  { label: "페이지 추출 중", color: "var(--color-warning)" },
-  analyze:  { label: "분석 중",        color: "var(--color-warning)" },
-  complete: { label: "완료",           color: "var(--color-success)" },
+  idle:       { label: "대기 중",    color: "var(--color-text-muted)" },
+  import:     { label: "파일 선택",  color: "var(--color-accent)" },
+  converting: { label: "변환 중",    color: "var(--color-warning)" },
+  complete:   { label: "완료",       color: "var(--color-success)" },
 };
 
 function formatElapsed(s: number) {
@@ -30,7 +26,6 @@ export function StatusBar({ step, progress }: StatusBarProps) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isActive = ACTIVE_STEPS.includes(step);
 
-  // 경과 시간
   useEffect(() => {
     if (isActive) {
       setElapsed(0);
@@ -42,7 +37,6 @@ export function StatusBar({ step, progress }: StatusBarProps) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isActive, step]);
 
-  // 마지막 메시지 — 처리 완료 후 5초 유지 후 페이드
   const [displayMsg, setDisplayMsg] = useState("");
   const [msgVisible, setMsgVisible] = useState(false);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,7 +71,6 @@ export function StatusBar({ step, progress }: StatusBarProps) {
         fontSize: "0.65rem",
       }}
     >
-      {/* 왼쪽: 스텝 상태 */}
       <div className="flex items-center gap-3 min-w-0 shrink-0">
         <span className="flex items-center gap-1.5">
           <span
@@ -98,7 +91,6 @@ export function StatusBar({ step, progress }: StatusBarProps) {
         )}
       </div>
 
-      {/* 오른쪽: 마지막 로그 메시지 */}
       <div
         className="ml-4 truncate text-right max-w-[55%] transition-opacity duration-700"
         style={{ opacity: msgVisible ? 0.7 : 0 }}

@@ -3,5 +3,5 @@
 
 fn main() {
     tracing_subscriber::fmt::init();
-    eduplan_ai_lib::run();
+    kordoc_ai_lib::run();
 }

@@ -5,7 +5,7 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import {
   Key, Cpu, Zap, Info, ChevronDown, ExternalLink,
-  Sun, Moon, FolderOutput, Tags, Plus, X,
+  Sun, Moon, FolderOutput,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -16,7 +16,6 @@ export interface SettingsSaveValues {
   analysisModel: string;
   outputDir: string;
   theme: "light" | "dark";
-  themes: string[];
 }
 
 interface SettingsModalProps {
@@ -31,7 +30,6 @@ interface SettingsModalProps {
   sidecarError?: string;
   outputDir: string;
   theme: "light" | "dark";
-  themes: string[];
   // Callbacks
   onThemePreview: (t: "light" | "dark") => void; // live preview
   onSave: (values: SettingsSaveValues) => void;
@@ -44,11 +42,6 @@ export const SAVED_API_KEY_SENTINEL = "__saved__" as const;
 
 const DEFAULT_OCR_MODEL = "gemini-3-flash-preview";
 const DEFAULT_ANALYSIS_MODEL = "gemini-3-flash-preview";
-const DEFAULT_THEMES = [
-  "학급수 및 학생수", "각종 면적", "사업 유형", "사업 기간",
-  "설계발주방식", "사업비 내역", "스페이스 프로그램", "설문조사 결과", "기타",
-];
-
 const MODEL_CATALOG = {
   "gemini-3-flash-preview": { value: "gemini-3-flash-preview", label: "Gemini 3 Flash", desc: "속도와 품질의 균형이 좋아 범용으로 적합" },
   "gemini-2.5-flash-preview-05-20": { value: "gemini-2.5-flash-preview-05-20", label: "Gemini 2.5 Flash", desc: "비교적 안정적이고 가벼운 범용 모델" },
@@ -68,12 +61,11 @@ const ANALYSIS_MODELS = [
   MODEL_CATALOG["gemini-2.5-pro-preview-06-05"],
 ];
 
-type Tab = "api" | "models" | "output" | "themes";
+type Tab = "api" | "models" | "output";
 const TABS: { id: Tab; label: string }[] = [
   { id: "api",    label: "API 연결" },
   { id: "models", label: "AI 모델" },
   { id: "output", label: "출력·화면" },
-  { id: "themes", label: "태깅 테마" },
 ];
 
 type ModelOption = {
@@ -118,7 +110,7 @@ function ModelSelect({ value, onChange, models, label, icon }: {
 export function SettingsModal({
   isOpen, onClose,
   apiKey, apiKeyMasked, ocrModel, analysisModel,
-  sidecarStatus, sidecarError, outputDir, theme, themes,
+  sidecarStatus, sidecarError, outputDir, theme,
   onThemePreview, onSave,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>("api");
@@ -129,8 +121,6 @@ export function SettingsModal({
   const [localAnalysisModel, setLocalAnalysisModel] = useState(analysisModel);
   const [localOutputDir, setLocalOutputDir] = useState(outputDir);
   const [localTheme, setLocalTheme] = useState(theme);
-  const [localThemes, setLocalThemes] = useState(themes);
-  const [newTheme, setNewTheme] = useState("");
   const originalThemeRef = useRef(theme);
 
   // Sync local state when modal (re-)opens
@@ -142,8 +132,6 @@ export function SettingsModal({
       setLocalAnalysisModel(analysisModel);
       setLocalOutputDir(outputDir);
       setLocalTheme(theme);
-      setLocalThemes(themes);
-      setNewTheme("");
       originalThemeRef.current = theme;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from props only on open
@@ -161,7 +149,6 @@ export function SettingsModal({
       analysisModel: localAnalysisModel,
       outputDir: localOutputDir,
       theme: localTheme,
-      themes: localThemes,
     });
     onClose();
   };
@@ -178,16 +165,7 @@ export function SettingsModal({
     setLocalAnalysisModel(DEFAULT_ANALYSIS_MODEL);
     setLocalOutputDir("");
     setLocalTheme("light");
-    setLocalThemes([...DEFAULT_THEMES]);
     onThemePreview("light");
-  };
-
-  const addTheme = () => {
-    const t = newTheme.trim();
-    if (t && !localThemes.includes(t)) {
-      setLocalThemes((prev) => [...prev, t]);
-      setNewTheme("");
-    }
   };
 
   const isSavedKey = localApiKey === SAVED_API_KEY_SENTINEL;
@@ -312,46 +290,6 @@ export function SettingsModal({
       </div>
     ),
 
-    themes: (
-      <div className="space-y-3">
-        <div>
-          <label className="ts-2xs font-semibold flex items-center gap-1.5 mb-2" style={{ color: "var(--color-text-muted)" }}>
-            <Tags size={12} /> AI 분류 테마 목록
-          </label>
-          <div className="flex flex-wrap gap-1.5 mb-2 min-h-[40px]">
-            {localThemes.map((t) => (
-              <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-full ts-2xs font-medium"
-                style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
-                {t}
-                <button onClick={() => setLocalThemes((prev) => prev.filter((x) => x !== t))}
-                  className="hover:opacity-60 transition-opacity" title="삭제"
-                  style={{ color: "var(--color-text-muted)" }}>
-                  <X size={10} />
-                </button>
-              </span>
-            ))}
-            {localThemes.length === 0 && (
-              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>테마 없음 — 기본값 초기화 버튼으로 복원하세요</span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <input type="text" value={newTheme} onChange={(e) => setNewTheme(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") addTheme(); }}
-              placeholder="새 테마 이름 입력 후 Enter"
-              className="input-modern flex-1 rounded-lg px-3 py-1.5 ts-xs"
-            />
-            <button onClick={addTheme}
-              className="px-3 py-1.5 rounded-lg ts-xs font-medium transition-colors"
-              style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
-              <Plus size={13} />
-            </button>
-          </div>
-          <p className="ts-2xs mt-1.5" style={{ color: "var(--color-text-muted)" }}>
-            저장 후 다음 태깅 시 자동 적용 · 태깅 테마 변경 시 재태깅 권장
-          </p>
-        </div>
-      </div>
-    ),
   };
 
   return (

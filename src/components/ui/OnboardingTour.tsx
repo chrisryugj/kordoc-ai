@@ -24,7 +24,7 @@ const TOUR_STEPS: TourStep[] = [
   },
 ];
 
-const TOUR_STORAGE_KEY = "eduplan-tour-completed";
+const TOUR_STORAGE_KEY = "kordoc-tour-completed";
 
 interface OnboardingTourProps {
   enabled: boolean;
