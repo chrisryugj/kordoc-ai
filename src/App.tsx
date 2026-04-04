@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Sidebar } from "./components/layout/Sidebar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { PipelineStepper } from "./components/pipeline/PipelineStepper";
 import { WelcomeHero } from "./components/pipeline/WelcomeHero";
 import { ImportStep } from "./components/pipeline/ImportStep";
+import { ActionSelector } from "./components/pipeline/ActionSelector";
 import { OcrProgressStep } from "./components/pipeline/OcrProgressStep";
 import { ResultStep } from "./components/pipeline/ResultStep";
 import { ToastContainer } from "./components/ui/Toast";
@@ -15,7 +17,7 @@ import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSidecar } from "./hooks/useSidecar";
 import { usePipeline } from "./hooks/usePipeline";
 import { useToast } from "./hooks/useToast";
-import type { ImportedFile } from "./types/pipeline";
+import type { ImportedFile, PipelineAction } from "./types/pipeline";
 
 type NavItem = "pipeline" | "settings" | "help";
 
@@ -116,6 +118,37 @@ export default function App() {
     };
   }, []);
 
+  // Tauri drag-and-drop (window-level — HTML5 dataTransfer doesn't include paths)
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type !== "drop") return;
+      const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
+      if (!paths?.length) return;
+
+      const existingPaths = new Set(pipeline.files.map((f) => f.path));
+      const newFiles: ImportedFile[] = paths
+        .filter((p) => /\.(hwp|hwpx|pdf|xlsx)$/i.test(p))
+        .filter((p) => !existingPaths.has(p))
+        .map((p) => {
+          const name = p.split(/[/\\]/).pop() ?? p;
+          const lower = name.toLowerCase();
+          return {
+            path: p, name, size: 0,
+            type: lower.endsWith(".pdf") ? "pdf" as const
+              : lower.endsWith(".hwpx") ? "hwpx" as const
+              : lower.endsWith(".hwp") ? "hwp" as const
+              : lower.endsWith(".xlsx") ? "xlsx" as const
+              : "unknown" as const,
+          };
+        });
+      if (newFiles.length > 0) {
+        pipeline.setFiles([...pipeline.files, ...newFiles]);
+        pipeline.setStep("import");
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [pipeline.files, pipeline.setFiles, pipeline.setStep]);
+
   // File browser via Tauri dialog
   const handleBrowseFiles = useCallback(async () => {
     try {
@@ -194,22 +227,22 @@ export default function App() {
     pipeline.setStep("import");
   }, [pipeline.setStep]);
 
-  const handleStartConvert = useCallback(async () => {
+  const handleStartAction = useCallback(async (action: PipelineAction) => {
     if (pipeline.files.length === 0) {
       showToast("파일을 먼저 추가하세요", "error");
       return;
     }
 
-    setLogs([`변환 시작: ${pipeline.files.length}개 파일`]);
+    setLogs([`${action} 시작: ${pipeline.files.length}개 파일`]);
     try {
-      await pipeline.startConvert(sidecar.call, outputDir ? { outputDir } : undefined);
-      showToast("변환 완료", "success");
+      await pipeline.startAction(action, sidecar.call, outputDir ? { outputDir } : undefined);
+      showToast("처리 완료", "success");
     } catch (e) {
       const msg = String(e).replace(/^Error:\s*/, "").replace(/^JSON-RPC error:\s*/, "");
       setLogs((prev) => [...prev, `ERROR: ${msg}`]);
       showToast(msg, "error");
     }
-  }, [pipeline.files, pipeline.startConvert, sidecar.call, outputDir, showToast]);
+  }, [pipeline.files, pipeline.startAction, sidecar.call, outputDir, showToast]);
 
   const handleCancel = useCallback(() => {
     pipeline.cancel(sidecar.call);
@@ -312,15 +345,24 @@ export default function App() {
                 />
               )}
               {pipeline.step === "import" && (
-                <ImportStep
-                  files={pipeline.files}
-                  onFilesChange={pipeline.setFiles}
-                  onStartOcr={handleStartConvert}
-                  onBrowse={handleBrowseFiles}
-                  onBrowseFolder={handleBrowseFolder}
-                  apiKeySet={apiKey.trim().length > 0}
-                  onOpenSettings={() => setSettingsOpen(true)}
-                />
+                <>
+                  <ImportStep
+                    files={pipeline.files}
+                    onFilesChange={pipeline.setFiles}
+                    onStartOcr={() => handleStartAction("convert")}
+                    onBrowse={handleBrowseFiles}
+                    onBrowseFolder={handleBrowseFolder}
+                    apiKeySet={apiKey.trim().length > 0}
+                    onOpenSettings={() => setSettingsOpen(true)}
+                  />
+                  {pipeline.files.length > 0 && (
+                    <ActionSelector
+                      files={pipeline.files}
+                      onSelect={handleStartAction}
+                      apiKeySet={apiKey.trim().length > 0}
+                    />
+                  )}
+                </>
               )}
               {pipeline.step === "converting" && (
                 <OcrProgressStep progress={pipeline.progress} onCancel={handleCancel} logs={logs} step={pipeline.step} />

@@ -10,7 +10,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**", "**/python-sidecar/**"],
+      ignored: ["**/src-tauri/**", "**/python-sidecar/**", "**/node-sidecar/**"],
     },
     warmup: {
       clientFiles: [
