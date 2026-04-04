@@ -49,13 +49,13 @@ const MODEL_CATALOG = {
   "gemini-3.1-flash-lite-preview": { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", desc: "가장 빠르고 비용이 낮아 대량 분석에 적합" },
 } as const;
 
-const OCR_MODELS = [
+const OCR_MODELS: ModelOption[] = [
   MODEL_CATALOG["gemini-3-flash-preview"],
   MODEL_CATALOG["gemini-2.5-flash-preview-05-20"],
   MODEL_CATALOG["gemini-2.5-pro-preview-06-05"],
 ];
 
-const ANALYSIS_MODELS = [
+const ANALYSIS_MODELS: ModelOption[] = [
   MODEL_CATALOG["gemini-3.1-flash-lite-preview"],
   MODEL_CATALOG["gemini-3-flash-preview"],
   MODEL_CATALOG["gemini-2.5-pro-preview-06-05"],
