@@ -14,12 +14,17 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
+    "kordoc": "^1.7.2",
+    "pdfjs-dist": "^5.6.205",
     "yaml": "^2.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["canvas", "esbuild"]
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "typescript": "^5.8.0",
     "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
     "vitest": "^3.1.0"
   }
 }

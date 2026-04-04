@@ -22,10 +22,10 @@ describe('RpcRouter', () => {
     expect(res.error?.code).toBe(RPC_ERRORS.METHOD_NOT_FOUND);
   });
 
-  it('스텁 메서드 → NOT_IMPLEMENTED 에러', async () => {
+  it('convert — 누락 파라미터 에러', async () => {
     const res = await router.dispatch('convert', {}, 3);
     expect(res.error).toBeDefined();
-    expect(res.error!.message).toContain('not implemented');
+    expect(res.error!.message).toContain('input_path');
   });
 
   it('cancel — 활성 요청 없음', async () => {

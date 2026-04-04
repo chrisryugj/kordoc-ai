@@ -1,0 +1,45 @@
+/** 문서 비교 — kordoc diff 기반 신구대조표 */
+
+import { readFile } from 'node:fs/promises';
+import { compare, type DiffResult } from 'kordoc';
+import { logger } from '../../infra/logger.js';
+
+export interface DiffParams {
+  /** 원본 파일 경로 */
+  file_a: string;
+  /** 비교 파일 경로 */
+  file_b: string;
+  /** 페이지 범위 */
+  pages?: string;
+}
+
+export interface DiffResponse {
+  success: boolean;
+  stats: DiffResult['stats'];
+  diffs: DiffResult['diffs'];
+}
+
+export async function diff(params: DiffParams): Promise<DiffResponse> {
+  const { file_a, file_b, pages } = params;
+
+  logger.info(`[diff] ${file_a} ↔ ${file_b}`);
+
+  const [bufA, bufB] = await Promise.all([
+    readFile(file_a),
+    readFile(file_b),
+  ]);
+
+  const result = await compare(
+    bufA.buffer as ArrayBuffer,
+    bufB.buffer as ArrayBuffer,
+    { pages },
+  );
+
+  logger.info(`[diff] done: +${result.stats.added} -${result.stats.removed} ~${result.stats.modified}`);
+
+  return {
+    success: true,
+    stats: result.stats,
+    diffs: result.diffs,
+  };
+}
