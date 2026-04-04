@@ -224,73 +224,140 @@ function blockText(block?: { type: string; text?: string; level?: number }): str
   return block.text ?? `[${block.type}]`;
 }
 
-function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) {
-  const [showUnchanged, setShowUnchanged] = useState(false);
-  const total = stats.added + stats.removed + stats.modified + stats.unchanged;
-  const changedCount = stats.added + stats.removed + stats.modified;
+/** diffs 배열을 side-by-side 행으로 변환 — removed/added를 순서대로 페어링 */
+interface DiffRow {
+  key: string;
+  left: string;
+  right: string;
+  type: "unchanged" | "modified" | "added" | "removed" | "paired";
+}
 
-  // 연속 unchanged 블록을 접기 위한 그룹화
-  type DiffGroup = { type: "unchanged"; blocks: BlockDiff[]; startIdx: number } | { type: "diff"; block: BlockDiff; idx: number };
-  const groups: DiffGroup[] = [];
-  let unchangedBuf: BlockDiff[] = [];
-  let unchangedStart = 0;
+function buildRows(diffs: BlockDiff[]): DiffRow[] {
+  const rows: DiffRow[] = [];
 
-  for (let i = 0; i < diffs.length; i++) {
+  // 연속된 removed/added 묶음을 페어링
+  let i = 0;
+  while (i < diffs.length) {
     const d = diffs[i];
+
     if (d.type === "unchanged") {
-      if (unchangedBuf.length === 0) unchangedStart = i;
-      unchangedBuf.push(d);
-    } else {
-      if (unchangedBuf.length > 0) {
-        groups.push({ type: "unchanged", blocks: unchangedBuf, startIdx: unchangedStart });
-        unchangedBuf = [];
-      }
-      groups.push({ type: "diff", block: d, idx: i });
+      rows.push({ key: `u-${i}`, left: blockText(d.before), right: blockText(d.after), type: "unchanged" });
+      i++;
+      continue;
+    }
+
+    if (d.type === "modified") {
+      rows.push({ key: `m-${i}`, left: blockText(d.before), right: blockText(d.after), type: "modified" });
+      i++;
+      continue;
+    }
+
+    // removed 또는 added — 연속 구간을 모아서 페어링
+    const removedBuf: { text: string; idx: number }[] = [];
+    const addedBuf: { text: string; idx: number }[] = [];
+    while (i < diffs.length && (diffs[i].type === "removed" || diffs[i].type === "added")) {
+      if (diffs[i].type === "removed") removedBuf.push({ text: blockText(diffs[i].before), idx: i });
+      else addedBuf.push({ text: blockText(diffs[i].after), idx: i });
+      i++;
+    }
+
+    // 페어링: removed[0]↔added[0], removed[1]↔added[1], ...
+    const pairCount = Math.max(removedBuf.length, addedBuf.length);
+    for (let p = 0; p < pairCount; p++) {
+      const left = p < removedBuf.length ? removedBuf[p].text : "";
+      const right = p < addedBuf.length ? addedBuf[p].text : "";
+      const hasLeft = p < removedBuf.length;
+      const hasRight = p < addedBuf.length;
+      const type = hasLeft && hasRight ? "paired" as const
+        : hasLeft ? "removed" as const
+        : "added" as const;
+      rows.push({ key: `p-${removedBuf[p]?.idx ?? addedBuf[p]?.idx}`, left, right, type });
     }
   }
-  if (unchangedBuf.length > 0) {
-    groups.push({ type: "unchanged", blocks: unchangedBuf, startIdx: unchangedStart });
-  }
+
+  return rows;
+}
+
+function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) {
+  const [showUnchanged, setShowUnchanged] = useState(true);
+  const changedCount = stats.added + stats.removed + stats.modified;
+
+  const allRows = buildRows(diffs);
+  const hasUnchanged = stats.unchanged > 0;
+
+  // 필터: 변경만 보기
+  const visibleRows = showUnchanged
+    ? allRows
+    : (() => {
+        // 연속 unchanged를 접힌 행 하나로 대체
+        const filtered: (DiffRow | { key: string; type: "collapsed"; count: number })[] = [];
+        let collapseCount = 0;
+        let collapseStart = 0;
+        for (const row of allRows) {
+          if (row.type === "unchanged") {
+            if (collapseCount === 0) collapseStart = filtered.length;
+            collapseCount++;
+          } else {
+            if (collapseCount > 0) {
+              filtered.push({ key: `c-${collapseStart}`, type: "collapsed", count: collapseCount });
+              collapseCount = 0;
+            }
+            filtered.push(row);
+          }
+        }
+        if (collapseCount > 0) {
+          filtered.push({ key: `c-${collapseStart}`, type: "collapsed", count: collapseCount });
+        }
+        return filtered;
+      })();
+
+  // 스타일 맵
+  const leftBg = (type: string) => {
+    if (type === "removed" || type === "paired") return "rgba(239,68,68,0.08)";
+    if (type === "modified") return "rgba(239,68,68,0.06)";
+    return "transparent";
+  };
+  const rightBg = (type: string) => {
+    if (type === "added" || type === "paired") return "rgba(34,197,94,0.08)";
+    if (type === "modified") return "rgba(34,197,94,0.06)";
+    return "transparent";
+  };
 
   return (
     <div className="card flex-1 flex flex-col overflow-hidden min-h-0">
-      {/* Stats bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
-        <div className="flex items-center gap-3 ts-2xs">
-          <span className="font-semibold ts-xs" style={{ color: "var(--color-text-primary)" }}>문서 비교</span>
-          {stats.added > 0 && <span style={{ color: "var(--color-success)" }}>+{stats.added} 추가</span>}
-          {stats.removed > 0 && <span style={{ color: "var(--color-error)" }}>-{stats.removed} 삭제</span>}
-          {stats.modified > 0 && <span style={{ color: "var(--color-warning)" }}>{stats.modified} 수정</span>}
-          <span style={{ color: "var(--color-text-muted)" }}>{stats.unchanged} 동일</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Change rate bar */}
-          <div className="flex h-1.5 rounded-full overflow-hidden" style={{ width: 80, backgroundColor: "var(--color-bg-tertiary)" }}>
-            {stats.added > 0 && <div style={{ width: `${(stats.added / total) * 100}%`, backgroundColor: "var(--color-success)" }} />}
-            {stats.removed > 0 && <div style={{ width: `${(stats.removed / total) * 100}%`, backgroundColor: "var(--color-error)" }} />}
-            {stats.modified > 0 && <div style={{ width: `${(stats.modified / total) * 100}%`, backgroundColor: "var(--color-warning)" }} />}
+      {/* 신구대조표 헤더 */}
+      <div className="flex items-center justify-between px-5 py-3 shrink-0" style={{ borderBottom: "2px solid var(--color-border)" }}>
+        <div className="flex items-center gap-3">
+          <span className="font-bold ts-sm" style={{ color: "var(--color-text-primary)" }}>신구대조표</span>
+          <div className="flex items-center gap-2 ts-2xs">
+            {stats.modified > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>{stats.modified} 수정</span>}
+            {stats.added > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(34,197,94,0.1)", color: "var(--color-success)" }}>{stats.added} 신설</span>}
+            {stats.removed > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(239,68,68,0.1)", color: "var(--color-error)" }}>{stats.removed} 삭제</span>}
+            {stats.unchanged > 0 && <span style={{ color: "var(--color-text-muted)" }}>{stats.unchanged} 동일</span>}
           </div>
-          <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-            {total > 0 ? Math.round((changedCount / total) * 100) : 0}% 변경
-          </span>
+        </div>
+        {hasUnchanged && (
           <button
             type="button"
             onClick={() => setShowUnchanged(!showUnchanged)}
-            className="ts-2xs px-2 py-0.5 rounded hover-bg-tertiary"
-            style={{ color: "var(--color-text-muted)" }}
+            className="ts-2xs px-2.5 py-1 rounded-md font-medium transition-colors"
+            style={{
+              color: showUnchanged ? "var(--color-text-muted)" : "var(--color-accent)",
+              backgroundColor: showUnchanged ? "var(--color-bg-tertiary)" : "var(--color-accent-subtle)",
+            }}
           >
-            {showUnchanged ? "변경만" : "전체"}
+            {showUnchanged ? "변경만 보기" : "전체 보기"}
           </button>
-        </div>
+        )}
       </div>
 
-      {/* Column headers */}
-      <div className="grid grid-cols-2 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
-        <div className="px-4 py-1.5 ts-2xs font-semibold" style={{ color: "var(--color-text-muted)", borderRight: "1px solid var(--color-border)" }}>
-          원본 (파일 A)
+      {/* 컬럼 헤더 — 신구대조표 스타일 */}
+      <div className="grid grid-cols-2 shrink-0" style={{ borderBottom: "2px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)" }}>
+        <div className="px-5 py-2 ts-xs font-bold text-center" style={{ color: "var(--color-text-primary)", borderRight: "1px solid var(--color-border)" }}>
+          현행 (구)
         </div>
-        <div className="px-4 py-1.5 ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-          비교본 (파일 B)
+        <div className="px-5 py-2 ts-xs font-bold text-center" style={{ color: "var(--color-text-primary)" }}>
+          개정 (신)
         </div>
       </div>
 
@@ -301,76 +368,76 @@ function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) 
             <p className="ts-sm" style={{ color: "var(--color-text-muted)" }}>두 문서가 동일합니다</p>
           </div>
         ) : (
-          groups.map((group) => {
-            if (group.type === "unchanged") {
-              if (!showUnchanged) {
-                return (
-                  <div
-                    key={`u-${group.startIdx}`}
-                    className="grid grid-cols-2 ts-2xs"
-                    style={{ borderBottom: "1px solid var(--color-border)" }}
-                  >
-                    <div
-                      className="col-span-2 px-4 py-1 text-center"
-                      style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)" }}
-                    >
-                      ··· 동일 {group.blocks.length}블록 ···
-                    </div>
-                  </div>
-                );
-              }
-              return group.blocks.map((b, bi) => (
+          visibleRows.map((row) => {
+            // 접힌 unchanged 행
+            if ("count" in row) {
+              return (
                 <div
-                  key={`u-${group.startIdx}-${bi}`}
-                  className="grid grid-cols-2"
-                  style={{ borderBottom: "1px solid var(--color-border)", opacity: 0.5 }}
+                  key={row.key}
+                  className="px-4 py-1 text-center ts-2xs"
+                  style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)", borderBottom: "1px solid var(--color-border)" }}
                 >
-                  <div className="px-4 py-2 ts-2xs" style={{ color: "var(--color-text-muted)", borderRight: "1px solid var(--color-border)" }}>
-                    {blockText(b.before)}
-                  </div>
-                  <div className="px-4 py-2 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-                    {blockText(b.after)}
-                  </div>
-                </div>
-              ));
-            }
-
-            const { block: d } = group;
-
-            if (d.type === "removed") {
-              return (
-                <div key={`d-${group.idx}`} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <div className="px-4 py-2 ts-sm" style={{ backgroundColor: "var(--color-error-subtle, rgba(239,68,68,0.08))", color: "var(--color-error)", borderRight: "1px solid var(--color-border)" }}>
-                    <span className="font-semibold ts-2xs mr-2" style={{ opacity: 0.6 }}>-</span>
-                    {blockText(d.before)}
-                  </div>
-                  <div className="px-4 py-2" style={{ backgroundColor: "var(--color-bg-tertiary)", borderRight: "none" }} />
+                  ··· 동일 {row.count}블록 ···
                 </div>
               );
             }
 
-            if (d.type === "added") {
+            // unchanged — 양쪽 동일 (회색, 맥락 유지)
+            if (row.type === "unchanged") {
               return (
-                <div key={`d-${group.idx}`} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <div className="px-4 py-2" style={{ backgroundColor: "var(--color-bg-tertiary)", borderRight: "1px solid var(--color-border)" }} />
-                  <div className="px-4 py-2 ts-sm" style={{ backgroundColor: "var(--color-success-subtle, rgba(34,197,94,0.08))", color: "var(--color-success)" }}>
-                    <span className="font-semibold ts-2xs mr-2" style={{ opacity: 0.6 }}>+</span>
-                    {blockText(d.after)}
+                <div key={row.key} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
+                  <div className="px-5 py-2.5 ts-sm" style={{ color: "var(--color-text-muted)", borderRight: "1px solid var(--color-border)" }}>
+                    {row.left}
+                  </div>
+                  <div className="px-5 py-2.5 ts-sm" style={{ color: "var(--color-text-muted)" }}>
+                    {row.right}
                   </div>
                 </div>
               );
             }
 
-            // modified — side-by-side
+            // 변경 행 — 신구대조표 하이라이트
+            const isLeft = row.type === "removed" || row.type === "paired" || row.type === "modified";
+            const isRight = row.type === "added" || row.type === "paired" || row.type === "modified";
+
             return (
-              <div key={`d-${group.idx}`} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
-                <div className="px-4 py-2 ts-sm" style={{ backgroundColor: "var(--color-error-subtle, rgba(239,68,68,0.06))", borderRight: "1px solid var(--color-border)" }}>
-                  <span className="font-semibold ts-2xs mr-2" style={{ color: "var(--color-error)", opacity: 0.6 }}>-</span>
-                  <span style={{ color: "var(--color-text-secondary)" }}>{blockText(d.before)}</span>
+              <div key={row.key} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
+                {/* 현행 (구) */}
+                <div
+                  className="px-5 py-2.5 ts-sm"
+                  style={{
+                    backgroundColor: isLeft ? leftBg(row.type) : "transparent",
+                    borderRight: "1px solid var(--color-border)",
+                    borderLeft: isLeft ? "3px solid var(--color-error)" : "3px solid transparent",
+                  }}
+                >
+                  {row.left ? (
+                    <span style={{ color: isLeft ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                      {row.left}
+                    </span>
+                  ) : (
+                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>
+                      {row.type === "added" ? "(신설)" : "\u00A0"}
+                    </span>
+                  )}
                 </div>
-                <div className="px-4 py-2 ts-sm" style={{ backgroundColor: "var(--color-success-subtle, rgba(34,197,94,0.06))" }}>
-                  <span className="font-semibold ts-2xs mr-2" style={{ color: "var(--color-success)", opacity: 0.6 }}>+</span>
-                  <span style={{ color: "var(--color-text-secondary)" }}>{blockText(d.after)}</span>
+                {/* 개정 (신) */}
+                <div
+                  className="px-5 py-2.5 ts-sm"
+                  style={{
+                    backgroundColor: isRight ? rightBg(row.type) : "transparent",
+                    borderLeft: isRight ? "3px solid var(--color-success)" : "none",
+                  }}
+                >
+                  {row.right ? (
+                    <span style={{ color: isRight ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                      {row.right}
+                    </span>
+                  ) : (
+                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>
+                      {row.type === "removed" ? "(삭제)" : "\u00A0"}
+                    </span>
+                  )}
                 </div>
               </div>
             );
