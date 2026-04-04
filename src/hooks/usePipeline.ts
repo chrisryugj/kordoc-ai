@@ -30,6 +30,7 @@ interface UsePipelineReturn {
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
+  goBack: () => void;
 }
 
 export function usePipeline(): UsePipelineReturn {
@@ -224,6 +225,14 @@ export function usePipeline(): UsePipelineReturn {
     setStep("import");
   }, [cleanup]);
 
+  /** 파일 유지한 채 작업 선택 화면으로 복귀 */
+  const goBack = useCallback(() => {
+    setStep("import");
+    setProgress({ current: 0, total: 0, message: "" });
+    setResult(null);
+    cleanup();
+  }, [cleanup]);
+
   const reset = useCallback(() => {
     cancelledRef.current = true;
     setStep("idle");
@@ -236,6 +245,6 @@ export function usePipeline(): UsePipelineReturn {
   return {
     step, files, progress, result,
     setStep, setFiles,
-    startAction, cancel, reset,
+    startAction, cancel, reset, goBack,
   };
 }
