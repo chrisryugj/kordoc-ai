@@ -30,8 +30,8 @@ export async function diff(params: DiffParams): Promise<DiffResponse> {
   ]);
 
   const result = await compare(
-    bufA.buffer as ArrayBuffer,
-    bufB.buffer as ArrayBuffer,
+    new Uint8Array(bufA).buffer,
+    new Uint8Array(bufB).buffer,
     { pages },
   );
 

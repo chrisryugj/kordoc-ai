@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { FileText, Settings, HelpCircle } from "lucide-react";
-
-type NavItem = "pipeline" | "settings" | "help";
+import type { NavItem } from "../../types/nav";
 
 interface SidebarProps {
   active: NavItem;

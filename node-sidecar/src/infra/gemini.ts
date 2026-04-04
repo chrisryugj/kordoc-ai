@@ -37,11 +37,15 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       reject(new DOMException('Aborted', 'AbortError'));
       return;
     }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -63,6 +67,36 @@ export interface GeminiVisionOptions {
   systemInstruction?: string;
 }
 
+/** 재시도 + 지수 백오프 헬퍼 (1s 시작, 최대 30s 캡) */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const cfg = getConfig('gemini');
+  const maxRetries = cfg.max_retries;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (!isRetryable(err) || attempt === maxRetries) break;
+
+      const delay = Math.min(1_000 * Math.pow(2, attempt), 30_000); // 1s, 2s, 4s, 8s, ... cap 30s
+      logger.warn(`[${label}] retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+      await sleep(delay, signal);
+    }
+  }
+
+  throw lastError;
+}
+
 /** Gemini API 호출 (재시도 + 취소) */
 export async function callGemini(options: GeminiCallOptions): Promise<string> {
   const cfg = getConfig('gemini');
@@ -78,29 +112,14 @@ export async function callGemini(options: GeminiCallOptions): Promise<string> {
     ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
   });
 
-  const maxRetries = cfg.max_retries;
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (options.signal?.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
-    }
-
-    try {
+  return withRetry(
+    async () => {
       const result = await model.generateContent(options.prompt);
-      const text = result.response.text();
-      return text;
-    } catch (err) {
-      lastError = err;
-      if (!isRetryable(err) || attempt === maxRetries) break;
-
-      const delay = 10_000 * Math.pow(2, attempt); // 10s, 20s, 40s, 80s, 160s
-      logger.warn(`[gemini] retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
-      await sleep(delay, options.signal);
-    }
-  }
-
-  throw lastError;
+      return result.response.text();
+    },
+    'gemini',
+    options.signal,
+  );
 }
 
 /** Gemini Vision API 호출 — 이미지 + 텍스트 멀티모달 (재시도 + 취소) */
@@ -125,26 +144,12 @@ export async function callGeminiVision(options: GeminiVisionOptions): Promise<st
     },
   };
 
-  const maxRetries = cfg.max_retries;
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (options.signal?.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
-    }
-
-    try {
+  return withRetry(
+    async () => {
       const result = await model.generateContent([options.prompt, imagePart]);
       return result.response.text();
-    } catch (err) {
-      lastError = err;
-      if (!isRetryable(err) || attempt === maxRetries) break;
-
-      const delay = 10_000 * Math.pow(2, attempt);
-      logger.warn(`[gemini-vision] retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
-      await sleep(delay, options.signal);
-    }
-  }
-
-  throw lastError;
+    },
+    'gemini-vision',
+    options.signal,
+  );
 }

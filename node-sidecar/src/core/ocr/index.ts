@@ -63,7 +63,7 @@ export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrRe
   const buffer = await readFile(input_path);
 
   // 1단계: kordoc parse 시도 (텍스트 기반 PDF면 바로 성공)
-  const result = await parse(buffer.buffer as ArrayBuffer, {
+  const result = await parse(new Uint8Array(buffer).buffer, {
     pages,
     onProgress: (current, total) => {
       sendProgress({ current, total, message: `페이지 ${current}/${total} 처리 중` });
