@@ -52,6 +52,17 @@ export interface GeminiCallOptions {
   systemInstruction?: string;
 }
 
+export interface GeminiVisionOptions {
+  prompt: string;
+  /** base64 인코딩된 이미지 데이터 */
+  imageBase64: string;
+  /** MIME 타입 (기본: image/png) */
+  mimeType?: string;
+  model?: string;
+  signal?: AbortSignal;
+  systemInstruction?: string;
+}
+
 /** Gemini API 호출 (재시도 + 취소) */
 export async function callGemini(options: GeminiCallOptions): Promise<string> {
   const cfg = getConfig('gemini');
@@ -85,6 +96,52 @@ export async function callGemini(options: GeminiCallOptions): Promise<string> {
 
       const delay = 10_000 * Math.pow(2, attempt); // 10s, 20s, 40s, 80s, 160s
       logger.warn(`[gemini] retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+      await sleep(delay, options.signal);
+    }
+  }
+
+  throw lastError;
+}
+
+/** Gemini Vision API 호출 — 이미지 + 텍스트 멀티모달 (재시도 + 취소) */
+export async function callGeminiVision(options: GeminiVisionOptions): Promise<string> {
+  const cfg = getConfig('gemini');
+
+  if (cfg.mode === 'offline') {
+    throw new Error('Gemini is in offline mode');
+  }
+
+  const modelName = options.model ?? cfg.model;
+  const ai = getClient();
+  const model = ai.getGenerativeModel({
+    model: modelName,
+    ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+  });
+
+  const imagePart = {
+    inlineData: {
+      data: options.imageBase64,
+      mimeType: options.mimeType ?? 'image/png',
+    },
+  };
+
+  const maxRetries = cfg.max_retries;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (options.signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    try {
+      const result = await model.generateContent([options.prompt, imagePart]);
+      return result.response.text();
+    } catch (err) {
+      lastError = err;
+      if (!isRetryable(err) || attempt === maxRetries) break;
+
+      const delay = 10_000 * Math.pow(2, attempt);
+      logger.warn(`[gemini-vision] retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
       await sleep(delay, options.signal);
     }
   }
