@@ -252,10 +252,11 @@ export default function App() {
 
               {/* Result */}
               {pipeline.step === "complete" && (
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 flex flex-col overflow-hidden">
                   <ResultStep
                     result={pipeline.result}
                     onReset={pipeline.reset}
+                    onBack={pipeline.goBack}
                     onOpenFolder={handleOpenFolder}
                     onSummarize={handleSummarize}
                     isSummarizing={isSummarizing}

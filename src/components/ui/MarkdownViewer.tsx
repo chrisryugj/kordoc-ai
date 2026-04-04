@@ -10,9 +10,11 @@ interface MarkdownViewerProps {
   onSummarize?: () => void;
   isSummarizing?: boolean;
   maxHeight?: number;
+  /** true이면 maxHeight 무시, 부모 flex 컨테이너 높이를 채움 */
+  fillHeight?: boolean;
 }
 
-export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500 }: MarkdownViewerProps) {
+export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500, fillHeight }: MarkdownViewerProps) {
   const [view, setView] = useState<"rendered" | "source">("rendered");
   const [copied, setCopied] = useState(false);
 
@@ -34,7 +36,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
   if (!markdown) return null;
 
   return (
-    <div className="card overflow-hidden">
+    <div className={`card overflow-hidden${fillHeight ? " flex flex-col flex-1 min-h-0" : ""}`}>
       {/* Toolbar */}
       <div
         className="flex items-center justify-between px-4 py-2"
@@ -89,7 +91,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
       </div>
 
       {/* Content */}
-      <div className="overflow-y-auto" style={{ maxHeight }}>
+      <div className={`overflow-y-auto${fillHeight ? " flex-1 min-h-0" : ""}`} style={fillHeight ? undefined : { maxHeight }}>
         {view === "rendered" ? (
           <div className="markdown-body p-5 ts-sm">
             <ReactMarkdown
