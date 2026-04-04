@@ -86,9 +86,10 @@ export function usePipeline(): UsePipelineReturn {
   async function dispatchSingle(method: string, call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
     const raw = await call(method, { input_path: file.path }) as Record<string, unknown>;
     const success = raw.success !== false;
+    const outPath = typeof raw.output_path === "string" && raw.output_path ? fileDir(raw.output_path) : fileDir(file.path);
     return {
       total: 1, successCount: success ? 1 : 0, failCount: success ? 0 : 1,
-      outputPath: (raw.output_path as string) || fileDir(file.path),
+      outputPath: outPath,
       warnings: raw.error ? [String(raw.error)] : [],
       data: raw,
     };

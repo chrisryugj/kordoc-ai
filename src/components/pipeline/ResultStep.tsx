@@ -170,9 +170,13 @@ function extractMarkdown(data: unknown): string | null {
 
   // extract_tables — 테이블 마크다운 합치기
   if (Array.isArray(d.tables) && d.table_count != null) {
-    const tables = d.tables as { markdown: string; index: number; page?: number }[];
+    const tables = d.tables as { markdown: string; index: number; page?: number; caption?: string; rows: number; cols: number }[];
     if (tables.length > 0) {
-      return tables.map((t, i) => `## 표 ${i + 1}${t.page != null ? ` (${t.page}페이지)` : ""}\n\n${t.markdown}`).join("\n\n---\n\n");
+      return tables.map((t) => {
+        const title = t.caption || `표 ${t.index + 1}`;
+        const meta = [t.page != null ? `${t.page}페이지` : "", `${t.rows}행 × ${t.cols}열`].filter(Boolean).join(" · ");
+        return `#### ${title}\n\n> ${meta}\n\n${t.markdown}`;
+      }).join("\n\n---\n\n");
     }
   }
 
