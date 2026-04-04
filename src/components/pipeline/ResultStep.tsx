@@ -224,9 +224,55 @@ function extractDiff(data: unknown): { stats: DiffStats; diffs: BlockDiff[] } | 
   return null;
 }
 
+// ── 셀 단위 변경 건수 집계 ──
+
+interface ChangeEntry { before: string; after: string }
+
+function collectChanges(diffs: BlockDiff[]): { totalChanges: number; entries: ChangeEntry[] } {
+  let totalChanges = 0;
+  const entries: ChangeEntry[] = [];
+
+  for (const d of diffs) {
+    if (d.type === "unchanged") continue;
+
+    // 테이블: 셀 단위로 카운트
+    if (d.cellDiffs) {
+      for (const row of d.cellDiffs) {
+        for (const cell of row) {
+          if (cell.type === "unchanged") continue;
+          totalChanges++;
+          if (cell.type === "modified" && cell.before && cell.after && cell.before !== cell.after) {
+            entries.push({ before: cell.before, after: cell.after });
+          } else if (cell.type === "added" && cell.after) {
+            entries.push({ before: "", after: cell.after });
+          } else if (cell.type === "removed" && cell.before) {
+            entries.push({ before: cell.before, after: "" });
+          }
+        }
+      }
+      continue;
+    }
+
+    // 텍스트 블록
+    totalChanges++;
+    if (d.type === "modified" && d.before?.text && d.after?.text) {
+      entries.push({ before: d.before.text, after: d.after.text });
+    } else if (d.type === "added" && d.after?.text) {
+      entries.push({ before: "", after: d.after.text });
+    } else if (d.type === "removed" && d.before?.text) {
+      entries.push({ before: d.before.text, after: "" });
+    }
+  }
+
+  // 빈 문자열 엔트리 제거, 긴 텍스트 생략
+  return {
+    totalChanges,
+    entries: entries.filter(e => e.before.trim() || e.after.trim()).slice(0, 20),
+  };
+}
+
 // ── 테이블 렌더러 ──
 
-/** 테이블을 컴팩트 HTML 테이블로 렌더링 */
 function MiniTable({ table, cellDiffs, side }: {
   table: IRTable;
   cellDiffs?: CellDiff[][];
@@ -241,20 +287,22 @@ function MiniTable({ table, cellDiffs, side }: {
               const cd = cellDiffs?.[ri]?.[ci];
               const isChanged = cd && cd.type !== "unchanged";
               const text = side === "left" ? (cd?.before ?? cell.text) : (cd?.after ?? cell.text);
+              const otherText = side === "left" ? cd?.after : cd?.before;
 
               return (
                 <td
                   key={ci}
                   colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
                   rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
+                  title={isChanged && otherText ? `${side === "left" ? "수정본" : "원본"}: ${otherText}` : undefined}
                   style={{
                     border: "1px solid var(--color-border)",
                     padding: "0.25em 0.5em",
                     backgroundColor: isChanged
-                      ? (side === "left" ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)")
+                      ? (side === "left" ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)")
                       : "transparent",
                     fontWeight: ri === 0 && table.hasHeader ? 600 : "normal",
-                    color: isChanged ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                    color: "var(--color-text-secondary)",
                   }}
                 >
                   {text}
@@ -268,27 +316,18 @@ function MiniTable({ table, cellDiffs, side }: {
   );
 }
 
-/** 블록 내용 렌더링 — 텍스트 또는 테이블 */
-function BlockContent({ block, cellDiffs, side, highlight }: {
+/** 블록 내용 렌더링 */
+function BlockContent({ block, cellDiffs, side }: {
   block: DiffBlock | null | undefined;
   cellDiffs?: CellDiff[][];
   side: "left" | "right";
-  highlight: boolean;
 }) {
   if (!block) return null;
-
-  if (block.table) {
-    return <MiniTable table={block.table} cellDiffs={cellDiffs} side={side} />;
-  }
-
-  return (
-    <span style={{ color: highlight ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
-      {block.text ?? `[${block.type}]`}
-    </span>
-  );
+  if (block.table) return <MiniTable table={block.table} cellDiffs={cellDiffs} side={side} />;
+  return <span style={{ color: "var(--color-text-secondary)" }}>{block.text ?? `[${block.type}]`}</span>;
 }
 
-// ── DiffRow 빌더 — removed/added 페어링 ──
+// ── DiffRow 빌더 ──
 
 interface DiffRow {
   key: string;
@@ -307,17 +346,13 @@ function buildRows(diffs: BlockDiff[]): DiffRow[] {
 
     if (d.type === "unchanged") {
       rows.push({ key: `u-${i}`, leftBlock: d.before ?? null, rightBlock: d.after ?? null, type: "unchanged" });
-      i++;
-      continue;
+      i++; continue;
     }
-
     if (d.type === "modified") {
       rows.push({ key: `m-${i}`, leftBlock: d.before ?? null, rightBlock: d.after ?? null, type: "modified", cellDiffs: d.cellDiffs });
-      i++;
-      continue;
+      i++; continue;
     }
 
-    // 연속 removed/added를 모아서 페어링
     const removedBuf: { block: DiffBlock; idx: number }[] = [];
     const addedBuf: { block: DiffBlock; idx: number }[] = [];
     while (i < diffs.length && (diffs[i].type === "removed" || diffs[i].type === "added")) {
@@ -338,19 +373,22 @@ function buildRows(diffs: BlockDiff[]): DiffRow[] {
       });
     }
   }
-
   return rows;
 }
 
 // ── DiffViewer ──
 
-function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) {
-  const [showUnchanged, setShowUnchanged] = useState(true);
-  const changedCount = stats.added + stats.removed + stats.modified;
-  const allRows = buildRows(diffs);
-  const hasUnchanged = stats.unchanged > 0;
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
 
-  // 변경만 보기: 연속 unchanged를 접힌 행으로 대체
+function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
+  const [showUnchanged, setShowUnchanged] = useState(true);
+
+  const { totalChanges, entries } = collectChanges(diffs);
+  const allRows = buildRows(diffs);
+  const hasUnchanged = allRows.some(r => r.type === "unchanged");
+
   const visibleRows = showUnchanged
     ? allRows
     : (() => {
@@ -373,21 +411,15 @@ function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) 
         return filtered;
       })();
 
-  const leftBg = (t: string) => t === "removed" || t === "paired" ? "rgba(239,68,68,0.06)" : t === "modified" ? "rgba(239,68,68,0.04)" : "transparent";
-  const rightBg = (t: string) => t === "added" || t === "paired" ? "rgba(34,197,94,0.06)" : t === "modified" ? "rgba(34,197,94,0.04)" : "transparent";
-
   return (
     <div className="card flex-1 flex flex-col overflow-hidden min-h-0">
       {/* 헤더 */}
-      <div className="flex items-center justify-between px-5 py-3 shrink-0" style={{ borderBottom: "2px solid var(--color-border)" }}>
+      <div className="flex items-center justify-between px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
         <div className="flex items-center gap-3">
           <span className="font-bold ts-sm" style={{ color: "var(--color-text-primary)" }}>문서 변경 비교</span>
-          <div className="flex items-center gap-2 ts-2xs">
-            {stats.modified > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>{stats.modified} 수정</span>}
-            {stats.added > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(34,197,94,0.1)", color: "var(--color-success)" }}>{stats.added} 추가</span>}
-            {stats.removed > 0 && <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(239,68,68,0.1)", color: "var(--color-error)" }}>{stats.removed} 삭제</span>}
-            {stats.unchanged > 0 && <span style={{ color: "var(--color-text-muted)" }}>{stats.unchanged} 동일</span>}
-          </div>
+          <span className="px-1.5 py-0.5 rounded ts-2xs" style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
+            {totalChanges}건 변경
+          </span>
         </div>
         {hasUnchanged && (
           <button
@@ -404,8 +436,36 @@ function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) 
         )}
       </div>
 
+      {/* 변경 내역 요약 */}
+      {entries.length > 0 && (
+        <div className="px-5 py-3 shrink-0 space-y-1" style={{ borderBottom: "1px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)" }}>
+          <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>변경 내역</p>
+          {entries.map((e, i) => (
+            <div key={i} className="ts-2xs flex items-baseline gap-1" style={{ color: "var(--color-text-secondary)" }}>
+              <span style={{ color: "var(--color-text-muted)" }}>•</span>
+              {e.before && !e.after && (
+                <span><span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 40)}</span> 삭제</span>
+              )}
+              {!e.before && e.after && (
+                <span><span style={{ color: "var(--color-success)" }}>{truncate(e.after, 40)}</span> 추가</span>
+              )}
+              {e.before && e.after && (
+                <span>
+                  <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 30)}</span>
+                  <span style={{ color: "var(--color-text-muted)", margin: "0 0.3em" }}>→</span>
+                  <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 30)}</span>
+                </span>
+              )}
+            </div>
+          ))}
+          {totalChanges > entries.length && (
+            <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>…외 {totalChanges - entries.length}건</p>
+          )}
+        </div>
+      )}
+
       {/* 컬럼 헤더 */}
-      <div className="grid grid-cols-2 shrink-0" style={{ borderBottom: "2px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)" }}>
+      <div className="grid grid-cols-2 shrink-0" style={{ borderBottom: "2px solid var(--color-border)" }}>
         <div className="px-5 py-2 ts-xs font-bold text-center" style={{ color: "var(--color-text-primary)", borderRight: "1px solid var(--color-border)" }}>
           원본
         </div>
@@ -414,9 +474,9 @@ function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) 
         </div>
       </div>
 
-      {/* 본문 */}
+      {/* 본문 — 배경색 없음, 변경 셀만 하이라이트 */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {changedCount === 0 ? (
+        {totalChanges === 0 ? (
           <div className="flex items-center justify-center py-12">
             <p className="ts-sm" style={{ color: "var(--color-text-muted)" }}>두 문서가 동일합니다</p>
           </div>
@@ -431,50 +491,31 @@ function DiffViewer({ stats, diffs }: { stats: DiffStats; diffs: BlockDiff[] }) 
               );
             }
 
-            if (row.type === "unchanged") {
-              return (
-                <div key={row.key} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <div className="px-5 py-2.5 ts-sm" style={{ color: "var(--color-text-muted)", borderRight: "1px solid var(--color-border)" }}>
-                    <BlockContent block={row.leftBlock} side="left" highlight={false} />
-                  </div>
-                  <div className="px-5 py-2.5 ts-sm" style={{ color: "var(--color-text-muted)" }}>
-                    <BlockContent block={row.rightBlock} side="right" highlight={false} />
-                  </div>
-                </div>
-              );
-            }
-
-            const isLeft = row.type === "removed" || row.type === "paired" || row.type === "modified";
-            const isRight = row.type === "added" || row.type === "paired" || row.type === "modified";
+            // 모든 행: 배경 없음, 변경은 셀/텍스트 레벨에서만 표시
+            const isChanged = row.type !== "unchanged";
 
             return (
               <div key={row.key} className="grid grid-cols-2" style={{ borderBottom: "1px solid var(--color-border)" }}>
                 {/* 원본 */}
                 <div className="px-5 py-2.5 ts-sm" style={{
-                  backgroundColor: leftBg(row.type),
                   borderRight: "1px solid var(--color-border)",
-                  borderLeft: isLeft ? "3px solid var(--color-error)" : "3px solid transparent",
+                  borderLeft: isChanged && row.leftBlock ? "3px solid var(--color-error)" : "3px solid transparent",
                 }}>
                   {row.leftBlock ? (
-                    <BlockContent block={row.leftBlock} cellDiffs={row.cellDiffs} side="left" highlight={isLeft} />
-                  ) : (
-                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>
-                      {row.type === "added" ? "(추가)" : "\u00A0"}
-                    </span>
-                  )}
+                    <BlockContent block={row.leftBlock} cellDiffs={row.cellDiffs} side="left" />
+                  ) : row.type === "added" ? (
+                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>(추가됨)</span>
+                  ) : <span>{"\u00A0"}</span>}
                 </div>
                 {/* 수정본 */}
                 <div className="px-5 py-2.5 ts-sm" style={{
-                  backgroundColor: rightBg(row.type),
-                  borderLeft: isRight ? "3px solid var(--color-success)" : "none",
+                  borderLeft: isChanged && row.rightBlock ? "3px solid var(--color-success)" : "none",
                 }}>
                   {row.rightBlock ? (
-                    <BlockContent block={row.rightBlock} cellDiffs={row.cellDiffs} side="right" highlight={isRight} />
-                  ) : (
-                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>
-                      {row.type === "removed" ? "(삭제)" : "\u00A0"}
-                    </span>
-                  )}
+                    <BlockContent block={row.rightBlock} cellDiffs={row.cellDiffs} side="right" />
+                  ) : row.type === "removed" ? (
+                    <span className="ts-2xs italic" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>(삭제됨)</span>
+                  ) : <span>{"\u00A0"}</span>}
                 </div>
               </div>
             );
@@ -613,7 +654,7 @@ export function ResultStep({ result, onReset, onBack, onOpenFolder, onSummarize,
 
       {/* Side-by-side diff 뷰 */}
       {diffData && (
-        <DiffViewer stats={diffData.stats} diffs={diffData.diffs} />
+        <DiffViewer diffs={diffData.diffs} />
       )}
 
       {/* 마크다운 결과 — convert, ocr, extract_tables, summarize, form_extract, scan_receipt */}
