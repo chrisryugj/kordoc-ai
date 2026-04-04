@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { XCircle, Loader2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { PipelineProgress, PipelineStep } from "../../types/pipeline";
+import { formatElapsed } from "../../utils/format";
 
 interface OcrProgressStepProps {
   progress: PipelineProgress;
@@ -13,11 +14,6 @@ interface OcrProgressStepProps {
 const stepTitles: Partial<Record<PipelineStep, string>> = {
   converting: "문서 변환 중",
 };
-
-function formatElapsed(s: number) {
-  const m = Math.floor(s / 60);
-  return m > 0 ? `${m}분 ${s % 60}초` : `${s}초`;
-}
 
 export function OcrProgressStep({ progress, onCancel, logs, step }: OcrProgressStepProps) {
   const isIndeterminate = progress.total <= 0;

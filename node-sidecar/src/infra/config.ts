@@ -1,6 +1,7 @@
 /** YAML 설정 로더 — 원자적 쓰기, LRU 캐시 */
 
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { writeFile, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
@@ -37,13 +38,13 @@ export function getConfig<K extends keyof Settings>(section: K): Settings[K] {
 }
 
 /** 설정 업데이트 (원자적 쓰기: tmp → rename) */
-export function updateSettings(patch: Record<string, unknown>): Settings {
+export async function updateSettings(patch: Record<string, unknown>): Promise<Settings> {
   const current = getSettings();
   const merged = deepMerge(current as unknown as Record<string, unknown>, patch) as unknown as Settings;
 
   const tmp = CONFIG_PATH + '.tmp';
-  writeFileSync(tmp, stringify(merged), 'utf-8');
-  renameSync(tmp, CONFIG_PATH);
+  await writeFile(tmp, stringify(merged), 'utf-8');
+  await rename(tmp, CONFIG_PATH);
 
   cached = merged;
   logger.info('[config] updated');

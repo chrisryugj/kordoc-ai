@@ -35,7 +35,7 @@ export async function extractTables(params: ExtractTablesParams): Promise<Extrac
   logger.info(`[extract_tables] ${input_path}`);
 
   const buffer = await readFile(input_path);
-  const result = await parse(buffer.buffer as ArrayBuffer, { pages });
+  const result = await parse(new Uint8Array(buffer).buffer, { pages });
 
   if (!result.success) {
     return {

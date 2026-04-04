@@ -20,6 +20,7 @@ src/gui*.py
 src/web.py
 config/settings.yaml
 config/ocr-rules.yaml
+node-sidecar/config/settings.yaml
 
 # 출력
 output/

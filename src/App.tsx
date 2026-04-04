@@ -18,8 +18,8 @@ import { useSidecar } from "./hooks/useSidecar";
 import { usePipeline } from "./hooks/usePipeline";
 import { useToast } from "./hooks/useToast";
 import type { ImportedFile, PipelineAction } from "./types/pipeline";
-
-type NavItem = "pipeline" | "settings" | "help";
+import type { NavItem } from "./types/nav";
+import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
 
 export default function App() {
@@ -127,19 +127,11 @@ export default function App() {
 
       const existingPaths = new Set(pipeline.files.map((f) => f.path));
       const newFiles: ImportedFile[] = paths
-        .filter((p) => /\.(hwp|hwpx|pdf|xlsx)$/i.test(p))
+        .filter((p) => SUPPORTED_EXT_RE.test(p))
         .filter((p) => !existingPaths.has(p))
         .map((p) => {
           const name = p.split(/[/\\]/).pop() ?? p;
-          const lower = name.toLowerCase();
-          return {
-            path: p, name, size: 0,
-            type: lower.endsWith(".pdf") ? "pdf" as const
-              : lower.endsWith(".hwpx") ? "hwpx" as const
-              : lower.endsWith(".hwp") ? "hwp" as const
-              : lower.endsWith(".xlsx") ? "xlsx" as const
-              : "unknown" as const,
-          };
+          return { path: p, name, size: 0, type: detectFileType(name) };
         });
       if (newFiles.length > 0) {
         pipeline.setFiles([...pipeline.files, ...newFiles]);
@@ -163,15 +155,7 @@ export default function App() {
         .filter((p) => !existingPaths.has(p))
         .map((p) => {
           const name = p.split(/[/\\]/).pop() ?? p;
-          const lower = name.toLowerCase();
-          return {
-            path: p, name, size: 0,
-            type: lower.endsWith(".pdf") ? "pdf" as const
-              : lower.endsWith(".hwpx") ? "hwpx" as const
-              : lower.endsWith(".hwp") ? "hwp" as const
-              : lower.endsWith(".xlsx") ? "xlsx" as const
-              : "unknown" as const,
-          };
+          return { path: p, name, size: 0, type: detectFileType(name) };
         });
       if (newFiles.length > 0) {
         pipeline.setFiles([...pipeline.files, ...newFiles]);
@@ -191,26 +175,19 @@ export default function App() {
       if (!folderPath) return;
       const entries = await sidecar.call("list_files", { path: folderPath }) as { name: string; is_dir: boolean; size: number }[];
       // 지원 확장자만 필터
-      const supported = entries.filter((e) => !e.is_dir && /\.(hwp|hwpx|pdf|xlsx)$/i.test(e.name));
+      const supported = entries.filter((e) => !e.is_dir && SUPPORTED_EXT_RE.test(e.name));
       if (supported.length === 0) {
         showToast("선택한 폴더에 지원 파일이 없습니다", "info");
         return;
       }
       const existingPaths = new Set(pipeline.files.map((f) => f.path));
       const newFiles: ImportedFile[] = supported
-        .map((e) => ({ path: `${folderPath}/${e.name}`.replace(/\//g, "\\"), name: e.name, size: e.size }))
+        .map((e) => ({ path: `${folderPath}\\${e.name}`, name: e.name, size: e.size }))
         .filter((f) => !existingPaths.has(f.path))
-        .map((f) => {
-          const lower = f.name.toLowerCase();
-          return {
-            path: f.path, name: f.name, size: f.size,
-            type: lower.endsWith(".pdf") ? "pdf" as const
-              : lower.endsWith(".hwpx") ? "hwpx" as const
-              : lower.endsWith(".hwp") ? "hwp" as const
-              : lower.endsWith(".xlsx") ? "xlsx" as const
-              : "unknown" as const,
-          };
-        });
+        .map((f) => ({
+          path: f.path, name: f.name, size: f.size,
+          type: detectFileType(f.name),
+        }));
       if (newFiles.length > 0) {
         pipeline.setFiles([...pipeline.files, ...newFiles]);
         showToast(`${newFiles.length}개 파일 추가됨`, "success");
@@ -372,7 +349,6 @@ export default function App() {
                   result={pipeline.result}
                   onReset={pipeline.reset}
                   onOpenFolder={handleOpenFolder}
-                  sidecarCall={sidecar.call}
                 />
               )}
             </div>
@@ -380,7 +356,7 @@ export default function App() {
         </main>
       </div>
 
-      <StatusBar step={pipeline.step} progress={pipeline.progress} apiKeySet={apiKey.trim().length > 0} />
+      <StatusBar step={pipeline.step} progress={pipeline.progress} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <SettingsModal

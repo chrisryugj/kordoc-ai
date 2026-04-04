@@ -1,5 +1,6 @@
 /** 배치 변환 — 다중 파일 순차 처리 + progress */
 
+import { basename, extname, join } from 'node:path';
 import { convert, type ConvertParams, type ConvertResult } from '../converter/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
@@ -51,7 +52,6 @@ export async function convertBatch(
 
       // output_dir이 지정된 경우 출력 경로를 수동 설정
       if (output_dir) {
-        const { basename, extname, join } = await import('node:path');
         const outName = basename(files[i], extname(files[i])) + '.md';
         convertParams.output_path = join(output_dir, outName);
       }
