@@ -1,6 +1,6 @@
 /** 문서 비교 — kordoc diff 기반 신구대조표 */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { compare, type DiffResult } from 'kordoc';
 import { logger } from '../../infra/logger.js';
 
@@ -20,9 +20,17 @@ export interface DiffResponse {
 }
 
 export async function diff(params: DiffParams, signal?: AbortSignal): Promise<DiffResponse> {
-  const { file_a, file_b, pages } = params;
+  let { file_a, file_b } = params;
+  const { pages } = params;
 
-  logger.info(`[diff] ${file_a} ↔ ${file_b}`);
+  // 수정시간 비교 — 오래된 파일을 원본(file_a)으로
+  const [statA, statB] = await Promise.all([stat(file_a), stat(file_b)]);
+  if (statA.mtimeMs > statB.mtimeMs) {
+    logger.info(`[diff] 파일 순서 교정: ${file_b} (이전) → ${file_a} (이후)`);
+    [file_a, file_b] = [file_b, file_a];
+  }
+
+  logger.info(`[diff] ${file_a} (원본) ↔ ${file_b} (수정본)`);
   signal?.throwIfAborted();
 
   const [bufA, bufB] = await Promise.all([

@@ -435,10 +435,6 @@ function buildRows(diffs: BlockDiff[]): DiffRow[] {
 
 // ── DiffViewer ──
 
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + "…" : s;
-}
-
 function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
   const [showUnchanged, setShowUnchanged] = useState(true);
 
@@ -495,24 +491,24 @@ function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
 
       {/* 변경 내역 요약 */}
       {entries.length > 0 && (
-        <div className="px-5 py-3 shrink-0 space-y-1" style={{ borderBottom: "1px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)" }}>
+        <div className="px-5 py-3 shrink-0 space-y-1 overflow-y-auto" style={{ borderBottom: "1px solid var(--color-border)", backgroundColor: "var(--color-bg-tertiary)", maxHeight: 200 }}>
           <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>변경 내역</p>
           {entries.map((e, i) => (
-            <div key={i} className="ts-2xs flex items-baseline gap-1.5" style={{ color: "var(--color-text-secondary)" }}>
-              <span className="px-1 py-0.5 rounded shrink-0" style={{ backgroundColor: `color-mix(in srgb, ${KIND_COLOR[e.kind]} 15%, transparent)`, color: KIND_COLOR[e.kind], fontSize: "0.65rem" }}>
+            <div key={i} className="ts-2xs flex items-start gap-1.5" style={{ color: "var(--color-text-secondary)" }}>
+              <span className="px-1 py-0.5 rounded shrink-0 mt-px" style={{ backgroundColor: `color-mix(in srgb, ${KIND_COLOR[e.kind]} 15%, transparent)`, color: KIND_COLOR[e.kind], fontSize: "0.65rem" }}>
                 {KIND_LABEL[e.kind]}
               </span>
               {e.kind === "removed" && (
-                <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 50)}</span>
+                <span className="break-all" style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{e.before}</span>
               )}
               {e.kind === "added" && (
-                <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 50)}</span>
+                <span className="break-all" style={{ color: "var(--color-success)" }}>{e.after}</span>
               )}
               {(e.kind === "content" || e.kind === "spacing" || e.kind === "punctuation") && (
-                <span>
-                  <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{truncate(e.before, 35)}</span>
+                <span className="break-all">
+                  <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{e.before}</span>
                   <span style={{ color: "var(--color-text-muted)", margin: "0 0.3em" }}>→</span>
-                  <span style={{ color: "var(--color-success)" }}>{truncate(e.after, 35)}</span>
+                  <span style={{ color: "var(--color-success)" }}>{e.after}</span>
                 </span>
               )}
             </div>
