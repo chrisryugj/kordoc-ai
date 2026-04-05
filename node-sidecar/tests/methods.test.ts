@@ -225,7 +225,48 @@ describe('summarize', () => {
 
   it('텍스트/파일 모두 없으면 에러', async () => {
     const ac = new AbortController();
-    await expect(summarize({}, ac.signal)).rejects.toThrow('text 또는 input_path');
+    await expect(summarize({}, ac.signal)).rejects.toThrow('요약할 내용이 없습니다');
+  });
+
+  it('공백만 있는 텍스트는 에러', async () => {
+    const ac = new AbortController();
+    await expect(summarize({ text: '   \n\t  ' }, ac.signal)).rejects.toThrow('요약할 내용이 없습니다');
+  });
+
+  it('빈 파일은 에러', async () => {
+    const inputPath = join(tmpDir, 'empty.txt');
+    await writeFile(inputPath, '');
+    const ac = new AbortController();
+    await expect(summarize({ input_path: inputPath }, ac.signal)).rejects.toThrow('요약할 내용이 없습니다');
+  });
+
+  it('Gemini 빈 응답은 에러', async () => {
+    mockCallGemini.mockResolvedValueOnce('');
+    const ac = new AbortController();
+    await expect(summarize({ text: '내용이 있는 문서' }, ac.signal)).rejects.toThrow('요약 결과가 비어 있습니다');
+  });
+
+  it('style과 length 파라미터가 프롬프트에 반영됨', async () => {
+    mockCallGemini.mockResolvedValueOnce('보고용 요약');
+    const ac = new AbortController();
+    const result = await summarize({ text: '문서 내용', style: 'briefing', length: 'short' }, ac.signal);
+    expect(result.style).toBe('briefing');
+    // callGemini에 전달된 prompt에 보고용 키워드 포함 확인
+    const callArgs = mockCallGemini.mock.calls[0][0] as { prompt: string };
+    expect(callArgs.prompt).toContain('상급자 보고용');
+  });
+
+  it('100,001자는 에러', async () => {
+    const ac = new AbortController();
+    await expect(summarize({ text: 'A'.repeat(100_001) }, ac.signal)).rejects.toThrow('입력 텍스트가 너무 깁니다');
+  });
+
+  it('이미 취소된 signal — 바이너리 파일', async () => {
+    const inputPath = join(tmpDir, 'cancel.pdf');
+    await writeFile(inputPath, 'dummy');
+    const ac = new AbortController();
+    ac.abort();
+    await expect(summarize({ input_path: inputPath }, ac.signal)).rejects.toThrow();
   });
 });
 

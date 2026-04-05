@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
-import type { ImportedFile, PipelineAction, MergeMode } from "../../types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
 
@@ -101,7 +101,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[] }) => void;
+  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions }) => void;
   onBrowse: () => void;
   onBrowseFolder: () => void;
   apiKeySet: boolean;
@@ -120,6 +120,7 @@ export function Workspace({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [modeConfirm, setModeConfirm] = useState<{ action: PipelineAction; label: string } | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [summarizeOpen, setSummarizeOpen] = useState(false);
   const pendingActionRef = useRef<PipelineAction | null>(null);
 
   useEffect(() => {
@@ -166,6 +167,11 @@ export function Workspace({
       setMergeOpen(true);
       return;
     }
+    // summarize: 옵션 선택 다이얼로그
+    if (action === "summarize") {
+      setSummarizeOpen(true);
+      return;
+    }
     onAction(action);
   }, [aiMode, onAction, files, detectUniformFormat]);
 
@@ -174,7 +180,13 @@ export function Workspace({
     const action = pendingActionRef.current;
     setModeConfirm(null);
     pendingActionRef.current = null;
-    if (action) setTimeout(() => onAction(action), 50);
+    if (action) {
+      if (action === "summarize") {
+        setTimeout(() => setSummarizeOpen(true), 50);
+      } else {
+        setTimeout(() => onAction(action), 50);
+      }
+    }
   }, [onToggleMode, onAction]);
 
   const hasFiles = files.length > 0;
@@ -219,7 +231,7 @@ export function Workspace({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 pb-8 pt-6">
+      <div className="flex-1 overflow-y-auto px-8 pb-8 pt-6 content-area">
         {/* ── 1. 파일 영역 ── */}
         {!hasFiles ? (
           /* 파일 없음: 큰 드롭존 */
@@ -429,6 +441,130 @@ export function Workspace({
           onCancel={() => setMergeOpen(false)}
         />
       )}
+
+      {/* 요약 옵션 선택 */}
+      {summarizeOpen && (
+        <SummarizeOptionsDialog
+          fileName={files[0]?.name}
+          onConfirm={(opts) => {
+            setSummarizeOpen(false);
+            onAction("summarize", { summarizeOptions: opts });
+          }}
+          onCancel={() => setSummarizeOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── 요약 옵션 다이얼로그 ──
+
+const STYLE_OPTIONS: { value: SummarizeStyle; label: string; desc: string }[] = [
+  { value: "standard", label: "일반 요약", desc: "배경 · 핵심 · 조치사항으로 정리" },
+  { value: "briefing", label: "보고용", desc: "결론 먼저, 상급자 보고에 최적" },
+  { value: "review", label: "검토용", desc: "쟁점 · 리스크 중심 정리" },
+  { value: "action", label: "조치 추출", desc: "할 일 · 담당 · 기한만 추출" },
+];
+
+const LENGTH_OPTIONS: { value: SummarizeLength; label: string }[] = [
+  { value: "short", label: "짧게" },
+  { value: "medium", label: "보통" },
+  { value: "long", label: "상세" },
+];
+
+function SummarizeOptionsDialog({ fileName, onConfirm, onCancel }: {
+  fileName?: string;
+  onConfirm: (opts: SummarizeOptions) => void;
+  onCancel: () => void;
+}) {
+  const [style, setStyle] = useState<SummarizeStyle>("standard");
+  const [length, setLength] = useState<SummarizeLength>("medium");
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "var(--color-backdrop)" }}
+      onClick={onCancel}
+    >
+      <div className="card p-5 mx-4 space-y-4 animate-fade-in" style={{ width: "min(420px, calc(100vw - 48px))" }} onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, #2563EB 10%, transparent)" }}>
+            <Sparkles size={20} style={{ color: "#2563EB" }} />
+          </div>
+          <div>
+            <h3 className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>AI 요약</h3>
+            {fileName && <p className="ts-2xs truncate" style={{ color: "var(--color-text-muted)", maxWidth: 280 }}>{fileName}</p>}
+          </div>
+        </div>
+
+        {/* 요약 유형 */}
+        <div>
+          <label className="ts-2xs font-semibold mb-2 block" style={{ color: "var(--color-text-muted)" }}>요약 유형</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            {STYLE_OPTIONS.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setStyle(s.value)}
+                className="text-left px-3 py-2 rounded-md transition-all"
+                style={{
+                  backgroundColor: style === s.value ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
+                  border: `1.5px solid ${style === s.value ? "var(--color-accent)" : "var(--color-border)"}`,
+                  cursor: "pointer",
+                }}
+              >
+                <div className="ts-xs font-semibold" style={{ color: style === s.value ? "var(--color-accent)" : "var(--color-text-primary)" }}>
+                  {s.label}
+                </div>
+                <div className="ts-2xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>{s.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 분량 */}
+        <div>
+          <label className="ts-2xs font-semibold mb-2 block" style={{ color: "var(--color-text-muted)" }}>분량</label>
+          <div className="flex gap-1.5">
+            {LENGTH_OPTIONS.map((l) => (
+              <button
+                key={l.value}
+                type="button"
+                onClick={() => setLength(l.value)}
+                className="flex-1 px-3 py-1.5 rounded-md ts-xs font-medium transition-all"
+                style={{
+                  backgroundColor: length === l.value ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
+                  border: `1.5px solid ${length === l.value ? "var(--color-accent)" : "var(--color-border)"}`,
+                  color: length === l.value ? "var(--color-accent)" : "var(--color-text-secondary)",
+                  cursor: "pointer",
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 보안 안내 */}
+        <p className="ts-2xs px-3 py-2 rounded-md" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)", lineHeight: 1.5 }}>
+          문서 내용이 Gemini API로 전송됩니다. 민감한 문서는 주의하세요.
+        </p>
+
+        {/* 버튼 */}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
+          <Button size="sm" onClick={() => onConfirm({ style, length })}>
+            <span className="flex items-center gap-1.5"><Sparkles size={14} /> 요약 시작</span>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
