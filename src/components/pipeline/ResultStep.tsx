@@ -4,10 +4,11 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { MarkdownViewer } from "../ui/MarkdownViewer";
 import { formatElapsed } from "../../utils/format";
-import type { PipelineResult } from "../../types/pipeline";
+import type { PipelineResult, ImportedFile } from "../../types/pipeline";
 
 interface ResultStepProps {
   result: PipelineResult | null;
+  files: ImportedFile[];
   onReset: () => void;
   onBack: () => void;
   onOpenFolder: () => void;
@@ -678,7 +679,7 @@ function LogModal({ logs, onClose }: { logs: string[]; onClose: () => void }) {
 
 // ── 메인 컴포넌트 ──
 
-export function ResultStep({ result, onReset, onBack, onOpenFolder, onSummarize, isSummarizing, logs, elapsed }: ResultStepProps) {
+export function ResultStep({ result, files, onReset, onBack, onOpenFolder, onSummarize, isSummarizing, logs, elapsed }: ResultStepProps) {
   const [logsOpen, setLogsOpen] = useState(false);
   if (!result) return null;
 
@@ -711,8 +712,17 @@ export function ResultStep({ result, onReset, onBack, onOpenFolder, onSummarize,
                 <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>{formatElapsed(elapsed)}</span>
               )}
             </div>
+            {files.length > 0 && (
+              <p className="ts-2xs mt-1 truncate" style={{ color: "var(--color-text-muted)" }}>
+                {files.length === 1
+                  ? files[0].name
+                  : files.length === 2
+                    ? `${files[0].name} ↔ ${files[1].name}`
+                    : `${files[0].name} 외 ${files.length - 1}개`}
+              </p>
+            )}
             {result.warnings.length > 0 && (
-              <p className="ts-2xs mt-1" style={{ color: "var(--color-warning)" }}>
+              <p className="ts-2xs mt-0.5" style={{ color: "var(--color-warning)" }}>
                 {result.warnings[0]}{result.warnings.length > 1 ? ` 외 ${result.warnings.length - 1}건` : ""}
               </p>
             )}
