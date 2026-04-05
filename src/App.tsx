@@ -184,15 +184,16 @@ export default function App() {
     }
   }, [pipeline.result, sidecar.call, showToast]);
 
-  // AI 요약 from result viewer
-  const handleSummarize = useCallback(async (markdown: string) => {
-    if (!apiKey.trim()) { showToast("Gemini API 키가 필요합니다", "error"); return; }
+  // AI 요약 from result viewer — 오프라인이면 전환 확인
+  const pendingSummarizeRef = useRef<string | null>(null);
+  const [summarizeConfirm, setSummarizeConfirm] = useState(false);
+
+  const doSummarize = useCallback(async (markdown: string) => {
     setIsSummarizing(true);
     try {
       const raw = await sidecar.call("summarize", { text: markdown }) as Record<string, unknown>;
       if (typeof raw.summary === "string") {
         showToast("요약 완료", "success");
-        // 요약 결과를 클립보드에 복사
         try { await navigator.clipboard.writeText(raw.summary as string); showToast("요약이 클립보드에 복사되었습니다", "success"); } catch { /* ok */ }
       }
     } catch (e) {
@@ -200,7 +201,26 @@ export default function App() {
     } finally {
       setIsSummarizing(false);
     }
-  }, [apiKey, sidecar.call, showToast]);
+  }, [sidecar.call, showToast]);
+
+  const handleSummarize = useCallback((markdown: string) => {
+    if (!apiKey.trim()) { showToast("Gemini API 키가 필요합니다", "error"); return; }
+    if (aiMode === "offline") {
+      pendingSummarizeRef.current = markdown;
+      setSummarizeConfirm(true);
+      return;
+    }
+    doSummarize(markdown);
+  }, [apiKey, aiMode, doSummarize, showToast]);
+
+  const handleSummarizeConfirm = useCallback(() => {
+    setSummarizeConfirm(false);
+    settings.toggleAiMode();
+    if (pendingSummarizeRef.current) {
+      doSummarize(pendingSummarizeRef.current);
+      pendingSummarizeRef.current = null;
+    }
+  }, [settings, doSummarize]);
 
   const handleNavigate = useCallback((item: NavItem) => {
     if (item === "settings") setSettingsOpen(true);
@@ -291,6 +311,46 @@ export default function App() {
       />
 
       <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* AI 요약 모드 전환 확인 */}
+      {summarizeConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "var(--color-backdrop)" }}>
+          <div className="card p-6 max-w-sm mx-4 animate-fade-in">
+            <div className="flex flex-col items-center text-center gap-3">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-accent-subtle)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-accent)" }}><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              </div>
+              <div>
+                <p className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>온라인 모드 전환</p>
+                <p className="ts-2xs mt-1" style={{ color: "var(--color-text-secondary)" }}>
+                  AI 요약은 Gemini API가 필요합니다.
+                </p>
+                <p className="ts-2xs mt-2 px-3 py-1.5 rounded" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>
+                  문서 내용이 외부 서버로 전송됩니다. 보안에 유의하세요.
+                </p>
+              </div>
+              <div className="flex gap-2 mt-1 w-full">
+                <button
+                  type="button"
+                  onClick={() => { setSummarizeConfirm(false); pendingSummarizeRef.current = null; }}
+                  className="flex-1 px-4 py-2 rounded-md ts-xs font-medium hover-bg-tertiary"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSummarizeConfirm}
+                  className="flex-1 px-4 py-2 rounded-md ts-xs font-medium"
+                  style={{ backgroundColor: "var(--color-accent)", color: "white" }}
+                >
+                  전환 후 요약
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
