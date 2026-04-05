@@ -255,6 +255,7 @@ export default function App() {
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <ResultStep
                     result={pipeline.result}
+                    files={pipeline.files}
                     onReset={pipeline.reset}
                     onBack={pipeline.goBack}
                     onOpenFolder={handleOpenFolder}
