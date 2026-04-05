@@ -226,24 +226,47 @@ function extractDiff(data: unknown): { stats: DiffStats; diffs: BlockDiff[] } | 
 
 // ── 셀 단위 변경 건수 집계 ──
 
-type ChangeKind = "spacing" | "punctuation" | "content" | "added" | "removed";
+type ChangeKind = "spacing" | "punctuation" | "partial_add" | "partial_del" | "partial_edit" | "content" | "added" | "removed";
 interface ChangeEntry { before: string; after: string; kind: ChangeKind }
 
 /** before/after 비교해서 변경 유형 판별 */
 function classifyChange(before: string, after: string): ChangeKind {
   if (!before) return "added";
   if (!after) return "removed";
+
   // 공백 제거 후 동일 → 띄어쓰기 변경
-  if (before.replace(/\s+/g, "") === after.replace(/\s+/g, "")) return "spacing";
+  const bTrim = before.replace(/\s+/g, "");
+  const aTrim = after.replace(/\s+/g, "");
+  if (bTrim === aTrim) return "spacing";
+
   // 문자·숫자만 추출 후 동일 → 문장부호/특수문자 변경
   const strip = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "");
   if (strip(before) === strip(after)) return "punctuation";
+
+  // 한쪽이 다른 쪽을 포함 → 내용 추가/삭제
+  if (aTrim.includes(bTrim) && bTrim.length > 3) return "partial_add";
+  if (bTrim.includes(aTrim) && aTrim.length > 3) return "partial_del";
+
+  // 공통 접두사+접미사가 전체의 60% 이상 → 일부 수정
+  const minLen = Math.min(before.length, after.length);
+  if (minLen > 5) {
+    let prefix = 0;
+    while (prefix < minLen && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < minLen - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const commonRatio = (prefix + suffix) / Math.max(before.length, after.length);
+    if (commonRatio >= 0.5) return "partial_edit";
+  }
+
   return "content";
 }
 
 const KIND_LABEL: Record<ChangeKind, string> = {
   spacing: "띄어쓰기",
   punctuation: "문장부호",
+  partial_add: "내용 추가",
+  partial_del: "내용 삭제",
+  partial_edit: "일부 수정",
   content: "내용 변경",
   added: "추가",
   removed: "삭제",
@@ -251,6 +274,9 @@ const KIND_LABEL: Record<ChangeKind, string> = {
 const KIND_COLOR: Record<ChangeKind, string> = {
   spacing: "var(--color-text-muted)",
   punctuation: "var(--color-text-muted)",
+  partial_add: "var(--color-success)",
+  partial_del: "var(--color-error)",
+  partial_edit: "var(--color-warning)",
   content: "var(--color-warning)",
   added: "var(--color-success)",
   removed: "var(--color-error)",
@@ -504,7 +530,7 @@ function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
               {e.kind === "added" && (
                 <span className="break-all" style={{ color: "var(--color-success)" }}>{e.after}</span>
               )}
-              {(e.kind === "content" || e.kind === "spacing" || e.kind === "punctuation") && (
+              {e.kind !== "removed" && e.kind !== "added" && (
                 <span className="break-all">
                   <span style={{ color: "var(--color-error)", textDecoration: "line-through" }}>{e.before}</span>
                   <span style={{ color: "var(--color-text-muted)", margin: "0 0.3em" }}>→</span>
