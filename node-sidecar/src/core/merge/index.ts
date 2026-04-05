@@ -15,6 +15,39 @@ export type { MergeFilesParams, MergeFilesResult } from './types.js';
 export { splitPdf } from './concat-pdf.js';
 export type { SplitPdfParams, SplitPdfResult } from './concat-pdf.js';
 
+/**
+ * HWPX 서식 유지 수합 — COM 실패 시 kordoc 마크다운 병합으로 폴백.
+ * COM(pyhwpx): 서식 완벽 보존, 한컴오피스+Python 필요
+ * 폴백(kordoc): 텍스트/표 보존, 서식 손실, 의존성 없음
+ */
+async function concatHwpxWithFallback(
+  params: MergeFilesParams,
+  signal: AbortSignal,
+): Promise<MergeFilesResult> {
+  try {
+    return await concatHwpx(params, signal);
+  } catch (comErr) {
+    // 사용자가 취소한 건 그대로 전파
+    if (comErr instanceof DOMException && comErr.name === 'AbortError') throw comErr;
+
+    const reason = comErr instanceof Error ? comErr.message : String(comErr);
+    logger.warn(`[merge] HWPX COM 실패 → kordoc 마크다운 병합으로 전환: ${reason}`);
+    sendProgress({ current: 0, total: params.files.length, message: 'COM 실패 — 마크다운 병합으로 전환' });
+
+    // 마크다운 모드로 폴백 (output 확장자를 .md로 변경)
+    const mdOutput = params.output_path.replace(/\.hwpx$/i, '_병합.md');
+    const fallbackResult = await mergeFiles(
+      { ...params, mode: 'markdown', output_path: mdOutput },
+      signal,
+    );
+
+    return {
+      ...fallbackResult,
+      warnings: [`COM 수합 실패(${reason}) — 마크다운으로 병합됨. 서식이 보존되지 않습니다.`],
+    };
+  }
+}
+
 export async function mergeFiles(
   params: MergeFilesParams,
   signal: AbortSignal,
@@ -23,7 +56,7 @@ export async function mergeFiles(
   if (params.mode === 'native') {
     const ext = extname(params.files[0]).toLowerCase();
     switch (ext) {
-      case '.hwpx': return concatHwpx(params, signal);
+      case '.hwpx': return concatHwpxWithFallback(params, signal);
       case '.xlsx': return concatXlsx(params, signal);
       case '.docx': return concatDocx(params, signal);
       case '.pdf': return concatPdf(params, signal);
