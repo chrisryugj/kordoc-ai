@@ -8,10 +8,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, basename } from 'node:path';
-import { writeFile as fsWriteFile, unlink, mkdir } from 'node:fs/promises';
+import { readFile, writeFile as fsWriteFile, unlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import JSZip from 'jszip';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
@@ -106,6 +107,19 @@ export async function concatHwpx(
 
     if (lastLine.startsWith('SUCCESS:')) {
       const size = parseInt(lastLine.replace('SUCCESS:', ''), 10);
+
+      // 무결성 검증: COM 저장 결과가 유효한 HWPX(ZIP)인지 확인
+      try {
+        const buf = await readFile(output_path);
+        const zip = await JSZip.loadAsync(buf);
+        const required = ['Contents/header.xml', 'Contents/content.hpf', 'Contents/section0.xml'];
+        const missing = required.filter(f => !zip.file(f));
+        if (missing.length > 0) {
+          logger.warn(`[concat-hwpx] 결과 파일 필수 항목 누락: ${missing.join(', ')}`);
+        }
+      } catch (verifyErr) {
+        logger.warn(`[concat-hwpx] 결과 파일 검증 실패 (계속 진행): ${verifyErr}`);
+      }
 
       sendProgress({
         current: files.length,
