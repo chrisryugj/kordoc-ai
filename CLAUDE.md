@@ -37,7 +37,7 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 - **프론트엔드**: React 19, TypeScript 5.9, Tailwind CSS 4, Vite 7
 - **데스크톱**: Tauri 2.10 (Rust)
 - **백엔드**: Node.js (JSON-RPC 2.0 sidecar)
-- **문서 파싱**: kordoc v1.8+ (순수 JS — HWP/HWPX/PDF/XLSX/DOCX, 한컴오피스 불필요)
+- **문서 파싱**: kordoc v2.0+ (순수 JS — HWP/HWPX/PDF/XLSX/DOCX, 배포용 HWP 복호화, 한컴오피스 불필요)
 - **AI**: Google Gemini (gemini-3-flash-preview)
 - **빌드**: tsc (sidecar) → Tauri MSI 인스톨러
 

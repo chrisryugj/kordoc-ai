@@ -20,4 +20,6 @@ export interface MergeFilesResult {
   /** 마크다운 모드: 글자 수, native 모드: 바이트 수 */
   total_length: number;
   failed_files: string[];
+  /** 경고 메시지 (폴백 발생 시 등) */
+  warnings?: string[];
 }
