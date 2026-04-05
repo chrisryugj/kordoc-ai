@@ -45,10 +45,10 @@ export const SAVED_API_KEY_SENTINEL = "__saved__" as const;
 const DEFAULT_OCR_MODEL = "gemini-3-flash-preview";
 const DEFAULT_ANALYSIS_MODEL = "gemini-3-flash-preview";
 const MODEL_CATALOG = {
-  "gemini-3-flash-preview": { value: "gemini-3-flash-preview", label: "Gemini 3 Flash", desc: "속도와 품질의 균형이 좋아 범용으로 적합" },
-  "gemini-2.5-flash-preview-05-20": { value: "gemini-2.5-flash-preview-05-20", label: "Gemini 2.5 Flash", desc: "비교적 안정적이고 가벼운 범용 모델" },
-  "gemini-2.5-pro-preview-06-05": { value: "gemini-2.5-pro-preview-06-05", label: "Gemini 2.5 Pro", desc: "가장 무겁지만 복잡한 문서 품질이 가장 좋음" },
-  "gemini-3.1-flash-lite-preview": { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", desc: "가장 빠르고 비용이 낮아 대량 분석에 적합" },
+  "gemini-3-flash-preview": { value: "gemini-3-flash-preview", label: "Gemini 3 Flash", desc: "속도·품질 균형 최고, 무료 (Preview)" },
+  "gemini-2.5-flash-preview-05-20": { value: "gemini-2.5-flash-preview-05-20", label: "Gemini 2.5 Flash", desc: "안정적 범용 모델, 무료 (10 RPM · 250 RPD)" },
+  "gemini-2.5-pro-preview-06-05": { value: "gemini-2.5-pro-preview-06-05", label: "Gemini 2.5 Pro", desc: "최고 품질, 유료 전용 (무료 티어 미지원)" },
+  "gemini-3.1-flash-lite-preview": { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", desc: "가장 빠르고 가벼움, 무료 (Preview)" },
 } as const;
 
 const OCR_MODELS: ModelOption[] = [
@@ -215,7 +215,7 @@ export function SettingsModal({
               className="underline flex items-center gap-0.5" style={{ color: "var(--color-accent)" }}>
               Google AI Studio <ExternalLink size={9} />
             </a>
-            에서 무료 발급 (하루 1,500회 호출)
+            에서 무료 발급 (모델별 하루 100~1,000회)
           </p>
         </div>
 

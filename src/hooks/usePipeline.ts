@@ -6,6 +6,7 @@ import type {
   ImportedFile,
   PipelineProgress,
   PipelineResult,
+  MergeMode,
 } from "../types/pipeline";
 
 type SidecarCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -26,7 +27,7 @@ interface UsePipelineReturn {
   startAction: (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[] },
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
@@ -116,11 +117,17 @@ export function usePipeline(): UsePipelineReturn {
     };
   }
 
-  async function dispatchMerge(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string): Promise<PipelineResult> {
+  async function dispatchMerge(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string, mergeMode?: MergeMode): Promise<PipelineResult> {
     const dir = outputDir || fileDir(currentFiles[0].path);
     const sep = dir.includes("/") ? "/" : "\\";
-    const outputPath = `${dir}${sep}merged.md`;
-    const raw = await call("merge_files", { files: currentFiles.map((f) => f.path), output_path: outputPath }) as Record<string, unknown>;
+    // native 모드: 첫 파일 확장자로 출력, markdown 모드: .md
+    const ext = mergeMode === "native" ? `.${currentFiles[0].type}` : ".md";
+    const outputPath = `${dir}${sep}merged${ext}`;
+    const raw = await call("merge_files", {
+      files: currentFiles.map((f) => f.path),
+      output_path: outputPath,
+      mode: mergeMode ?? "markdown",
+    }) as Record<string, unknown>;
     return {
       total: currentFiles.length, successCount: 1, failCount: 0,
       outputPath: dir,
@@ -144,7 +151,7 @@ export function usePipeline(): UsePipelineReturn {
   const startAction = useCallback(async (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[] },
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
@@ -190,7 +197,7 @@ export function usePipeline(): UsePipelineReturn {
           resp = await dispatchGenerateHwpx(sidecarCall, currentFiles[0]);
           break;
         case "merge_files":
-          resp = await dispatchMerge(sidecarCall, currentFiles, options?.outputDir);
+          resp = await dispatchMerge(sidecarCall, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);
           break;
         case "scan_receipt":
           resp = await dispatchSingle("scan_receipt", sidecarCall, currentFiles[0]);

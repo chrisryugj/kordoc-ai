@@ -16,7 +16,7 @@ import { diff } from '../../core/comparator/index.js';
 import { formExtract } from '../../core/form/index.js';
 import { generateHwpx } from '../../core/generator/index.js';
 import { extractTables } from '../../core/excel/index.js';
-import { mergeFiles } from '../../core/merge/index.js';
+import { mergeFiles, splitPdf } from '../../core/merge/index.js';
 import { scanReceipt } from '../../core/receipt/index.js';
 
 /** 모든 메서드를 라우터에 등록 */
@@ -212,10 +212,23 @@ export function registerAllMethods(router: RpcRouter): void {
       files: validatedFiles,
       output_path,
       separator: params.separator as string | undefined,
+      mode: params.mode as 'markdown' | 'native' | undefined,
     }, signal);
   });
 
-  // 17. scan_receipt — 영수증 스캔 (Gemini Vision)
+  // 17. split_pdf — PDF 분리
+  router.register('split_pdf', async (params, signal) => {
+    const file = validatePath(params.file as string);
+    const output_dir = validatePath(params.output_dir as string);
+    return splitPdf({
+      file,
+      output_dir,
+      mode: params.mode as 'each' | 'range' | undefined,
+      ranges: params.ranges as string | undefined,
+    }, signal);
+  });
+
+  // 18. scan_receipt — 영수증 스캔 (Gemini Vision)
   router.register('scan_receipt', async (params, signal) => {
     const input_path = validatePath(params.input_path as string);
     return scanReceipt({ input_path }, signal);
