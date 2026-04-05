@@ -10,6 +10,7 @@ import { ResultStep } from "./components/pipeline/ResultStep";
 import { ToastContainer } from "./components/ui/Toast";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { HelpModal } from "./components/help/HelpModal";
+import { MergeResultModal } from "./components/pipeline/MergeResultModal";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useSidecar } from "./hooks/useSidecar";
 import { usePipeline } from "./hooks/usePipeline";
@@ -314,6 +315,13 @@ export default function App() {
       />
 
       <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* 병합 결과 모달 — merge 완료 시 페이지 전환 없이 팝업 */}
+      <MergeResultModal
+        result={pipeline.step === "import" ? pipeline.result : null}
+        onClose={pipeline.goBack}
+        onOpenFolder={() => { handleOpenFolder(); pipeline.goBack(); }}
+      />
 
       {/* AI 요약 모드 전환 확인 */}
       {summarizeConfirm && (
