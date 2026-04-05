@@ -7,6 +7,7 @@ import type {
   PipelineProgress,
   PipelineResult,
   MergeMode,
+  SummarizeOptions,
 } from "../types/pipeline";
 
 type SidecarCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -24,10 +25,11 @@ interface UsePipelineReturn {
   result: PipelineResult | null;
   setStep: (step: PipelineStep) => void;
   setFiles: (files: ImportedFile[]) => void;
+  setResult: (result: PipelineResult | null) => void;
   startAction: (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[] },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions },
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
@@ -107,8 +109,13 @@ export function usePipeline(): UsePipelineReturn {
     };
   }
 
-  async function dispatchSummarize(call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
-    const raw = await call("summarize", { input_path: file.path }) as Record<string, unknown>;
+  async function dispatchSummarize(call: SidecarCall, file: ImportedFile, summarizeOpts?: SummarizeOptions): Promise<PipelineResult> {
+    const params: Record<string, unknown> = { input_path: file.path };
+    if (summarizeOpts) {
+      params.length = summarizeOpts.length;
+      params.style = summarizeOpts.style;
+    }
+    const raw = await call("summarize", params) as Record<string, unknown>;
     return {
       total: 1, successCount: 1, failCount: 0,
       outputPath: fileDir(file.path),
@@ -153,7 +160,7 @@ export function usePipeline(): UsePipelineReturn {
   const startAction = useCallback(async (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[] },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions },
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
@@ -184,7 +191,7 @@ export function usePipeline(): UsePipelineReturn {
           resp = await dispatchSingle("ocr", sidecarCall, currentFiles[0]);
           break;
         case "summarize":
-          resp = await dispatchSummarize(sidecarCall, currentFiles[0]);
+          resp = await dispatchSummarize(sidecarCall, currentFiles[0], options?.summarizeOptions);
           break;
         case "diff":
           resp = await dispatchDiff(sidecarCall, currentFiles);
@@ -254,7 +261,7 @@ export function usePipeline(): UsePipelineReturn {
 
   return {
     step, files, progress, result,
-    setStep, setFiles,
+    setStep, setFiles, setResult,
     startAction, cancel, reset, goBack,
   };
 }

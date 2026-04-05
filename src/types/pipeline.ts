@@ -19,6 +19,16 @@ export type PipelineAction =
 /** 병합 모드 — native: 원본 서식 유지 수합, markdown: 마크다운 변환 후 합치기 */
 export type MergeMode = "markdown" | "native";
 
+/** 요약 분량 */
+export type SummarizeLength = "short" | "medium" | "long";
+/** 요약 스타일 */
+export type SummarizeStyle = "standard" | "briefing" | "review" | "action";
+
+export interface SummarizeOptions {
+  length: SummarizeLength;
+  style: SummarizeStyle;
+}
+
 export interface ImportedFile {
   path: string;
   name: string;

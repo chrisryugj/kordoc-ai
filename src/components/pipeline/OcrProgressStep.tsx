@@ -27,7 +27,7 @@ export function OcrProgressStep({ progress, onCancel, logs, step, elapsed }: Ocr
   }, [logs.length]);
 
   return (
-    <div className="p-6 animate-fade-in space-y-6">
+    <div className="p-6 animate-fade-in space-y-6 content-area">
       <div className="card p-6" onContextMenu={(e) => e.preventDefault()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">

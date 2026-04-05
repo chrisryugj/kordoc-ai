@@ -246,6 +246,16 @@ select.input-modern option {
 }
 
 /* ============================================
+   Content max-width — 넓은 화면에서 가독성 유지
+   ============================================ */
+.content-area {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+/* ============================================
    Responsive: narrow window (< 1024px)
    ============================================ */
 @media (max-width: 1024px) {
@@ -264,6 +274,13 @@ select.input-modern option {
     padding-right: 0;
   }
   aside[role="navigation"] nav { padding-left: 0.25rem; padding-right: 0.25rem; }
+}
+
+/* ============================================
+   Responsive: wide window (> 1440px)
+   ============================================ */
+@media (min-width: 1441px) {
+  .content-area { max-width: 1200px; }
 }
 
 

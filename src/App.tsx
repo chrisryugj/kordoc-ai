@@ -17,7 +17,8 @@ import { usePipeline } from "./hooks/usePipeline";
 import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
-import type { ImportedFile, PipelineAction, MergeMode } from "./types/pipeline";
+import { useWindowSize } from "./hooks/useWindowSize";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
 import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
@@ -34,6 +35,7 @@ export default function App() {
 
   const sidecar = useSidecar();
   const pipeline = usePipeline();
+  useWindowSize(pipeline.step);
   const { toasts, showToast, dismissToast } = useToast();
 
   const sidecarReady = sidecar.status === "ready";
@@ -157,7 +159,7 @@ export default function App() {
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
   // Start action
-  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[] }) => {
+  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
     logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
     setLogsVersion((v) => v + 1);
@@ -195,17 +197,24 @@ export default function App() {
   const doSummarize = useCallback(async (markdown: string) => {
     setIsSummarizing(true);
     try {
-      const raw = await sidecar.call("summarize", { text: markdown }) as Record<string, unknown>;
+      const raw = await sidecar.call("summarize", { text: markdown, style: "standard", length: "medium" }) as Record<string, unknown>;
       if (typeof raw.summary === "string") {
+        // 요약 결과를 pipeline result에 반영 → ResultStep에서 인라인 표시
+        pipeline.setResult?.({
+          total: 1, successCount: 1, failCount: 0,
+          outputPath: pipeline.result?.outputPath ?? "",
+          warnings: [],
+          data: raw,
+        });
         showToast("요약 완료", "success");
-        try { await navigator.clipboard.writeText(raw.summary as string); showToast("요약이 클립보드에 복사되었습니다", "success"); } catch { /* ok */ }
+        try { await navigator.clipboard.writeText(raw.summary as string); } catch { /* ok */ }
       }
     } catch (e) {
       showToast(`요약 실패: ${e}`, "error");
     } finally {
       setIsSummarizing(false);
     }
-  }, [sidecar.call, showToast]);
+  }, [sidecar.call, showToast, pipeline.result, pipeline.setResult]);
 
   const handleSummarize = useCallback((markdown: string) => {
     if (!apiKey.trim()) { showToast("Gemini API 키가 필요합니다", "error"); return; }

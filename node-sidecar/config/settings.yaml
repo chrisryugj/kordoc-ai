@@ -5,7 +5,7 @@ gemini:
   proxy_url: ""
   max_retries: 5
   timeout_ms: 60000
-  mode: offline
+  mode: online
 convert:
   output_dir: ""
   ocr_fallback: true
