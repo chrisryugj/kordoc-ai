@@ -11,10 +11,13 @@ export type PipelineAction =
   | "summarize"      // AI 요약
   | "diff"           // 문서 비교
   | "extract_tables" // 표 추출
-  | "form_extract"   // 양식 필드 추출
+  | "form_extract"   // 양식 필드 추���
   | "generate_hwpx"  // 마크다운 → HWPX
   | "merge_files"    // 문서 병합
   | "scan_receipt";  // 영수증 스캔
+
+/** 병합 모드 — native: 원본 서식 유지 수합, markdown: 마크다운 변환 후 합치기 */
+export type MergeMode = "markdown" | "native";
 
 export interface ImportedFile {
   path: string;

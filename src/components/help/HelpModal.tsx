@@ -235,7 +235,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                 />
                 <FaqItem
                   q="API 사용 비용이 있나요?"
-                  a="Gemini API 무료 티어로 분당 15회, 하루 1,500회 호출 가능합니다. 일반적인 문서 변환은 무료 범위 내에서 충분합니다."
+                  a="Gemini API 무료 티어는 모델별로 다릅니다. Flash 기준 분당 10회·하루 250회, Flash Lite는 하루 1,000회까지 가능합니다. 2.5 Pro는 유료 전용입니다. 일반적인 문서 변환은 무료 범위로 충분합니다."
                 />
                 <FaqItem
                   q="오프라인에서도 사용할 수 있나요?"
@@ -272,8 +272,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   <div className="p-3.5 rounded-lg" style={{ backgroundColor: "var(--color-bg-tertiary)" }}>
                     <h4 className="ts-sm font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>모델 선택 가이드</h4>
                     <p className="ts-2xs leading-relaxed" style={{ color: "var(--color-text-muted)" }}>
-                      <strong>OCR/변환:</strong> Gemini 3 Flash가 속도와 품질의 균형이 가장 좋습니다.
-                      <br /><strong>분석/요약:</strong> Flash Lite로도 충분합니다. 복잡한 문서 분석이 필요하면 Pro를 선택하세요.
+                      <strong>OCR/변환:</strong> Gemini 3 Flash가 속도와 품질의 균형이 가장 좋습니다 (무료).
+                      <br /><strong>분석/요약:</strong> Flash Lite로도 충분합니다 (무료, 하루 1,000회). Pro는 유료 전용이지만 복잡한 문서에 최고 품질입니다.
                     </p>
                   </div>
 
