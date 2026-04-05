@@ -632,7 +632,7 @@ function LogModal({ logs, onClose }: { logs: string[]; onClose: () => void }) {
     >
       <div
         className="card flex flex-col mx-6 my-8 animate-fade-in"
-        style={{ width: "min(720px, calc(100vw - 48px))", maxHeight: "calc(100vh - 64px)" }}
+        style={{ width: "min(860px, calc(100vw - 48px))", maxHeight: "calc(100vh - 64px)" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
@@ -652,16 +652,20 @@ function LogModal({ logs, onClose }: { logs: string[]; onClose: () => void }) {
 
         {/* Log content */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
-          <div className="rounded-md p-4 space-y-0.5 text-mono ts-2xs" style={{ backgroundColor: "var(--color-bg-primary)" }}>
+          <div className="rounded-md p-4 space-y-1 text-mono ts-2xs" style={{ backgroundColor: "var(--color-bg-primary)" }}>
             {logs.map((log, i) => (
               <div
                 key={i}
+                className="break-all py-0.5"
                 style={{
                   color: log.includes("ERROR") ? "var(--color-error)"
                     : log.includes("완료") ? "var(--color-success)"
                     : "var(--color-text-muted)",
+                  borderBottom: "1px solid color-mix(in srgb, var(--color-border) 30%, transparent)",
+                  lineHeight: 1.5,
                 }}
               >
+                <span className="ts-2xs mr-2 select-none" style={{ color: "var(--color-text-muted)", opacity: 0.4 }}>{String(i + 1).padStart(2, " ")}</span>
                 {log}
               </div>
             ))}
