@@ -16,7 +16,7 @@ import { usePipeline } from "./hooks/usePipeline";
 import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
-import type { ImportedFile, PipelineAction } from "./types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
 import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
@@ -156,12 +156,15 @@ export default function App() {
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
   // Start action
-  const handleStartAction = useCallback(async (action: PipelineAction) => {
+  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[] }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
     logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
     setLogsVersion((v) => v + 1);
     try {
-      await pipeline.startAction(action, sidecar.call, outputDir ? { outputDir } : undefined);
+      await pipeline.startAction(action, sidecar.call, {
+        ...(outputDir ? { outputDir } : {}),
+        ...actionOptions,
+      });
       showToast("처리 완료", "success");
     } catch (e) {
       const msg = String(e).replace(/^Error:\s*/, "").replace(/^JSON-RPC error:\s*/, "");

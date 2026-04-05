@@ -1,32 +1,37 @@
-/** 파일 수합 — 다중 문서 변환 후 단일 마크다운으로 병합 */
+/** 파일 수합 — 마크다운 병합 또는 서식 유지 수합 */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, basename, extname } from 'node:path';
 import { parse } from 'kordoc';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { concatHwpx } from './concat-hwpx.js';
+import { concatDocx } from './concat-docx.js';
+import { concatXlsx } from './concat-xlsx.js';
+import { concatPdf, splitPdf } from './concat-pdf.js';
+import type { MergeFilesParams, MergeFilesResult } from './types.js';
 
-export interface MergeFilesParams {
-  /** 입력 파일 경로 배열 */
-  files: string[];
-  /** 출력 파일 경로 */
-  output_path: string;
-  /** 파일 간 구분자 (기본: 제목 + 구분선) */
-  separator?: string;
-}
-
-export interface MergeFilesResult {
-  success: boolean;
-  output_path: string;
-  file_count: number;
-  total_length: number;
-  failed_files: string[];
-}
+export type { MergeFilesParams, MergeFilesResult } from './types.js';
+export { splitPdf } from './concat-pdf.js';
+export type { SplitPdfParams, SplitPdfResult } from './concat-pdf.js';
 
 export async function mergeFiles(
   params: MergeFilesParams,
   signal: AbortSignal,
 ): Promise<MergeFilesResult> {
+  // native 모드: 포맷별 서식 유지 수합
+  if (params.mode === 'native') {
+    const ext = extname(params.files[0]).toLowerCase();
+    switch (ext) {
+      case '.hwpx': return concatHwpx(params, signal);
+      case '.xlsx': return concatXlsx(params, signal);
+      case '.docx': return concatDocx(params, signal);
+      case '.pdf': return concatPdf(params, signal);
+      default: throw new Error(`서식 유지 수합을 지원하지 않는 형식입니다: ${ext}`);
+    }
+  }
+
+  // markdown 모드 (기본): 기존 로직
   const { files, output_path, separator } = params;
   const sections: string[] = [];
   const failedFiles: string[] = [];

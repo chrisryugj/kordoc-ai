@@ -7,8 +7,9 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
-import type { ImportedFile, PipelineAction } from "../../types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
+import { MergeOrderDialog } from "./MergeOrderDialog";
 
 // ── Action 정의 ──
 
@@ -100,7 +101,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction) => void;
+  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[] }) => void;
   onBrowse: () => void;
   onBrowseFolder: () => void;
   apiKeySet: boolean;
@@ -118,6 +119,7 @@ export function Workspace({
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [modeConfirm, setModeConfirm] = useState<{ action: PipelineAction; label: string } | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const pendingActionRef = useRef<PipelineAction | null>(null);
 
   useEffect(() => {
@@ -143,6 +145,15 @@ export function Workspace({
 
   const removeFile = (path: string) => onFilesChange(files.filter((f) => f.path !== path));
 
+  /** 동일 네이티브 포맷 감지 (hwpx/xlsx/docx/pdf) */
+  const detectUniformFormat = useCallback((f: ImportedFile[]): string | null => {
+    if (f.length < 2) return null;
+    const nativeTypes = new Set(["hwpx", "xlsx", "docx", "pdf"]);
+    const first = f[0].type;
+    if (!nativeTypes.has(first)) return null;
+    return f.every((file) => file.type === first) ? first : null;
+  }, []);
+
   const handleActionClick = useCallback((action: PipelineAction) => {
     const def = ACTIONS.find((a) => a.action === action);
     if (def?.needsApi && aiMode === "offline") {
@@ -150,8 +161,13 @@ export function Workspace({
       setModeConfirm({ action, label: def.label });
       return;
     }
+    // merge: 항상 순서/방식 선택 다이얼로그 표시
+    if (action === "merge_files") {
+      setMergeOpen(true);
+      return;
+    }
     onAction(action);
-  }, [aiMode, onAction]);
+  }, [aiMode, onAction, files, detectUniformFormat]);
 
   const handleConfirmSwitch = useCallback(() => {
     onToggleMode();
@@ -399,6 +415,19 @@ export function Workspace({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 병합 순서/방식 선택 */}
+      {mergeOpen && (
+        <MergeOrderDialog
+          files={files}
+          uniformType={detectUniformFormat(files)}
+          onConfirm={(orderedFiles, mergeMode) => {
+            setMergeOpen(false);
+            onAction("merge_files", { mergeMode, orderedFiles });
+          }}
+          onCancel={() => setMergeOpen(false)}
+        />
       )}
     </div>
   );
