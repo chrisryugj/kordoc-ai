@@ -3,16 +3,18 @@
  * Python + pyhwpx를 통해 한/글 HwpObject COM을 호출,
  * insert_file로 파일을 병합하여 서식·페이지 설정 완벽 보존.
  * 요구사항: Windows + 한컴오피스 + Python + pyhwpx
+ *
+ * 제약: 특정 대형 멀티섹션 문서는 insert_file 시 페이지 손실 가능 (한/글 COM 한계)
+ *       → 병합 후 PageCount 비교하여 경고
  */
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, basename } from 'node:path';
-import { readFile, writeFile as fsWriteFile, unlink, mkdir } from 'node:fs/promises';
+import { writeFile as fsWriteFile, unlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import JSZip from 'jszip';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
@@ -35,33 +37,32 @@ try:
     hwp = Hwp(visible=False)
     hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
 
-    # 가장 큰 파일을 base로 사용 (작은 base에 큰 파일 insert 시 페이지 손실 방지)
-    indexed = [(i, f, os.path.getsize(f)) for i, f in enumerate(files)]
-    indexed.sort(key=lambda x: -x[2])
-    base_idx, base_file, _ = indexed[0]
+    # 각 파일 페이지 수 합산
+    page_sum = 0
+    for f in files:
+        hwp.open(f)
+        page_sum += hwp.PageCount
+        hwp.clear(1)
 
-    before = sorted([(i, f) for i, f, _ in indexed if i < base_idx], key=lambda x: x[0])
-    after = sorted([(i, f) for i, f, _ in indexed if i > base_idx], key=lambda x: x[0])
-
-    hwp.open(base_file)
-
-    # base 앞에 올 파일들: 역순으로 문서 시작에 삽입
-    for i, f in reversed(before):
-        hwp.move_pos(2)  # moveTopOfFile
-        hwp.insert_file(f, keep_section=1, keep_charshape=1, keep_parashape=1, keep_style=1)
-
-    # base 뒤에 올 파일들: 순서대로 문서 끝에 삽입
-    for i, f in after:
+    # 병합: 첫 파일 base, 나머지 순서대로 끝에 삽입
+    hwp.open(files[0])
+    for f in files[1:]:
         hwp.move_pos(3)  # moveBottomOfFile
         hwp.insert_file(f, keep_section=1, keep_charshape=1, keep_parashape=1, keep_style=1)
 
+    merged_pages = hwp.PageCount
     hwp.save_as(output)
     hwp.clear(1)
     hwp.quit()
     hwp = None
 
     sz = os.path.getsize(output)
-    print(f'SUCCESS:{sz}')
+
+    # 페이지 손실 검증 (섹션 구분으로 ±5p 허용)
+    diff = page_sum - merged_pages
+    if diff > 5:
+        print(f'WARN:page_loss:{diff}:{page_sum}:{merged_pages}')
+    print(f'SUCCESS:{sz}:{merged_pages}:{page_sum}')
 except Exception as e:
     if hwp:
         try:
@@ -103,29 +104,29 @@ export async function concatHwpx(
     if (stderr) logger.warn(`[concat-hwpx] stderr: ${stderr}`);
 
     const lines = stdout.trim().split(/\r?\n/);
+
+    // 페이지 손실 경고 체크
+    const warnLine = lines.find(l => l.startsWith('WARN:page_loss:'));
+    if (warnLine) {
+      const [, , lostStr, expectedStr, actualStr] = warnLine.split(':');
+      const msg = `⚠ 일부 페이지가 누락되었을 수 있습니다 (예상 ${expectedStr}p → 결과 ${actualStr}p, ${lostStr}p 차이). 결과를 확인해 주세요.`;
+      logger.warn(`[concat-hwpx] ${msg}`);
+      sendProgress({ current: files.length, total: files.length, message: msg });
+    }
+
     const lastLine = lines[lines.length - 1].trim();
 
     if (lastLine.startsWith('SUCCESS:')) {
-      const size = parseInt(lastLine.replace('SUCCESS:', ''), 10);
+      const parts = lastLine.replace('SUCCESS:', '').split(':');
+      const size = parseInt(parts[0], 10);
 
-      // 무결성 검증: COM 저장 결과가 유효한 HWPX(ZIP)인지 확인
-      try {
-        const buf = await readFile(output_path);
-        const zip = await JSZip.loadAsync(buf);
-        const required = ['Contents/header.xml', 'Contents/content.hpf', 'Contents/section0.xml'];
-        const missing = required.filter(f => !zip.file(f));
-        if (missing.length > 0) {
-          logger.warn(`[concat-hwpx] 결과 파일 필수 항목 누락: ${missing.join(', ')}`);
-        }
-      } catch (verifyErr) {
-        logger.warn(`[concat-hwpx] 결과 파일 검증 실패 (계속 진행): ${verifyErr}`);
+      if (!warnLine) {
+        sendProgress({
+          current: files.length,
+          total: files.length,
+          message: 'HWPX 수합 완료',
+        });
       }
-
-      sendProgress({
-        current: files.length,
-        total: files.length,
-        message: 'HWPX 수합 완료',
-      });
 
       logger.info(`[concat-hwpx] done → ${output_path} (${size} bytes, ${files.length}개 파일)`);
 
