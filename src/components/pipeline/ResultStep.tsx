@@ -102,13 +102,16 @@ function extractMarkdown(data: unknown): string | null {
   if (Array.isArray(d.tables) && d.table_count != null) {
     const tables = d.tables as { markdown: string; index: number; page?: number; caption?: string; rows: number; cols: number; footnotes?: string[] }[];
     if (tables.length > 0) {
+      const badgeStyle = "display:inline-block;padding:1px 7px;border-radius:4px;font-size:0.65em;font-weight:400;background:var(--color-bg-tertiary);color:var(--color-text-muted);vertical-align:middle;margin-left:6px";
       return tables.map((t) => {
         const title = t.caption || `표 ${t.index + 1}`;
-        const meta = [t.page != null ? `${t.page}페이지` : "", `${t.rows}행 × ${t.cols}열`].filter(Boolean).join(" · ");
+        const badges: string[] = [];
+        if (t.page != null) badges.push(`<span style="${badgeStyle}">${t.page}p</span>`);
+        badges.push(`<span style="${badgeStyle}">${t.rows}×${t.cols}</span>`);
         const footnotesBlock = Array.isArray(t.footnotes) && t.footnotes.length > 0
           ? "\n\n" + t.footnotes.map(n => `> *${n}*`).join("\n>\n")
           : "";
-        return `#### ${title}\n\n> ${meta}\n\n${t.markdown}${footnotesBlock}`;
+        return `#### ${title} ${badges.join("")}\n\n${t.markdown}${footnotesBlock}`;
       }).join("\n\n---\n\n");
     }
   }
@@ -116,8 +119,13 @@ function extractMarkdown(data: unknown): string | null {
   // summarize — 요약 결과를 마크다운으로 표시
   if (typeof d.summary === "string" && d.summary.length > 0) {
     const parts: string[] = [];
+    const styleLabelMap: Record<string, string> = { standard: "일반 요약", briefing: "보고용", review: "검토용", action: "조치 추출" };
+    const styleLabel = typeof d.style === "string" && styleLabelMap[d.style] ? ` · ${styleLabelMap[d.style]}` : "";
+    const ratio = d.original_length != null && Number(d.original_length) > 0
+      ? ` (${Math.round(Number(d.summary_length) / Number(d.original_length) * 100)}%)`
+      : "";
     if (d.original_length != null) {
-      parts.push(`> 원문 ${Number(d.original_length).toLocaleString()}자 → 요약 ${Number(d.summary_length).toLocaleString()}자\n`);
+      parts.push(`> 원문 ${Number(d.original_length).toLocaleString()}자 → 요약 ${Number(d.summary_length).toLocaleString()}자${ratio}${styleLabel}\n`);
     }
     parts.push(d.summary as string);
     return parts.join("\n");

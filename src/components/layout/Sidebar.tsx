@@ -46,13 +46,13 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
       style={{ width: "var(--sidebar-width)", backgroundColor: "var(--color-sidebar-bg)", borderRight: "1px solid var(--color-border)" }}
     >
       {/* Logo */}
-      <div className="sidebar-header px-4 flex items-center gap-3" style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
-        <img src="/logo.png" alt="KorDoc AI" className="w-9 h-9 rounded-lg shrink-0 object-cover" />
-        <div className="sidebar-logo-text" style={{ lineHeight: 1.15 }}>
-          <h1 className="font-bold text-display" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "0.9375rem" }}>
+      <div className="sidebar-header px-4 flex items-center gap-2" style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
+        <img src="/logo.png" alt="KorDoc AI" className="w-10 h-10 rounded-lg shrink-0 object-cover" style={{ marginTop: "-2px" }} />
+        <div style={{ lineHeight: 1.2 }}>
+          <h1 className="font-bold text-display" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "1.0625rem", margin: 0 }}>
             KorDoc AI
           </h1>
-          <span style={{ color: "var(--color-sidebar-muted)", fontSize: "0.6875rem" }}>다 파싱해버리겠다.</span>
+          <span style={{ color: "var(--color-sidebar-muted)", fontSize: "0.75rem", display: "block", marginTop: "1px" }}>다 파싱해버리겠다.</span>
         </div>
       </div>
 

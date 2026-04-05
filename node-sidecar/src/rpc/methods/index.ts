@@ -152,7 +152,8 @@ export function registerAllMethods(router: RpcRouter): void {
     return summarize({
       text: params.text as string | undefined,
       input_path,
-      length: params.length as string | undefined,
+      length: params.length as 'short' | 'medium' | 'long' | undefined,
+      style: params.style as 'standard' | 'briefing' | 'review' | 'action' | undefined,
       language: params.language as string | undefined,
     }, signal);
   });
