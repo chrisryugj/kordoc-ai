@@ -122,7 +122,9 @@ export function usePipeline(): UsePipelineReturn {
     const sep = dir.includes("/") ? "/" : "\\";
     // native 모드: 첫 파일 확장자로 출력, markdown 모드: .md
     const ext = mergeMode === "native" ? `.${currentFiles[0].type}` : ".md";
-    const outputPath = `${dir}${sep}merged${ext}`;
+    const firstName = currentFiles[0].name.replace(/\.[^.]+$/, "");
+    const suffix = currentFiles.length > 1 ? `_외${currentFiles.length - 1}건` : "";
+    const outputPath = `${dir}${sep}수합_${firstName}${suffix}${ext}`;
     const raw = await call("merge_files", {
       files: currentFiles.map((f) => f.path),
       output_path: outputPath,
@@ -212,7 +214,8 @@ export function usePipeline(): UsePipelineReturn {
       if (resp.total > 0 && resp.successCount === 0) {
         throw new Error(`처리 실패: ${resp.total}개 중 성공 0개`);
       }
-      setStep("complete");
+      // merge는 모달로 결과 표시 → Workspace 유지
+      setStep(action === "merge_files" ? "import" : "complete");
     } catch (e) {
       if (cancelledRef.current) return;
       setStep("import");
