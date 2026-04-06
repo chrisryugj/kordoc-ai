@@ -29,11 +29,24 @@ export interface SummarizeOptions {
   style: SummarizeStyle;
 }
 
+/** 양식 추출 옵션 */
+export interface FormExtractOptions {
+  selectedFields: string[];
+  useAi: boolean;
+}
+
+/** 필드 후보 (form_extract_candidates 응답) */
+export interface FieldCandidate {
+  label: string;
+  source: 'table' | 'inline';
+  count: number;
+}
+
 export interface ImportedFile {
   path: string;
   name: string;
   size: number;
-  type: "hwp" | "hwpx" | "pdf" | "txt" | "xlsx" | "docx" | "md" | "unknown";
+  type: "hwp" | "hwpx" | "pdf" | "txt" | "xlsx" | "docx" | "md" | "png" | "jpg" | "gif" | "webp" | "unknown";
 }
 
 export interface PipelineProgress {

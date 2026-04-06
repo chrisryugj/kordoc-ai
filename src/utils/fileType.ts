@@ -10,8 +10,12 @@ export function detectFileType(filename: string): ImportedFile["type"] {
   if (lower.endsWith(".docx")) return "docx";
   if (lower.endsWith(".txt")) return "txt";
   if (lower.endsWith(".md")) return "md";
+  if (lower.endsWith(".png")) return "png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "jpg";
+  if (lower.endsWith(".gif")) return "gif";
+  if (lower.endsWith(".webp")) return "webp";
   return "unknown";
 }
 
 /** 지원 확장자 정규식 */
-export const SUPPORTED_EXT_RE = /\.(hwp|hwpx|pdf|xlsx|docx|txt|md)$/i;
+export const SUPPORTED_EXT_RE = /\.(hwp|hwpx|pdf|xlsx|docx|txt|md|png|jpe?g|gif|webp)$/i;

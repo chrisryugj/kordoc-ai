@@ -6,7 +6,8 @@ import { logger } from '../infra/logger.js';
 /** 파일 I/O + AI API를 동반하는 무거운 메서드 (동시성 제한 대상) */
 const HEAVY_METHODS = new Set([
   'convert', 'convert_batch', 'ocr', 'summarize',
-  'diff', 'form_extract', 'extract_tables', 'generate_hwpx',
+  'diff', 'form_extract', 'form_extract_candidates', 'form_extract_batch',
+  'extract_tables', 'generate_hwpx',
   'merge_files', 'scan_receipt',
 ]);
 
