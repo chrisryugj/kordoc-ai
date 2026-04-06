@@ -9,6 +9,7 @@ import type {
   MergeMode,
   SummarizeOptions,
   FormExtractOptions,
+  ConvertOptions,
 } from "../types/pipeline";
 
 type SidecarCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -30,7 +31,7 @@ interface UsePipelineReturn {
   startAction: (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions },
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
@@ -70,23 +71,27 @@ export function usePipeline(): UsePipelineReturn {
 
   // ── 액션별 RPC 디스패처 ──
 
-  async function dispatchConvert(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string): Promise<PipelineResult> {
+  async function dispatchConvert(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string, pages?: string): Promise<PipelineResult> {
     const batchParams: Record<string, unknown> = { files: currentFiles.map((f) => f.path) };
     if (outputDir) batchParams.output_dir = outputDir;
+    if (pages) batchParams.pages = pages;
 
     const raw = await call("convert_batch", batchParams) as {
       total: number; succeeded: number; failed: number;
-      results: { success: boolean; output_path: string; error?: string }[];
+      results: Record<string, unknown>[];
     };
     const firstSuccess = raw.results.find((r) => r.success && r.output_path);
     return {
       total: raw.total,
       successCount: raw.succeeded,
       failCount: raw.failed,
-      outputPath: firstSuccess ? fileDir(firstSuccess.output_path) : "",
-      warnings: raw.results.filter((r) => r.error).map((r) => r.error!),
+      outputPath: firstSuccess ? fileDir(firstSuccess.output_path as string) : "",
+      warnings: raw.results.filter((r) => r.error).map((r) => String(r.error)),
+      data: firstSuccess,
     };
   }
+
+
 
   async function dispatchSingle(method: string, call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
     const raw = await call(method, { input_path: file.path }) as Record<string, unknown>;
@@ -182,7 +187,7 @@ export function usePipeline(): UsePipelineReturn {
   const startAction = useCallback(async (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions },
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
@@ -207,7 +212,7 @@ export function usePipeline(): UsePipelineReturn {
 
       switch (action) {
         case "convert":
-          resp = await dispatchConvert(sidecarCall, currentFiles, options?.outputDir);
+          resp = await dispatchConvert(sidecarCall, currentFiles, options?.outputDir, options?.convertOptions?.pages);
           break;
         case "ocr":
           resp = await dispatchSingle("ocr", sidecarCall, currentFiles[0]);
@@ -234,8 +239,8 @@ export function usePipeline(): UsePipelineReturn {
         case "merge_files":
           resp = await dispatchMerge(sidecarCall, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);
           break;
-        case "scan_receipt":
-          resp = await dispatchSingle("scan_receipt", sidecarCall, currentFiles[0]);
+        case "inspect_document":
+          resp = await dispatchSingle("inspect_document", sidecarCall, currentFiles[0]);
           break;
         default:
           throw new Error(`알 수 없는 액션: ${action}`);

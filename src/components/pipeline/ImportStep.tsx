@@ -1,7 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
-import { Upload, FileText, X, FolderOpen, AlertTriangle, Trash2 } from "lucide-react";
+import { Upload, X, FolderOpen, AlertTriangle, Trash2, List, LayoutGrid } from "lucide-react";
 import { Button } from "../ui/Button";
-import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
 import type { ImportedFile } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 
@@ -22,9 +21,159 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// ── 파일 타입별 색상 + 레이블 ──
+const FILE_TYPE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  hwp:     { color: "#fff",     bg: "#1E5FAD", label: "HWP"  },
+  hwpx:    { color: "#fff",     bg: "#2970C8", label: "HWPX" },
+  pdf:     { color: "#fff",     bg: "#E84040", label: "PDF"  },
+  xlsx:    { color: "#fff",     bg: "#1F8A4C", label: "XLSX" },
+  xls:     { color: "#fff",     bg: "#1F8A4C", label: "XLS"  },
+  docx:    { color: "#fff",     bg: "#2B579A", label: "DOCX" },
+  txt:     { color: "#fff",     bg: "#6B7280", label: "TXT"  },
+  md:      { color: "#fff",     bg: "#6B7280", label: "MD"   },
+  png:     { color: "#fff",     bg: "#7C3AED", label: "PNG"  },
+  jpg:     { color: "#fff",     bg: "#7C3AED", label: "JPG"  },
+  gif:     { color: "#fff",     bg: "#7C3AED", label: "GIF"  },
+  webp:    { color: "#fff",     bg: "#7C3AED", label: "WEBP" },
+  unknown: { color: "#fff",     bg: "#9CA3AF", label: "FILE" },
+};
+
+function FileTypeIcon({ type, size = 40 }: { type: string; size?: number }) {
+  const cfg = FILE_TYPE_CONFIG[type] ?? FILE_TYPE_CONFIG.unknown;
+  const w = size;
+  const h = Math.round(size * 1.25);
+  const fold = Math.round(size * 0.28);
+  const r = Math.round(size * 0.1);
+
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="none" aria-hidden="true">
+      {/* 본체 */}
+      <path
+        d={`M${r} 0 H${w - fold} L${w} ${fold} V${h - r} Q${w} ${h} ${w - r} ${h} H${r} Q0 ${h} 0 ${h - r} V${r} Q0 0 ${r} 0 Z`}
+        fill={cfg.bg}
+      />
+      {/* 접힌 코너 */}
+      <path
+        d={`M${w - fold} 0 L${w} ${fold} H${w - fold + r} Q${w - fold} ${fold} ${w - fold} ${fold - r} Z`}
+        fill="rgba(255,255,255,0.22)"
+      />
+      {/* 확장자 텍스트 */}
+      <text
+        x={w / 2}
+        y={h - Math.round(h * 0.18)}
+        textAnchor="middle"
+        fill={cfg.color}
+        fontSize={Math.round(size * 0.22)}
+        fontWeight="700"
+        fontFamily="system-ui, -apple-system, sans-serif"
+        letterSpacing="-0.5"
+      >
+        {cfg.label}
+      </text>
+    </svg>
+  );
+}
+
+// ── 그리드 카드 ──
+function FileCard({
+  file,
+  onRemove,
+  onContextMenu,
+}: {
+  file: ImportedFile;
+  onRemove: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      className="group relative flex flex-col items-center gap-1.5 p-3 rounded-xl cursor-default select-none transition-colors"
+      style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+      onContextMenu={onContextMenu}
+      title={file.name}
+    >
+      {/* 삭제 버튼 (호버 시) */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        aria-label={`${file.name} 삭제`}
+        className="absolute top-1.5 right-1.5 p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ backgroundColor: "var(--color-bg-secondary)", color: "var(--color-text-muted)" }}
+      >
+        <X size={11} />
+      </button>
+
+      <FileTypeIcon type={file.type} size={40} />
+
+      <span
+        className="ts-2xs text-center leading-tight w-full"
+        style={{
+          color: "var(--color-text-primary)",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          wordBreak: "break-all",
+        }}
+      >
+        {file.name}
+      </span>
+      {file.size > 0 && (
+        <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+          {formatSize(file.size)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── 리스트 행 ──
+function FileRow({
+  file,
+  onRemove,
+  onContextMenu,
+}: {
+  file: ImportedFile;
+  onRemove: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2 rounded-md"
+      style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+      onContextMenu={onContextMenu}
+    >
+      <FileTypeIcon type={file.type} size={24} />
+      <span className="ts-sm flex-1 truncate" style={{ color: "var(--color-text-primary)" }} title={file.name}>
+        {file.name}
+      </span>
+      {file.size > 0 && (
+        <span className="ts-2xs shrink-0" style={{ color: "var(--color-text-muted)" }}>
+          {formatSize(file.size)}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="p-1 rounded hover-bg-tertiary shrink-0"
+        aria-label={`${file.name} 삭제`}
+      >
+        <X size={14} style={{ color: "var(--color-text-muted)" }} />
+      </button>
+    </div>
+  );
+}
+
 export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrowseFolder, apiKeySet = true, onOpenSettings }: ImportStepProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  // 파일 ≤ 20이면 그리드, > 20이면 리스트 기본
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  // 파일 수 변화 시 모드 자동 전환
+  useEffect(() => {
+    if (files.length > 20 && viewMode === "grid") setViewMode("list");
+    if (files.length <= 20 && viewMode === "list") setViewMode("grid");
+  }, [files.length]); // viewMode 의도적으로 deps 제외
 
   // 컨텍스트 메뉴 외부 클릭 시 닫기
   useEffect(() => {
@@ -41,11 +190,9 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    // Tauri 환경에서는 onDragDropEvent(App.tsx)가 파일 경로를 처리하므로 HTML5 drop 무시
     const droppedFiles = Array.from(e.dataTransfer.files);
     if (droppedFiles.length === 0) return;
-    // 비-Tauri 환경 폴백 (웹 미리보기 등)
-    if ('__TAURI_INTERNALS__' in window) return;
+    if ("__TAURI_INTERNALS__" in window) return;
     const existingPaths = new Set(files.map((f) => f.path));
     const newFiles: ImportedFile[] = droppedFiles
       .filter((f) => SUPPORTED_EXT_RE.test(f.name))
@@ -56,20 +203,25 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
         type: detectFileType(f.name),
       }))
       .filter((f) => !existingPaths.has(f.path));
-    if (newFiles.length > 0) {
-      onFilesChange([...files, ...newFiles]);
-    }
+    if (newFiles.length > 0) onFilesChange([...files, ...newFiles]);
   }, [files, onFilesChange]);
 
   const removeFile = (path: string) => {
     onFilesChange(files.filter((f) => f.path !== path));
   };
 
+  const openCtxMenu = (e: React.MouseEvent, path: string) => {
+    e.preventDefault();
+    const x = Math.min(e.clientX, window.innerWidth - 168);
+    const y = Math.min(e.clientY, window.innerHeight - 60);
+    setCtxMenu({ x, y, path });
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6 animate-fade-in">
       {/* Drop Zone */}
       <div
-        className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-4 py-16 cursor-pointer`}
+        className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-4 py-14 cursor-pointer`}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
@@ -79,19 +231,14 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse?.(); } }}
       >
-        <Upload size={40} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+        <Upload size={36} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
         <div className="text-center">
           <p className="ts-md font-medium" style={{ color: "var(--color-text-primary)" }}>
-            HWP/HWPX/PDF/XLSX 파일을 여기에 드래그하세요
+            파일을 여기에 드래그하거나 클릭하여 선택
           </p>
-          <p className="ts-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
-            또는 클릭하여 파일 선택
+          <p className="ts-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+            HWP · HWPX · PDF · XLSX · 이미지
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Badge variant="hwp">HWP</Badge>
-          <Badge variant="hwp">HWPX</Badge>
-          <Badge variant="pdf">PDF</Badge>
         </div>
         {onBrowseFolder && (
           <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}>
@@ -104,44 +251,84 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
 
       {/* File List */}
       {files.length > 0 && (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-3">
+          {/* 헤더 */}
           <div className="flex items-center justify-between">
-            <h3 className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
-              선택된 파일 ({files.length})
-            </h3>
-            <Button variant="ghost" size="sm" onClick={() => onFilesChange([])}>
-              전체 삭제
-            </Button>
-          </div>
-          <div className="space-y-1 max-h-[300px] overflow-y-auto">
-            {files.map((file) => (
-              <div
-                key={file.path}
-                className="flex items-center gap-3 px-3 py-2 rounded-md"
-                style={{ backgroundColor: "var(--color-bg-tertiary)" }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  // 뷰포트 경계 클램핑: 메뉴 크기(w≈160, h≈56) 기준
-                  const x = Math.min(e.clientX, window.innerWidth - 168);
-                  const y = Math.min(e.clientY, window.innerHeight - 60);
-                  setCtxMenu({ x, y, path: file.path });
+            <div className="flex items-center gap-2">
+              <h3 className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                선택된 파일
+              </h3>
+              <span
+                className="ts-2xs px-2 py-0.5 rounded-full font-medium tabular-nums"
+                style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}
+              >
+                {files.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {/* 뷰 토글 */}
+              <button
+                type="button"
+                onClick={() => setViewMode("grid")}
+                className="p-1.5 rounded-md transition-colors"
+                title="그리드 뷰"
+                style={{
+                  color: viewMode === "grid" ? "var(--color-accent)" : "var(--color-text-muted)",
+                  backgroundColor: viewMode === "grid" ? "var(--color-accent-subtle)" : "transparent",
                 }}
               >
-                <FileText size={16} style={{ color: "var(--color-text-muted)" }} />
-                <Badge variant={getFileTypeBadgeVariant(file.name)}>
-                  {file.type.toUpperCase()}
-                </Badge>
-                <span className="ts-sm flex-1 truncate" style={{ color: "var(--color-text-primary)" }}>
-                  {file.name}
-                </span>
-                <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-                  {formatSize(file.size)}
-                </span>
-                <button onClick={() => removeFile(file.path)} className="p-1 rounded hover-bg-tertiary" aria-label={`${file.name} 삭제`}>
-                  <X size={14} style={{ color: "var(--color-text-muted)" }} />
-                </button>
+                <LayoutGrid size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                className="p-1.5 rounded-md transition-colors"
+                title="리스트 뷰"
+                style={{
+                  color: viewMode === "list" ? "var(--color-accent)" : "var(--color-text-muted)",
+                  backgroundColor: viewMode === "list" ? "var(--color-accent-subtle)" : "transparent",
+                }}
+              >
+                <List size={14} />
+              </button>
+              <div style={{ width: 1, height: 16, backgroundColor: "var(--color-border)", margin: "0 4px" }} />
+              <Button variant="ghost" size="sm" onClick={() => onFilesChange([])}>
+                전체 삭제
+              </Button>
+            </div>
+          </div>
+
+          {/* 그리드 / 리스트 */}
+          <div
+            className="overflow-y-auto"
+            style={{ maxHeight: viewMode === "grid" ? 340 : 320 }}
+          >
+            {viewMode === "grid" ? (
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(108px, 1fr))" }}
+              >
+                {files.map((file) => (
+                  <FileCard
+                    key={file.path}
+                    file={file}
+                    onRemove={() => removeFile(file.path)}
+                    onContextMenu={(e) => openCtxMenu(e, file.path)}
+                  />
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="flex flex-col gap-1">
+                {files.map((file) => (
+                  <FileRow
+                    key={file.path}
+                    file={file}
+                    onRemove={() => removeFile(file.path)}
+                    onContextMenu={(e) => openCtxMenu(e, file.path)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 파일 우클릭 컨텍스트 메뉴 */}
@@ -173,7 +360,8 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
             </div>
           )}
 
-          <div className="flex flex-col gap-3 pt-4">
+          {/* 하단 액션 */}
+          <div className="flex flex-col gap-3 pt-2">
             {!apiKeySet && (
               <div
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg"

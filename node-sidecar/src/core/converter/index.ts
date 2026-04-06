@@ -18,6 +18,21 @@ export interface ConvertParams {
   ocrProvider?: OcrProvider;
 }
 
+export interface ConvertOutlineItem {
+  level: number;
+  text: string;
+  pageNumber?: number;
+}
+
+export interface ConvertMetadata {
+  title?: string;
+  author?: string;
+  createdAt?: string;
+  modifiedAt?: string;
+  pageCount?: number;
+  version?: string;
+}
+
 export interface ConvertResult {
   success: boolean;
   output_path: string;
@@ -28,6 +43,9 @@ export interface ConvertResult {
   warnings?: string[];
   error?: string;
   code?: string;
+  outline?: ConvertOutlineItem[];
+  metadata?: ConvertMetadata;
+  image_count?: number;
 }
 
 export async function convert(params: ConvertParams, signal?: AbortSignal): Promise<ConvertResult> {
@@ -81,5 +99,17 @@ export async function convert(params: ConvertParams, signal?: AbortSignal): Prom
     page_count: result.pageCount,
     is_image_based: result.isImageBased,
     warnings: result.warnings?.map((w) => w.message),
+    outline: result.outline?.map((o) => ({ level: o.level, text: o.text, pageNumber: o.pageNumber })),
+    metadata: result.metadata
+      ? {
+          title: result.metadata.title,
+          author: result.metadata.author,
+          createdAt: result.metadata.createdAt,
+          modifiedAt: result.metadata.modifiedAt,
+          pageCount: result.metadata.pageCount,
+          version: result.metadata.version,
+        }
+      : undefined,
+    image_count: result.images?.length,
   };
 }

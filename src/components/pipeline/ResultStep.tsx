@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CheckCircle2, FolderOpen, RotateCcw, AlertTriangle, ArrowLeft, Terminal, X, FileText, FileOutput, Merge, Copy, Check } from "lucide-react";
+import { CheckCircle2, FolderOpen, RotateCcw, AlertTriangle, ArrowLeft, Terminal, X, FileText, FileOutput, Merge, Copy, Check, ShieldCheck, CircleX, TriangleAlert, Lightbulb, ChevronDown, ChevronRight, List, Image } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { MarkdownViewer } from "../ui/MarkdownViewer";
@@ -188,48 +188,248 @@ function extractMarkdown(data: unknown): string | null {
     return parts.join("\n");
   }
 
-  // scan_receipt — 영수증을 마크다운으로
-  if (Array.isArray(d.items) && (d.raw_text != null || d.total != null || d.store_name != null)) {
-    const items = d.items as { name?: string; amount?: number; quantity?: number }[];
-    const parts: string[] = [];
-
-    const headerParts: string[] = [];
-    if (typeof d.store_name === "string" && d.store_name) headerParts.push(`**${d.store_name}**`);
-    if (typeof d.date === "string" && d.date) headerParts.push(d.date);
-    if (headerParts.length > 0) {
-      parts.push(`> ${headerParts.join(" · ")}`);
-      if (outputFileName(d)) parts[0] += ` · 저장: ${outputFileName(d)}`;
-      parts.push("");
-    }
-
-    if (items.length > 0) {
-      parts.push("| 항목 | 수량 | 금액 |");
-      parts.push("|------|-----:|-----:|");
-      for (const item of items) {
-        const name = (item.name ?? "-").replace(/\|/g, "\\|");
-        const qty = item.quantity ?? "-";
-        const amt = item.amount != null ? Number(item.amount).toLocaleString() : "-";
-        parts.push(`| ${name} | ${qty} | ${amt} |`);
-      }
-      if (d.total != null) {
-        parts.push("");
-        parts.push(`**합계: ${Number(d.total).toLocaleString()}원**`);
-      }
-    } else {
-      parts.push("영수증 항목을 추출하지 못했습니다.");
-      if (typeof d.raw_text === "string" && d.raw_text.length > 0) {
-        parts.push("\n---\n");
-        parts.push("#### 원본 텍스트\n");
-        parts.push("```");
-        parts.push(d.raw_text.slice(0, 2000));
-        parts.push("```");
-      }
-    }
-
-    return parts.join("\n");
-  }
-
   return null;
+}
+
+// ── InspectViewer (K팀장) ──
+
+type IssueSeverity = "error" | "warning" | "suggestion";
+type IssueCategory = "logic" | "number" | "date" | "terminology" | "typo" | "reference";
+
+interface DocumentIssue {
+  category: IssueCategory;
+  severity: IssueSeverity;
+  location: string;
+  description: string;
+  original?: string;
+  suggestion?: string;
+}
+
+interface InspectData {
+  success: boolean;
+  document_title?: string;
+  issues: DocumentIssue[];
+  summary: string;
+  total_issues: number;
+}
+
+function isInspectData(data: unknown): data is InspectData {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  return Array.isArray(d.issues) && typeof d.summary === "string" && typeof d.total_issues === "number";
+}
+
+const CATEGORY_LABELS: Record<IssueCategory, string> = {
+  logic: "논리 구조",
+  number: "숫자/금액",
+  date: "날짜/기간",
+  terminology: "용어 일관성",
+  typo: "오탈자/맞춤법",
+  reference: "내부 참조",
+};
+
+const SEVERITY_CONFIG: Record<IssueSeverity, { label: string; icon: React.ReactNode; color: string; bg: string; border: string }> = {
+  error: {
+    label: "오류",
+    icon: <CircleX size={13} />,
+    color: "var(--color-error)",
+    bg: "color-mix(in srgb, var(--color-error) 8%, transparent)",
+    border: "color-mix(in srgb, var(--color-error) 20%, transparent)",
+  },
+  warning: {
+    label: "경고",
+    icon: <TriangleAlert size={13} />,
+    color: "var(--color-warning)",
+    bg: "color-mix(in srgb, var(--color-warning) 8%, transparent)",
+    border: "color-mix(in srgb, var(--color-warning) 20%, transparent)",
+  },
+  suggestion: {
+    label: "제안",
+    icon: <Lightbulb size={13} />,
+    color: "var(--color-accent)",
+    bg: "color-mix(in srgb, var(--color-accent) 8%, transparent)",
+    border: "color-mix(in srgb, var(--color-accent) 20%, transparent)",
+  },
+};
+
+function InspectViewer({ data }: { data: InspectData }) {
+  const [copied, setCopied] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<IssueCategory | null>(null);
+
+  const issues = data.issues ?? [];
+  const filtered = activeCategory ? issues.filter(i => i.category === activeCategory) : issues;
+  const errorCount = issues.filter(i => i.severity === "error").length;
+  const warningCount = issues.filter(i => i.severity === "warning").length;
+  const suggestionCount = issues.filter(i => i.severity === "suggestion").length;
+
+  const categoryGroups = Object.keys(CATEGORY_LABELS).filter(
+    cat => issues.some(i => i.category === cat)
+  ) as IssueCategory[];
+
+  const handleCopy = async () => {
+    const lines = [
+      data.document_title ? `# ${data.document_title}` : "# K팀장 검토 결과",
+      "",
+      `> ${data.summary}`,
+      "",
+      `총 ${issues.length}건 (오류 ${errorCount}, 경고 ${warningCount}, 제안 ${suggestionCount})`,
+      "",
+      ...filtered.map(issue => [
+        `## [${SEVERITY_CONFIG[issue.severity].label}] ${CATEGORY_LABELS[issue.category]}`,
+        `**위치:** ${issue.location}`,
+        `**내용:** ${issue.description}`,
+        issue.original ? `**원문:** ${issue.original}` : "",
+        issue.suggestion ? `**제안:** ${issue.suggestion}` : "",
+        "",
+      ].filter(Boolean).join("\n")),
+    ].join("\n");
+    await navigator.clipboard.writeText(lines);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex flex-col min-h-0 flex-1">
+      {/* 액션바 */}
+      <div
+        className="flex items-center justify-between px-5 py-2.5 shrink-0"
+        style={{ borderBottom: "1px solid var(--color-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <ShieldCheck size={14} style={{ color: "var(--color-error)" }} />
+          <span className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            K팀장 검토
+          </span>
+          {data.document_title && (
+            <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>— {data.document_title}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 ts-2xs px-3 py-1.5 rounded-md font-medium transition-colors"
+            style={{
+              color: copied ? "var(--color-success)" : "var(--color-text-primary)",
+              backgroundColor: copied ? "var(--color-success-subtle)" : "var(--color-bg-tertiary)",
+              border: `1px solid ${copied ? "color-mix(in srgb, var(--color-success) 30%, transparent)" : "var(--color-border)"}`,
+            }}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "복사됨" : "복사"}
+          </button>
+        </div>
+      </div>
+
+      {/* 요약 */}
+      <div
+        className="px-5 py-3 shrink-0"
+        style={{ borderBottom: "1px solid var(--color-border)", backgroundColor: "var(--color-bg-secondary)" }}
+      >
+        <p className="ts-xs" style={{ color: "var(--color-text-secondary)" }}>{data.summary}</p>
+        <div className="flex items-center gap-3 mt-2">
+          {errorCount > 0 && (
+            <span className="flex items-center gap-1 ts-2xs font-semibold" style={{ color: "var(--color-error)" }}>
+              <CircleX size={11} /> 오류 {errorCount}
+            </span>
+          )}
+          {warningCount > 0 && (
+            <span className="flex items-center gap-1 ts-2xs font-semibold" style={{ color: "var(--color-warning)" }}>
+              <TriangleAlert size={11} /> 경고 {warningCount}
+            </span>
+          )}
+          {suggestionCount > 0 && (
+            <span className="flex items-center gap-1 ts-2xs font-semibold" style={{ color: "var(--color-accent)" }}>
+              <Lightbulb size={11} /> 제안 {suggestionCount}
+            </span>
+          )}
+          {issues.length === 0 && (
+            <span className="ts-2xs" style={{ color: "var(--color-success)" }}>검토 사항 없음 — 문제가 발견되지 않았습니다</span>
+          )}
+        </div>
+      </div>
+
+      {/* 카테고리 필터 */}
+      {categoryGroups.length > 1 && (
+        <div
+          className="flex items-center gap-1.5 px-5 py-2 shrink-0 overflow-x-auto"
+          style={{ borderBottom: "1px solid var(--color-border)" }}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveCategory(null)}
+            className="ts-2xs px-2.5 py-1 rounded-full font-medium transition-colors shrink-0"
+            style={{
+              backgroundColor: !activeCategory ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+              color: !activeCategory ? "white" : "var(--color-text-muted)",
+            }}
+          >
+            전체 {issues.length}
+          </button>
+          {categoryGroups.map(cat => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+              className="ts-2xs px-2.5 py-1 rounded-full font-medium transition-colors shrink-0"
+              style={{
+                backgroundColor: activeCategory === cat ? "var(--color-accent)" : "var(--color-bg-tertiary)",
+                color: activeCategory === cat ? "white" : "var(--color-text-muted)",
+              }}
+            >
+              {CATEGORY_LABELS[cat]} {issues.filter(i => i.category === cat).length}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 이슈 목록 */}
+      <div className="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-2">
+        {filtered.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="ts-sm" style={{ color: "var(--color-text-muted)" }}>해당 카테고리에 검토 사항이 없습니다</p>
+          </div>
+        ) : (
+          filtered.map((issue, idx) => {
+            const sev = SEVERITY_CONFIG[issue.severity];
+            return (
+              <div
+                key={idx}
+                className="rounded-lg p-3.5"
+                style={{ backgroundColor: sev.bg, border: `1px solid ${sev.border}` }}
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className="mt-0.5 shrink-0" style={{ color: sev.color }}>{sev.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="ts-2xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: sev.border, color: sev.color }}>
+                        {sev.label}
+                      </span>
+                      <span className="ts-2xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)" }}>
+                        {CATEGORY_LABELS[issue.category]}
+                      </span>
+                      <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>{issue.location}</span>
+                    </div>
+                    <p className="ts-xs" style={{ color: "var(--color-text-primary)" }}>{issue.description}</p>
+                    {issue.original && (
+                      <p className="ts-2xs mt-1.5 px-2 py-1 rounded font-mono" style={{ backgroundColor: "var(--color-bg-primary)", color: "var(--color-text-secondary)" }}>
+                        원문: {issue.original}
+                      </p>
+                    )}
+                    {issue.suggestion && (
+                      <p className="ts-2xs mt-1" style={{ color: "var(--color-text-secondary)" }}>
+                        → {issue.suggestion}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── diff 데이터 감지 + DiffViewer ──
@@ -647,6 +847,84 @@ function DiffViewer({ diffs }: { diffs: BlockDiff[] }) {
   );
 }
 
+// ── 목차 패널 ──
+
+interface OutlineItem { level: number; text: string; pageNumber?: number }
+
+function OutlinePanel({ outline }: { outline: OutlineItem[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card shrink-0" style={{ overflow: "hidden" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-left"
+        style={{ backgroundColor: "var(--color-bg-secondary)" }}
+      >
+        <List size={13} style={{ color: "var(--color-text-muted)" }} />
+        <span className="ts-xs font-semibold flex-1" style={{ color: "var(--color-text-primary)" }}>
+          목차 <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>({outline.length})</span>
+        </span>
+        {open ? <ChevronDown size={13} style={{ color: "var(--color-text-muted)" }} /> : <ChevronRight size={13} style={{ color: "var(--color-text-muted)" }} />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pt-1 space-y-0.5 max-h-48 overflow-y-auto" style={{ borderTop: "1px solid var(--color-border)" }}>
+          {outline.map((item, i) => (
+            <div
+              key={i}
+              className="ts-xs py-0.5 truncate"
+              style={{
+                paddingLeft: `${(item.level - 1) * 16 + 4}px`,
+                color: item.level === 1 ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                fontWeight: item.level === 1 ? 600 : 400,
+              }}
+            >
+              {item.pageNumber != null && (
+                <span className="ts-2xs mr-1.5" style={{ color: "var(--color-text-muted)" }}>{item.pageNumber}p</span>
+              )}
+              {item.text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 파싱 경고 패널 ──
+
+function ParseWarningsPanel({ warnings, imageCount }: { warnings: string[]; imageCount?: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card shrink-0" style={{ overflow: "hidden" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-2 text-left"
+        style={{ backgroundColor: "color-mix(in srgb, var(--color-warning) 5%, var(--color-bg-secondary))" }}
+      >
+        <AlertTriangle size={12} style={{ color: "var(--color-warning)" }} />
+        <span className="ts-xs font-semibold flex-1" style={{ color: "var(--color-warning)" }}>
+          파싱 경고 {warnings.length}건
+        </span>
+        {imageCount != null && imageCount > 0 && (
+          <span className="flex items-center gap-1 ts-2xs mr-2" style={{ color: "var(--color-text-muted)" }}>
+            <Image size={11} /> 이미지 {imageCount}개
+          </span>
+        )}
+        {open ? <ChevronDown size={12} style={{ color: "var(--color-text-muted)" }} /> : <ChevronRight size={12} style={{ color: "var(--color-text-muted)" }} />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pt-2 space-y-1 max-h-36 overflow-y-auto" style={{ borderTop: "1px solid color-mix(in srgb, var(--color-warning) 20%, transparent)" }}>
+          {warnings.map((w, i) => (
+            <p key={i} className="ts-2xs" style={{ color: "var(--color-text-secondary)" }}>· {w}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 실행 로그 모달 ──
 
 function LogModal({ logs, onClose }: { logs: string[]; onClose: () => void }) {
@@ -724,7 +1002,19 @@ export function ResultStep({ result, files, onReset, onBack, onOpenFolder, onSum
 
   const hasLogs = logs && logs.length > 0;
   const diffData = extractDiff(result.data);
-  const markdown = diffData ? null : extractMarkdown(result.data);
+  const inspectData = !diffData && isInspectData(result.data) ? result.data : null;
+  const markdown = diffData || inspectData ? null : extractMarkdown(result.data);
+
+  // convert/ocr 결과에서 추가 데이터 추출
+  const d = result.data as Record<string, unknown> | undefined;
+  const outline = markdown && Array.isArray(d?.outline) && (d!.outline as unknown[]).length > 1
+    ? (d!.outline as OutlineItem[])
+    : null;
+  const metadata = markdown ? d?.metadata as Record<string, unknown> | undefined : undefined;
+  const parseWarnings = markdown && Array.isArray(d?.warnings) && (d!.warnings as unknown[]).length > 0
+    ? (d!.warnings as string[])
+    : null;
+  const imageCount = markdown && typeof d?.image_count === "number" ? d.image_count : 0;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6 gap-4 animate-fade-in">
@@ -760,6 +1050,17 @@ export function ResultStep({ result, files, onReset, onBack, onOpenFolder, onSum
                     : `${files[0].name} 외 ${files.length - 1}개`}
               </p>
             )}
+            {metadata && (
+              <p className="ts-2xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                {[
+                  metadata.title as string | undefined,
+                  metadata.author as string | undefined,
+                  metadata.createdAt ? new Date(metadata.createdAt as string).toLocaleDateString("ko-KR") : null,
+                  typeof metadata.pageCount === "number" ? `${metadata.pageCount}p` : null,
+                  metadata.version as string | undefined,
+                ].filter(Boolean).join(" · ")}
+              </p>
+            )}
             {result.warnings.length > 0 && (
               <p className="ts-2xs mt-0.5" style={{ color: "var(--color-warning)" }}>
                 {result.warnings[0]}{result.warnings.length > 1 ? ` 외 ${result.warnings.length - 1}건` : ""}
@@ -791,18 +1092,29 @@ export function ResultStep({ result, files, onReset, onBack, onOpenFolder, onSum
         <DiffViewer diffs={diffData.diffs} />
       )}
 
-      {/* 마크다운 결과 — convert, ocr, extract_tables, summarize, form_extract, scan_receipt */}
-      {!diffData && markdown && (
-        <MarkdownViewer
-          markdown={markdown}
-          onSummarize={onSummarize ? () => onSummarize(markdown) : undefined}
-          isSummarizing={isSummarizing}
-          fillHeight
-        />
+      {/* K팀장 검토 뷰어 */}
+      {inspectData && (
+        <div className="card flex-1 overflow-hidden min-h-0 flex flex-col">
+          <InspectViewer data={inspectData} />
+        </div>
+      )}
+
+      {/* 마크다운 결과 — convert, ocr, extract_tables, summarize, form_extract */}
+      {!diffData && !inspectData && markdown && (
+        <>
+          {outline && <OutlinePanel outline={outline} />}
+          <MarkdownViewer
+            markdown={markdown}
+            onSummarize={onSummarize ? () => onSummarize(markdown) : undefined}
+            isSummarizing={isSummarizing}
+            fillHeight
+          />
+          {parseWarnings && <ParseWarningsPanel warnings={parseWarnings} imageCount={imageCount} />}
+        </>
       )}
 
       {/* 비-마크다운 결과 — merge_files, generate_hwpx */}
-      {!diffData && !markdown && result.data != null && (
+      {!diffData && !inspectData && !markdown && result.data != null && (
         <div className="card flex-1 flex items-center justify-center min-h-0">
           <ResultPreview data={result.data} />
         </div>
