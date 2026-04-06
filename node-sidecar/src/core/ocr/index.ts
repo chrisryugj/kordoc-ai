@@ -17,6 +17,15 @@ import { getConfig } from '../../infra/config.js';
 /** Gemini 인라인 데이터 상한 (20MB) */
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
+/** 이미지 확장자 → MIME 매핑 */
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
 export interface OcrParams {
   /** 입력 PDF 경로 */
   input_path: string;
@@ -35,20 +44,22 @@ export interface OcrResult {
   error?: string;
 }
 
-/** Gemini Vision으로 PDF 직접 OCR (PDF MIME 네이티브 지원) */
+/** Gemini Vision으로 직접 OCR (PDF/이미지 모두 지원) */
 async function ocrWithGemini(
-  pdfBuffer: Buffer,
+  buffer: Buffer,
+  mimeType: string,
   signal: AbortSignal,
 ): Promise<string> {
-  logger.info('[ocr] Gemini Vision PDF 직접 전송');
+  const label = mimeType.startsWith('image/') ? '이미지' : 'PDF';
+  logger.info(`[ocr] Gemini Vision ${label} 직접 전송`);
 
-  sendProgress({ current: 1, total: 2, message: 'Gemini Vision으로 PDF OCR 중...' });
+  sendProgress({ current: 1, total: 2, message: `Gemini Vision으로 ${label} OCR 중...` });
 
-  const base64 = pdfBuffer.toString('base64');
+  const base64 = buffer.toString('base64');
   const text = await callGeminiVision({
-    prompt: '이 PDF 문서의 모든 페이지 텍스트를 정확하게 추출해주세요. 표가 있으면 마크다운 테이블로 변환하세요. 원본 구조와 순서를 유지하세요. 페이지 구분은 "---"으로 표시하세요.',
+    prompt: '이 문서의 모든 텍스트를 정확하게 추출해주세요. 표가 있으면 마크다운 테이블로 변환하세요. 원본 구조와 순서를 유지하세요. 페이지 구분은 "---"으로 표시하세요.',
     imageBase64: base64,
-    mimeType: 'application/pdf',
+    mimeType,
     signal,
     systemInstruction: '당신은 한국어 문서 OCR 전문가입니다. 텍스트만 정확히 추출하세요. 설명이나 주석을 추가하지 마세요.',
   });
@@ -70,6 +81,30 @@ export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrRe
   }
 
   const buffer = await readFile(input_path);
+  const ext = extname(input_path).toLowerCase();
+
+  // 이미지 파일 → 바로 Gemini Vision OCR
+  const imageMime = IMAGE_MIME[ext];
+  if (imageMime) {
+    logger.info(`[ocr] 이미지 파일 감지: ${ext}`);
+    const cfg = getConfig('convert');
+    const outDir = cfg.output_dir || dirname(input_path);
+    const outName = basename(input_path, extname(input_path)) + '.md';
+    const outputPath = params.output_path ?? join(outDir, outName);
+
+    const markdown = await ocrWithGemini(buffer, imageMime, signal);
+
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, markdown, 'utf-8');
+
+    logger.info(`[ocr] done → ${outputPath} (${markdown.length}자)`);
+    return {
+      success: true,
+      output_path: outputPath,
+      markdown,
+      warnings: [`Gemini Vision OCR 사용 (${ext} 이미지)`],
+    };
+  }
 
   // 1단계: kordoc parse 시도 (텍스트 기반 PDF면 바로 성공)
   const result = await parse(new Uint8Array(buffer).buffer, {
@@ -102,7 +137,7 @@ export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrRe
   if (result.isImageBased) {
     logger.info('[ocr] 이미지 기반 PDF 감지 → Gemini Vision 폴백');
 
-    const markdown = await ocrWithGemini(buffer, signal);
+    const markdown = await ocrWithGemini(buffer, 'application/pdf', signal);
 
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, markdown, 'utf-8');

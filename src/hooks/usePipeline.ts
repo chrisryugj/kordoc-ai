@@ -8,6 +8,7 @@ import type {
   PipelineResult,
   MergeMode,
   SummarizeOptions,
+  FormExtractOptions,
 } from "../types/pipeline";
 
 type SidecarCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -29,7 +30,7 @@ interface UsePipelineReturn {
   startAction: (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions },
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
@@ -155,12 +156,33 @@ export function usePipeline(): UsePipelineReturn {
     };
   }
 
+  async function dispatchFormExtractBatch(
+    call: SidecarCall,
+    currentFiles: ImportedFile[],
+    formOpts: FormExtractOptions,
+  ): Promise<PipelineResult> {
+    const raw = await call("form_extract_batch", {
+      files: currentFiles.map((f) => f.path),
+      selected_fields: formOpts.selectedFields,
+      use_ai: formOpts.useAi,
+    }) as Record<string, unknown>;
+    const outputPath = typeof raw.output_path === "string" ? fileDir(raw.output_path) : fileDir(currentFiles[0].path);
+    return {
+      total: currentFiles.length,
+      successCount: Number(raw.succeeded ?? 0),
+      failCount: Number(raw.failed ?? 0),
+      outputPath,
+      warnings: [],
+      data: raw,
+    };
+  }
+
   // ── 메인 액션 실행기 ──
 
   const startAction = useCallback(async (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions },
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
@@ -200,7 +222,11 @@ export function usePipeline(): UsePipelineReturn {
           resp = await dispatchSingle("extract_tables", sidecarCall, currentFiles[0]);
           break;
         case "form_extract":
-          resp = await dispatchSingle("form_extract", sidecarCall, currentFiles[0]);
+          if (options?.formExtractOptions) {
+            resp = await dispatchFormExtractBatch(sidecarCall, currentFiles, options.formExtractOptions);
+          } else {
+            resp = await dispatchSingle("form_extract", sidecarCall, currentFiles[0]);
+          }
           break;
         case "generate_hwpx":
           resp = await dispatchGenerateHwpx(sidecarCall, currentFiles[0]);

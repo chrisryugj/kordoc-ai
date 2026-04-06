@@ -131,7 +131,38 @@ function extractMarkdown(data: unknown): string | null {
     return parts.join("\n");
   }
 
-  // form_extract — 양식 필드를 마크다운 테이블로
+  // form_extract_batch — 배치 결과를 테이블로
+  if (Array.isArray(d.results) && d.total != null && d.succeeded != null) {
+    const results = d.results as Array<{ file: string; fields: Array<{ label: string; value: string }>; error?: string }>;
+    const parts: string[] = [];
+
+    parts.push(`> **${d.total}**개 파일 · 성공 **${d.succeeded}** · 실패 **${Number(d.failed ?? 0)}**`);
+    if (outputFileName(d)) parts[0] += ` · CSV: ${outputFileName(d)}`;
+    parts.push("");
+
+    if (results.length > 0 && results[0].fields?.length > 0) {
+      // 필드명 헤더
+      const headers = results[0].fields.map((f) => f.label);
+      parts.push(`| 파일명 | ${headers.map((h) => h.replace(/\|/g, "\\|")).join(" | ")} |`);
+      parts.push(`|--------|${headers.map(() => "------").join("|")}|`);
+
+      for (const r of results) {
+        if (r.error) {
+          parts.push(`| ${r.file.replace(/\|/g, "\\|")} | ${headers.map(() => "오류").join(" | ")} |`);
+        } else {
+          const fieldMap = new Map(r.fields.map((f) => [f.label, f.value]));
+          const values = headers.map((h) => (fieldMap.get(h) ?? "").replace(/\|/g, "\\|").replace(/\n/g, " "));
+          parts.push(`| ${r.file.replace(/\|/g, "\\|")} | ${values.join(" | ")} |`);
+        }
+      }
+    } else {
+      parts.push("추출된 데이터가 없습니다.");
+    }
+
+    return parts.join("\n");
+  }
+
+  // form_extract — 양식 필드를 마크다운 테이블로 (단일 파일, 하위 호환)
   if (Array.isArray(d.fields) && d.confidence != null) {
     const fields = d.fields as { label?: string; value?: string; type?: string }[];
     const confidence = Math.round(Number(d.confidence) * 100);

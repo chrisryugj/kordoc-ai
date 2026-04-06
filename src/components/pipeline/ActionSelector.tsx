@@ -32,9 +32,9 @@ const ACTIONS: ActionDef[] = [
     needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["hwp", "hwpx", "pdf"],
   },
   {
-    action: "ocr", label: "AI OCR", desc: "이미지 PDF 텍스트 인식",
+    action: "ocr", label: "AI OCR", desc: "이미지/PDF 텍스트 인식",
     icon: <Scan size={18} />, color: "#7C3AED",
-    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf"],
+    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"],
   },
   {
     action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약",
@@ -52,9 +52,9 @@ const ACTIONS: ActionDef[] = [
     needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [],
   },
   {
-    action: "form_extract", label: "양식 추출", desc: "신청서/보고서 필드 추출",
+    action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출",
     icon: <ClipboardList size={18} />, color: "#2563EB",
-    needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [],
+    needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [],
   },
   {
     action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로 합침",
@@ -67,9 +67,9 @@ const ACTIONS: ActionDef[] = [
     needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt"],
   },
   {
-    action: "scan_receipt", label: "영수증 스캔", desc: "영수증 → 구조화 데이터",
+    action: "scan_receipt", label: "영수증 스캔", desc: "영수증/이미지 → 구조화 데이터",
     icon: <Receipt size={18} />, color: "#D97706",
-    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf"],
+    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"],
   },
 ];
 

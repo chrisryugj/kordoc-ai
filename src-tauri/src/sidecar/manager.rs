@@ -239,7 +239,8 @@ impl SidecarManager {
         // Long-running methods: pipeline tasks 10min, others 60s
         let timeout_secs = match method {
             "convert" | "convert_batch" | "ocr" | "summarize"
-            | "diff" | "form_extract" | "extract_tables" => 600,
+            | "diff" | "form_extract" | "form_extract_candidates"
+            | "form_extract_batch" | "extract_tables" => 600,
             _ => 60,
         };
         let params_preview = summarize_value(params.as_ref());
