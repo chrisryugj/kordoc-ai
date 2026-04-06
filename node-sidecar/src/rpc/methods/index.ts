@@ -17,7 +17,7 @@ import { formExtract, formExtractCandidates, formExtractBatch } from '../../core
 import { generateHwpx } from '../../core/generator/index.js';
 import { extractTables } from '../../core/excel/index.js';
 import { mergeFiles, splitPdf } from '../../core/merge/index.js';
-import { scanReceipt } from '../../core/receipt/index.js';
+import { inspectDocument } from '../../core/inspect/index.js';
 
 /** 모든 메서드를 라우터에 등록 */
 export function registerAllMethods(router: RpcRouter): void {
@@ -250,9 +250,9 @@ export function registerAllMethods(router: RpcRouter): void {
     }, signal);
   });
 
-  // 18. scan_receipt — 영수증 스캔 (Gemini Vision)
-  router.register('scan_receipt', async (params, signal) => {
+  // 18. inspect_document — K팀장 문서 정합성 검사
+  router.register('inspect_document', async (params, signal) => {
     const input_path = validatePath(params.input_path as string);
-    return scanReceipt({ input_path }, signal);
+    return inspectDocument({ input_path }, signal);
   });
 }

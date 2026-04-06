@@ -65,7 +65,7 @@ export const StatusBar = memo(function StatusBar({ step, progress, elapsed }: St
           <span style={{ color, fontWeight: 500 }}>{label}</span>
         </span>
         {pct !== null && isActive && (
-          <span style={{ color: "var(--color-text-muted)" }}>{progress.current}/{progress.total} ({pct}%)</span>
+          <span style={{ color: "var(--color-text-muted)" }}>{pct}%</span>
         )}
         {isActive && elapsed > 0 && (
           <span style={{ color: "var(--color-text-muted)" }}>{formatElapsed(elapsed)}</span>

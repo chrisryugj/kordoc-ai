@@ -1,6 +1,6 @@
 import {
   FileText, Scan, Sparkles, GitCompareArrows,
-  Table, ClipboardList, FileOutput, Merge, Receipt,
+  Table, ClipboardList, FileOutput, Merge, ShieldCheck,
 } from "lucide-react";
 import type { PipelineAction, ImportedFile } from "../../types/pipeline";
 
@@ -67,9 +67,9 @@ const ACTIONS: ActionDef[] = [
     needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt"],
   },
   {
-    action: "scan_receipt", label: "영수증 스캔", desc: "영수증/이미지 → 구조화 데이터",
-    icon: <Receipt size={18} />, color: "#D97706",
-    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"],
+    action: "inspect_document", label: "K팀장 검토", desc: "논리 구조·숫자·날짜·오탈자 전체 정합성 검사",
+    icon: <ShieldCheck size={18} />, color: "#DC2626",
+    needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [],
   },
 ];
 
