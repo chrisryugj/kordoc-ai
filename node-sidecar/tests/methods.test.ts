@@ -410,31 +410,143 @@ describe('merge_files', () => {
 
 // ── 10. scan_receipt ──
 describe('scan_receipt', () => {
-  it('영수증 이미지 → 구조화 데이터', async () => {
+  it('영수증 이미지 → 구조화 데이터 (정상 케이스)', async () => {
     const inputPath = join(tmpDir, 'receipt.jpg');
     await writeFile(inputPath, 'fake-image-data');
 
     mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
-      store_name: '테스트 가게',
+      store_name: '한무쇼핑(주)',
       date: '2026-04-04',
-      items: [{ name: '커피', quantity: 2, unit_price: 4500, amount: 9000 }],
-      total: 9000,
+      items: [
+        { name: '1++ 한우 치즈 오픈 샌드위치', quantity: 1, unit_price: 15500, amount: 15500 },
+        { name: '아이스 카페라떼', quantity: 1, unit_price: 5500, amount: 5500 },
+      ],
+      tax: 1910,
+      total: 21000,
+      payment_method: '카드',
     }));
 
     const ac = new AbortController();
     const result = await scanReceipt({ input_path: inputPath }, ac.signal);
 
     expect(result.success).toBe(true);
-    expect(result.store_name).toBe('테스트 가게');
-    expect(result.items).toHaveLength(1);
-    expect(result.total).toBe(9000);
+    expect(result.store_name).toBe('한무쇼핑(주)');
+    expect(result.date).toBe('2026-04-04');
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].amount).toBe(15500);
+    expect(result.tax).toBe(1910);
+    expect(result.total).toBe(21000);
+    expect(result.payment_method).toBe('카드');
+    expect(result.warnings).toHaveLength(0);
   });
 
-  it('JSON 파싱 실패 시 raw_text 반환', async () => {
-    const inputPath = join(tmpDir, 'receipt2.png');
+  it('날짜 없으면 null + 경고', async () => {
+    const inputPath = join(tmpDir, 'receipt_nodate.jpg');
     await writeFile(inputPath, 'fake');
 
-    mockCallGeminiVision.mockResolvedValueOnce('파싱 불가능한 텍스트');
+    mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
+      store_name: '테스트 가게',
+      date: null,
+      items: [{ name: '커피', quantity: 1, unit_price: 4500, amount: 4500 }],
+      tax: null,
+      total: 4500,
+      payment_method: null,
+    }));
+
+    const ac = new AbortController();
+    const result = await scanReceipt({ input_path: inputPath }, ac.signal);
+
+    expect(result.date).toBeNull();
+    expect(result.warnings).toContain('거래 날짜를 찾을 수 없습니다');
+  });
+
+  it('가게명 없으면 undefined + 경고', async () => {
+    const inputPath = join(tmpDir, 'receipt_nostore.jpg');
+    await writeFile(inputPath, 'fake');
+
+    mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
+      store_name: null,
+      date: '2026-04-04',
+      items: [{ name: '커피', quantity: 1, unit_price: 4500, amount: 4500 }],
+      tax: null,
+      total: 4500,
+      payment_method: null,
+    }));
+
+    const ac = new AbortController();
+    const result = await scanReceipt({ input_path: inputPath }, ac.signal);
+
+    expect(result.store_name).toBeUndefined();
+    expect(result.warnings).toContain('가게명을 찾을 수 없습니다');
+  });
+
+  it('품목 합산과 합계 불일치 시 경고', async () => {
+    const inputPath = join(tmpDir, 'receipt_mismatch.jpg');
+    await writeFile(inputPath, 'fake');
+
+    mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
+      store_name: '테스트',
+      date: '2026-04-04',
+      items: [{ name: '상품A', quantity: 1, unit_price: 5000, amount: 5000 }],
+      tax: null,
+      total: 10000,  // 실제 합산(5000)과 불일치
+      payment_method: null,
+    }));
+
+    const ac = new AbortController();
+    const result = await scanReceipt({ input_path: inputPath }, ac.signal);
+
+    expect(result.warnings.some(w => w.includes('품목 합산') && w.includes('합계'))).toBe(true);
+  });
+
+  it('amount 누락 시 unit_price × quantity로 보정', async () => {
+    const inputPath = join(tmpDir, 'receipt_noamt.jpg');
+    await writeFile(inputPath, 'fake');
+
+    mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
+      store_name: '테스트',
+      date: '2026-04-04',
+      items: [{ name: '커피', quantity: 2, unit_price: 4500 }],  // amount 없음
+      tax: null,
+      total: 9000,
+      payment_method: null,
+    }));
+
+    const ac = new AbortController();
+    const result = await scanReceipt({ input_path: inputPath }, ac.signal);
+
+    expect(result.items[0].amount).toBe(9000);  // 4500 * 2
+  });
+
+  it('1차 JSON 모드 실패 → 2차 시도 성공', async () => {
+    const inputPath = join(tmpDir, 'receipt_retry.jpg');
+    await writeFile(inputPath, 'fake');
+
+    // 1차: 에러 (JSON 모드 실패)
+    mockCallGeminiVision.mockRejectedValueOnce(new Error('JSON mode error'));
+    // 2차: 성공
+    mockCallGeminiVision.mockResolvedValueOnce(JSON.stringify({
+      store_name: '재시도 가게',
+      date: '2026-04-04',
+      items: [{ name: '아메리카노', quantity: 1, unit_price: 4000, amount: 4000 }],
+      tax: null,
+      total: 4000,
+      payment_method: '현금',
+    }));
+
+    const ac = new AbortController();
+    const result = await scanReceipt({ input_path: inputPath }, ac.signal);
+
+    expect(result.success).toBe(true);
+    expect(result.store_name).toBe('재시도 가게');
+    expect(mockCallGeminiVision).toHaveBeenCalledTimes(2);
+  });
+
+  it('JSON 파싱 완전 실패 → raw_text 반환 + 경고', async () => {
+    const inputPath = join(tmpDir, 'receipt_fail.png');
+    await writeFile(inputPath, 'fake');
+
+    mockCallGeminiVision.mockResolvedValue('파싱 불가능한 텍스트');
 
     const ac = new AbortController();
     const result = await scanReceipt({ input_path: inputPath }, ac.signal);
@@ -442,5 +554,6 @@ describe('scan_receipt', () => {
     expect(result.success).toBe(true);
     expect(result.items).toHaveLength(0);
     expect(result.raw_text).toBe('파싱 불가능한 텍스트');
+    expect(result.warnings.length).toBeGreaterThan(0);
   });
 });

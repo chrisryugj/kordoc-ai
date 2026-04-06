@@ -87,6 +87,8 @@ export interface GeminiVisionOptions {
   model?: string;
   signal?: AbortSignal;
   systemInstruction?: string;
+  /** true면 응답을 JSON으로 강제 (responseMimeType: application/json) */
+  jsonMode?: boolean;
 }
 
 /** 재시도 + 지수 백오프 헬퍼 (1s 시작, 최대 30s 캡) */
@@ -159,6 +161,7 @@ export async function callGeminiVision(options: GeminiVisionOptions): Promise<st
   const model = ai.getGenerativeModel({
     model: modelName,
     ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
+    ...(options.jsonMode ? { generationConfig: { responseMimeType: 'application/json' } } : {}),
   });
 
   const imagePart = {

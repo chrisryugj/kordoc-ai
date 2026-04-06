@@ -2,12 +2,12 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import {
   Upload, FileText, X, FolderOpen, Trash2,
   Scan, Sparkles, GitCompareArrows,
-  Table, ClipboardList, FileOutput, Merge, Receipt, AlertTriangle, Wifi,
+  Table, ClipboardList, FileOutput, Merge, ShieldCheck, AlertTriangle, Wifi,
   ArrowRight,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
-import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions, FormExtractOptions, FieldCandidate } from "../../types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions, FormExtractOptions, FieldCandidate, ConvertOptions } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
 import { FormFieldSelector } from "./FormFieldSelector";
@@ -35,7 +35,7 @@ const ACTIONS: ActionDef[] = [
   { action: "generate_hwpx", label: "HWPX 생성", desc: "마크다운 → 한글 문서", icon: <FileOutput size={18} />, color: "#059669", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt", "md"] },
   { action: "ocr", label: "AI OCR", desc: "이미지/PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"] },
   { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
-  { action: "scan_receipt", label: "영수증 스캔", desc: "영수증/이미지 → 구조화 데이터", icon: <Receipt size={18} />, color: "#D97706", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
+  { action: "inspect_document", label: "K팀장 검토", desc: "논리 구조·숫자·날짜·오탈자 전체 정합성 검사", icon: <ShieldCheck size={18} />, color: "#DC2626", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
 ];
 
 function getAvailability(a: ActionDef, files: ImportedFile[], apiKeySet: boolean): { ok: boolean; reason?: string } {
@@ -102,7 +102,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions }) => void;
+  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions }) => void;
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   onBrowse: () => void;
   onBrowseFolder: () => void;
@@ -123,6 +123,7 @@ export function Workspace({
   const [modeConfirm, setModeConfirm] = useState<{ action: PipelineAction; label: string } | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [summarizeOpen, setSummarizeOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [formFieldOpen, setFormFieldOpen] = useState(false);
   const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
   const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
@@ -165,6 +166,11 @@ export function Workspace({
     if (def?.needsApi && aiMode === "offline") {
       pendingActionRef.current = action;
       setModeConfirm({ action, label: def.label });
+      return;
+    }
+    // convert: 페이지 범위 옵션 다이얼로그
+    if (action === "convert") {
+      setConvertOpen(true);
       return;
     }
     // merge: 항상 순서/방식 선택 다이얼로그 표시
@@ -461,6 +467,15 @@ export function Workspace({
         />
       )}
 
+      {/* 변환 옵션 (페이지 범위) */}
+      {convertOpen && (
+        <ConvertOptionsDialog
+          fileCount={files.length}
+          onConfirm={(opts) => { setConvertOpen(false); onAction("convert", { convertOptions: opts }); }}
+          onCancel={() => setConvertOpen(false)}
+        />
+      )}
+
       {/* 요약 옵션 선택 */}
       {summarizeOpen && (
         <SummarizeOptionsDialog
@@ -505,6 +520,73 @@ const LENGTH_OPTIONS: { value: SummarizeLength; label: string }[] = [
   { value: "medium", label: "보통" },
   { value: "long", label: "상세" },
 ];
+
+function ConvertOptionsDialog({ fileCount, onConfirm, onCancel }: {
+  fileCount: number;
+  onConfirm: (opts: ConvertOptions) => void;
+  onCancel: () => void;
+}) {
+  const [pages, setPages] = useState("");
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm({ pages: pages.trim() || undefined });
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel, onConfirm, pages]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "var(--color-backdrop)" }}
+      onClick={onCancel}
+    >
+      <div className="card p-5 mx-4 space-y-4 animate-fade-in" style={{ width: "min(380px, calc(100vw - 48px))" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-accent-subtle)" }}>
+            <FileText size={20} style={{ color: "var(--color-accent)" }} />
+          </div>
+          <div>
+            <h3 className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>마크다운 변환</h3>
+            <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>{fileCount}개 파일</p>
+          </div>
+        </div>
+
+        <div>
+          <label className="ts-2xs font-semibold mb-1.5 block" style={{ color: "var(--color-text-muted)" }}>
+            페이지 범위 <span className="font-normal">(생략 시 전체)</span>
+          </label>
+          <input
+            type="text"
+            autoFocus
+            placeholder="예: 1-3 · 1,5,7 · 2-4,8"
+            value={pages}
+            onChange={(e) => setPages(e.target.value)}
+            className="w-full px-3 py-2 rounded-md ts-sm"
+            style={{
+              backgroundColor: "var(--color-bg-tertiary)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-primary)",
+              outline: "none",
+            }}
+          />
+          <p className="ts-2xs mt-1.5" style={{ color: "var(--color-text-muted)" }}>
+            PDF: 정확한 페이지 단위 · HWP/HWPX: 섹션 단위
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
+          <Button size="sm" onClick={() => onConfirm({ pages: pages.trim() || undefined })}>
+            변환 시작
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SummarizeOptionsDialog({ fileName, onConfirm, onCancel }: {
   fileName?: string;
