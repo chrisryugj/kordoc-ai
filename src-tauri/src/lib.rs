@@ -24,6 +24,8 @@ pub fn run() {
             commands::sidecar_cmd::sidecar_start,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::clipboard::save_clipboard_image,
+            commands::clipboard::save_clipboard_text,
         ])
         .setup(move |app| {
             let window = app

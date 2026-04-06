@@ -13,7 +13,7 @@ import { convertBatch } from '../../core/batch/index.js';
 import { ocr } from '../../core/ocr/index.js';
 import { summarize } from '../../core/summary/index.js';
 import { diff } from '../../core/comparator/index.js';
-import { formExtract } from '../../core/form/index.js';
+import { formExtract, formExtractCandidates, formExtractBatch } from '../../core/form/index.js';
 import { generateHwpx } from '../../core/generator/index.js';
 import { extractTables } from '../../core/excel/index.js';
 import { mergeFiles, splitPdf } from '../../core/merge/index.js';
@@ -177,6 +177,27 @@ export function registerAllMethods(router: RpcRouter): void {
     return formExtract({
       input_path,
       pages: params.pages as string | undefined,
+    }, signal);
+  });
+
+  // 13b. form_extract_candidates — 필드 후보 추출
+  router.register('form_extract_candidates', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    signal.throwIfAborted();
+    return formExtractCandidates({
+      input_path,
+      pages: params.pages as string | undefined,
+    }, signal);
+  });
+
+  // 13c. form_extract_batch — 배치 양식 추출
+  router.register('form_extract_batch', async (params, signal) => {
+    const files = (params.files as string[]).map(validatePath);
+    signal.throwIfAborted();
+    return formExtractBatch({
+      files,
+      selected_fields: params.selected_fields as string[],
+      use_ai: params.use_ai as boolean | undefined,
     }, signal);
   });
 

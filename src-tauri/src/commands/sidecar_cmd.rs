@@ -20,6 +20,8 @@ const ALLOWED_METHODS: &[&str] = &[
     "convert_batch",
     "diff",
     "form_extract",
+    "form_extract_candidates",
+    "form_extract_batch",
     "generate_hwpx",
     "extract_tables",
     "merge_files",

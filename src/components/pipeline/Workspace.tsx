@@ -7,9 +7,10 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
-import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions } from "../../types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions, FormExtractOptions, FieldCandidate } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
+import { FormFieldSelector } from "./FormFieldSelector";
 
 // ── Action 정의 ──
 
@@ -28,11 +29,11 @@ interface ActionDef {
 const ACTIONS: ActionDef[] = [
   { action: "convert", label: "마크다운 변환", desc: "HWP/PDF → 마크다운", icon: <FileText size={18} />, color: "var(--color-accent)", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["hwp", "hwpx", "pdf"] },
   { action: "extract_tables", label: "표 추출", desc: "문서에서 표만 추출", icon: <Table size={18} />, color: "#7C3AED", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [] },
-  { action: "form_extract", label: "양식 추출", desc: "신청서/보고서 필드 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [] },
+  { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [] },
   { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: [] },
   { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: [] },
   { action: "generate_hwpx", label: "HWPX 생성", desc: "마크다운 → 한글 문서", icon: <FileOutput size={18} />, color: "#059669", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt", "md"] },
-  { action: "ocr", label: "AI OCR", desc: "이미지 PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf"] },
+  { action: "ocr", label: "AI OCR", desc: "이미지/PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"] },
   { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
   { action: "scan_receipt", label: "영수증 스캔", desc: "영수증/이미지 → 구조화 데이터", icon: <Receipt size={18} />, color: "#D97706", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
 ];
@@ -101,7 +102,8 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions }) => void;
+  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions }) => void;
+  sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   onBrowse: () => void;
   onBrowseFolder: () => void;
   apiKeySet: boolean;
@@ -114,13 +116,16 @@ interface WorkspaceProps {
 
 export function Workspace({
   files, onFilesChange, onAction, onBrowse, onBrowseFolder,
-  apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError,
+  apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError, sidecarCall,
 }: WorkspaceProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [modeConfirm, setModeConfirm] = useState<{ action: PipelineAction; label: string } | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [summarizeOpen, setSummarizeOpen] = useState(false);
+  const [formFieldOpen, setFormFieldOpen] = useState(false);
+  const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
+  const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
   const pendingActionRef = useRef<PipelineAction | null>(null);
 
   useEffect(() => {
@@ -170,6 +175,20 @@ export function Workspace({
     // summarize: 옵션 선택 다이얼로그
     if (action === "summarize") {
       setSummarizeOpen(true);
+      return;
+    }
+    // form_extract: 필드 후보 fetch → 선택 다이얼로그
+    if (action === "form_extract") {
+      setFormFieldOpen(true);
+      setFormCandidatesLoading(true);
+      setFormCandidates([]);
+      sidecarCall("form_extract_candidates", { input_path: files[0].path })
+        .then((res) => {
+          const r = res as { candidates?: FieldCandidate[] };
+          setFormCandidates(r.candidates ?? []);
+        })
+        .catch(() => setFormCandidates([]))
+        .finally(() => setFormCandidatesLoading(false));
       return;
     }
     onAction(action);
@@ -451,6 +470,21 @@ export function Workspace({
             onAction("summarize", { summarizeOptions: opts });
           }}
           onCancel={() => setSummarizeOpen(false)}
+        />
+      )}
+
+      {/* 양식 추출 필드 선택 */}
+      {formFieldOpen && (
+        <FormFieldSelector
+          candidates={formCandidates}
+          loading={formCandidatesLoading}
+          fileCount={files.length}
+          apiKeySet={apiKeySet}
+          onConfirm={(opts) => {
+            setFormFieldOpen(false);
+            onAction("form_extract", { formExtractOptions: opts });
+          }}
+          onCancel={() => setFormFieldOpen(false)}
         />
       )}
     </div>

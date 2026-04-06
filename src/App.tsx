@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -18,7 +19,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
 import { useWindowSize } from "./hooks/useWindowSize";
-import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions } from "./types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions, FormExtractOptions } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
 import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
@@ -109,12 +110,79 @@ export default function App() {
     return () => { mounted = false; unlistenFn?.(); };
   }, [pipeline.setFiles, pipeline.setStep, pipeline.step]);
 
+  // Clipboard paste — 이미지/텍스트 붙여넣기
+  useEffect(() => {
+    const addFileFromPath = (savedPath: string, size: number) => {
+      const name = savedPath.split(/[/\\]/).pop() ?? "clipboard";
+      const existingPaths = new Set(filesRef.current.map((f) => f.path));
+      if (existingPaths.has(savedPath)) return;
+      pipeline.setFiles([...filesRef.current, {
+        path: savedPath, name, size, type: detectFileType(name),
+      }]);
+      if (pipeline.step === "idle") pipeline.setStep("import");
+    };
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      // 입력 필드에서는 기본 동작 유지
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      // 이미지 우선
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+          const ext = item.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const base64 = (reader.result as string).split(",")[1];
+            if (!base64) return;
+            try {
+              const savedPath = await invoke<string>("save_clipboard_image", {
+                base64Data: base64, extension: ext,
+              });
+              addFileFromPath(savedPath, blob.size);
+              showToast("클립보드 이미지 추가됨", "success");
+            } catch (err) {
+              showToast(`붙여넣기 실패: ${err}`, "error");
+            }
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+
+      // 텍스트 (이미지가 없을 때만)
+      const text = e.clipboardData?.getData("text/plain");
+      if (text && text.trim().length >= 10) {
+        e.preventDefault();
+        try {
+          const savedPath = await invoke<string>("save_clipboard_text", { text });
+          addFileFromPath(savedPath, text.length);
+          showToast("클립보드 텍스트 추가됨", "success");
+        } catch (err) {
+          showToast(`붙여넣기 실패: ${err}`, "error");
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [pipeline.setFiles, pipeline.setStep, pipeline.step, showToast]);
+
   // File browser
   const handleBrowseFiles = useCallback(async () => {
     try {
       const selected = await open({
         multiple: true,
-        filters: [{ name: "문서", extensions: ["hwp", "hwpx", "pdf", "xlsx", "docx", "txt", "md"] }],
+        filters: [
+          { name: "문서", extensions: ["hwp", "hwpx", "pdf", "xlsx", "docx", "txt", "md"] },
+          { name: "이미지", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
+        ],
       });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
@@ -159,7 +227,7 @@ export default function App() {
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
   // Start action
-  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions }) => {
+  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
     logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
     setLogsVersion((v) => v + 1);
@@ -273,6 +341,7 @@ export default function App() {
                   onOpenSettings={() => setSettingsOpen(true)}
                   sidecarReady={sidecarReady}
                   sidecarError={sidecar.status === "error" ? sidecar.errorMessage : undefined}
+                  sidecarCall={sidecar.call}
                 />
               )}
 
