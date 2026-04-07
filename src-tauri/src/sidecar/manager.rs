@@ -65,7 +65,9 @@ impl SidecarManager {
         tracing::info!("Starting sidecar from: {:?}", sidecar_dir);
 
         // Node.js sidecar: 번들 파일 우선, 없으면 원본 main.js
-        let entry = if sidecar_dir.join("dist/bundle.js").exists() {
+        let entry = if sidecar_dir.join("dist/bundle.cjs").exists() {
+            "dist/bundle.cjs"
+        } else if sidecar_dir.join("dist/bundle.js").exists() {
             "dist/bundle.js"
         } else {
             "dist/main.js"
@@ -577,7 +579,7 @@ impl SidecarManager {
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 let prod_dir = exe_dir.join("node-sidecar");
-                if prod_dir.join("dist/bundle.js").exists() || prod_dir.join("dist/main.js").exists() {
+                if prod_dir.join("dist/bundle.cjs").exists() || prod_dir.join("dist/bundle.js").exists() || prod_dir.join("dist/main.js").exists() {
                     return prod_dir;
                 }
             }

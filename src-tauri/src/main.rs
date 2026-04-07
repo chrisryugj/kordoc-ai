@@ -1,4 +1,4 @@
-// Prevents additional console window on Windows in release
+// Prevents additional console window on Windows in release, v2
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
