@@ -16,6 +16,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "@xmldom/xmldom": "^0.9.8",
+    "cfb": "^1.2.2",
     "jszip": "^3.10.1",
     "kordoc": "^2.0.3",
     "pdf-lib": "^1.17.1",
