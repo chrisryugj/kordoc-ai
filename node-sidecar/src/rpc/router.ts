@@ -36,8 +36,8 @@ export class RpcRouter {
     return [...this.methods.keys()];
   }
 
-  /** 세마포어 acquire: 동시 실행 수 제한 + 큐 크기 제한 */
-  private acquireSlot(): Promise<void> {
+  /** 세마포어 acquire: 동시 실행 수 제한 + 큐 크기 제한 + abort 연동 */
+  private acquireSlot(signal?: AbortSignal): Promise<void> {
     if (this.heavyRunning < MAX_CONCURRENT) {
       this.heavyRunning++;
       return Promise.resolve();
@@ -45,8 +45,20 @@ export class RpcRouter {
     if (this.heavyQueue.length >= MAX_QUEUE_SIZE) {
       return Promise.reject(new Error(`처리 대기열이 가득 찼습니다 (최대 ${MAX_QUEUE_SIZE}). 잠시 후 다시 시도하세요.`));
     }
-    return new Promise<void>((resolve) => {
-      this.heavyQueue.push(resolve);
+    return new Promise<void>((resolve, reject) => {
+      const entry = () => resolve();
+      this.heavyQueue.push(entry);
+
+      // abort 시 큐에서 제거 + reject로 데드락 방지
+      if (signal) {
+        const onAbort = () => {
+          const idx = this.heavyQueue.indexOf(entry);
+          if (idx !== -1) this.heavyQueue.splice(idx, 1);
+          reject(new DOMException('Request cancelled while queued', 'AbortError'));
+        };
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
     });
   }
 
@@ -76,12 +88,12 @@ export class RpcRouter {
       return { error: { code: RPC_ERRORS.METHOD_NOT_FOUND, message: `Method not found: ${method}` } };
     }
 
-    const isHeavy = HEAVY_METHODS.has(method);
-    if (isHeavy) await this.acquireSlot();
-
     const ac = new AbortController();
     const reqId = id ?? `__anon_${this.nextAnonymousId++}__`;
     this.active.set(reqId, ac);
+
+    const isHeavy = HEAVY_METHODS.has(method);
+    if (isHeavy) await this.acquireSlot(ac.signal);
 
     try {
       const result = await handler(params, ac.signal);

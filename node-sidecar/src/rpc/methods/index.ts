@@ -68,7 +68,7 @@ export function registerAllMethods(router: RpcRouter): void {
           resolve(true);
         });
       } else {
-        execFile('open', [folderPath], (err) => { if (err) throw err; resolve(true); });
+        execFile('open', [folderPath], (err) => { if (err) { logger.warn(`[open_folder] open error: ${err.message}`); } resolve(true); });
       }
     });
   });
@@ -85,7 +85,7 @@ export function registerAllMethods(router: RpcRouter): void {
       if (process.platform === 'win32') {
         execFile('explorer', [filePath.replace(/\//g, '\\')], () => resolve(true));
       } else {
-        execFile('open', [filePath], (err) => { if (err) throw err; resolve(true); });
+        execFile('open', [filePath], (err) => { if (err) { logger.warn(`[open_file] open error: ${err.message}`); } resolve(true); });
       }
     });
   });
