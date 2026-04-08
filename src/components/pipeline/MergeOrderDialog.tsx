@@ -256,7 +256,7 @@ export function MergeOrderDialog({ files, uniformType, onConfirm, onCancel }: Me
                   <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
                     서식 유지
                   </div>
-                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.65rem" }}>
+                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
                     {uniformType.toUpperCase()} 그대로
                   </div>
                 </div>
@@ -274,7 +274,7 @@ export function MergeOrderDialog({ files, uniformType, onConfirm, onCancel }: Me
                   <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
                     마크다운
                   </div>
-                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.65rem" }}>
+                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
                     텍스트 변환
                   </div>
                 </div>

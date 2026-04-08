@@ -10,6 +10,7 @@ import type {
   SummarizeOptions,
   FormExtractOptions,
   ConvertOptions,
+  PdfUtilsOptions,
 } from "../types/pipeline";
 
 type SidecarCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -31,7 +32,7 @@ interface UsePipelineReturn {
   startAction: (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions; pdfUtilsOptions?: PdfUtilsOptions },
   ) => Promise<void>;
   cancel: (sidecarCall: SidecarCall) => Promise<void>;
   reset: () => void;
@@ -182,12 +183,76 @@ export function usePipeline(): UsePipelineReturn {
     };
   }
 
+  async function dispatchPdfUtils(
+    call: SidecarCall,
+    currentFiles: ImportedFile[],
+    opts: PdfUtilsOptions,
+    outputDir?: string,
+  ): Promise<PipelineResult> {
+    const pdfFiles = currentFiles.filter((f) => f.type === "pdf");
+
+    if (opts.mode === "merge") {
+      // PDF 병합 → merge_files native 모드 재활용
+      const dir = outputDir || fileDir(pdfFiles[0].path);
+      const sep = dir.includes("/") ? "/" : "\\";
+      const firstName = pdfFiles[0].name.replace(/\.[^.]+$/, "");
+      const suffix = pdfFiles.length > 1 ? `_외${pdfFiles.length - 1}건` : "";
+      const outputPath = `${dir}${sep}병합_${firstName}${suffix}.pdf`;
+      const raw = await call("merge_files", {
+        files: pdfFiles.map((f) => f.path),
+        output_path: outputPath,
+        mode: "native",
+      }) as Record<string, unknown>;
+      return {
+        total: pdfFiles.length, successCount: 1, failCount: 0,
+        outputPath: dir, warnings: [], data: raw,
+      };
+    }
+
+    const target = opts.targetFile ?? pdfFiles[0];
+    const dir = outputDir || fileDir(target.path);
+    const baseName = target.name.replace(/\.[^.]+$/, "");
+
+    if (opts.mode === "split") {
+      const sep = dir.includes("/") ? "/" : "\\";
+      const outDir = `${dir}${sep}${baseName}_분할`;
+      const raw = await call("split_pdf", {
+        file: target.path,
+        output_dir: outDir,
+        mode: opts.splitMode ?? "each",
+        ranges: opts.pages,
+      }) as Record<string, unknown>;
+      return {
+        total: 1, successCount: 1, failCount: 0,
+        outputPath: outDir, warnings: [], data: raw,
+      };
+    }
+
+    if (opts.mode === "extract") {
+      const sep = dir.includes("/") ? "/" : "\\";
+      const suffix = opts.extractMode === "exclude" ? "제외" : "추출";
+      const outputPath = `${dir}${sep}${baseName}_${suffix}.pdf`;
+      const raw = await call("pdf_extract_pages", {
+        file: target.path,
+        output_path: outputPath,
+        pages: opts.pages,
+        mode: opts.extractMode ?? "include",
+      }) as Record<string, unknown>;
+      return {
+        total: 1, successCount: 1, failCount: 0,
+        outputPath: dir, warnings: [], data: raw,
+      };
+    }
+
+    throw new Error(`알 수 없는 PDF 모드: ${opts.mode}`);
+  }
+
   // ── 메인 액션 실행기 ──
 
   const startAction = useCallback(async (
     action: PipelineAction,
     sidecarCall: SidecarCall,
-    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions },
+    options?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions; pdfUtilsOptions?: PdfUtilsOptions },
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
@@ -239,6 +304,10 @@ export function usePipeline(): UsePipelineReturn {
         case "merge_files":
           resp = await dispatchMerge(sidecarCall, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);
           break;
+        case "pdf_utils":
+          if (!options?.pdfUtilsOptions) throw new Error("PDF 도구 옵션이 필요합니다");
+          resp = await dispatchPdfUtils(sidecarCall, currentFiles, options.pdfUtilsOptions, options.outputDir);
+          break;
         case "inspect_document":
           resp = await dispatchSingle("inspect_document", sidecarCall, currentFiles[0]);
           break;
@@ -252,8 +321,8 @@ export function usePipeline(): UsePipelineReturn {
       if (resp.total > 0 && resp.successCount === 0) {
         throw new Error(`처리 실패: ${resp.total}개 중 성공 0개`);
       }
-      // merge는 모달로 결과 표시 → Workspace 유지
-      setStep(action === "merge_files" ? "import" : "complete");
+      // merge/pdf_utils는 모달로 결과 표시 → Workspace 유지
+      setStep(action === "merge_files" || action === "pdf_utils" ? "import" : "complete");
     } catch (e) {
       if (cancelledRef.current) return;
       setStep("import");

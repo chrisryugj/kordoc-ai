@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { XCircle, Loader2 } from "lucide-react";
 import { Button } from "../ui/Button";
+import { Tooltip } from "../ui/Tooltip";
 import type { PipelineProgress, PipelineStep } from "../../types/pipeline";
 import { formatElapsed } from "../../utils/format";
 
@@ -34,11 +35,13 @@ export function OcrProgressStep({ progress, onCancel, logs, step, elapsed }: Ocr
             <Loader2 size={20} className="animate-spin" style={{ color: "var(--color-accent)" }} />
             <h3 className="ts-lg font-semibold">{title}</h3>
           </div>
+          <Tooltip content="현재 진행 중인 작업을 취소합니다">
           <Button variant="danger" size="sm" onClick={onCancel}>
             <span className="flex items-center gap-1.5">
               <XCircle size={14} /> 취소
             </span>
           </Button>
+          </Tooltip>
         </div>
 
         <div className="progress-bar mb-2" role="progressbar" aria-valuenow={isIndeterminate ? undefined : pct} aria-valuemin={0} aria-valuemax={100} aria-label={title}>

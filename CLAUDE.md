@@ -5,7 +5,6 @@
 ## 프로젝트 개요
 
 - **목적**: HWP/HWPX/PDF/XLSX/DOCX 문서를 마크다운으로 변환하는 데스크톱 앱
-- **배경**: 교육시설안전원 사전기획팀 AI 전환 자문 (자문위원 류승인)
 - **핵심 엔진**: [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS 한국 문서 파서
 
 ## 아키텍처
@@ -29,7 +28,6 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 | `node-sidecar/` | Node.js 백엔드 (JSON-RPC 서버, kordoc 연동, Gemini API) |
 | `node-sidecar/src/core/` | 10개 핵심 비즈니스 모듈 |
 | `node-sidecar/config/` | YAML 설정 (settings.yaml) |
-| `docs/` | 의견서, 계획, 참고자료 |
 | `assets/fonts/` | Pretendard 폰트 |
 
 ## 기술 스택
@@ -93,8 +91,3 @@ cd node-sidecar && npx vitest run
 - stdout은 JSON-RPC 전용 — 로깅은 반드시 stderr로
 - Gemini 기본 모델: `gemini-3-flash-preview` (3.x가 최신)
 
-## 일정
-
-- 서면자문 마감: 2026.03.27
-- 대면자문: ~2026.04.17
-- 최종 결과보고: ~2026.04.30

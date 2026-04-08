@@ -8,7 +8,7 @@ const HEAVY_METHODS = new Set([
   'convert', 'convert_batch', 'ocr', 'summarize',
   'diff', 'form_extract', 'form_extract_candidates', 'form_extract_batch',
   'extract_tables', 'generate_hwpx',
-  'merge_files', 'inspect_document',
+  'merge_files', 'pdf_extract_pages', 'inspect_document',
 ]);
 
 /** 최대 동시 실행 수 (Python 이전 구현의 max_workers=2와 동일) */

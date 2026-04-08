@@ -12,8 +12,8 @@ import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
 
 export type { MergeFilesParams, MergeFilesResult } from './types.js';
-export { splitPdf } from './concat-pdf.js';
-export type { SplitPdfParams, SplitPdfResult } from './concat-pdf.js';
+export { splitPdf, extractPdfPages, getPdfPageCount } from './concat-pdf.js';
+export type { SplitPdfParams, SplitPdfResult, ExtractPdfPagesParams, ExtractPdfPagesResult } from './concat-pdf.js';
 
 /**
  * HWPX 서식 유지 수합 — COM 실패 시 kordoc 마크다운 병합으로 폴백.

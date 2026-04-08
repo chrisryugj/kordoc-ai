@@ -337,7 +337,7 @@ export function SettingsModal({
           <div className="w-px h-3" style={{ backgroundColor: "var(--color-border)" }} />
           <div className="flex items-center gap-1.5">
             <span style={{ color: "var(--color-text-muted)" }}>API 키</span>
-            <Badge variant={apiKey.length > 0 ? "success" : "danger"} className="text-[0.6rem]">
+            <Badge variant={apiKey.length > 0 ? "success" : "danger"} className="text-[0.675rem]">
               {apiKey.length > 0 ? "설정됨" : "미설정"}
             </Badge>
           </div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { CheckCircle2, FolderOpen, RotateCcw, AlertTriangle, ArrowLeft, Terminal, X, FileText, FileOutput, Merge, Copy, Check, ShieldCheck, CircleX, TriangleAlert, Lightbulb, ChevronDown, ChevronRight, List, Image } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
+import { Tooltip } from "../ui/Tooltip";
 import { MarkdownViewer } from "../ui/MarkdownViewer";
 import { formatElapsed } from "../../utils/format";
 import type { PipelineResult, ImportedFile } from "../../types/pipeline";
@@ -305,6 +306,7 @@ function InspectViewer({ data }: { data: InspectData }) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Tooltip content="결과를 클립보드에 복사">
           <button
             type="button"
             onClick={handleCopy}
@@ -318,6 +320,7 @@ function InspectViewer({ data }: { data: InspectData }) {
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? "복사됨" : "복사"}
           </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1074,15 +1077,21 @@ export function ResultStep({ result, files, onReset, onBack, onOpenFolder, onSum
                 <span className="flex items-center gap-1.5"><Terminal size={14} /> 로그 ({logs.length})</span>
               </Button>
             )}
+            <Tooltip content="결과 파일이 저장된 폴더를 엽니다">
             <Button variant="secondary" size="sm" onClick={onOpenFolder}>
               <span className="flex items-center gap-1.5"><FolderOpen size={14} /> 폴더 열기</span>
             </Button>
+            </Tooltip>
+            <Tooltip content="파일 유지하고 다른 작업 선택">
             <Button variant="ghost" size="sm" onClick={onBack}>
               <span className="flex items-center gap-1.5"><ArrowLeft size={14} /> 다른 작업</span>
             </Button>
+            </Tooltip>
+            <Tooltip content="모든 파일 초기화하고 처음부터">
             <Button variant="ghost" size="sm" onClick={onReset}>
               <span className="flex items-center gap-1.5"><RotateCcw size={14} /> 새로 시작</span>
             </Button>
+            </Tooltip>
           </div>
         </div>
       </div>
