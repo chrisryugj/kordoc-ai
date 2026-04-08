@@ -31,7 +31,6 @@ const ALLOWED_METHODS: &[&str] = &[
     "inspect_document",
     "ocr",
     "summarize",
-    "scan_receipt",
 ];
 
 #[tauri::command]

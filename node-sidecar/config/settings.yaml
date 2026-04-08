@@ -1,7 +1,7 @@
 gemini:
   model: gemini-3-flash-preview
   lite_model: gemini-3-flash-preview
-  api_key: ***REMOVED***
+  api_key: ""
   proxy_url: ""
   max_retries: 5
   timeout_ms: 60000

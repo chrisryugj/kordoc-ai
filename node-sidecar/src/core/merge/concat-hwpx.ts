@@ -22,7 +22,12 @@ import type { MergeFilesParams, MergeFilesResult } from './types.js';
 const execFileAsync = promisify(execFile);
 
 function buildPyScript(files: string[], outputPath: string): string {
-  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const esc = (s: string) => {
+    if (/[\x00-\x1f]/.test(s)) {
+      throw new Error(`파일 경로에 제어 문자가 포함되어 있습니다: ${s}`);
+    }
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  };
   const fileList = files.map(f => `'${esc(f)}'`).join(',');
 
   return `# -*- coding: utf-8 -*-
