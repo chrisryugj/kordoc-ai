@@ -1,5 +1,6 @@
 import { memo, useCallback } from "react";
 import { FileText, Settings, HelpCircle, Wifi, WifiOff } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import type { NavItem } from "../../types/nav";
 
 interface SidebarProps {
@@ -86,11 +87,11 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
             <div className="ts-2xs font-semibold uppercase tracking-wider pt-5 pb-2" style={{ color: "var(--color-sidebar-section)" }}>
               <span className="sidebar-section-title">AI 모드</span>
             </div>
+            <Tooltip content={isOnline ? "오프라인(로컬 전용)으로 전환" : "온라인(Gemini API)으로 전환"} position="right">
             <button
               onClick={onToggleMode}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors hover-sidebar-item"
               style={{ color: "var(--color-sidebar-text)" }}
-              title={isOnline ? "클릭하면 오프라인(로컬 전용)으로 전환" : "클릭하면 온라인(Gemini API)으로 전환"}
             >
               {isOnline
                 ? <Wifi size={18} style={{ color: "var(--color-success)" }} />
@@ -112,6 +113,7 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
                 />
               </div>
             </button>
+            </Tooltip>
           </>
         )}
       </nav>
@@ -137,13 +139,15 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
       {/* Status Footer */}
       <div className="px-4 py-3 border-t" style={{ borderColor: "var(--color-sidebar-border)" }}>
         <div className="flex items-center gap-2.5 ts-2xs sidebar-label" style={{ color: "var(--color-sidebar-muted)" }}>
-          <span className="flex items-center gap-1.5" title={sidecarError || undefined}>
+          <Tooltip content={sidecarError || (sidecarStatus === "ready" ? "Node.js 문서 처리 엔진 정상" : "엔진 초기화 중...")} position="top">
+          <span className="flex items-center gap-1.5">
             <span
               className="w-1.5 h-1.5 rounded-full shrink-0"
               style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
             />
             {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? "오류" : "시작중"}
           </span>
+          </Tooltip>
           <span style={{ color: "var(--color-sidebar-border)" }}>·</span>
           <span className="flex items-center gap-1.5">
             <span
@@ -153,13 +157,14 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
             API {apiKeySet ? "설정됨" : "미설정"}
           </span>
         </div>
+        <Tooltip content="Chris Ryu" position="top">
         <div
           className="ts-2xs mt-1.5 sidebar-credit"
           style={{ color: "var(--color-sidebar-muted)", cursor: "default", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.5 }}
-          title="광진구청 류주임"
         >
           2026 © Chris Ryu.
         </div>
+        </Tooltip>
       </div>
     </aside>
   );

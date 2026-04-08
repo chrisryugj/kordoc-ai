@@ -16,7 +16,7 @@ import { diff } from '../../core/comparator/index.js';
 import { formExtract, formExtractCandidates, formExtractBatch } from '../../core/form/index.js';
 import { generateHwpx } from '../../core/generator/index.js';
 import { extractTables } from '../../core/excel/index.js';
-import { mergeFiles, splitPdf } from '../../core/merge/index.js';
+import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
 import { inspectDocument } from '../../core/inspect/index.js';
 
 /** 모든 메서드를 라우터에 등록 */
@@ -250,7 +250,27 @@ export function registerAllMethods(router: RpcRouter): void {
     }, signal);
   });
 
-  // 18. inspect_document — K팀장 문서 정합성 검사
+  // 18. pdf_page_count — PDF 페이지 수 조회 (경량)
+  router.register('pdf_page_count', async (params) => {
+    const file = validatePath(params.file as string);
+    return getPdfPageCount(file);
+  });
+
+  // 19. pdf_extract_pages — PDF 페이지 추출 (포함/제외)
+  router.register('pdf_extract_pages', async (params, signal) => {
+    const file = validatePath(params.file as string);
+    const output_path = validatePath(params.output_path as string);
+    const pages = params.pages as string;
+    if (!pages) throw new Error('Missing "pages" parameter');
+    return extractPdfPages({
+      file,
+      output_path,
+      pages,
+      mode: params.mode as 'include' | 'exclude' | undefined,
+    }, signal);
+  });
+
+  // 19. inspect_document — K팀장 문서 정합성 검사
   router.register('inspect_document', async (params, signal) => {
     const input_path = validatePath(params.input_path as string);
     return inspectDocument({ input_path }, signal);

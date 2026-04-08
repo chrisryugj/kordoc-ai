@@ -19,7 +19,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
 import { useWindowSize } from "./hooks/useWindowSize";
-import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions, FormExtractOptions } from "./types/pipeline";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions, FormExtractOptions, PdfUtilsOptions } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
 import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
 
@@ -227,7 +227,7 @@ export default function App() {
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
   // Start action
-  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions }) => {
+  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; pdfUtilsOptions?: PdfUtilsOptions }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
     logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
     setLogsVersion((v) => v + 1);
@@ -318,7 +318,7 @@ export default function App() {
   const isWorkspace = pipeline.step === "idle" || pipeline.step === "import";
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col" onContextMenu={(e) => e.preventDefault()}>
       <a href="#main-content" className="skip-link">본문으로 이동</a>
       <div className="flex flex-1 overflow-hidden">
         <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} aiMode={aiMode} onToggleMode={settings.toggleAiMode} />
@@ -342,6 +342,7 @@ export default function App() {
                   sidecarReady={sidecarReady}
                   sidecarError={sidecar.status === "error" ? sidecar.errorMessage : undefined}
                   sidecarCall={sidecar.call}
+                  showToast={showToast}
                 />
               )}
 

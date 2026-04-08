@@ -120,13 +120,12 @@ kordoc-ai/
 │   └── hooks/                    # useSidecar, usePipeline, useWindowSize
 ├── src-tauri/                    # Tauri 데스크톱 앱 (Rust)
 │   └── src/commands/             # IPC 커맨드
-├── node-sidecar/                 # Node.js 백엔드
-│   ├── src/core/                 # 10개 비즈니스 모듈
-│   │   ├── merge/                # 문서 병합 (HWPX/DOCX/XLSX/PDF)
-│   │   ├── summary/              # AI 요약 (4스타일 × 3분량)
-│   │   └── ocr/                  # AI OCR (Gemini Vision)
-│   └── src/rpc/                  # JSON-RPC 라우터 + 17개 메서드
-└── docs/                         # 참고자료
+└── node-sidecar/                 # Node.js 백엔드
+    ├── src/core/                 # 10개 비즈니스 모듈
+    │   ├── merge/                # 문서 병합 (HWPX/DOCX/XLSX/PDF)
+    │   ├── summary/              # AI 요약 (4스타일 × 3분량)
+    │   └── ocr/                  # AI OCR (Gemini Vision)
+    └── src/rpc/                  # JSON-RPC 라우터 + 17개 메서드
 ```
 
 ## 테스트
