@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KorDoc AI",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.kordoc-ai.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -35,7 +35,9 @@
       "icons/icon.ico"
     ],
     "publisher": "KorDoc",
-    "shortDescription": "한국 문서 변환 AI 데스크톱 도구",
+    "shortDescription": "HWP/HWPX/PDF/XLSX/DOCX 문서 변환·요약·비교·병합",
+    "longDescription": "KorDoc AI는 관공서에서 사용하는 모든 문서 형식(HWP, HWPX, PDF, XLSX, DOCX)을 마크다운으로 변환하고, AI로 요약·비교·병합하는 데스크톱 도구입니다. 한컴오피스나 MS Office 없이 순수 JS 엔진(kordoc)으로 문서를 파싱합니다.",
+    "copyright": "Copyright (c) 2026 KorDoc",
     "license": "MIT",
     "resources": {
       "../node-sidecar/dist/": "node-sidecar/dist/",

@@ -1,8 +1,0 @@
-[project]
-name = "mvp-improved"
-version = "1.0.0"
-description = "v1 레거시 — 사용하지 마세요. 실제 의존성: python-sidecar/pyproject.toml"
-requires-python = ">=3.10, <3.14"
-
-# 레거시: 실제 의존성은 python-sidecar/pyproject.toml 참조
-dependencies = []
