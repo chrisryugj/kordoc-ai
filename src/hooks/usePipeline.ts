@@ -256,17 +256,18 @@ export function usePipeline(): UsePipelineReturn {
   ): Promise<void> => {
     // 더블클릭/중복 실행 방지 — isRunningRef는 setState 배치보다 빠르게 차단
     if (isRunningRef.current) return;
-    isRunningRef.current = true;
-    cancelledRef.current = false;
+
+    // 검증을 isRunningRef 설정 전에 수행 — 실패 시 영구 차단 방지
     const currentFiles = filesRef.current;
     if (currentFiles.length === 0) throw new Error("처리할 파일이 없습니다");
-
-    // 액션별 최소 파일 수 검증
     const minFiles: Partial<Record<PipelineAction, number>> = { diff: 2, merge_files: 2 };
     const required = minFiles[action] ?? 1;
     if (currentFiles.length < required) {
       throw new Error(`"${action}" 액션은 최소 ${required}개 파일이 필요합니다 (현재 ${currentFiles.length}개)`);
     }
+
+    isRunningRef.current = true;
+    cancelledRef.current = false;
 
     setStep("converting");
     setProgress({ current: 0, total: currentFiles.length, message: "처리 준비 중..." });
