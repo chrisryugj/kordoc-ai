@@ -54,7 +54,7 @@ describe('RpcRouter', () => {
     const methods = router.listMethods();
     expect(methods).toContain('ping');
     expect(methods).toContain('convert');
-    expect(methods).toContain('scan_receipt');
+    expect(methods).toContain('inspect_document');
     // cancel은 router 내부 처리이므로 등록 목록에 없음
     expect(methods).not.toContain('cancel');
   });
