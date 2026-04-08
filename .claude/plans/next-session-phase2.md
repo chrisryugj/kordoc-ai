@@ -127,7 +127,7 @@ Phase 2에서 실제 구현: ping, cancel, get_settings, update_settings, open_f
 계획 파일: .claude/plans/frolicking-wandering-allen.md
 다음 세션 상세 계획: .claude/plans/next-session-phase2.md
 
-Phase 1 완료 (커밋 4729950): 브랜딩 전환, 사전기획 코드 9,021줄 제거, 파이프라인 4단계 단순화.
+Phase 1 완료 (커밋 4729950): 브랜딩 전환, 레거시 코드 9,021줄 제거, 파이프라인 4단계 단순화.
 
 Phase 2 목표: Node.js sidecar 뼈대 구축.
 - node-sidecar/ 폴더에 TypeScript 프로젝트 초기화

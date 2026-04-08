@@ -49,7 +49,7 @@ export const StatusBar = memo(function StatusBar({ step, progress, elapsed }: St
         backgroundColor: "var(--color-bg-tertiary)",
         borderTop: "1px solid var(--color-border)",
         color: "var(--color-text-muted)",
-        fontSize: "0.65rem",
+        fontSize: "0.6875rem",
       }}
     >
       <div className="flex items-center gap-3 min-w-0 shrink-0">

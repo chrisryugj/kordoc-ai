@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { Copy, Check, Eye, Code, Sparkles } from "lucide-react";
 import { Button } from "./Button";
+import { Tooltip } from "./Tooltip";
+import { ContextMenu } from "./ContextMenu";
 
 interface MarkdownViewerProps {
   markdown: string;
@@ -17,6 +19,7 @@ interface MarkdownViewerProps {
 export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500, fillHeight }: MarkdownViewerProps) {
   const [view, setView] = useState<"rendered" | "source">("rendered");
   const [copied, setCopied] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -71,12 +74,15 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
             {markdown.length.toLocaleString()}자
           </span>
+          <Tooltip content="마크다운 원본을 클립보드에 복사">
           <Button variant="ghost" size="sm" onClick={handleCopy}>
             <span className="flex items-center gap-1">
               {copied ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 복사</>}
             </span>
           </Button>
+          </Tooltip>
           {onSummarize && (
+            <Tooltip content="Gemini AI로 핵심 내용 요약 (온라인 모드 필요)">
             <Button variant="secondary" size="sm" onClick={onSummarize} disabled={isSummarizing}>
               <span className="flex items-center gap-1">
                 {isSummarizing ? (
@@ -86,12 +92,24 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
                 )}
               </span>
             </Button>
+            </Tooltip>
           )}
         </div>
       </div>
 
       {/* Content */}
-      <div className={`overflow-y-auto${fillHeight ? " flex-1 min-h-0" : ""}`} style={fillHeight ? undefined : { maxHeight }}>
+      <div
+        className={`overflow-y-auto${fillHeight ? " flex-1 min-h-0" : ""}`}
+        style={fillHeight ? undefined : { maxHeight }}
+        onContextMenu={(e) => {
+          const sel = window.getSelection()?.toString();
+          if (sel && sel.trim()) {
+            e.preventDefault();
+            e.stopPropagation();
+            setCtxMenu({ x: e.clientX, y: e.clientY, text: sel });
+          }
+        }}
+      >
         {view === "rendered" ? (
           <div className="markdown-body p-5 ts-sm">
             <ReactMarkdown
@@ -143,6 +161,16 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           </pre>
         )}
       </div>
+
+      {ctxMenu && (
+        <ContextMenu
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            { label: "선택 텍스트 복사", icon: <Copy size={13} />, onClick: () => { navigator.clipboard.writeText(ctxMenu.text); } },
+          ]}
+        />
+      )}
     </div>
   );
 }

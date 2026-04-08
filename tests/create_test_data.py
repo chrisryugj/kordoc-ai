@@ -39,10 +39,10 @@ def create_mvp1_test_pdf():
 
     # 페이지 1: 텍스트
     c.setFont(font_name, 16)
-    c.drawString(50, 750, "사전기획 적정성 검토 보고서")
+    c.drawString(50, 750, "문서 변환 테스트 보고서")
     c.setFont(font_name, 12)
     c.drawString(50, 720, "작성일: 2026년 3월 20일")
-    c.drawString(50, 700, "작성자: 교육시설지원처 사전기획팀")
+    c.drawString(50, 700, "작성자: 테스트팀")
     c.drawString(50, 660, "1. 사업 개요")
     c.drawString(70, 640, "본 사업은 노후 교육시설의 공간 재구조화를 통해")
     c.drawString(70, 620, "미래형 교육환경을 조성하는 것을 목적으로 합니다.")

@@ -1,15 +1,18 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import {
-  Upload, FileText, X, FolderOpen, Trash2,
+  Upload, FileText, X, FolderOpen, Trash2, Copy, ExternalLink,
   Scan, Sparkles, GitCompareArrows,
   Table, ClipboardList, FileOutput, Merge, ShieldCheck, AlertTriangle, Wifi,
-  ArrowRight,
+  ArrowRight, Scissors,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
-import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions, FormExtractOptions, FieldCandidate, ConvertOptions } from "../../types/pipeline";
+import { Tooltip } from "../ui/Tooltip";
+import { ContextMenu } from "../ui/ContextMenu";
+import type { ImportedFile, PipelineAction, MergeMode, SummarizeLength, SummarizeStyle, SummarizeOptions, FormExtractOptions, FieldCandidate, ConvertOptions, PdfUtilsOptions } from "../../types/pipeline";
 import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
+import { PdfToolsDialog } from "./PdfToolsDialog";
 import { FormFieldSelector } from "./FormFieldSelector";
 
 // ── Action 정의 ──
@@ -32,6 +35,7 @@ const ACTIONS: ActionDef[] = [
   { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [] },
   { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: [] },
   { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: [] },
+  { action: "pdf_utils", label: "PDF 도구", desc: "병합 · 분할 · 추출", icon: <Scissors size={18} />, color: "#EF4444", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["pdf"] },
   { action: "generate_hwpx", label: "HWPX 생성", desc: "마크다운 → 한글 문서", icon: <FileOutput size={18} />, color: "#059669", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt", "md"] },
   { action: "ocr", label: "AI OCR", desc: "이미지/PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"] },
   { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
@@ -102,7 +106,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions }) => void;
+  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions; pdfUtilsOptions?: PdfUtilsOptions }) => void;
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   onBrowse: () => void;
   onBrowseFolder: () => void;
@@ -112,11 +116,12 @@ interface WorkspaceProps {
   onOpenSettings: () => void;
   sidecarReady: boolean;
   sidecarError?: string;
+  showToast: (msg: string, type: "success" | "error" | "info" | "loading") => void;
 }
 
 export function Workspace({
   files, onFilesChange, onAction, onBrowse, onBrowseFolder,
-  apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError, sidecarCall,
+  apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError, sidecarCall, showToast,
 }: WorkspaceProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -125,17 +130,10 @@ export function Workspace({
   const [summarizeOpen, setSummarizeOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [formFieldOpen, setFormFieldOpen] = useState(false);
+  const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
   const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
   const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
   const pendingActionRef = useRef<PipelineAction | null>(null);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("contextmenu", close);
-    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
-  }, [ctxMenu]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -181,6 +179,11 @@ export function Workspace({
     // summarize: 옵션 선택 다이얼로그
     if (action === "summarize") {
       setSummarizeOpen(true);
+      return;
+    }
+    // pdf_utils: PDF 도구 다이얼로그
+    if (action === "pdf_utils") {
+      setPdfToolsOpen(true);
       return;
     }
     // form_extract: 필드 후보 fetch → 선택 다이얼로그
@@ -327,9 +330,11 @@ export function Workspace({
               <h3 className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
                 선택된 파일 ({files.length})
               </h3>
-              <button onClick={() => onFilesChange([])} className="ts-2xs font-medium px-2 py-0.5 rounded" style={{ color: "var(--color-text-muted)" }}>
-                전체 삭제
-              </button>
+              <Tooltip content="목록의 모든 파일을 제거합니다">
+                <button onClick={() => onFilesChange([])} className="ts-2xs font-medium px-2 py-0.5 rounded" style={{ color: "var(--color-text-muted)" }}>
+                  전체 삭제
+                </button>
+              </Tooltip>
             </div>
             <div className="space-y-1 max-h-[160px] overflow-y-auto">
               {files.map((file) => (
@@ -339,7 +344,8 @@ export function Workspace({
                   style={{ backgroundColor: "var(--color-bg-tertiary)" }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 168), y: Math.min(e.clientY, window.innerHeight - 60), path: file.path });
+                    e.stopPropagation();
+                    setCtxMenu({ x: e.clientX, y: e.clientY, path: file.path });
                   }}
                 >
                   <Badge variant={getFileTypeBadgeVariant(file.name)}>{file.type.toUpperCase()}</Badge>
@@ -353,22 +359,16 @@ export function Workspace({
             </div>
 
             {ctxMenu && (
-              <div
-                className="fixed z-50 rounded-lg shadow-lg py-1 min-w-[140px]"
-                role="menu"
-                style={{ top: ctxMenu.y, left: ctxMenu.x, backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)" }}
-              >
-                <button
-                  role="menuitem" autoFocus
-                  className="w-full text-left px-3 py-1.5 ts-xs flex items-center gap-2 transition-colors"
-                  style={{ color: "var(--color-error)" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-bg-tertiary)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
-                  onClick={() => { removeFile(ctxMenu.path); setCtxMenu(null); }}
-                >
-                  <Trash2 size={13} /> 목록에서 제거
-                </button>
-              </div>
+              <ContextMenu
+                position={{ x: ctxMenu.x, y: ctxMenu.y }}
+                onClose={() => setCtxMenu(null)}
+                items={[
+                  { label: "경로 복사", icon: <Copy size={13} />, onClick: () => { navigator.clipboard.writeText(ctxMenu.path).then(() => showToast("경로가 복사되었습니다", "success")); } },
+                  { label: "파일 열기", icon: <ExternalLink size={13} />, onClick: () => { sidecarCall("open_file", { path: ctxMenu.path }).catch(() => showToast("파일을 열 수 없습니다", "error")); } },
+                  { type: "separator" as const },
+                  { label: "목록에서 제거", icon: <Trash2 size={13} />, danger: true, onClick: () => removeFile(ctxMenu.path) },
+                ]}
+              />
             )}
           </div>
         )}
@@ -485,6 +485,19 @@ export function Workspace({
             onAction("summarize", { summarizeOptions: opts });
           }}
           onCancel={() => setSummarizeOpen(false)}
+        />
+      )}
+
+      {/* PDF 도구 */}
+      {pdfToolsOpen && (
+        <PdfToolsDialog
+          files={files}
+          sidecarCall={sidecarCall}
+          onConfirm={(opts) => {
+            setPdfToolsOpen(false);
+            onAction("pdf_utils", { pdfUtilsOptions: opts });
+          }}
+          onCancel={() => setPdfToolsOpen(false)}
         />
       )}
 

@@ -88,6 +88,76 @@ function parseRanges(rangeStr: string, maxPage: number): number[][] {
   return groups;
 }
 
+/** PDF 페이지 수 조회 */
+export async function getPdfPageCount(filePath: string): Promise<{ page_count: number }> {
+  const buffer = await readFile(filePath);
+  const doc = await PDFDocument.load(buffer);
+  return { page_count: doc.getPageCount() };
+}
+
+/** PDF 페이지 추출 — include/exclude 모드 */
+export interface ExtractPdfPagesParams {
+  file: string;
+  output_path: string;
+  /** 페이지 지정: "1,3,5-7" 형식 */
+  pages: string;
+  /** include: 지정 페이지만 추출, exclude: 지정 페이지 제외 */
+  mode?: 'include' | 'exclude';
+}
+
+export interface ExtractPdfPagesResult {
+  success: boolean;
+  output_path: string;
+  extracted_pages: number;
+  total_pages: number;
+}
+
+export async function extractPdfPages(
+  params: ExtractPdfPagesParams,
+  signal: AbortSignal,
+): Promise<ExtractPdfPagesResult> {
+  const { file, output_path, pages, mode = 'include' } = params;
+  const buffer = await readFile(file);
+  const srcDoc = await PDFDocument.load(buffer);
+  const totalPages = srcDoc.getPageCount();
+
+  // 지정된 페이지 인덱스 파싱 (0-based)
+  const specified = new Set<number>();
+  for (const group of parseRanges(pages, totalPages)) {
+    for (const idx of group) specified.add(idx);
+  }
+
+  // include: 지정 페이지만, exclude: 지정 페이지 제외
+  const targetIndices = mode === 'include'
+    ? [...specified].sort((a, b) => a - b)
+    : Array.from({ length: totalPages }, (_, i) => i).filter(i => !specified.has(i));
+
+  if (targetIndices.length === 0) {
+    throw new Error(mode === 'include'
+      ? '추출할 페이지가 없습니다'
+      : '제외 후 남은 페이지가 없습니다');
+  }
+
+  signal.throwIfAborted();
+
+  const doc = await PDFDocument.create();
+  const copiedPages = await doc.copyPages(srcDoc, targetIndices);
+  for (const page of copiedPages) doc.addPage(page);
+
+  await mkdir(dirname(output_path), { recursive: true });
+  const outputBytes = await doc.save();
+  await writeFile(output_path, outputBytes);
+
+  logger.info(`[extract-pdf] ${file} → ${output_path} (${targetIndices.length}/${totalPages}p, ${mode})`);
+
+  return {
+    success: true,
+    output_path,
+    extracted_pages: targetIndices.length,
+    total_pages: totalPages,
+  };
+}
+
 export async function splitPdf(
   params: SplitPdfParams,
   signal: AbortSignal,
