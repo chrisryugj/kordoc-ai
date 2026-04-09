@@ -66,7 +66,7 @@
 |------|------|
 | **UI** | React 19 · TypeScript 5.9 · Tailwind CSS 4 · Vite 7 |
 | **데스크톱** | Tauri 2.10 (Rust) · window-state 플러그인 |
-| **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.1 · Gemini API |
+| **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.2 · Gemini API |
 | **AI** | gemini-3-flash-preview |
 | **빌드** | pnpm · tsc → Tauri NSIS 인스톨러 |
 

@@ -1,6 +1,6 @@
 import {
   FileText, Scan, GitCompareArrows, Sparkles,
-  BookOpen, Upload, AlertTriangle,
+  BookOpen, Upload, AlertTriangle, Download,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { motion } from "framer-motion";
@@ -22,9 +22,46 @@ const FEATURES = [
 ];
 
 export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, onHelp, onSettings }: WelcomeHeroProps) {
+  const isNodeMissing = sidecarError?.includes("Node.js") ?? false;
+
   return (
     <div className="relative w-full h-full flex overflow-hidden select-none bg-primary/5" onContextMenu={(e) => e.preventDefault()}>
-      
+
+      {/* Node.js 미설치 안내 - Top Center */}
+      {isNodeMissing && (
+        <motion.div
+          initial={{ y: -40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-4 rounded-xl shadow-lg border glass"
+          style={{
+            backgroundColor: "var(--color-error-bg, color-mix(in srgb, var(--color-error) 8%, var(--color-bg-primary)))",
+            borderColor: "var(--color-error)",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} style={{ color: "var(--color-error)" }} />
+            <div>
+              <div className="ts-sm font-semibold" style={{ color: "var(--color-error)" }}>
+                Node.js가 설치되지 않았습니다
+              </div>
+              <div className="ts-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                KorDoc AI는 문서 처리를 위해 Node.js 20 이상이 필요합니다.
+              </div>
+            </div>
+          </div>
+          <a
+            href="https://nodejs.org"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 ts-xs px-4 py-2 rounded-lg text-white font-semibold transition-transform active:scale-95 shrink-0"
+            style={{ backgroundColor: "var(--color-error)", boxShadow: "0 2px 8px rgba(220, 38, 38, 0.25)" }}
+          >
+            <Download size={14} /> Node.js 다운로드
+          </a>
+        </motion.div>
+      )}
+
       {/* Floating API Key Warning - Top Right */}
       {sidecarReady && !apiKeySet && (
         <motion.div

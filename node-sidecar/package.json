@@ -1,6 +1,6 @@
 {
   "name": "kordoc-sidecar",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "KorDoc AI Node.js sidecar — JSON-RPC 2.0 over stdin/stdout",
   "type": "module",
   "main": "dist/main.js",
