@@ -21,6 +21,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: node-sidecar/pnpm-lock.yaml
 
+      - name: Create kordoc stub for CI
+        run: |
+          mkdir -p ../kordoc
+          echo '{"name":"kordoc","version":"0.0.0","main":"index.js"}' > ../kordoc/package.json
+          echo "module.exports = {};" > ../kordoc/index.js
+        shell: bash
+
       - name: Install dependencies
         working-directory: node-sidecar
         run: pnpm install --frozen-lockfile
