@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -51,7 +51,10 @@
       "nsis": {
         "languages": ["Korean"],
         "displayLanguageSelector": false,
-        "installMode": "both"
+        "installMode": "both",
+        "installerIcon": "icons/icon.ico",
+        "sidebarImage": null,
+        "headerImage": null
       }
     }
   },

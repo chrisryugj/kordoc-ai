@@ -196,7 +196,7 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
                 className="w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
               />
-              {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? "오류" : "시작중"}
+              {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? (sidecarError ? `오류: ${sidecarError}` : "오류") : "시작중"}
             </span>
             </Tooltip>
             <span style={{ color: "var(--color-sidebar-border)" }}>·</span>

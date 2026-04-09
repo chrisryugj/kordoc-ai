@@ -6,7 +6,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "build:bundle": "node esbuild.config.mjs",
+    "build:bundle": "node esbuild.config.mjs && node postbuild.mjs",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",

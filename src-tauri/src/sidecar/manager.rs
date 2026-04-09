@@ -554,7 +554,15 @@ impl SidecarManager {
 
         // 시스템 PATH에서 탐색
         let cmd = if cfg!(windows) { "where" } else { "which" };
-        match std::process::Command::new(cmd).arg("node").output() {
+        let mut find_cmd = std::process::Command::new(cmd);
+        find_cmd.arg("node");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            find_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        match find_cmd.output() {
             Ok(output) if output.status.success() => {
                 let path_str = String::from_utf8_lossy(&output.stdout);
                 if let Some(first_line) = path_str.lines().next() {

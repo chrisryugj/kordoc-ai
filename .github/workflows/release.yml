@@ -11,8 +11,8 @@ permissions:
   contents: write
 
 jobs:
-  build-msi:
-    name: Build MSI
+  build-installer:
+    name: Build NSIS Installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,24 +43,24 @@ jobs:
       - name: Build Node.js sidecar
         run: pnpm build:node-sidecar
 
-      - name: Build Tauri MSI
+      - name: Build Tauri NSIS Installer
         run: pnpm tauri build
 
-      - name: Upload MSI artifact
+      - name: Upload NSIS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kordoc-ai-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          name: kordoc-ai-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
 
   release:
     name: Create Release
-    needs: build-msi
+    needs: build-installer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: kordoc-ai-msi
-          path: msi
+          name: kordoc-ai-installer
+          path: installer
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -71,7 +71,7 @@ jobs:
             ## KorDoc AI v${{ github.event.inputs.version }}
 
             ### 설치 방법
-            1. 아래 `.msi` 파일 다운로드
+            1. 아래 `.exe` 설치 파일 다운로드
             2. 실행하여 설치
             3. **Node.js 20+** 필요 ([다운로드](https://nodejs.org/))
             4. 앱 실행 후 설정에서 Gemini API 키 입력
@@ -79,6 +79,6 @@ jobs:
             ### 시스템 요구사항
             - Windows 10/11
             - Node.js 20+
-          files: msi/*.msi
+          files: installer/*.exe
           draft: false
           prerelease: false
