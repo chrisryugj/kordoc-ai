@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { FileText, Settings, HelpCircle, Wifi, WifiOff, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { FileText, Settings, HelpCircle, Wifi, WifiOff, ChevronsLeft } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import type { NavItem } from "../../types/nav";
 
