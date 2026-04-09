@@ -22,20 +22,20 @@ jobs:
           cache-dependency-path: node-sidecar/pnpm-lock.yaml
 
       - name: Create kordoc stub for CI
+        shell: bash
         run: |
           mkdir -p ../kordoc
-          echo '{"name":"kordoc","version":"0.0.0","main":"index.js"}' > ../kordoc/package.json
-          echo "module.exports = {};" > ../kordoc/index.js
-        shell: bash
+          echo '{"name":"kordoc","version":"0.0.0","main":"index.js","type":"module"}' > ../kordoc/package.json
+          echo "export default {};" > ../kordoc/index.js
 
       - name: Install dependencies
         working-directory: node-sidecar
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Run tests
         working-directory: node-sidecar
         shell: bash
-        run: ./node_modules/.bin/vitest run
+        run: npx vitest run
 
   typescript-check:
     name: TypeScript Check
