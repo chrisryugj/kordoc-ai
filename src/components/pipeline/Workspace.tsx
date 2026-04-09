@@ -259,8 +259,10 @@ export function Workspace({
             {!apiKeySet && (
               <button
                 onClick={onOpenSettings}
-                className="flex items-center gap-1.5 ts-2xs px-2.5 py-1 rounded-md font-semibold transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95"
-                style={{ color: "var(--color-warning)", backgroundColor: "var(--color-warning-subtle)" }}
+                className="flex items-center gap-1.5 ts-2xs px-2.5 py-1 rounded-md font-semibold"
+                style={{ color: "var(--color-warning)", backgroundColor: "var(--color-warning-subtle)", transition: "all var(--transition-fast)" }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(234,179,8,0.2)"; e.currentTarget.style.filter = "brightness(1.08)"; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.filter = "none"; }}
               >
                 <AlertTriangle size={12} /> API 키 설정
               </button>
