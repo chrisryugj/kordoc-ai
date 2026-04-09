@@ -58,6 +58,11 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 | 문서 정합성 검사 | `inspect_document` | kordoc parse + 규칙 검사 | 로컬 |
 | AI OCR | `ocr` | Gemini Vision (PDF 직접 전송) | API |
 | AI 요약 | `summarize` | Gemini text | API |
+| MCP 환경 감지 | `detect_mcp_env` | process/fs | 로컬 |
+| MCP 설정 설치 | `install_mcp_config` | fs writeFile | 로컬 |
+| Node.js 설치 | `install_node` | spawn winget/browser | 로컬 |
+| 유틸리티 | `ping`, `get_settings`, `update_settings` | — | 로컬 |
+| 파일 관리 | `open_folder`, `open_file`, `list_files` | explorer/fs | 로컬 |
 
 ## 빌드
 
@@ -78,7 +83,7 @@ pnpm tauri:build
 # Node.js sidecar 테스트
 cd node-sidecar && pnpm test
 
-# 전체 (vitest 31개)
+# 전체 (vitest 45개)
 cd node-sidecar && npx vitest run
 ```
 
@@ -89,6 +94,13 @@ cd node-sidecar && npx vitest run
 - progress notification (비동기)
 - Semaphore 동시성 제한 (max 2)
 - cancel 지원 (fire-and-forget)
+
+## UI 기능
+
+- 폴더 드래그드롭 — 폴더 드래그 시 지원 파일 자동 스캔, 클립보드 붙여넣기 지원
+- 출력 폴더 선택 — 전역/작업별 출력 디렉토리 커스터마이징
+- MCP 원클릭 설치 — Claude Desktop, Cursor, VS Code, Zed 등에 kordoc MCP 자동 등록
+- 접힘 사이드바 — 토글 버튼으로 사이드바 축소/확대
 
 ## 주의사항
 

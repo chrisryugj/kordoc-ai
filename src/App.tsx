@@ -11,6 +11,7 @@ import { ResultStep } from "./components/pipeline/ResultStep";
 import { ToastContainer } from "./components/ui/Toast";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { HelpModal } from "./components/help/HelpModal";
+import { MCPSetupDialog } from "./components/mcp/MCPSetupDialog";
 import { MergeResultModal } from "./components/pipeline/MergeResultModal";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useSidecar } from "./hooks/useSidecar";
@@ -32,6 +33,8 @@ export default function App() {
   const stderrUnlistenRef = useRef<UnlistenFn | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1024);
+  const [mcpSetupOpen, setMcpSetupOpen] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   const sidecar = useSidecar();
@@ -79,28 +82,48 @@ export default function App() {
     };
   }, []);
 
-  // Tauri drag-and-drop
+  // Tauri drag-and-drop (파일 + 폴더 지원)
   const filesRef = useRef(pipeline.files);
   filesRef.current = pipeline.files;
+  const sidecarCallRef = useRef(sidecar.call);
+  sidecarCallRef.current = sidecar.call;
 
   useEffect(() => {
     let mounted = true;
     let unlistenFn: (() => void) | null = null;
-    getCurrentWindow().onDragDropEvent((event) => {
+    getCurrentWindow().onDragDropEvent(async (event) => {
       if (!mounted) return;
       if (event.payload.type !== "drop") return;
       const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
       if (!paths?.length) return;
+
       const existingPaths = new Set(filesRef.current.map((f) => f.path));
-      const newFiles: ImportedFile[] = paths
-        .filter((p) => SUPPORTED_EXT_RE.test(p))
-        .filter((p) => !existingPaths.has(p))
-        .map((p) => {
+      const collected: ImportedFile[] = [];
+
+      for (const p of paths) {
+        if (SUPPORTED_EXT_RE.test(p)) {
+          if (existingPaths.has(p)) continue;
           const name = p.split(/[/\\]/).pop() ?? p;
-          return { path: p, name, size: 0, type: detectFileType(name) };
-        });
-      if (newFiles.length > 0) {
-        pipeline.setFiles([...filesRef.current, ...newFiles]);
+          collected.push({ path: p, name, size: 0, type: detectFileType(name) });
+          existingPaths.add(p);
+        } else if (!p.includes(".") || p.endsWith("\\") || p.endsWith("/")) {
+          // 확장자 없으면 폴더로 간주 → list_files로 내부 스캔
+          try {
+            const entries = await sidecarCallRef.current("list_files", { path: p }) as { name: string; is_dir: boolean; size: number }[];
+            const sep = p.includes("/") ? "/" : "\\";
+            for (const e of entries) {
+              if (e.is_dir || !SUPPORTED_EXT_RE.test(e.name)) continue;
+              const fullPath = `${p}${sep}${e.name}`;
+              if (existingPaths.has(fullPath)) continue;
+              collected.push({ path: fullPath, name: e.name, size: e.size, type: detectFileType(e.name) });
+              existingPaths.add(fullPath);
+            }
+          } catch { /* 폴더 아니면 무시 */ }
+        }
+      }
+
+      if (collected.length > 0) {
+        pipeline.setFiles([...filesRef.current, ...collected]);
         if (pipeline.step === "idle") pipeline.setStep("import");
       }
     }).then((fn) => {
@@ -227,7 +250,7 @@ export default function App() {
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
   // Start action
-  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; pdfUtilsOptions?: PdfUtilsOptions }) => {
+  const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; pdfUtilsOptions?: PdfUtilsOptions }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
     logsRef.current = [`${action} 시작: ${pipeline.files.length}개 파일`];
     setLogsVersion((v) => v + 1);
@@ -321,7 +344,7 @@ export default function App() {
     <div className="h-screen flex flex-col" onContextMenu={(e) => e.preventDefault()}>
       <a href="#main-content" className="skip-link">본문으로 이동</a>
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} aiMode={aiMode} onToggleMode={settings.toggleAiMode} />
+        <Sidebar active={nav} onNavigate={handleNavigate} sidecarStatus={sidecar.status} sidecarError={sidecar.errorMessage} apiKeySet={apiKey.trim().length > 0} aiMode={aiMode} onToggleMode={settings.toggleAiMode} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((c) => !c)} />
 
         <main id="main-content" className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-primary)" }}>
           <ErrorBoundary>
@@ -343,6 +366,9 @@ export default function App() {
                   sidecarError={sidecar.status === "error" ? sidecar.errorMessage : undefined}
                   sidecarCall={sidecar.call}
                   showToast={showToast}
+                  onOpenMcpSetup={() => setMcpSetupOpen(true)}
+                  outputDir={outputDir}
+                  onOutputDirChange={settings.setOutputDir}
                 />
               )}
 
@@ -394,6 +420,13 @@ export default function App() {
       />
 
       <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      <MCPSetupDialog
+        isOpen={mcpSetupOpen}
+        onClose={() => setMcpSetupOpen(false)}
+        sidecarCall={sidecar.call}
+        showToast={showToast}
+      />
 
       {/* 병합 결과 모달 — merge 완료 시 페이지 전환 없이 팝업 */}
       <MergeResultModal

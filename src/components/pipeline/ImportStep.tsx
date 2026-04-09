@@ -221,31 +221,50 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
     <div className="flex flex-col gap-6 p-6 animate-fade-in">
       {/* Drop Zone */}
       <div
-        className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-4 py-14 cursor-pointer`}
+        className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-3 py-12`}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
         onContextMenu={(e) => e.preventDefault()}
-        onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest(".drop-zone")) onBrowse?.(); }}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse?.(); } }}
       >
-        <Upload size={36} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+        <Upload size={40} className="drop-zone-icon" />
         <div className="text-center">
-          <p className="ts-md font-medium" style={{ color: "var(--color-text-primary)" }}>
-            파일을 여기에 드래그하거나 클릭하여 선택
+          <p className="ts-md font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            파일 또는 폴더를 여기에 드래그
           </p>
-          <p className="ts-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-            HWP · HWPX · PDF · XLSX · 이미지
+          <p className="ts-xs mt-1.5" style={{ color: "var(--color-text-muted)" }}>
+            HWP · HWPX · PDF · XLSX · DOCX · 이미지
           </p>
         </div>
+      </div>
+
+      {/* 파일/폴더 선택 버튼 */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => onBrowse?.()}
+          className="drop-zone-btn flex items-center gap-3 px-5 py-4 rounded-xl text-left transition-colors"
+          style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)" }}
+        >
+          <Upload size={22} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+          <div>
+            <div className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>파일 선택</div>
+            <div className="ts-2xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>개별 파일 찾아보기</div>
+          </div>
+        </button>
         {onBrowseFolder && (
-          <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}>
-            <span className="flex items-center gap-1.5">
-              <FolderOpen size={14} /> 폴더 선택
-            </span>
-          </Button>
+          <button
+            type="button"
+            onClick={() => onBrowseFolder()}
+            className="drop-zone-btn flex items-center gap-3 px-5 py-4 rounded-xl text-left transition-colors"
+            style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)" }}
+          >
+            <FolderOpen size={22} style={{ color: "var(--color-warning)", flexShrink: 0 }} />
+            <div>
+              <div className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>폴더 선택</div>
+              <div className="ts-2xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>폴더 내 문서 일괄 추가</div>
+            </div>
+          </button>
         )}
       </div>
 

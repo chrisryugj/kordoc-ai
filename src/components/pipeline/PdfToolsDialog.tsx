@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Merge, Scissors, FileOutput, FileText, Check, X,
+  Merge, Scissors, FileOutput, FileText, Check, X, FolderOpen,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
 import type {
@@ -80,10 +81,10 @@ function PageGrid({ pageCount, selected, onToggle, onSelectAll, onDeselectAll, c
               {page}
               {isSelected && (
                 <div
-                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                  className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: color }}
                 >
-                  <Check size={8} style={{ color: "white" }} />
+                  <Check size={7} style={{ color: "white" }} />
                 </div>
               )}
             </button>
@@ -102,6 +103,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
   const [targetIdx, setTargetIdx] = useState(0);
   const [splitMode, setSplitMode] = useState<PdfSplitMode>("each");
   const [extractMode, setExtractMode] = useState<PdfExtractMode>("include");
+
+  // 내보내기 폴더
+  const [outputDir, setOutputDir] = useState<string>("");
 
   // 페이지 선택 상태
   const [pageCount, setPageCount] = useState<number | null>(null);
@@ -170,6 +174,14 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
     return false;
   })();
 
+  const handleBrowseOutputDir = useCallback(async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      setOutputDir(Array.isArray(selected) ? selected[0] : selected);
+    } catch { /* 취소 */ }
+  }, []);
+
   const handleConfirm = () => {
     if (!mode) return;
     const opts: PdfUtilsOptions = { mode };
@@ -182,6 +194,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
       opts.extractMode = extractMode;
       opts.pages = selectedToRangeStr();
     }
+    if (outputDir) opts.outputDir = outputDir;
     onConfirm(opts);
   };
 
@@ -388,6 +401,42 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
           }}>
             {previewText}
           </p>
+        )}
+
+        {/* 내보내기 폴더 */}
+        {mode && (
+          <div className="space-y-1.5">
+            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>내보내기 폴더</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleBrowseOutputDir}
+                className="group flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all cursor-pointer"
+                style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = `0 0 0 1px ${activeColor}40`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)"; e.currentTarget.style.boxShadow = "none"; }}
+              >
+                <FolderOpen size={13} style={{ color: outputDir ? activeColor : "var(--color-text-muted)" }} />
+                <span className="ts-2xs truncate" style={{ color: outputDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                  {outputDir ? outputDir.split(/[/\\]/).slice(-2).join("\\") : "원본 파일 위치"}
+                </span>
+                <span className="ts-2xs font-medium ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: activeColor }}>
+                  변경
+                </span>
+              </button>
+              {outputDir && (
+                <button
+                  onClick={() => setOutputDir("")}
+                  className="p-1 rounded shrink-0 transition-colors"
+                  style={{ color: "var(--color-text-muted)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-error)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
+                  title="초기화"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         {/* 버튼 */}

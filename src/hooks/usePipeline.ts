@@ -94,8 +94,10 @@ export function usePipeline(): UsePipelineReturn {
 
 
 
-  async function dispatchSingle(method: string, call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
-    const raw = await call(method, { input_path: file.path }) as Record<string, unknown>;
+  async function dispatchSingle(method: string, call: SidecarCall, file: ImportedFile, outputDir?: string): Promise<PipelineResult> {
+    const params: Record<string, unknown> = { input_path: file.path };
+    if (outputDir) params.output_dir = outputDir;
+    const raw = await call(method, params) as Record<string, unknown>;
     const success = raw.success !== false;
     const outPath = typeof raw.output_path === "string" && raw.output_path ? fileDir(raw.output_path) : fileDir(file.path);
     return {
@@ -134,8 +136,9 @@ export function usePipeline(): UsePipelineReturn {
   async function dispatchMerge(call: SidecarCall, currentFiles: ImportedFile[], outputDir?: string, mergeMode?: MergeMode): Promise<PipelineResult> {
     const dir = outputDir || fileDir(currentFiles[0].path);
     const sep = dir.includes("/") ? "/" : "\\";
-    // native 모드: 첫 파일 확장자로 출력, markdown 모드: .md
-    const ext = mergeMode === "native" ? `.${currentFiles[0].type}` : ".md";
+    // native 모드: 첫 파일 확장자로 출력 (hwp→hwpx 통일), markdown 모드: .md
+    const firstType = currentFiles[0].type;
+    const ext = mergeMode === "native" ? `.${firstType === "hwp" ? "hwpx" : firstType}` : ".md";
     const firstName = currentFiles[0].name.replace(/\.[^.]+$/, "");
     const suffix = currentFiles.length > 1 ? `_외${currentFiles.length - 1}건` : "";
     const outputPath = `${dir}${sep}수합_${firstName}${suffix}${ext}`;
@@ -152,11 +155,17 @@ export function usePipeline(): UsePipelineReturn {
     };
   }
 
-  async function dispatchGenerateHwpx(call: SidecarCall, file: ImportedFile): Promise<PipelineResult> {
-    const raw = await call("generate_hwpx", { input_path: file.path }) as Record<string, unknown>;
+  async function dispatchGenerateHwpx(call: SidecarCall, file: ImportedFile, outputDir?: string): Promise<PipelineResult> {
+    const params: Record<string, unknown> = { input_path: file.path };
+    if (outputDir) {
+      const sep = outputDir.includes("/") ? "/" : "\\";
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      params.output_path = `${outputDir}${sep}${baseName}.hwpx`;
+    }
+    const raw = await call("generate_hwpx", params) as Record<string, unknown>;
     return {
       total: 1, successCount: 1, failCount: 0,
-      outputPath: (raw.output_path as string) || fileDir(file.path),
+      outputPath: (raw.output_path as string) ? fileDir(raw.output_path as string) : (outputDir || fileDir(file.path)),
       warnings: [],
       data: raw,
     };
@@ -166,12 +175,15 @@ export function usePipeline(): UsePipelineReturn {
     call: SidecarCall,
     currentFiles: ImportedFile[],
     formOpts: FormExtractOptions,
+    outputDir?: string,
   ): Promise<PipelineResult> {
-    const raw = await call("form_extract_batch", {
+    const params: Record<string, unknown> = {
       files: currentFiles.map((f) => f.path),
       selected_fields: formOpts.selectedFields,
       use_ai: formOpts.useAi,
-    }) as Record<string, unknown>;
+    };
+    if (outputDir) params.output_dir = outputDir;
+    const raw = await call("form_extract_batch", params) as Record<string, unknown>;
     const outputPath = typeof raw.output_path === "string" ? fileDir(raw.output_path) : fileDir(currentFiles[0].path);
     return {
       total: currentFiles.length,
@@ -190,10 +202,12 @@ export function usePipeline(): UsePipelineReturn {
     outputDir?: string,
   ): Promise<PipelineResult> {
     const pdfFiles = currentFiles.filter((f) => f.type === "pdf");
+    // 다이얼로그에서 지정한 폴더 → 전역 설정 → 원본 위치
+    const effectiveDir = opts.outputDir || outputDir;
 
     if (opts.mode === "merge") {
       // PDF 병합 → merge_files native 모드 재활용
-      const dir = outputDir || fileDir(pdfFiles[0].path);
+      const dir = effectiveDir || fileDir(pdfFiles[0].path);
       const sep = dir.includes("/") ? "/" : "\\";
       const firstName = pdfFiles[0].name.replace(/\.[^.]+$/, "");
       const suffix = pdfFiles.length > 1 ? `_외${pdfFiles.length - 1}건` : "";
@@ -210,7 +224,7 @@ export function usePipeline(): UsePipelineReturn {
     }
 
     const target = opts.targetFile ?? pdfFiles[0];
-    const dir = outputDir || fileDir(target.path);
+    const dir = effectiveDir || fileDir(target.path);
     const baseName = target.name.replace(/\.[^.]+$/, "");
 
     if (opts.mode === "split") {
@@ -290,17 +304,17 @@ export function usePipeline(): UsePipelineReturn {
           resp = await dispatchDiff(sidecarCall, currentFiles);
           break;
         case "extract_tables":
-          resp = await dispatchSingle("extract_tables", sidecarCall, currentFiles[0]);
+          resp = await dispatchSingle("extract_tables", sidecarCall, currentFiles[0], options?.outputDir);
           break;
         case "form_extract":
           if (options?.formExtractOptions) {
-            resp = await dispatchFormExtractBatch(sidecarCall, currentFiles, options.formExtractOptions);
+            resp = await dispatchFormExtractBatch(sidecarCall, currentFiles, options.formExtractOptions, options?.outputDir);
           } else {
             resp = await dispatchSingle("form_extract", sidecarCall, currentFiles[0]);
           }
           break;
         case "generate_hwpx":
-          resp = await dispatchGenerateHwpx(sidecarCall, currentFiles[0]);
+          resp = await dispatchGenerateHwpx(sidecarCall, currentFiles[0], options?.outputDir);
           break;
         case "merge_files":
           resp = await dispatchMerge(sidecarCall, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);

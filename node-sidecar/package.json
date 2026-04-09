@@ -18,16 +18,10 @@
     "@xmldom/xmldom": "^0.9.8",
     "cfb": "^1.2.2",
     "jszip": "^3.10.1",
-    "kordoc": "^2.2.0",
+    "kordoc": "link:../../kordoc",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
     "yaml": "^2.7.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "canvas",
-      "esbuild"
-    ]
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

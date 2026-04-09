@@ -18,8 +18,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   GripVertical, ChevronUp, ChevronDown, X,
-  Merge, FileOutput, FileText,
+  Merge, FileOutput, FileText, FolderOpen,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
 import type { ImportedFile, MergeMode } from "../../types/pipeline";
@@ -92,7 +93,7 @@ function SortableFileItem({
           disabled={index === 0}
           className="p-0.5 rounded transition-colors"
           style={{
-            color: index === 0 ? "var(--color-text-disabled)" : "var(--color-text-muted)",
+            color: index === 0 ? "var(--color-text-disabled)" : "var(--color-text-secondary)",
             cursor: index === 0 ? "default" : "pointer",
           }}
           aria-label="위로 이동"
@@ -104,7 +105,7 @@ function SortableFileItem({
           disabled={index === total - 1}
           className="p-0.5 rounded transition-colors"
           style={{
-            color: index === total - 1 ? "var(--color-text-disabled)" : "var(--color-text-muted)",
+            color: index === total - 1 ? "var(--color-text-disabled)" : "var(--color-text-secondary)",
             cursor: index === total - 1 ? "default" : "pointer",
           }}
           aria-label="아래로 이동"
@@ -135,13 +136,15 @@ function SortableFileItem({
 interface MergeOrderDialogProps {
   files: ImportedFile[];
   uniformType: string | null;
-  onConfirm: (orderedFiles: ImportedFile[], mergeMode: MergeMode) => void;
+  outputDir: string;
+  onConfirm: (orderedFiles: ImportedFile[], mergeMode: MergeMode, outputDir?: string) => void;
   onCancel: () => void;
 }
 
-export function MergeOrderDialog({ files, uniformType, onConfirm, onCancel }: MergeOrderDialogProps) {
+export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDir, onConfirm, onCancel }: MergeOrderDialogProps) {
   const [items, setItems] = useState<ImportedFile[]>(() => [...files]);
   const [mergeMode, setMergeMode] = useState<MergeMode>(uniformType ? "native" : "markdown");
+  const [localOutputDir, setLocalOutputDir] = useState("");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -177,6 +180,16 @@ export function MergeOrderDialog({ files, uniformType, onConfirm, onCancel }: Me
       return prev.filter((_, i) => i !== idx);
     });
   };
+
+  const handleBrowseOutputDir = useCallback(async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      setLocalOutputDir(Array.isArray(selected) ? selected[0] : selected);
+    } catch { /* 취소 */ }
+  }, []);
+
+  const effectiveDir = localOutputDir || globalOutputDir;
 
   return (
     <div
@@ -283,12 +296,49 @@ export function MergeOrderDialog({ files, uniformType, onConfirm, onCancel }: Me
           </div>
         )}
 
+        {/* 내보내기 폴더 */}
+        <div className="space-y-1.5">
+          <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>내보내기 폴더</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBrowseOutputDir}
+              className="group flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all cursor-pointer"
+              style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = "0 0 0 1px #D9770640"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)"; e.currentTarget.style.boxShadow = "none"; }}
+            >
+              <FolderOpen size={13} style={{ color: effectiveDir ? "#D97706" : "var(--color-text-muted)" }} />
+              <span className="ts-2xs truncate" style={{ color: effectiveDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                {effectiveDir
+                  ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir ? " (전역)" : ""}`
+                  : "원본 파일 위치"
+                }
+              </span>
+              <span className="ts-2xs font-medium ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "#D97706" }}>
+                변경
+              </span>
+            </button>
+            {localOutputDir && (
+              <button
+                onClick={() => setLocalOutputDir("")}
+                className="p-1 rounded shrink-0 transition-colors"
+                style={{ color: "var(--color-text-muted)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-error)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
+                title="초기화"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* 버튼 */}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="ghost" size="sm" onClick={onCancel}>취소</Button>
           <Button
             size="sm"
-            onClick={() => onConfirm(items, mergeMode)}
+            onClick={() => onConfirm(items, mergeMode, localOutputDir || undefined)}
             disabled={items.length < 2}
           >
             <span className="flex items-center gap-1.5">
