@@ -27,7 +27,7 @@ jobs:
 
       - name: Run tests
         working-directory: node-sidecar
-        run: pnpm test
+        run: pnpm exec vitest run
 
   typescript-check:
     name: TypeScript Check
