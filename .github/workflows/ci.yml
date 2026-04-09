@@ -17,16 +17,18 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Create kordoc stub for CI
+      - name: Create kordoc stub and install
         shell: bash
-        run: |
-          mkdir -p ../kordoc
-          echo '{"name":"kordoc","version":"0.0.0","main":"index.js","type":"module"}' > ../kordoc/package.json
-          echo "export default {};" > ../kordoc/index.js
-
-      - name: Install dependencies
         working-directory: node-sidecar
-        run: npm install
+        run: |
+          mkdir -p ../../kordoc
+          echo '{"name":"kordoc","version":"0.0.0","main":"index.js","type":"module"}' > ../../kordoc/package.json
+          echo "export default {};" > ../../kordoc/index.js
+          # Override link: to file: for npm compatibility
+          sed -i 's|"link:../../kordoc"|"file:../../kordoc"|' package.json
+          npm install
+          # Restore original
+          git checkout package.json
 
       - name: Run tests
         working-directory: node-sidecar
