@@ -120,7 +120,7 @@ function extractMarkdown(data: unknown): string | null {
   // summarize — 요약 결과를 마크다운으로 표시
   if (typeof d.summary === "string" && d.summary.length > 0) {
     const parts: string[] = [];
-    const styleLabelMap: Record<string, string> = { standard: "일반 요약", briefing: "보고용", review: "검토용", action: "조치 추출" };
+    const styleLabelMap: Record<string, string> = { standard: "일반 요약", briefing: "보고용", review: "검토용", action: "할 일 정리" };
     const styleLabel = typeof d.style === "string" && styleLabelMap[d.style] ? ` · ${styleLabelMap[d.style]}` : "";
     const ratio = d.original_length != null && Number(d.original_length) > 0
       ? ` (${Math.round(Number(d.summary_length) / Number(d.original_length) * 100)}%)`

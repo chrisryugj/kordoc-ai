@@ -35,7 +35,7 @@ async function concatHwpxWithFallback(
     sendProgress({ current: 0, total: params.files.length, message: 'COM 실패 — 마크다운 병합으로 전환' });
 
     // 마크다운 모드로 폴백 (output 확장자를 .md로 변경)
-    const mdOutput = params.output_path.replace(/\.hwpx$/i, '_병합.md');
+    const mdOutput = params.output_path.replace(/\.hwpx?$/i, '_병합.md');
     const fallbackResult = await mergeFiles(
       { ...params, mode: 'markdown', output_path: mdOutput },
       signal,
@@ -56,6 +56,7 @@ export async function mergeFiles(
   if (params.mode === 'native') {
     const ext = extname(params.files[0]).toLowerCase();
     switch (ext) {
+      case '.hwp':
       case '.hwpx': return concatHwpxWithFallback(params, signal);
       case '.xlsx': return concatXlsx(params, signal);
       case '.docx': return concatDocx(params, signal);
