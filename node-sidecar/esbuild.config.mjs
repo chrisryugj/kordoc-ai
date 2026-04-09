@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 
 await build({
-  entryPoints: ['dist/main.js'],   // tsc 출력을 번들링
+  entryPoints: ['src/main.ts'],     // TypeScript 소스를 직접 번들링
   bundle: true,
   platform: 'node',
   target: 'node20',

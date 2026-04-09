@@ -45,9 +45,9 @@ jobs:
         working-directory: node-sidecar
         run: pnpm install
 
-      - name: Build Node.js sidecar
+      - name: Build Node.js sidecar (esbuild bundle)
         working-directory: node-sidecar
-        run: pnpm build && pnpm build:bundle
+        run: node esbuild.config.mjs && node postbuild.mjs
 
       - name: Build Tauri NSIS Installer
         run: pnpm tauri build
