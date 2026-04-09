@@ -13,13 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: pnpm
-          cache-dependency-path: node-sidecar/pnpm-lock.yaml
 
       - name: Create kordoc stub for CI
         shell: bash
@@ -30,11 +26,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: node-sidecar
-        run: pnpm install --no-frozen-lockfile
+        run: npm install
 
       - name: Run tests
         working-directory: node-sidecar
-        shell: bash
         run: npx vitest run
 
   typescript-check:
