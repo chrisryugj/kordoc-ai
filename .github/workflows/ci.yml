@@ -7,25 +7,27 @@ on:
     branches: [main]
 
 jobs:
-  python-test:
-    name: Python Tests (offline)
+  node-sidecar-test:
+    name: Node Sidecar Tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: node-sidecar/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: |
-          pip install -r python-sidecar/requirements-ci.txt
-          pip install playwright
-          python -m playwright install chromium
+        working-directory: node-sidecar
+        run: pnpm install --frozen-lockfile
 
-      - name: Run offline tests
-        run: |
-          python -m pytest tests/ -v -m "not online" --tb=short
+      - name: Run tests
+        working-directory: node-sidecar
+        run: pnpm test
 
   typescript-check:
     name: TypeScript Check
@@ -57,6 +59,9 @@ jobs:
 
       - name: Create frontend dist placeholder
         run: mkdir dist && echo "<!-- placeholder -->" > dist/index.html
+
+      - name: Create sidecar dist placeholder
+        run: mkdir node-sidecar\dist && echo "// placeholder" > node-sidecar\dist\index.js
 
       - name: Cargo check
         working-directory: src-tauri
