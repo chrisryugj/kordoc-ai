@@ -119,6 +119,11 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
               rehypePlugins={[rehypeRaw, [rehypeSanitize, {
                 ...defaultSchema,
                 tagNames: [...(defaultSchema.tagNames ?? []), "br"],
+                attributes: {
+                  ...defaultSchema.attributes,
+                  td: [...(defaultSchema.attributes?.td ?? []), "colSpan", "rowSpan"],
+                  th: [...(defaultSchema.attributes?.th ?? []), "colSpan", "rowSpan"],
+                },
               }]]}
               components={{
                 h1: (props) => <h1 style={{ fontSize: "1.5em", fontWeight: "bold", marginTop: "0.8em", marginBottom: "0.4em", color: "var(--color-text-primary)" }} {...props} />,
