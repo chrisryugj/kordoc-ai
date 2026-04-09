@@ -259,7 +259,7 @@ export function Workspace({
             {!apiKeySet && (
               <button
                 onClick={onOpenSettings}
-                className="flex items-center gap-1.5 ts-2xs px-2.5 py-1 rounded-md font-semibold"
+                className="flex items-center gap-1.5 ts-2xs px-2.5 py-1 rounded-md font-semibold transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95"
                 style={{ color: "var(--color-warning)", backgroundColor: "var(--color-warning-subtle)" }}
               >
                 <AlertTriangle size={12} /> API 키 설정
