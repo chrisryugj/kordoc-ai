@@ -39,6 +39,7 @@
     "react-dom": "^19.2.3",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
+    "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1"
   }
 }

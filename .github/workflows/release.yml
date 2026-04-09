@@ -42,10 +42,12 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Install node-sidecar dependencies
-        run: cd node-sidecar && pnpm install
+        working-directory: node-sidecar
+        run: pnpm install
 
       - name: Build Node.js sidecar
-        run: cd node-sidecar && pnpm build && pnpm build:bundle
+        working-directory: node-sidecar
+        run: pnpm build && pnpm build:bundle
 
       - name: Build Tauri NSIS Installer
         run: pnpm tauri build
