@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CheckCircle2, FolderOpen, RotateCcw, AlertTriangle, ArrowLeft, Terminal, X, FileText, FileOutput, Merge, Copy, Check, ShieldCheck, CircleX, TriangleAlert, Lightbulb, ChevronDown, ChevronRight, List, Image } from "lucide-react";
+import { CheckCircle2, FolderOpen, RotateCcw, AlertTriangle, ArrowLeft, Terminal, X, FileText, FileOutput, Merge, Copy, Check, ShieldCheck, CircleX, TriangleAlert, Lightbulb, ChevronDown, ChevronRight, List, Image, Info } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Tooltip } from "../ui/Tooltip";
@@ -894,21 +894,36 @@ function OutlinePanel({ outline }: { outline: OutlineItem[] }) {
   );
 }
 
-// ── 파싱 경고 패널 ──
+// ── 파싱 정보/경고 패널 ──
+
+/** 정보성 메시지 패턴 (경고가 아닌 안내) */
+const INFO_PATTERNS = ['Gemini Vision OCR 사용', 'OCR 사용'];
+
+function isInfoMessage(msg: string): boolean {
+  return INFO_PATTERNS.some((p) => msg.includes(p));
+}
 
 function ParseWarningsPanel({ warnings, imageCount }: { warnings: string[]; imageCount?: number }) {
   const [open, setOpen] = useState(false);
+  const realWarnings = warnings.filter((w) => !isInfoMessage(w));
+  const infoMessages = warnings.filter((w) => isInfoMessage(w));
+  const isInfoOnly = realWarnings.length === 0;
+  const accentColor = isInfoOnly ? "var(--color-accent)" : "var(--color-warning)";
+  const label = isInfoOnly ? `참고 ${infoMessages.length}건` : `파싱 경고 ${realWarnings.length}건`;
+
   return (
     <div className="card shrink-0" style={{ overflow: "hidden" }}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2 px-4 py-2 text-left"
-        style={{ backgroundColor: "color-mix(in srgb, var(--color-warning) 5%, var(--color-bg-secondary))" }}
+        style={{ backgroundColor: `color-mix(in srgb, ${accentColor} 5%, var(--color-bg-secondary))` }}
       >
-        <AlertTriangle size={12} style={{ color: "var(--color-warning)" }} />
-        <span className="ts-xs font-semibold flex-1" style={{ color: "var(--color-warning)" }}>
-          파싱 경고 {warnings.length}건
+        {isInfoOnly
+          ? <Info size={12} style={{ color: accentColor }} />
+          : <AlertTriangle size={12} style={{ color: accentColor }} />}
+        <span className="ts-xs font-semibold flex-1" style={{ color: accentColor }}>
+          {label}
         </span>
         {imageCount != null && imageCount > 0 && (
           <span className="flex items-center gap-1 ts-2xs mr-2" style={{ color: "var(--color-text-muted)" }}>
@@ -918,7 +933,7 @@ function ParseWarningsPanel({ warnings, imageCount }: { warnings: string[]; imag
         {open ? <ChevronDown size={12} style={{ color: "var(--color-text-muted)" }} /> : <ChevronRight size={12} style={{ color: "var(--color-text-muted)" }} />}
       </button>
       {open && (
-        <div className="px-4 pb-3 pt-2 space-y-1 max-h-36 overflow-y-auto" style={{ borderTop: "1px solid color-mix(in srgb, var(--color-warning) 20%, transparent)" }}>
+        <div className="px-4 pb-3 pt-2 space-y-1 max-h-36 overflow-y-auto" style={{ borderTop: `1px solid color-mix(in srgb, ${accentColor} 20%, transparent)` }}>
           {warnings.map((w, i) => (
             <p key={i} className="ts-2xs" style={{ color: "var(--color-text-secondary)" }}>· {w}</p>
           ))}

@@ -126,9 +126,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
               KorDoc AI
               <br />한국 문서 변환 도구
             </p>
-            <p className="ts-2xs mt-1" style={{ color: "var(--color-border-hover)", cursor: "default" }} title="광진구청 류주임">
-              2026 © Chris Ryu.
-            </p>
+            <a href="https://www.threads.com/@chris_gomdori?hl=ko" target="_blank" rel="noopener noreferrer" className="ts-2xs mt-1 block" style={{ color: "var(--color-border-hover)", whiteSpace: "nowrap" }} title="광진구청 류주임">
+              2026 © 딴짓하는 류주임 @chris_gomdori
+            </a>
           </div>
         </div>
 

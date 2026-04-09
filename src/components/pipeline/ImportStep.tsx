@@ -21,21 +21,21 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// ── 파일 타입별 색상 + 레이블 ──
+// ── 파일 타입별 색상 + 레이블 (CSS 변수 연동) ──
 const FILE_TYPE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  hwp:     { color: "#fff",     bg: "#1E5FAD", label: "HWP"  },
-  hwpx:    { color: "#fff",     bg: "#2970C8", label: "HWPX" },
-  pdf:     { color: "#fff",     bg: "#E84040", label: "PDF"  },
-  xlsx:    { color: "#fff",     bg: "#1F8A4C", label: "XLSX" },
-  xls:     { color: "#fff",     bg: "#1F8A4C", label: "XLS"  },
-  docx:    { color: "#fff",     bg: "#2B579A", label: "DOCX" },
-  txt:     { color: "#fff",     bg: "#6B7280", label: "TXT"  },
-  md:      { color: "#fff",     bg: "#6B7280", label: "MD"   },
-  png:     { color: "#fff",     bg: "#7C3AED", label: "PNG"  },
-  jpg:     { color: "#fff",     bg: "#7C3AED", label: "JPG"  },
-  gif:     { color: "#fff",     bg: "#7C3AED", label: "GIF"  },
-  webp:    { color: "#fff",     bg: "#7C3AED", label: "WEBP" },
-  unknown: { color: "#fff",     bg: "#9CA3AF", label: "FILE" },
+  hwp:     { color: "#fff",     bg: "var(--color-filetype-hwp)",     label: "HWP"  },
+  hwpx:    { color: "#fff",     bg: "var(--color-filetype-hwpx)",    label: "HWPX" },
+  pdf:     { color: "#fff",     bg: "var(--color-filetype-pdf)",     label: "PDF"  },
+  xlsx:    { color: "#fff",     bg: "var(--color-filetype-xlsx)",    label: "XLSX" },
+  xls:     { color: "#fff",     bg: "var(--color-filetype-xlsx)",    label: "XLS"  },
+  docx:    { color: "#fff",     bg: "var(--color-filetype-docx)",    label: "DOCX" },
+  txt:     { color: "#fff",     bg: "var(--color-filetype-txt)",     label: "TXT"  },
+  md:      { color: "#fff",     bg: "var(--color-filetype-txt)",     label: "MD"   },
+  png:     { color: "#fff",     bg: "var(--color-filetype-img)",     label: "PNG"  },
+  jpg:     { color: "#fff",     bg: "var(--color-filetype-img)",     label: "JPG"  },
+  gif:     { color: "#fff",     bg: "var(--color-filetype-img)",     label: "GIF"  },
+  webp:    { color: "#fff",     bg: "var(--color-filetype-img)",     label: "WEBP" },
+  unknown: { color: "#fff",     bg: "var(--color-filetype-unknown)", label: "FILE" },
 };
 
 function FileTypeIcon({ type, size = 40 }: { type: string; size?: number }) {
@@ -234,6 +234,9 @@ export function ImportStep({ files, onFilesChange, onStartOcr, onBrowse, onBrows
           </p>
           <p className="ts-xs mt-1.5" style={{ color: "var(--color-text-muted)" }}>
             HWP · HWPX · PDF · XLSX · DOCX · 이미지
+          </p>
+          <p className="ts-2xs mt-1" style={{ color: "var(--color-text-muted)", opacity: 0.7 }}>
+            Ctrl+V로 클립보드 텍스트/이미지도 붙여넣기 가능
           </p>
         </div>
       </div>

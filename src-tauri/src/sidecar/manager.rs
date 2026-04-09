@@ -77,6 +77,12 @@ impl SidecarManager {
         cmd.arg(entry)
             .current_dir(&sidecar_dir);
 
+        // Pass API key from OS keychain as env var (avoids race condition)
+        if let Some(api_key) = crate::commands::keychain::load_api_key_raw() {
+            cmd.env("KORDOC_GEMINI_KEY", &api_key);
+            tracing::info!("Passing API key to sidecar via env");
+        }
+
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -211,6 +217,17 @@ impl SidecarManager {
             Ok(resp) => {
                 if let Some(result) = resp.result {
                     if result.as_str() == Some("pong") {
+                        // Sync API key from OS keychain before marking ready
+                        // (prevents race: OCR call arriving before key sync)
+                        if let Some(api_key) = crate::commands::keychain::load_api_key_raw() {
+                            let params = serde_json::json!({
+                                "settings": { "gemini": { "api_key": api_key } }
+                            });
+                            match self.call("update_settings", Some(params)).await {
+                                Ok(_) => tracing::info!("API key pre-synced from keychain"),
+                                Err(e) => tracing::warn!("API key pre-sync failed: {e}"),
+                            }
+                        }
                         *self.status.write().await = SidecarStatus::Ready;
                         tracing::info!("Sidecar ready");
                         return Ok(());

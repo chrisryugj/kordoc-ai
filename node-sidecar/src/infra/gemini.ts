@@ -3,16 +3,30 @@
 import { GoogleGenerativeAI, type SingleRequestOptions } from '@google/generative-ai';
 import { getConfig } from './config.js';
 import { logger } from './logger.js';
+import { getApiKey } from './apiKeyStore.js';
 
 let client: GoogleGenerativeAI | null = null;
+let _lastKey = '';
 
 function getClient(): GoogleGenerativeAI {
-  if (client) return client;
+  const storeKey = getApiKey();
   const cfg = getConfig('gemini');
-  if (!cfg.api_key) {
+  const key = storeKey || cfg.api_key;
+
+  logger.info(`[gemini.getClient] storeKey=${storeKey ? `${storeKey.slice(0, 4)}****` : '(empty)'}, cfg.api_key=${cfg.api_key ? `${String(cfg.api_key).slice(0, 4)}****` : '(none)'}, final=${key ? 'yes' : 'NO'}`);
+
+  // 키가 바뀌면 클라이언트 재생성
+  if (key && key !== _lastKey) {
+    client = null;
+    _lastKey = key;
+  }
+
+  if (client) return client;
+  if (!key) {
     throw new Error('Gemini API key not configured');
   }
-  client = new GoogleGenerativeAI(cfg.api_key);
+  logger.info(`[gemini] client created: ${key.slice(0, 4)}****`);
+  client = new GoogleGenerativeAI(key);
   return client;
 }
 
@@ -38,7 +52,7 @@ function getRequestOptions(signal?: AbortSignal): SingleRequestOptions {
   return opts;
 }
 
-/** 클라이언트 재초기화 (API key 변경 시) */
+/** 클라이언트 재초기화 (레거시 호환) */
 export function resetClient(): void {
   client = null;
 }

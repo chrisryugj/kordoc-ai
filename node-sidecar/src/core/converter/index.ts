@@ -6,6 +6,7 @@ import { parse, type ParseResult, type OcrProvider } from 'kordoc';
 import { getConfig } from '../../infra/config.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { validateFileSize } from '../../infra/pathGuard.js';
 
 export interface ConvertParams {
   /** 입력 파일 경로 */
@@ -54,6 +55,7 @@ export async function convert(params: ConvertParams, signal?: AbortSignal): Prom
   logger.info(`[convert] ${input_path}`);
   signal?.throwIfAborted();
 
+  await validateFileSize(input_path);
   const buffer = await readFile(input_path);
 
   signal?.throwIfAborted();

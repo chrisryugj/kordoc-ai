@@ -322,7 +322,7 @@ select.input-modern option {
    ============================================ */
 .kd-tooltip {
   position: fixed;
-  z-index: 9999;
+  z-index: var(--z-tooltip);
   max-width: 260px;
   padding: 6px 10px;
   border-radius: var(--radius-md);
@@ -353,7 +353,7 @@ select.input-modern option {
    ============================================ */
 .kd-context-menu {
   position: fixed;
-  z-index: 9999;
+  z-index: var(--z-tooltip);
   min-width: 170px;
   max-width: 260px;
   padding: 4px 0;

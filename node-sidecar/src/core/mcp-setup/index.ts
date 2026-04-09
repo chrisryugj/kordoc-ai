@@ -130,11 +130,14 @@ function buildZedEntry(): Record<string, unknown> {
   };
 }
 
-/** shell 명령 실행 헬퍼 — Windows에서 .cmd 파일(npx 등) 실행을 위해 shell 사용 */
+/** shell 명령 실행 헬퍼 — shell:true 없이 안전하게 실행 */
 function exec(cmd: string, args: string[]): Promise<string> {
   const isWin = platform() === 'win32';
+  // Windows에서 .cmd/.bat 파일(npx, where 등)은 cmd.exe 경유로 실행
+  const actualCmd = isWin ? process.env.ComSpec ?? 'cmd.exe' : cmd;
+  const actualArgs = isWin ? ['/c', cmd, ...args] : args;
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 10_000, windowsHide: true, shell: isWin }, (err, stdout) => {
+    execFile(actualCmd, actualArgs, { timeout: 10_000, windowsHide: true }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });

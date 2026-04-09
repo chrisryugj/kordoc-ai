@@ -66,7 +66,7 @@
   --sidebar-width: 220px;
   --color-sidebar-bg: #FFFFFF;
   --color-sidebar-text: #0F172A;
-  --color-sidebar-muted: #64748B;
+  --color-sidebar-muted: #556171;
   --color-sidebar-hover: rgba(37, 99, 235, 0.07);
   --color-sidebar-active: rgba(37, 99, 235, 0.08);
   --color-sidebar-border: #E2E8F0;
@@ -74,7 +74,7 @@
 
   --color-text-primary: #0F172A;
   --color-text-secondary: #334155;
-  --color-text-muted: #64748B;
+  --color-text-muted: #556171;
   --color-text-disabled: #CBD5E1;
   --color-text-inverse: #F8FAFC;
 
@@ -113,7 +113,17 @@
   --color-warning-subtle: rgba(217, 119, 6, 0.1);
   --color-error-subtle: rgba(190, 18, 60, 0.1);
 
-  /* File type colors */
+  /* File type badge colors (icon backgrounds) */
+  --color-filetype-hwp: #1E5FAD;
+  --color-filetype-hwpx: #2970C8;
+  --color-filetype-pdf: #E84040;
+  --color-filetype-xlsx: #1F8A4C;
+  --color-filetype-docx: #2B579A;
+  --color-filetype-txt: #6B7280;
+  --color-filetype-img: #7C3AED;
+  --color-filetype-unknown: #9CA3AF;
+
+  /* File type colors (sidebar/list) */
   --color-file-hwp: #0EA5E9;
   --color-file-pdf: #E11D48;
   --color-file-xlsx: #10B981;
@@ -122,6 +132,14 @@
   --color-file-pdf-bg: rgba(225, 29, 72, 0.05);
   --color-file-xlsx-bg: rgba(16, 185, 129, 0.05);
   --color-file-txt-bg: rgba(100, 116, 139, 0.05);
+
+  /* Z-index scale */
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
 
   /* Pipeline step colors */
   --color-step-active: var(--color-accent);
@@ -210,6 +228,15 @@
   --color-success-subtle: rgba(16, 185, 129, 0.15);
   --color-warning-subtle: rgba(217, 119, 6, 0.15);
   --color-error-subtle: rgba(225, 29, 72, 0.15);
+
+  --color-filetype-hwp: #3B8DD9;
+  --color-filetype-hwpx: #4A9AE5;
+  --color-filetype-pdf: #F06060;
+  --color-filetype-xlsx: #34D399;
+  --color-filetype-docx: #5B8AC4;
+  --color-filetype-txt: #94A3B8;
+  --color-filetype-img: #A78BFA;
+  --color-filetype-unknown: #CBD5E1;
 
   --color-file-hwp: #38BDF8;
   --color-file-pdf: #FB7185;

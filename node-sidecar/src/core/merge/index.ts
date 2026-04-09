@@ -5,6 +5,7 @@ import { dirname, basename, extname } from 'node:path';
 import { parse } from 'kordoc';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { validateFileSize } from '../../infra/pathGuard.js';
 import { concatHwpx } from './concat-hwpx.js';
 import { concatDocx } from './concat-docx.js';
 import { concatXlsx } from './concat-xlsx.js';
@@ -85,6 +86,7 @@ export async function mergeFiles(
 
     const filePath = files[i];
     try {
+      await validateFileSize(filePath);
       const buffer = await readFile(filePath);
       const result = await parse(new Uint8Array(buffer).buffer);
 

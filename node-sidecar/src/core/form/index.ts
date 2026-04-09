@@ -6,6 +6,7 @@ import { parse, extractFormFields, type FormResult } from 'kordoc';
 import { getConfig } from '../../infra/config.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { validateFileSize } from '../../infra/pathGuard.js';
 import { buildCsv, type CsvRow } from './csv-export.js';
 import { aiExtractFields } from './ai-extract.js';
 
@@ -31,6 +32,7 @@ export async function formExtract(params: FormExtractParams, signal?: AbortSigna
   sendProgress({ current: 0, total: 3, message: '문서 읽는 중...' });
   signal?.throwIfAborted();
 
+  await validateFileSize(input_path);
   const buffer = await readFile(input_path);
   signal?.throwIfAborted();
 

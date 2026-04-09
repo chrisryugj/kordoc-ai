@@ -32,7 +32,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
 export function ToastContainer({ toasts, onDismiss }: { toasts: ToastData[]; onDismiss: (id: string) => void }) {
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 items-center">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 items-center" style={{ zIndex: "var(--z-toast)" }}>
       {toasts.map((t) => <Toast key={t.id} toast={t} onDismiss={onDismiss} />)}
     </div>
   );

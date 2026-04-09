@@ -50,8 +50,8 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
         </motion.div>
       )}
 
-      {/* LEFT PANEL : Typography & Actions (60%) */}
-      <div className="w-[60%] h-full flex flex-col justify-center px-12 md:px-20 relative z-10">
+      {/* LEFT PANEL : Typography & Actions */}
+      <div className="w-full lg:w-[60%] h-full flex flex-col justify-center px-8 sm:px-12 lg:px-20 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -98,7 +98,7 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
           </p>
 
           {/* CTA Group */}
-          <div className="flex items-center gap-4 mb-12">
+          <div className="flex items-center gap-4 mb-4">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button size="lg" onClick={onStart} disabled={!sidecarReady} className="shadow-lg h-14 px-8 text-base">
                 <span className="flex items-center gap-2">
@@ -121,6 +121,9 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
               </Button>
             </motion.div>
           </div>
+          <p className="ts-xs mb-8" style={{ color: "var(--color-text-muted)", opacity: 0.5 }}>
+            파일 드래그 또는 Ctrl+V로 텍스트/이미지 붙여넣기
+          </p>
 
           {/* Status & Processing Flow */}
           <div className="pt-8 border-t" style={{ borderColor: "var(--color-border-subtle)" }}>
@@ -172,9 +175,9 @@ export function WelcomeHero({ sidecarReady, sidecarError, apiKeySet, onStart, on
         </motion.div>
       </div>
 
-      {/* RIGHT PANEL : Graphic Metaphor (40%) */}
-      <div 
-        className="w-[40%] h-full relative flex items-center justify-center overflow-hidden"
+      {/* RIGHT PANEL : Graphic Metaphor */}
+      <div
+        className="hidden lg:flex w-[40%] h-full relative items-center justify-center overflow-hidden"
         style={{ backgroundColor: "var(--color-bg-secondary)", borderLeft: "1px solid var(--color-border-subtle)" }}
       >
         {/* Subtle mesh gradient background */}

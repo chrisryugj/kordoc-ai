@@ -6,6 +6,7 @@ import { parse } from 'kordoc';
 import { callGemini } from '../../infra/gemini.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { validateFileSize } from '../../infra/pathGuard.js';
 
 export interface InspectDocumentParams {
   input_path: string;
@@ -145,12 +146,13 @@ export async function inspectDocument(
   sendProgress({ current: 0, total: 3, message: '문서 파싱 중...' });
 
   // 문서 파싱
+  await validateFileSize(input_path);
   const buffer = await readFile(input_path);
   let markdown: string;
 
   try {
     signal.throwIfAborted();
-    const parsed = await parse(buffer);
+    const parsed = await parse(new Uint8Array(buffer).buffer);
     markdown = parsed.success ? parsed.markdown : '';
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;

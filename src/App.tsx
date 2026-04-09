@@ -18,6 +18,7 @@ import { useSidecar } from "./hooks/useSidecar";
 import { usePipeline } from "./hooks/usePipeline";
 import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
+import { htmlToMarkdown, hasRichFormatting } from "./utils/htmlToMarkdown";
 import { useToast } from "./hooks/useToast";
 import { useWindowSize } from "./hooks/useWindowSize";
 import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions, FormExtractOptions, PdfUtilsOptions } from "./types/pipeline";
@@ -179,9 +180,22 @@ export default function App() {
         }
       }
 
-      // 텍스트 (이미지가 없을 때만)
+      // HTML 서식이 있으면 마크다운으로 변환해서 .md로 저장
+      const html = e.clipboardData?.getData("text/html");
       const text = e.clipboardData?.getData("text/plain");
-      if (text && text.trim().length >= 10) {
+
+      if (html && hasRichFormatting(html)) {
+        e.preventDefault();
+        try {
+          const md = htmlToMarkdown(html);
+          if (md.trim().length < 5) throw new Error("변환 결과 비어있음");
+          const savedPath = await invoke<string>("save_clipboard_text", { text: md, ext: "md" });
+          addFileFromPath(savedPath, md.length);
+          showToast("클립보드 서식 텍스트 추가됨 (.md)", "success");
+        } catch (err) {
+          showToast(`붙여넣기 실패: ${err}`, "error");
+        }
+      } else if (text && text.trim().length >= 10) {
         e.preventDefault();
         try {
           const savedPath = await invoke<string>("save_clipboard_text", { text });
@@ -433,6 +447,7 @@ export default function App() {
         result={pipeline.step === "import" ? pipeline.result : null}
         onClose={pipeline.goBack}
         onOpenFolder={() => { handleOpenFolder(); pipeline.goBack(); }}
+        onOpenFile={(path) => { sidecar.call("open_file", { path }).catch(() => showToast("파일을 열 수 없습니다", "error")); }}
       />
 
       {/* AI 요약 모드 전환 확인 */}

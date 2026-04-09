@@ -31,17 +31,20 @@ interface ActionDef {
   fileTypes: string[];
 }
 
+/** 문서 파일 타입 (이미지 제외) */
+const DOC_TYPES = ["hwp", "hwpx", "pdf", "xlsx", "docx", "txt", "md"];
+
 const ACTIONS: ActionDef[] = [
   { action: "convert", label: "마크다운 변환", desc: "HWP/PDF → 마크다운", icon: <FileText size={18} />, color: "var(--color-accent)", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["hwp", "hwpx", "pdf"] },
-  { action: "extract_tables", label: "표 추출", desc: "문서에서 표만 추출", icon: <Table size={18} />, color: "#7C3AED", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [] },
-  { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [] },
-  { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: [] },
-  { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: [] },
+  { action: "extract_tables", label: "표 추출", desc: "문서에서 표만 추출", icon: <Table size={18} />, color: "#7C3AED", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: DOC_TYPES },
+  { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: DOC_TYPES },
+  { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: DOC_TYPES },
+  { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: DOC_TYPES },
   { action: "pdf_utils", label: "PDF 도구", desc: "병합 · 분할 · 추출", icon: <Scissors size={18} />, color: "#EF4444", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["pdf"] },
   { action: "generate_hwpx", label: "HWPX 생성", desc: "마크다운 → 한글 문서", icon: <FileOutput size={18} />, color: "#059669", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["txt", "md"] },
   { action: "ocr", label: "AI OCR", desc: "이미지/PDF 텍스트 인식", icon: <Scan size={18} />, color: "#7C3AED", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: ["pdf", "png", "jpg", "gif", "webp"] },
-  { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
-  { action: "inspect_document", label: "K팀장 검토", desc: "논리 구조·숫자·날짜·오탈자 전체 정합성 검사", icon: <ShieldCheck size={18} />, color: "#DC2626", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: [] },
+  { action: "summarize", label: "AI 요약", desc: "문서 핵심 내용 요약", icon: <Sparkles size={18} />, color: "#2563EB", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: DOC_TYPES },
+  { action: "inspect_document", label: "K팀장 검토", desc: "논리 구조·숫자·날짜·오탈자 전체 정합성 검사", icon: <ShieldCheck size={18} />, color: "#DC2626", needsApi: true, minFiles: 1, maxFiles: 1, fileTypes: DOC_TYPES },
 ];
 
 function getAvailability(a: ActionDef, files: ImportedFile[], apiKeySet: boolean): { ok: boolean; reason?: string } {
@@ -313,6 +316,9 @@ export function Workspace({
                 <Badge variant="txt">DOCX</Badge>
                 <Badge variant="txt">TXT</Badge>
               </div>
+              <p className="ts-2xs mt-1.5" style={{ color: "var(--color-text-muted)", opacity: 0.5 }}>
+                Ctrl+V로 텍스트/이미지 붙여넣기 가능
+              </p>
             </div>
             <div className="flex items-center gap-2 mt-1">
               <button onClick={(e) => { e.stopPropagation(); onBrowse(); }} className="browse-btn flex items-center gap-1.5 ts-xs font-medium px-3 py-1.5 rounded-lg">

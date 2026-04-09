@@ -15,13 +15,13 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
 }
 
-const navItems: { id: NavItem; label: string; icon: React.ReactNode; description: string }[] = [
-  { id: "pipeline", label: "문서 작업", icon: <FileText size={18} />, description: "변환 · 추출 · 비교 · AI 분석" },
+const navItems: { id: NavItem; label: string; Icon: typeof FileText; description: string }[] = [
+  { id: "pipeline", label: "문서 작업", Icon: FileText, description: "변환 · 추출 · 비교 · AI 분석" },
 ];
 
-const bottomItems: { id: NavItem; label: string; icon: React.ReactNode }[] = [
-  { id: "settings", label: "설정", icon: <Settings size={18} /> },
-  { id: "help", label: "도움말", icon: <HelpCircle size={18} /> },
+const bottomItems: { id: NavItem; label: string; Icon: typeof Settings }[] = [
+  { id: "settings", label: "설정", Icon: Settings },
+  { id: "help", label: "도움말", Icon: HelpCircle },
 ];
 
 const ALL_NAV_IDS: NavItem[] = [...navItems.map((i) => i.id), ...bottomItems.map((i) => i.id)];
@@ -48,21 +48,40 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
       className={`h-full flex flex-col shrink-0 select-none sidebar-root${collapsed ? " sidebar-collapsed" : ""}`}
       style={{ backgroundColor: "var(--color-sidebar-bg)", borderRight: "1px solid var(--color-border)", transition: "width 0.2s ease" }}
     >
-      {/* Logo */}
+      {/* Header — 로고 + 접기/펼치기 버튼 */}
       <div className={`sidebar-header flex items-center gap-2${collapsed ? " justify-center px-2" : " px-4"}`} style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
-        <img src="/logo.png" alt="KorDoc AI" className="w-8 h-8 rounded-lg shrink-0 object-cover" />
-        {!collapsed && (
-          <div style={{ lineHeight: 1.2 }} className="min-w-0">
-            <h1 className="font-bold text-display truncate" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "1.0625rem", margin: 0 }}>
-              KorDoc AI
-            </h1>
-            <span className="truncate" style={{ color: "var(--color-sidebar-muted)", fontSize: "0.75rem", display: "block", marginTop: "1px" }}>다 파싱해버리겠다.</span>
-          </div>
+        {collapsed ? (
+          <Tooltip content="사이드바 펼치기" position="right">
+          <button onClick={onToggleCollapse} className="p-0.5 rounded-lg transition-colors hover-sidebar-item">
+            <img src="/logo.png" alt="KorDoc AI" className="w-8 h-8 rounded-lg shrink-0 object-cover" />
+          </button>
+          </Tooltip>
+        ) : (
+          <>
+            <img src="/logo.png" alt="KorDoc AI" className="w-8 h-8 rounded-lg shrink-0 object-cover" />
+            <div style={{ lineHeight: 1.2 }} className="min-w-0 flex-1">
+              <h1 className="font-bold text-display truncate" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "1.0625rem", margin: 0 }}>
+                KorDoc AI
+              </h1>
+              <span className="truncate" style={{ color: "var(--color-sidebar-muted)", fontSize: "0.75rem", display: "block", marginTop: "1px" }}>다 파싱해버리겠다.</span>
+            </div>
+            {onToggleCollapse && (
+              <Tooltip content="사이드바 접기" position="right">
+              <button
+                onClick={onToggleCollapse}
+                className="p-1 rounded-md transition-colors hover-sidebar-item shrink-0"
+                style={{ color: "var(--color-sidebar-muted)" }}
+              >
+                <ChevronsLeft size={16} />
+              </button>
+              </Tooltip>
+            )}
+          </>
         )}
       </div>
 
       {/* Nav — 도구 + AI 모드 */}
-      <nav className={`flex-1 pt-4 space-y-0.5${collapsed ? " px-1.5" : " px-4"}`} onKeyDown={handleKeyDown}>
+      <nav className={`flex-1${collapsed ? " px-1.5 space-y-1 pt-4 flex flex-col items-center" : " pt-4 px-4 space-y-0.5"}`} onKeyDown={handleKeyDown}>
         {!collapsed && (
           <div className="ts-2xs font-semibold uppercase tracking-wider pb-2" style={{ color: "var(--color-sidebar-section)" }}>
             도구
@@ -73,13 +92,13 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
           <button
             onClick={() => onNavigate(item.id)}
             aria-current={active === item.id ? "page" : undefined}
-            className={`w-full flex items-center gap-3 py-2 rounded-md transition-colors ${active !== item.id ? "hover-sidebar-item" : ""}${collapsed ? " justify-center px-0" : " px-3 text-left"}`}
+            className={`w-full flex items-center rounded-md transition-colors ${active !== item.id ? "hover-sidebar-item" : ""}${collapsed ? " justify-center py-3" : " gap-3 py-2 px-3 text-left"}`}
             style={{
               backgroundColor: active === item.id ? "var(--color-sidebar-active)" : "transparent",
               color: active === item.id ? "var(--color-accent)" : "var(--color-sidebar-text)",
             }}
           >
-            {item.icon}
+            <item.Icon size={collapsed ? 22 : 18} />
             {!collapsed && (
               <div className="min-w-0">
                 <div className="ts-sm font-medium truncate">{item.label}</div>
@@ -101,12 +120,12 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
             <Tooltip content={isOnline ? "오프라인(로컬 전용)으로 전환" : "온라인(Gemini API)으로 전환"} position="right">
             <button
               onClick={onToggleMode}
-              className={`w-full flex items-center gap-3 py-2 rounded-md transition-colors hover-sidebar-item${collapsed ? " justify-center px-0 mt-3" : " px-3 text-left"}`}
+              className={`w-full flex items-center rounded-md transition-colors hover-sidebar-item${collapsed ? " justify-center py-3 mt-1" : " gap-3 py-2 px-3 text-left"}`}
               style={{ color: "var(--color-sidebar-text)" }}
             >
               {isOnline
-                ? <Wifi size={18} style={{ color: "var(--color-success)" }} />
-                : <WifiOff size={18} style={{ color: "var(--color-text-muted)" }} />
+                ? <Wifi size={collapsed ? 22 : 18} style={{ color: "var(--color-success)" }} />
+                : <WifiOff size={collapsed ? 22 : 18} style={{ color: "var(--color-text-muted)" }} />
               }
               {!collapsed && (
                 <>
@@ -133,34 +152,19 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
         )}
       </nav>
 
-      {/* Collapse toggle */}
-      {onToggleCollapse && (
-        <div className={`py-1 border-t${collapsed ? " px-1.5" : " px-4"}`} style={{ borderColor: "var(--color-sidebar-border)" }}>
-          <button
-            onClick={onToggleCollapse}
-            className={`w-full flex items-center gap-3 py-1.5 rounded-md transition-colors hover-sidebar-item${collapsed ? " justify-center px-0" : " px-3"}`}
-            style={{ color: "var(--color-sidebar-muted)" }}
-            title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          >
-            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-            {!collapsed && <span className="ts-2xs">접기</span>}
-          </button>
-        </div>
-      )}
-
       {/* Bottom — 설정, 도움말 */}
-      <div className={`py-2 space-y-0.5 border-t${collapsed ? " px-1.5" : " px-4"}`} style={{ borderColor: "var(--color-sidebar-border)" }} onKeyDown={handleKeyDown}>
+      <div className={`py-2 border-t${collapsed ? " px-1.5 space-y-1 flex flex-col items-center" : " px-4 space-y-0.5"}`} style={{ borderColor: "var(--color-sidebar-border)" }} onKeyDown={handleKeyDown}>
         {bottomItems.map((item) => (
           <Tooltip key={item.id} content={item.label} position="right" disabled={!collapsed}>
           <button
             onClick={() => onNavigate(item.id)}
-            className={`w-full flex items-center gap-3 py-1.5 rounded-md transition-colors ${active !== item.id ? "hover-sidebar-item" : ""}${collapsed ? " justify-center px-0" : " px-3 text-left"}`}
+            className={`w-full flex items-center rounded-md transition-colors ${active !== item.id ? "hover-sidebar-item" : ""}${collapsed ? " justify-center py-2.5" : " gap-3 py-1.5 px-3 text-left"}`}
             style={{
               backgroundColor: active === item.id ? "var(--color-sidebar-active)" : "transparent",
               color: active === item.id ? "var(--color-accent)" : "var(--color-sidebar-muted)",
             }}
           >
-            {item.icon}
+            <item.Icon size={collapsed ? 22 : 18} />
             {!collapsed && <span className="ts-sm">{item.label}</span>}
           </button>
           </Tooltip>
@@ -168,52 +172,55 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
       </div>
 
       {/* Status Footer */}
-      <div className={`py-3 border-t${collapsed ? " px-1.5" : " px-4"}`} style={{ borderColor: "var(--color-sidebar-border)" }}>
-        {collapsed ? (
+      {collapsed ? (
+        <div className="py-2.5 border-t px-1.5 flex justify-center" style={{ borderColor: "var(--color-sidebar-border)" }}>
           <Tooltip content={`엔진: ${sidecarStatus === "ready" ? "정상" : sidecarStatus} · API: ${apiKeySet ? "설정됨" : "미설정"}`} position="right">
-            <div className="flex flex-col items-center gap-1.5">
+            <div className="flex justify-center gap-1.5">
               <span
-                className="w-2 h-2 rounded-full"
+                className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
               />
               <span
-                className="w-2 h-2 rounded-full"
+                className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: apiKeySet ? "var(--color-success)" : "var(--color-warning)" }}
               />
             </div>
           </Tooltip>
-        ) : (
-          <>
-            <div className="flex items-center gap-2.5 ts-2xs" style={{ color: "var(--color-sidebar-muted)" }}>
-              <Tooltip content={sidecarError || (sidecarStatus === "ready" ? "Node.js 문서 처리 엔진 정상" : "엔진 초기화 중...")} position="top">
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
-                />
-                {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? "오류" : "시작중"}
-              </span>
-              </Tooltip>
-              <span style={{ color: "var(--color-sidebar-border)" }}>·</span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: apiKeySet ? "var(--color-success)" : "var(--color-warning)" }}
-                />
-                API {apiKeySet ? "설정됨" : "미설정"}
-              </span>
-            </div>
-            <Tooltip content="Chris Ryu" position="top">
-            <div
-              className="ts-2xs mt-1.5"
-              style={{ color: "var(--color-sidebar-muted)", cursor: "default", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.5 }}
-            >
-              2026 © Chris Ryu.
-            </div>
+        </div>
+      ) : (
+        <div className="py-3 border-t px-4" style={{ borderColor: "var(--color-sidebar-border)" }}>
+          <div className="flex items-center gap-2.5 ts-2xs" style={{ color: "var(--color-sidebar-muted)" }}>
+            <Tooltip content={sidecarError || (sidecarStatus === "ready" ? "Node.js 문서 처리 엔진 정상" : "엔진 초기화 중...")} position="top">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: sidecarStatus === "ready" ? "var(--color-success)" : sidecarStatus === "error" ? "var(--color-error)" : "var(--color-warning)" }}
+              />
+              {sidecarStatus === "ready" ? "엔진" : sidecarStatus === "error" ? "오류" : "시작중"}
+            </span>
             </Tooltip>
-          </>
-        )}
-      </div>
+            <span style={{ color: "var(--color-sidebar-border)" }}>·</span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: apiKeySet ? "var(--color-success)" : "var(--color-warning)" }}
+              />
+              API {apiKeySet ? "설정됨" : "미설정"}
+            </span>
+          </div>
+          <Tooltip content="딴짓하는 류주임" position="top">
+          <a
+            href="https://www.threads.com/@chris_gomdori?hl=ko"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ts-2xs mt-1.5 block"
+            style={{ color: "var(--color-sidebar-muted)", fontSize: "0.65rem", letterSpacing: "0.03em", opacity: 0.5, whiteSpace: "nowrap" }}
+          >
+            2026 © 딴짓하는 류주임 @chris_gomdori
+          </a>
+          </Tooltip>
+        </div>
+      )}
     </aside>
   );
 });

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { withDevLog } from "../utils/devlog";
 import type {
   PipelineStep,
   PipelineAction,
@@ -287,44 +288,48 @@ export function usePipeline(): UsePipelineReturn {
     setProgress({ current: 0, total: currentFiles.length, message: "처리 준비 중..." });
     await listenProgress();
 
+    // Dev 모드: RPC 호출 자동 로깅 래퍼
+    const call: SidecarCall = (method, params) =>
+      withDevLog(method, () => sidecarCall(method, params), `${currentFiles.length}개 파일`);
+
     try {
       let resp: PipelineResult;
 
       switch (action) {
         case "convert":
-          resp = await dispatchConvert(sidecarCall, currentFiles, options?.outputDir, options?.convertOptions?.pages);
+          resp = await dispatchConvert(call, currentFiles, options?.outputDir, options?.convertOptions?.pages);
           break;
         case "ocr":
-          resp = await dispatchSingle("ocr", sidecarCall, currentFiles[0]);
+          resp = await dispatchSingle("ocr", call, currentFiles[0]);
           break;
         case "summarize":
-          resp = await dispatchSummarize(sidecarCall, currentFiles[0], options?.summarizeOptions);
+          resp = await dispatchSummarize(call, currentFiles[0], options?.summarizeOptions);
           break;
         case "diff":
-          resp = await dispatchDiff(sidecarCall, currentFiles);
+          resp = await dispatchDiff(call, currentFiles);
           break;
         case "extract_tables":
-          resp = await dispatchSingle("extract_tables", sidecarCall, currentFiles[0], options?.outputDir);
+          resp = await dispatchSingle("extract_tables", call, currentFiles[0], options?.outputDir);
           break;
         case "form_extract":
           if (options?.formExtractOptions) {
-            resp = await dispatchFormExtractBatch(sidecarCall, currentFiles, options.formExtractOptions, options?.outputDir);
+            resp = await dispatchFormExtractBatch(call, currentFiles, options.formExtractOptions, options?.outputDir);
           } else {
-            resp = await dispatchSingle("form_extract", sidecarCall, currentFiles[0]);
+            resp = await dispatchSingle("form_extract", call, currentFiles[0]);
           }
           break;
         case "generate_hwpx":
-          resp = await dispatchGenerateHwpx(sidecarCall, currentFiles[0], options?.outputDir);
+          resp = await dispatchGenerateHwpx(call, currentFiles[0], options?.outputDir);
           break;
         case "merge_files":
-          resp = await dispatchMerge(sidecarCall, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);
+          resp = await dispatchMerge(call, options?.orderedFiles ?? currentFiles, options?.outputDir, options?.mergeMode);
           break;
         case "pdf_utils":
           if (!options?.pdfUtilsOptions) throw new Error("PDF 도구 옵션이 필요합니다");
-          resp = await dispatchPdfUtils(sidecarCall, currentFiles, options.pdfUtilsOptions, options.outputDir);
+          resp = await dispatchPdfUtils(call, currentFiles, options.pdfUtilsOptions, options.outputDir);
           break;
         case "inspect_document":
-          resp = await dispatchSingle("inspect_document", sidecarCall, currentFiles[0]);
+          resp = await dispatchSingle("inspect_document", call, currentFiles[0]);
           break;
         default:
           throw new Error(`알 수 없는 액션: ${action}`);
@@ -336,8 +341,8 @@ export function usePipeline(): UsePipelineReturn {
       if (resp.total > 0 && resp.successCount === 0) {
         throw new Error(`처리 실패: ${resp.total}개 중 성공 0개`);
       }
-      // merge/pdf_utils는 모달로 결과 표시 → Workspace 유지
-      setStep(action === "merge_files" || action === "pdf_utils" ? "import" : "complete");
+      // merge/pdf_utils/generate_hwpx는 모달로 결과 표시 → Workspace 유지
+      setStep(action === "merge_files" || action === "pdf_utils" || action === "generate_hwpx" ? "import" : "complete");
     } catch (e) {
       if (cancelledRef.current) return;
       setStep("import");

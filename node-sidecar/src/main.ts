@@ -9,6 +9,7 @@ import { RPC_ERRORS, type JsonRpcRequest, type JsonRpcResponse } from './rpc/pro
 import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
+import { setApiKey } from './infra/apiKeyStore.js';
 
 /** stdout에 JSON-RPC 응답 쓰기 */
 function writeResponse(response: JsonRpcResponse): void {
@@ -41,6 +42,13 @@ async function main(): Promise<void> {
   } catch {
     // 설정 파일 없어도 기본값으로 계속
     logger.warn('[main] settings.yaml load failed, using defaults');
+  }
+
+  // 환경변수에서 API 키 주입 (Rust sidecar manager가 전달)
+  const envKey = process.env.KORDOC_GEMINI_KEY;
+  if (envKey) {
+    setApiKey(envKey);
+    logger.info(`[main] API key loaded from env (${envKey.slice(0, 4)}****)`);
   }
 
   const router = new RpcRouter();

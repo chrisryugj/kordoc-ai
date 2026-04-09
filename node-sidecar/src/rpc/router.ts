@@ -93,7 +93,11 @@ export class RpcRouter {
     this.active.set(reqId, ac);
 
     const isHeavy = HEAVY_METHODS.has(method);
-    if (isHeavy) await this.acquireSlot(ac.signal);
+    let slotAcquired = false;
+    if (isHeavy) {
+      await this.acquireSlot(ac.signal);
+      slotAcquired = true;
+    }
 
     try {
       const result = await handler(params, ac.signal);
@@ -107,7 +111,7 @@ export class RpcRouter {
       return { error: { code: RPC_ERRORS.INTERNAL_ERROR, message } };
     } finally {
       this.active.delete(reqId);
-      if (isHeavy) this.releaseSlot();
+      if (slotAcquired) this.releaseSlot();
     }
   }
 

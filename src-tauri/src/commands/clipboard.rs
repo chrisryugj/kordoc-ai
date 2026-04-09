@@ -10,6 +10,19 @@ pub async fn save_clipboard_image(
 ) -> Result<String, AppError> {
     let ext = extension.unwrap_or_else(|| "png".to_string());
 
+    // extension 화이트리스트 검증 (path traversal 방지)
+    const ALLOWED_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tiff"];
+    if !ALLOWED_EXT.contains(&ext.to_lowercase().as_str())
+        || ext.contains('/')
+        || ext.contains('\\')
+        || ext.contains("..")
+    {
+        return Err(AppError::Sidecar(format!(
+            "허용되지 않는 확장자: {}. 허용: {:?}",
+            ext, ALLOWED_EXT
+        )));
+    }
+
     // base64 디코딩 (순수 구현 — 외부 크레이트 불필요)
     use base64_decode::decode;
     let bytes = decode(&base64_data)
@@ -29,9 +42,17 @@ pub async fn save_clipboard_image(
     Ok(path.to_string_lossy().to_string())
 }
 
-/// 클립보드 텍스트를 임시 .txt 파일로 저장하고 경로를 반환
+/// 클립보드 텍스트를 임시 파일로 저장하고 경로를 반환
+/// ext가 "md"이면 .md로 저장 (HTML→마크다운 변환 결과용)
 #[tauri::command]
-pub async fn save_clipboard_text(text: String) -> Result<String, AppError> {
+pub async fn save_clipboard_text(
+    text: String,
+    ext: Option<String>,
+) -> Result<String, AppError> {
+    let file_ext = match ext.as_deref() {
+        Some("md") => "md",
+        _ => "txt",
+    };
     let temp_dir = std::env::temp_dir().join("kordoc-ai");
     std::fs::create_dir_all(&temp_dir)?;
 
@@ -39,7 +60,7 @@ pub async fn save_clipboard_text(text: String) -> Result<String, AppError> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let filename = format!("clipboard_{}.txt", ts);
+    let filename = format!("clipboard_{}.{}", ts, file_ext);
     let path: PathBuf = temp_dir.join(&filename);
 
     // BOM + UTF-8

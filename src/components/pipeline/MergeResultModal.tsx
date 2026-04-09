@@ -4,6 +4,13 @@ interface Props {
   result: PipelineResult | null;
   onClose: () => void;
   onOpenFolder: () => void;
+  onOpenFile?: (path: string) => void;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function getSummary(d: Record<string, unknown>): { title: string; detail?: string } {
@@ -21,17 +28,23 @@ function getSummary(d: Record<string, unknown>): { title: string; detail?: strin
     const fileName = typeof d.output_path === "string" ? d.output_path.split(/[/\\]/).pop() : null;
     return { title: `${d.extracted_pages}/${d.total_pages ?? "?"}페이지 추출 완료`, detail: fileName ?? undefined };
   }
+  // generate_hwpx: size + output_path
+  if (d.size != null && typeof d.output_path === "string") {
+    const fileName = d.output_path.split(/[/\\]/).pop();
+    return { title: "HWPX 파일 생성 완료", detail: `${fileName} (${formatBytes(Number(d.size))})` };
+  }
   return { title: "처리 완료" };
 }
 
-export function MergeResultModal({ result, onClose, onOpenFolder }: Props) {
+export function MergeResultModal({ result, onClose, onOpenFolder, onOpenFile }: Props) {
   const d = result?.data as Record<string, unknown> | undefined;
   if (!d) return null;
-  // merge/split/extract 결과 판별
-  if (d.file_count == null && !Array.isArray(d.output_files) && d.extracted_pages == null) return null;
+  // merge/split/extract/hwpx 결과 판별
+  if (d.file_count == null && !Array.isArray(d.output_files) && d.extracted_pages == null && d.size == null) return null;
 
   const { title, detail } = getSummary(d);
   const failed = Array.isArray(d.failed_files) ? d.failed_files as string[] : [];
+  const outputPath = typeof d.output_path === "string" ? d.output_path : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "var(--color-backdrop)" }}>
@@ -55,6 +68,9 @@ export function MergeResultModal({ result, onClose, onOpenFolder }: Props) {
           )}
           <div className="flex gap-2 w-full">
             <button className="btn btn-ghost flex-1 ts-xs" onClick={onClose}>닫기</button>
+            {outputPath && onOpenFile && (
+              <button className="btn btn-secondary flex-1 ts-xs" onClick={() => { onOpenFile(outputPath); onClose(); }}>파일 열기</button>
+            )}
             <button className="btn btn-primary flex-1 ts-xs" onClick={onOpenFolder}>폴더 열기</button>
           </div>
         </div>
