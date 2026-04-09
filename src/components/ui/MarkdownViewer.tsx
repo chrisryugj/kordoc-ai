@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Copy, Check, Eye, Code, Sparkles } from "lucide-react";
 import { Button } from "./Button";
@@ -115,7 +116,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           <div className="markdown-body p-5 ts-sm">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkBreaks]}
-              rehypePlugins={[[rehypeSanitize, {
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, {
                 ...defaultSchema,
                 tagNames: [...(defaultSchema.tagNames ?? []), "br"],
               }]]}
