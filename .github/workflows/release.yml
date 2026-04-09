@@ -43,7 +43,7 @@ jobs:
 
       - name: Install node-sidecar dependencies
         working-directory: node-sidecar
-        run: pnpm install
+        run: npm install
 
       - name: Build Node.js sidecar (esbuild bundle)
         working-directory: node-sidecar
