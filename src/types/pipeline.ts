@@ -63,6 +63,8 @@ export interface PdfUtilsOptions {
   extractMode?: PdfExtractMode;
   /** 페이지 범위/번호 (split range, extract) — "1,3,5-7" 형식 */
   pages?: string;
+  /** 내보내기 폴더 (지정 시 전역 설정 대신 사용) */
+  outputDir?: string;
 }
 
 export interface ImportedFile {

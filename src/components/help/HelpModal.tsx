@@ -4,7 +4,8 @@ import { Badge } from "../ui/Badge";
 import {
   PlayCircle, FileText, Lightbulb, Scan, Key, Upload, FolderOpen,
   CheckCircle, Zap, HelpCircle,
-  GitCompareArrows, Table, FileOutput, Merge, Receipt, Sparkles, ClipboardList,
+  GitCompareArrows, Table, FileOutput, Merge, Sparkles, ClipboardList,
+  Scissors, ShieldCheck,
 } from "lucide-react";
 
 interface HelpModalProps {
@@ -205,8 +206,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                     desc="문서 전체 또는 텍스트를 AI가 핵심 내용으로 요약합니다. 요약 길이와 언어를 선택할 수 있습니다." />
                   <FeatureCard icon={<GitCompareArrows size={16} />} title="문서 비교 (신구대조표)" color="#059669"
                     desc="두 문서의 차이점을 비교하여 신구대조표를 생성합니다. 개정 전/후 문서 비교에 유용합니다." />
-                  <FeatureCard icon={<Receipt size={16} />} title="영수증 스캔" color="#D97706" badge="Gemini"
-                    desc="영수증 이미지를 Gemini Vision으로 스캔하여 날짜, 금액, 항목 등을 JSON으로 구조화합니다." />
+                  <FeatureCard icon={<ShieldCheck size={16} />} title="K팀장 검토" color="#D97706" badge="Gemini"
+                    desc="문서의 논리 구조, 숫자, 날짜, 오탈자 등을 AI가 전체 정합성 검사합니다." />
                 </div>
               </Section>
 
@@ -220,6 +221,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
                     desc="마크다운 텍스트를 HWPX 파일로 변환합니다. AI가 생성한 문서를 한글 문서로 내보낼 수 있습니다." />
                   <FeatureCard icon={<Merge size={16} />} title="문서 병합" color="#D97706"
                     desc="여러 문서를 하나의 마크다운으로 병합합니다. 구분선을 자동으로 삽입합니다." />
+                  <FeatureCard icon={<Scissors size={16} />} title="PDF 도구" color="#E84040"
+                    desc="PDF 분할, 페이지 추출, 병합, 페이지 수 확인 등 PDF 전용 도구 모음입니다." />
                 </div>
               </Section>
             </div>

@@ -5,6 +5,7 @@ import {
   Table, ClipboardList, FileOutput, Merge, ShieldCheck, AlertTriangle, Wifi,
   ArrowRight, Scissors,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
 import { Tooltip } from "../ui/Tooltip";
@@ -14,6 +15,7 @@ import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
 import { PdfToolsDialog } from "./PdfToolsDialog";
 import { FormFieldSelector } from "./FormFieldSelector";
+import { Plug } from "lucide-react";
 
 // ── Action 정의 ──
 
@@ -69,7 +71,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
     <button
       onClick={() => ok && onClick()}
       disabled={!ok}
-      className="group flex items-center gap-3 p-3 rounded-lg text-left transition-all"
+      className="group flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-all"
       style={{
         backgroundColor: ok ? "var(--color-bg-secondary)" : "var(--color-bg-tertiary)",
         opacity: ok ? 1 : needsFiles ? 0.55 : 0.4,
@@ -81,7 +83,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = ok ? "var(--color-border)" : "var(--color-border-subtle)"; }}
     >
       <div
-        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+        className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
         style={{ backgroundColor: `color-mix(in srgb, ${a.color} ${ok ? "12%" : "5%"}, transparent)`, color: ok ? a.color : "var(--color-text-muted)" }}
       >
         {a.icon}
@@ -106,7 +108,7 @@ function ActionCard({ a, ok, reason, needsFiles, onClick }: {
 interface WorkspaceProps {
   files: ImportedFile[];
   onFilesChange: (files: ImportedFile[]) => void;
-  onAction: (action: PipelineAction, actionOptions?: { mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions; pdfUtilsOptions?: PdfUtilsOptions }) => void;
+  onAction: (action: PipelineAction, actionOptions?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; convertOptions?: ConvertOptions; pdfUtilsOptions?: PdfUtilsOptions }) => void;
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   onBrowse: () => void;
   onBrowseFolder: () => void;
@@ -117,11 +119,15 @@ interface WorkspaceProps {
   sidecarReady: boolean;
   sidecarError?: string;
   showToast: (msg: string, type: "success" | "error" | "info" | "loading") => void;
+  onOpenMcpSetup: () => void;
+  outputDir: string;
+  onOutputDirChange: (dir: string) => void;
 }
 
 export function Workspace({
   files, onFilesChange, onAction, onBrowse, onBrowseFolder,
   apiKeySet, aiMode, onToggleMode, onOpenSettings, sidecarReady, sidecarError, sidecarCall, showToast,
+  onOpenMcpSetup, outputDir, onOutputDirChange,
 }: WorkspaceProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -134,6 +140,14 @@ export function Workspace({
   const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
   const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
   const pendingActionRef = useRef<PipelineAction | null>(null);
+
+  const handleBrowseOutputDir = useCallback(async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      onOutputDirChange(Array.isArray(selected) ? selected[0] : selected);
+    } catch { /* 취소 */ }
+  }, [onOutputDirChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -150,10 +164,14 @@ export function Workspace({
 
   const removeFile = (path: string) => onFilesChange(files.filter((f) => f.path !== path));
 
-  /** 동일 네이티브 포맷 감지 (hwpx/xlsx/docx/pdf) */
+  /** 동일 네이티브 포맷 감지 (hwp/hwpx/xlsx/docx/pdf, hwp+hwpx 혼합도 허용) */
   const detectUniformFormat = useCallback((f: ImportedFile[]): string | null => {
     if (f.length < 2) return null;
-    const nativeTypes = new Set(["hwpx", "xlsx", "docx", "pdf"]);
+    const nativeTypes = new Set(["hwp", "hwpx", "xlsx", "docx", "pdf"]);
+    const types = new Set(f.map((file) => file.type));
+    // hwp+hwpx 혼합 → hwpx로 통일 (한/글 COM이 둘 다 처리)
+    const isHwpMix = types.size <= 2 && [...types].every((t) => t === "hwp" || t === "hwpx");
+    if (isHwpMix) return "hwpx";
     const first = f[0].type;
     if (!nativeTypes.has(first)) return null;
     return f.every((file) => file.type === first) ? first : null;
@@ -224,15 +242,18 @@ export function Workspace({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="sidebar-header px-8 flex-col justify-center" style={{ borderBottom: "1px solid var(--color-border)" }}>
+      <div className="workspace-header sidebar-header px-8 flex-col justify-center">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-bold text-display" style={{ color: "var(--color-text-primary)", letterSpacing: "-0.02em", fontSize: "1.125rem" }}>
-              모든 문서, 하나로 읽다
-            </h2>
-            <p className="ts-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-              HWP · HWPX · PDF · XLSX · DOCX · TXT — 변환 · 추출 · 비교 · AI 분석
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="workspace-header-bar" />
+            <div>
+              <h2 className="font-bold text-display" style={{ color: "var(--color-text-primary)", letterSpacing: "-0.02em", fontSize: "1.125rem" }}>
+                모든 문서, 하나로 읽다
+              </h2>
+              <p className="ts-xs mt-0.5" style={{ color: "var(--color-text-muted)", letterSpacing: "0.02em" }}>
+                HWP · HWPX · PDF · XLSX · DOCX · TXT — 변환 · 추출 · 비교 · AI 분석
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {!apiKeySet && (
@@ -259,50 +280,46 @@ export function Workspace({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 pb-8 pt-6 content-area">
+      <div className="flex-1 overflow-y-auto px-6 pb-6 pt-5 content-area">
+        <div style={{ maxWidth: 820, margin: "0 auto" }}>
         {/* ── 1. 파일 영역 ── */}
         {!hasFiles ? (
-          /* 파일 없음: 큰 드롭존 */
+          /* 파일 없음: 드래그 영역 + 인라인 버튼 */
           <div
-            className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-3 py-12 cursor-pointer mb-6`}
+            className={`drop-zone ${isDragOver ? "drop-zone--active" : ""} flex flex-col items-center justify-center gap-2 py-7 mb-5 cursor-pointer`}
             onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
             onDrop={handleDrop}
             onContextMenu={(e) => e.preventDefault()}
-            onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest(".drop-zone")) onBrowse(); }}
+            onClick={(e) => { if (!(e.target as HTMLElement).closest(".browse-btn")) onBrowse(); }}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBrowse(); } }}
           >
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center"
-              style={{ backgroundColor: "var(--color-accent-subtle)" }}
-            >
-              <Upload size={28} style={{ color: isDragOver ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+            <div className="drop-zone-icon w-10 h-10 rounded-xl flex items-center justify-center">
+              <Upload size={20} />
             </div>
             <div className="text-center">
               <p className="ts-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                파일을 드래그하거나 클릭하여 선택
+                파일을 여기에 드래그
               </p>
-              <p className="ts-2xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-                파일을 추가하면 아래 기능이 활성화됩니다
-              </p>
+              <div className="flex items-center justify-center gap-1 mt-1">
+                <Badge variant="hwp">HWP</Badge>
+                <Badge variant="hwp">HWPX</Badge>
+                <Badge variant="pdf">PDF</Badge>
+                <Badge variant="xlsx">XLSX</Badge>
+                <Badge variant="txt">DOCX</Badge>
+                <Badge variant="txt">TXT</Badge>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Badge variant="hwp">HWP</Badge>
-              <Badge variant="hwp">HWPX</Badge>
-              <Badge variant="pdf">PDF</Badge>
-              <Badge variant="xlsx">XLSX</Badge>
-              <Badge variant="txt">DOCX</Badge>
-              <Badge variant="txt">TXT</Badge>
+            <div className="flex items-center gap-2 mt-1">
+              <button onClick={(e) => { e.stopPropagation(); onBrowse(); }} className="browse-btn flex items-center gap-1.5 ts-xs font-medium px-3 py-1.5 rounded-lg">
+                <FileText size={14} style={{ color: "var(--color-accent)" }} /> 파일 선택
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }} className="browse-btn flex items-center gap-1.5 ts-xs font-medium px-3 py-1.5 rounded-lg">
+                <FolderOpen size={14} style={{ color: "var(--color-warning)" }} /> 폴더 선택
+              </button>
             </div>
-            <Button
-              variant="secondary" size="sm"
-              onClick={(e) => { e.stopPropagation(); onBrowseFolder(); }}
-              className="mt-1"
-            >
-              <span className="flex items-center gap-1.5"><FolderOpen size={14} /> 폴더 선택</span>
-            </Button>
           </div>
         ) : (
           /* 파일 있음: 컴팩트 드롭존 + 파일 리스트 */
@@ -373,10 +390,44 @@ export function Workspace({
           </div>
         )}
 
+        {/* ── 내보내기 폴더 바 ── */}
+        {hasFiles && (
+          <div className="flex items-center gap-2 mb-5">
+            <span className="ts-2xs font-semibold shrink-0" style={{ color: "var(--color-text-muted)" }}>내보내기</span>
+            <button
+              onClick={handleBrowseOutputDir}
+              className="group flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-all cursor-pointer"
+              style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = "0 0 0 1px var(--color-border)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)"; e.currentTarget.style.boxShadow = "none"; }}
+            >
+              <FolderOpen size={13} style={{ color: outputDir ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+              <span className="ts-2xs" style={{ color: outputDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                {outputDir ? outputDir.split(/[/\\]/).slice(-2).join("\\") : "원본 파일 위치"}
+              </span>
+              <span className="ts-2xs font-medium opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--color-accent)" }}>
+                변경
+              </span>
+            </button>
+            {outputDir && (
+              <button
+                onClick={() => onOutputDirChange("")}
+                className="p-1 rounded transition-colors"
+                style={{ color: "var(--color-text-muted)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-error)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
+                title="초기화"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── 2. 기능 그리드 ── */}
         <div>
           {/* 로컬 기능 */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <h3 className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
                 {hasFiles ? "어떤 작업을 할까요?" : "로컬 기능"}
@@ -391,7 +442,7 @@ export function Workspace({
               </span>
             )}
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 mb-5">
+          <div className="grid grid-cols-3 gap-1.5 mb-4">
             {localActions.map((a) => {
               const { ok, reason } = getAvailability(a, files, apiKeySet);
               const needsFiles = !ok && files.length === 0 && !reason;
@@ -402,7 +453,7 @@ export function Workspace({
           </div>
 
           {/* AI 기능 */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <h3 className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>AI 기능</h3>
             <span className="ts-2xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
               Gemini API
@@ -411,7 +462,7 @@ export function Workspace({
               <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>· 오프라인 — 실행 시 전환 확인</span>
             )}
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {aiActions.map((a) => {
               const { ok, reason } = getAvailability(a, files, apiKeySet);
               const needsFiles = !ok && files.length === 0 && !reason;
@@ -420,7 +471,31 @@ export function Workspace({
               );
             })}
           </div>
+
+          {/* MCP 연결 배너 */}
+          {!hasFiles && (
+            <button
+              onClick={onOpenMcpSetup}
+              className="group w-full flex items-center gap-2.5 mt-3 px-3 py-2 rounded-lg text-left transition-all"
+              style={{
+                backgroundColor: "var(--color-bg-secondary)",
+                border: "1px solid var(--color-border)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border)"; }}
+            >
+              <Plug size={15} style={{ color: "var(--color-accent)" }} className="shrink-0" />
+              <span className="ts-xs font-medium flex-1" style={{ color: "var(--color-text-secondary)" }}>
+                AI 도구에 kordoc MCP 연결
+              </span>
+              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                Claude · Cursor · VS Code
+              </span>
+              <ArrowRight size={12} className="shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" style={{ color: "var(--color-accent)" }} />
+            </button>
+          )}
         </div>
+        </div>{/* max-width wrapper end */}
       </div>
 
       {/* 오프라인 → 온라인 전환 확인 */}
@@ -459,9 +534,10 @@ export function Workspace({
         <MergeOrderDialog
           files={files}
           uniformType={detectUniformFormat(files)}
-          onConfirm={(orderedFiles, mergeMode) => {
+          outputDir={outputDir}
+          onConfirm={(orderedFiles, mergeMode, mergeOutputDir) => {
             setMergeOpen(false);
-            onAction("merge_files", { mergeMode, orderedFiles });
+            onAction("merge_files", { mergeMode, orderedFiles, ...(mergeOutputDir ? { outputDir: mergeOutputDir } : {}) });
           }}
           onCancel={() => setMergeOpen(false)}
         />
@@ -525,7 +601,7 @@ const STYLE_OPTIONS: { value: SummarizeStyle; label: string; desc: string }[] = 
   { value: "standard", label: "일반 요약", desc: "배경 · 핵심 · 조치사항으로 정리" },
   { value: "briefing", label: "보고용", desc: "결론 먼저, 상급자 보고에 최적" },
   { value: "review", label: "검토용", desc: "쟁점 · 리스크 중심 정리" },
-  { value: "action", label: "조치 추출", desc: "할 일 · 담당 · 기한만 추출" },
+  { value: "action", label: "할 일 정리", desc: "할 일 · 담당 · 기한만 추출" },
 ];
 
 const LENGTH_OPTIONS: { value: SummarizeLength; label: string }[] = [

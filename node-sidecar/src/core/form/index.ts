@@ -150,6 +150,8 @@ export interface FormExtractBatchParams {
   files: string[];
   selected_fields: string[];
   use_ai?: boolean;
+  /** 출력 디렉토리 (미지정 시 설정값 → 첫 파일 폴더) */
+  output_dir?: string;
 }
 
 export interface FormExtractBatchResult {
@@ -169,7 +171,7 @@ export async function formExtractBatch(
   params: FormExtractBatchParams,
   signal: AbortSignal,
 ): Promise<FormExtractBatchResult> {
-  const { files, selected_fields, use_ai } = params;
+  const { files, selected_fields, use_ai, output_dir } = params;
   const results: FormExtractBatchResult['results'] = [];
   let succeeded = 0;
   let failed = 0;
@@ -230,7 +232,7 @@ export async function formExtractBatch(
 
   // CSV 저장
   const cfg = getConfig('convert');
-  const outDir = cfg.output_dir || dirname(files[0]);
+  const outDir = output_dir || cfg.output_dir || dirname(files[0]);
   const csvRows: CsvRow[] = results.map((r) => ({
     file: r.file,
     fields: Object.fromEntries(r.fields.map((f) => [f.label, f.value])),

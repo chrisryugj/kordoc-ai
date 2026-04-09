@@ -117,7 +117,7 @@ const STYLE_PROMPT: Record<SummarizeStyle, string> = {
   standard: '다음 문서를 요약해 주세요.',
   briefing: '다음 문서를 상급자 보고용으로 요약해 주세요. 결론을 먼저, 배경은 간략히.',
   review: '다음 문서를 검토 관점에서 정리해 주세요. 쟁점, 리스크, 확인 필요 사항을 중심으로.',
-  action: '다음 문서에서 조치해야 할 사항만 추출해 주세요. 담당, 기한, 내용을 구조화하세요.',
+  action: '다음 문서에서 해야 할 일만 추출해 주세요. 담당, 기한, 내용을 구조화하세요. 날짜·숫자는 원문 그대로 옮기세요.',
 };
 
 const STYLE_FORMAT: Record<SummarizeStyle, string> = {
@@ -129,7 +129,7 @@ const STYLE_FORMAT: Record<SummarizeStyle, string> = {
 ## 핵심 내용
 (핵심 사항을 불릿으로)
 
-## 요청/조치 사항
+## 요청 및 후속 사항
 (있는 경우만)
 
 ## 주요 일정
@@ -159,11 +159,12 @@ const STYLE_FORMAT: Record<SummarizeStyle, string> = {
 (있으면)`,
   action: `아래 형식으로 정리하세요:
 
-| 조치 사항 | 담당 | 기한 | 비고 |
-|-----------|------|------|------|
-| (내용)    | (해당자) | (날짜) | (참고) |
+| 할 일 | 담당 | 기한 | 비고 |
+|-------|------|------|------|
+| (내용) | (해당자) | (원문 그대로) | (참고) |
 
-표 아래에 추가 설명이 필요하면 간략히 기술하세요.`,
+표 아래에 추가 설명이 필요하면 간략히 기술하세요.
+기한의 날짜·연도는 원문에 적힌 그대로 옮기세요. 절대 수정하지 마세요.`,
 };
 
 function buildPrompt(text: string, style: SummarizeStyle, length: string, language: string): string {
@@ -187,13 +188,14 @@ function buildSystemInstruction(style: SummarizeStyle): string {
     '당신은 한국 공문서 요약 전문가입니다.',
     '- 법적 근거, 결재 사항, 기한이 있으면 반드시 포함하세요.',
     '- 숫자(예산, 인원, 기한)는 정확히 보존하세요.',
-    '- 원문에 없는 내용을 추가하지 마세요.',
+    '- 날짜, 연도, 금액, 고유명사는 원문 그대로 옮기세요. 절대 임의로 수정하지 마세요.',
+    '- 원문에 없는 내용을 추가하거나, 원문의 내용을 추측으로 변경하지 마세요.',
     '- 마크다운 형식으로 작성하세요.',
   ];
   if (style === 'briefing') {
     base.push('- 결론부터 쓰세요. 상급자가 30초 안에 핵심을 파악할 수 있어야 합니다.');
   } else if (style === 'action') {
-    base.push('- 조치 사항이 없으면 "조치 사항 없음"으로 명시하세요.');
+    base.push('- 할 일이 없으면 "해당 없음"으로 명시하세요.');
   }
   return base.join('\n');
 }

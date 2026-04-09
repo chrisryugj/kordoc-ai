@@ -12,6 +12,8 @@ export interface ExtractTablesParams {
   input_path: string;
   /** 페이지 범위 */
   pages?: string;
+  /** 출력 디렉토리 (미지정 시 설정값 → 원본 폴더) */
+  output_dir?: string;
   /** 마크다운 포맷으로 반환 (기본: true) */
   as_markdown?: boolean;
 }
@@ -126,7 +128,7 @@ function findFootnotes(blocks: IRBlock[], tableIdx: number): string[] {
 }
 
 export async function extractTables(params: ExtractTablesParams, signal?: AbortSignal): Promise<ExtractTablesResult> {
-  const { input_path, pages } = params;
+  const { input_path, pages, output_dir } = params;
 
   logger.info(`[extract_tables] 시작: ${input_path}`);
   sendProgress({ current: 0, total: 3, message: '문서 읽는 중...' });
@@ -179,7 +181,7 @@ export async function extractTables(params: ExtractTablesParams, signal?: AbortS
 
   // 출력 경로 결정 + 마크다운 파일 저장
   const cfg = getConfig('convert');
-  const outDir = cfg.output_dir || dirname(input_path);
+  const outDir = output_dir || cfg.output_dir || dirname(input_path);
   const stem = basename(input_path, extname(input_path));
   const outputPath = join(outDir, `${stem}_tables.md`);
 

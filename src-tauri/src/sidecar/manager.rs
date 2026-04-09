@@ -242,7 +242,9 @@ impl SidecarManager {
         let timeout_secs = match method {
             "convert" | "convert_batch" | "ocr" | "summarize"
             | "diff" | "form_extract" | "form_extract_candidates"
-            | "form_extract_batch" | "extract_tables" => 600,
+            | "form_extract_batch" | "extract_tables"
+            | "generate_hwpx" | "merge_files"
+            | "split_pdf" | "pdf_extract_pages" => 600,
             _ => 60,
         };
         let params_preview = summarize_value(params.as_ref());

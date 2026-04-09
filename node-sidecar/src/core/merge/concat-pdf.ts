@@ -1,7 +1,7 @@
 /** PDF 유틸 — 병합 + 분리 */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename } from 'node:path';
+import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { dirname, basename, extname, join } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
@@ -145,14 +145,26 @@ export async function extractPdfPages(
   for (const page of copiedPages) doc.addPage(page);
 
   await mkdir(dirname(output_path), { recursive: true });
-  const outputBytes = await doc.save();
-  await writeFile(output_path, outputBytes);
 
-  logger.info(`[extract-pdf] ${file} → ${output_path} (${targetIndices.length}/${totalPages}p, ${mode})`);
+  // 파일 존재 시 넘버링 추가하여 덮어쓰기 방지
+  let finalPath = output_path;
+  const dir = dirname(output_path);
+  const ext = extname(output_path);
+  const stem = basename(output_path, ext);
+  let n = 1;
+  while (await access(finalPath).then(() => true, () => false)) {
+    n++;
+    finalPath = join(dir, `${stem}(${n})${ext}`);
+  }
+
+  const outputBytes = await doc.save();
+  await writeFile(finalPath, outputBytes);
+
+  logger.info(`[extract-pdf] ${file} → ${finalPath} (${targetIndices.length}/${totalPages}p, ${mode})`);
 
   return {
     success: true,
-    output_path,
+    output_path: finalPath,
     extracted_pages: targetIndices.length,
     total_pages: totalPages,
   };

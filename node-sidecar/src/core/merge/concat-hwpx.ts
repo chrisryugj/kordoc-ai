@@ -34,13 +34,44 @@ function buildPyScript(files: string[], outputPath: string): string {
 import sys, os, subprocess
 from pyhwpx import Hwp
 
+def ensure_security_module():
+    """pyhwpx 보안 모듈(FilePathCheckerModule.dll) 레지스트리 자동 등록"""
+    try:
+        from winreg import ConnectRegistry, HKEY_CURRENT_USER, OpenKey, KEY_READ, QueryValueEx, CloseKey, CreateKeyEx, KEY_WRITE, SetValueEx, REG_SZ
+        reg = ConnectRegistry(None, HKEY_CURRENT_USER)
+        # 이미 등록되어 있으면 스킵
+        for path in [r"Software\\HNC\\HwpAutomation\\Modules", r"Software\\Hnc\\HwpUserAction\\Modules"]:
+            try:
+                key = OpenKey(reg, path, 0, KEY_READ)
+                val, _ = QueryValueEx(key, "FilePathCheckerModule")
+                CloseKey(key)
+                if val and os.path.exists(val):
+                    return
+            except Exception:
+                pass
+        # pyhwpx 패키지에서 DLL 찾기
+        import pyhwpx
+        dll = os.path.join(os.path.dirname(pyhwpx.__file__), "FilePathCheckerModule.dll")
+        if not os.path.exists(dll):
+            return
+        key = CreateKeyEx(reg, r"Software\\HNC\\HwpAutomation\\Modules", 0, KEY_WRITE)
+        SetValueEx(key, "FilePathCheckerModule", 0, REG_SZ, dll)
+        CloseKey(key)
+    except Exception:
+        pass
+
+ensure_security_module()
+
 files = [${fileList}]
 output = '${esc(outputPath)}'
 hwp = None
 
 try:
     hwp = Hwp(visible=False)
-    hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+    try:
+        hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+    except Exception:
+        pass
 
     # 각 파일 페이지 수 합산
     page_sum = 0

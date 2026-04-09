@@ -13,6 +13,7 @@ export interface SettingsState {
 
 export interface UseSettingsReturn extends SettingsState {
   setTheme: (theme: "light" | "dark") => void;
+  setOutputDir: (dir: string) => void;
   toggleAiMode: () => void;
   handleSettingsSave: (values: {
     apiKey: string;
@@ -106,8 +107,13 @@ export function useSettings(sidecarReady: boolean, sidecarCall: SidecarCall, isP
     setAiMode((prev) => prev === "online" ? "offline" : "online");
   }, []);
 
+  const updateOutputDir = useCallback((dir: string) => {
+    setOutputDir(dir);
+    try { localStorage.setItem("kordoc-output-dir", dir); } catch {}
+  }, []);
+
   return {
     apiKey, apiKeyMasked, ocrModel, analysisModel, aiMode, outputDir, theme,
-    setTheme, toggleAiMode, handleSettingsSave,
+    setTheme, setOutputDir: updateOutputDir, toggleAiMode, handleSettingsSave,
   };
 }

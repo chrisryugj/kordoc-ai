@@ -18,6 +18,7 @@ import { generateHwpx } from '../../core/generator/index.js';
 import { extractTables } from '../../core/excel/index.js';
 import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
 import { inspectDocument } from '../../core/inspect/index.js';
+import { detectMcpEnv, installMcpConfig, installNode } from '../../core/mcp-setup/index.js';
 
 /** 모든 메서드를 라우터에 등록 */
 export function registerAllMethods(router: RpcRouter): void {
@@ -193,11 +194,13 @@ export function registerAllMethods(router: RpcRouter): void {
   // 13c. form_extract_batch — 배치 양식 추출
   router.register('form_extract_batch', async (params, signal) => {
     const files = (params.files as string[]).map(validatePath);
+    const output_dir = params.output_dir ? validatePath(params.output_dir as string) : undefined;
     signal.throwIfAborted();
     return formExtractBatch({
       files,
       selected_fields: params.selected_fields as string[],
       use_ai: params.use_ai as boolean | undefined,
+      output_dir,
     }, signal);
   });
 
@@ -216,11 +219,13 @@ export function registerAllMethods(router: RpcRouter): void {
   // 15. extract_tables — 문서에서 표 추출
   router.register('extract_tables', async (params, signal) => {
     const input_path = validatePath(params.input_path as string);
+    const output_dir = params.output_dir ? validatePath(params.output_dir as string) : undefined;
     signal.throwIfAborted();
     return extractTables({
       input_path,
       pages: params.pages as string | undefined,
       as_markdown: params.as_markdown as boolean | undefined,
+      output_dir,
     }, signal);
   });
 
@@ -274,5 +279,24 @@ export function registerAllMethods(router: RpcRouter): void {
   router.register('inspect_document', async (params, signal) => {
     const input_path = validatePath(params.input_path as string);
     return inspectDocument({ input_path }, signal);
+  });
+
+  // ── MCP 설치 (3개) ──
+
+  // 20. detect_mcp_env — Node.js + AI 클라이언트 환경 감지
+  router.register('detect_mcp_env', async () => {
+    return detectMcpEnv();
+  });
+
+  // 21. install_mcp_config — 선택한 클라이언트에 kordoc MCP 등록
+  router.register('install_mcp_config', async (params) => {
+    const clientIds = params.client_ids as string[];
+    if (!clientIds?.length) throw new Error('Missing "client_ids" parameter');
+    return installMcpConfig(clientIds);
+  });
+
+  // 22. install_node — Node.js 설치 시작
+  router.register('install_node', async () => {
+    return installNode();
   });
 }

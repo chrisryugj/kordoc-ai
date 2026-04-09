@@ -23,6 +23,15 @@ function sendResult(id: number | string | null, result: unknown): void {
   writeResponse({ jsonrpc: '2.0', id, result });
 }
 
+// 프로세스 안정성: 미처리 에러 로깅 (사일런트 크래시 방지)
+process.on('unhandledRejection', (reason) => {
+  logger.error(`[main] unhandledRejection: ${reason}`);
+});
+process.on('uncaughtException', (err) => {
+  logger.error(`[main] uncaughtException: ${err.message}`);
+  process.exit(1);
+});
+
 /** 메인 서버 루프 */
 async function main(): Promise<void> {
   // 설정 로드 + 로그 레벨 적용

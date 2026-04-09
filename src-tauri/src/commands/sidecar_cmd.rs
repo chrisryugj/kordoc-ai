@@ -31,6 +31,10 @@ const ALLOWED_METHODS: &[&str] = &[
     "inspect_document",
     "ocr",
     "summarize",
+    // MCP 설치
+    "detect_mcp_env",
+    "install_mcp_config",
+    "install_node",
 ];
 
 #[tauri::command]
