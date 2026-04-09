@@ -43,7 +43,7 @@
 └────────────── ↕ stdin/stdout ────────────────┘
 ┌──────────────────────────────────────────────┐
 │  Node.js Sidecar (JSON-RPC 2.0)             │
-│  kordoc v2.2.1 (로컬 파싱) + Gemini API (AI)   │
+│  kordoc v2.2.2 (로컬 파싱) + Gemini API (AI)   │
 │  22개 RPC 메서드 · 동시성 제한 · cancel 지원  │
 └──────────────────────────────────────────────┘
 ```
@@ -53,7 +53,7 @@
 | 기능 | Rust 생태계 | Node.js (kordoc) |
 |------|-------------|-------------------|
 | HWP/HWPX 파싱 | 라이브러리 없음 | [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS, 한컴오피스 불필요 |
-| 배포용 HWP 복호화 | — | kordoc v2.2.1 — AES-128 ECB + LCG |
+| 배포용 HWP 복호화 | — | kordoc v2.2.2 — AES-128 ECB + LCG |
 | PDF 텍스트 추출 | 한글 깨짐 빈번 | kordoc — pdfjs 기반, 이중 표 감지 |
 | XLSX/DOCX 파싱 | 미성숙 | kordoc — 직접 구현 |
 | Gemini API | 공식 SDK 없음 | `@google/generative-ai` 공식 SDK |
@@ -68,7 +68,7 @@
 | **데스크톱** | Tauri 2.10 (Rust) · window-state 플러그인 |
 | **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.1 · Gemini API |
 | **AI** | gemini-3-flash-preview |
-| **빌드** | pnpm · tsc → Tauri MSI 인스톨러 |
+| **빌드** | pnpm · tsc → Tauri NSIS 인스톨러 |
 
 ---
 
@@ -100,7 +100,7 @@ pnpm tauri:dev
 
 ```bash
 pnpm tauri:build
-# → src-tauri/target/release/bundle/msi/*.msi
+# → src-tauri/target/release/bundle/nsis/*.exe
 ```
 
 ---

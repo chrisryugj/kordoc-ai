@@ -35,13 +35,16 @@ jobs:
         shell: bash
         run: |
           cd node-sidecar
-          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^2.2.1"|' package.json
+          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^2.2.2"|' package.json
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install node-sidecar dependencies
+        run: cd node-sidecar && pnpm install --no-frozen-lockfile
 
       - name: Build Node.js sidecar
-        run: pnpm build:node-sidecar
+        run: cd node-sidecar && pnpm build && pnpm build:bundle
 
       - name: Build Tauri NSIS Installer
         run: pnpm tauri build
