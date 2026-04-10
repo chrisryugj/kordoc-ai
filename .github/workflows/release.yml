@@ -30,18 +30,24 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # CI에서는 kordoc을 npm registry에서 설치
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      # CI에서는 kordoc을 npm registry에서 설치 — lockfile도 삭제하여 fresh install
       - name: Patch kordoc dependency for CI
         shell: bash
         run: |
           cd node-sidecar
           sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^2.2.1"|' package.json
-
-      - name: Install frontend dependencies
-        run: pnpm install
+          rm -f pnpm-lock.yaml
 
       - name: Build Node.js sidecar
-        run: pnpm build:node-sidecar
+        shell: bash
+        run: |
+          cd node-sidecar
+          pnpm install --no-frozen-lockfile
+          pnpm build
+          pnpm build:bundle
 
       - name: Build Tauri MSI
         run: pnpm tauri build
