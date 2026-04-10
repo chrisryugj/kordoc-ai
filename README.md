@@ -25,7 +25,7 @@
 | ✂️ **PDF 도구** | 페이지 분리, 추출, 제외. 필요한 페이지만 뽑아내기. |
 | 📝 **HWPX 역변환** | AI가 작성한 마크다운을 다시 보고서 양식(`.hwpx`)으로 되돌리기. |
 | 📋 **양식 추출** | 문서에서 양식 필드 자동 인식 → 다수 문서 일괄 추출. |
-| 🔬 **문서 정합성 검사** | 목차·페이지·메타데이터 일관성 자동 점검. |
+| 🔬 **K팀장 검토** | AI가 논리 구조·숫자·날짜·오탈자 전체 정합성 검사. |
 | 🔌 **MCP 원클릭 설치** | Claude · Cursor · VS Code · Zed 등 AI 도구에 kordoc MCP 자동 등록. |
 | 📂 **폴더 드래그드롭** | 폴더째 드래그하면 지원 파일 자동 인식. 클립보드 붙여넣기도 지원. |
 | 📁 **출력 폴더 선택** | 처리 결과 저장 위치 자유 선택. 전역 또는 작업별 개별 지정. |
@@ -45,7 +45,7 @@
 └────────────── ↕ stdin/stdout ────────────────┘
 ┌──────────────────────────────────────────────┐
 │  Node.js Sidecar (JSON-RPC 2.0)             │
-│  kordoc v2.2.1 (로컬 파싱) + Gemini API (AI)   │
+│  kordoc v2.2.4 (로컬 파싱) + Gemini API (AI)   │
 │  24개 RPC 메서드 · 동시성 제한 · cancel 지원  │
 └──────────────────────────────────────────────┘
 ```
@@ -55,7 +55,7 @@
 | 기능 | Rust 생태계 | Node.js (kordoc) |
 |------|-------------|-------------------|
 | HWP/HWPX 파싱 | 라이브러리 없음 | [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS, 한컴오피스 불필요 |
-| 배포용 HWP 복호화 | — | kordoc v2.2.1 — AES-128 ECB + LCG |
+| 배포용 HWP 복호화 | — | kordoc v2.2.4 — AES-128 ECB + LCG |
 | PDF 텍스트 추출 | 한글 깨짐 빈번 | kordoc — pdfjs 기반, 이중 표 감지 |
 | XLSX/DOCX 파싱 | 미성숙 | kordoc — 직접 구현 |
 | Gemini API | 공식 SDK 없음 | `@google/generative-ai` 공식 SDK |
@@ -68,7 +68,7 @@
 |------|------|
 | **UI** | React 19 · TypeScript 5.9 · Tailwind CSS 4 · Vite 7 |
 | **데스크톱** | Tauri 2.10 (Rust) · window-state 플러그인 |
-| **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.1 · Gemini API |
+| **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.4 · Gemini API |
 | **AI** | gemini-3-flash-preview |
 | **빌드** | pnpm · tsc → Tauri MSI 인스톨러 |
 
