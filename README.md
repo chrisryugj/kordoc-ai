@@ -46,7 +46,7 @@
 ┌──────────────────────────────────────────────┐
 │  Node.js Sidecar (JSON-RPC 2.0)             │
 │  kordoc v2.2.1 (로컬 파싱) + Gemini API (AI)   │
-│  22개 RPC 메서드 · 동시성 제한 · cancel 지원  │
+│  24개 RPC 메서드 · 동시성 제한 · cancel 지원  │
 └──────────────────────────────────────────────┘
 ```
 
@@ -125,7 +125,7 @@ pnpm tauri:build
 - **RPC 화이트리스트 이중 검증** — Rust 측 + Node.js 측
 - **경로 검증** — UNC 차단, 시스템 디렉토리 차단, 확장자 화이트리스트
 - **API 키 마스킹** — 프론트엔드 전달 시 `AIza****` 형태로 마스킹
-- **XSS 방지** — rehype-sanitize로 마크다운 렌더링 시 HTML 태그 차단
+- **XSS 방지** — rehype-sanitize 커스텀 스키마 (table/colspan/rowspan 등 허용, 스크립트 차단)
 - **동시성 제한** — 세마포어(max 2) + 큐 크기 제한(max 10)
 - **프로토타입 오염 방지** — `__proto__`, `constructor`, `prototype` 키 차단
 
@@ -140,6 +140,11 @@ cd node-sidecar && pnpm test    # vitest 45개
 ---
 
 ## 업데이트 내역
+
+### v1.4.1 (2026-04-10)
+
+- **HTML 테이블 렌더링** — rehype-raw + sanitize 스키마 확장으로 colspan/rowspan 포함 복잡한 표 정상 렌더링
+- **Release CI 안정화** — npm install로 node-sidecar 의존성 설치 보장 (lockfile mismatch 해결)
 
 ### v1.4.0 (2026-04-10)
 
@@ -164,7 +169,7 @@ cd node-sidecar && pnpm test    # vitest 45개
 
 ### v1.0.0
 
-- 최초 출시 — 15개 액션, 22개 RPC 메서드
+- 최초 출시 — 15개 액션, 24개 RPC 메서드
 - kordoc 2.2.1 순수 JS 파싱 엔진
 
 ---
