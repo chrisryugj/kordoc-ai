@@ -1,6 +1,6 @@
 [package]
 name = "kordoc-ai"
-version = "1.0.0"
+version = "1.4.0"
 description = "KorDoc AI — HWP/HWPX/PDF/XLSX/DOCX 문서 변환·요약·비교·병합 데스크톱 도구"
 authors = ["Chris"]
 edition = "2021"
