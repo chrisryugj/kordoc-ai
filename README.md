@@ -7,6 +7,8 @@
 > 7년차 공무원이 만든, 공무원을 위한 문서 도구.
 > 한컴오피스도, MS Office도 필요 없다. [kordoc](https://github.com/chrisryugj/kordoc)이 순수 JS로 전부 파싱한다.
 
+[![Release](https://img.shields.io/github/v/release/chrisryugj/kordoc-ai)](https://github.com/chrisryugj/kordoc-ai/releases/latest)
+
 ---
 
 ## 무엇을 할 수 있나요?
@@ -134,6 +136,36 @@ pnpm tauri:build
 ```bash
 cd node-sidecar && pnpm test    # vitest 45개
 ```
+
+---
+
+## 업데이트 내역
+
+### v1.4.0 (2026-04-10)
+
+- **인스톨러 Gemini API 키 수정** — Program Files 설치 시 설정 파일 쓰기 실패 해결. `%APPDATA%` 자동 폴백으로 API 키가 정상 저장·유지됨.
+- **CI 워크플로우 안정화** — GitHub Actions에서 node-sidecar 테스트·빌드 파이프라인 정상화 (kordoc 링크 호환성, vitest 경로 등 8건 수정)
+- **UI 개선** — API 키 설정 버튼 호버 효과 추가 (glow + brightness)
+
+### v1.3.1 (2026-04-09)
+
+- kordoc 2.2.3 — 병합 표 HTML 렌더링 지원
+- 테이블 셀 내 `<br>` 줄바꿈 렌더링 (rehype-raw)
+- Node.js 미설치 안내 UI
+- NSIS 인스톨러 전환 + 파일 로깅
+- OCR 레이스 수정 + HWPX 서식 강화 + 클립보드 HTML 지원
+
+### v1.1.0
+
+- MCP 원클릭 설치 (Claude Desktop, Cursor, VS Code, Zed)
+- 폴더 드래그드롭 + 클립보드 붙여넣기
+- 출력 폴더 커스터마이징
+- GitHub Actions release workflow
+
+### v1.0.0
+
+- 최초 출시 — 15개 액션, 22개 RPC 메서드
+- kordoc 2.2.1 순수 JS 파싱 엔진
 
 ---
 

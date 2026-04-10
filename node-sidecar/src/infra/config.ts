@@ -1,15 +1,78 @@
 /** YAML 설정 로더 — 원자적 쓰기, LRU 캐시 */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, accessSync, constants } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { parse, stringify } from 'yaml';
 import type { Settings } from '../types/index.js';
 import { logger } from './logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = join(__dirname, '..', '..', 'config', 'settings.yaml');
+
+const DEFAULT_YAML = `gemini:
+  model: gemini-3-flash-preview
+  lite_model: gemini-3-flash-preview
+  api_key: ""
+  proxy_url: ""
+  max_retries: 5
+  timeout_ms: 60000
+  mode: online
+convert:
+  output_dir: ""
+  ocr_fallback: true
+general:
+  log_level: info
+`;
+
+/** 번들된 settings.yaml 탐색 (tsc / esbuild 경로 모두 대응) */
+function findBundledConfig(): string | null {
+  const candidates = [
+    join(process.cwd(), 'config', 'settings.yaml'),          // Rust가 current_dir 설정
+    join(__dirname, '..', 'config', 'settings.yaml'),         // esbuild bundle: dist/ → ../config/
+    join(__dirname, '..', '..', 'config', 'settings.yaml'),   // tsc: dist/infra/ → ../../config/
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+/** 번들 config가 쓰기 가능하면 dev 모드 → 그대로 사용.
+ *  Program Files 등 읽기 전용이면 → %APPDATA% 폴백. */
+function resolveConfigPath(): string {
+  const bundled = findBundledConfig();
+
+  // dev 모드: 번들 config 직접 사용 (쓰기 가능할 때)
+  if (bundled) {
+    try {
+      accessSync(dirname(bundled), constants.W_OK);
+      return bundled;
+    } catch { /* 쓰기 불가 → AppData 폴백 */ }
+  }
+
+  // 프로덕션: AppData에 설정 저장
+  const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+  const userConfigDir = join(appData, 'com.kordoc-ai.app', 'config');
+  const userConfig = join(userConfigDir, 'settings.yaml');
+
+  if (!existsSync(userConfig)) {
+    mkdirSync(userConfigDir, { recursive: true });
+    if (bundled) {
+      copyFileSync(bundled, userConfig);
+    } else {
+      // 번들 config도 못 찾으면 기본값 생성
+      writeFileSync(userConfig, DEFAULT_YAML, 'utf-8');
+    }
+    logger.info(`[config] created: ${userConfig}`);
+  }
+
+  logger.info(`[config] using AppData config: ${userConfig}`);
+  return userConfig;
+}
+
+const CONFIG_PATH = resolveConfigPath();
 
 let cached: Settings | null = null;
 
