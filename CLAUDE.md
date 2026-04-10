@@ -90,7 +90,7 @@ cd node-sidecar && npx vitest run
 ## IPC 프로토콜
 
 - JSON-RPC 2.0 over stdin/stdout
-- 22개 RPC 메서드 (whitelist 기반 보안)
+- 24개 RPC 메서드 (whitelist 기반 보안)
 - progress notification (비동기)
 - Semaphore 동시성 제한 (max 2)
 - cancel 지원 (fire-and-forget)
@@ -101,6 +101,12 @@ cd node-sidecar && npx vitest run
 - 출력 폴더 선택 — 전역/작업별 출력 디렉토리 커스터마이징
 - MCP 원클릭 설치 — Claude Desktop, Cursor, VS Code, Zed 등에 kordoc MCP 자동 등록
 - 접힘 사이드바 — 토글 버튼으로 사이드바 축소/확대
+
+## 마크다운 렌더링
+
+- ReactMarkdown + remark-gfm + rehype-raw + rehype-sanitize
+- HTML 테이블 렌더링 지원 (colspan, rowspan, br 등 — kordoc의 복잡한 표 출력 대응)
+- sanitize 스키마: table/thead/tbody/tr/th/td/caption/col/colgroup/br + colspan/rowspan 속성 허용
 
 ## 주의사항
 
