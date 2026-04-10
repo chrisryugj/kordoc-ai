@@ -52,8 +52,8 @@ jobs:
           name: kordoc-ai-msi
           path: src-tauri/target/release/bundle/msi/*.msi
 
-  release:
-    name: Create Release
+  upload:
+    name: Upload MSI to Release
     needs: build-msi
     runs-on: ubuntu-latest
     steps:
@@ -62,23 +62,7 @@ jobs:
           name: kordoc-ai-msi
           path: msi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: KorDoc AI v${{ github.event.inputs.version }}
-          body: |
-            ## KorDoc AI v${{ github.event.inputs.version }}
-
-            ### 설치 방법
-            1. 아래 `.msi` 파일 다운로드
-            2. 실행하여 설치
-            3. **Node.js 20+** 필요 ([다운로드](https://nodejs.org/))
-            4. 앱 실행 후 설정에서 Gemini API 키 입력
-
-            ### 시스템 요구사항
-            - Windows 10/11
-            - Node.js 20+
-          files: msi/*.msi
-          draft: false
-          prerelease: false
+      - name: Upload MSI to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ github.event.inputs.version }}" msi/*.msi --repo ${{ github.repository }} --clobber
