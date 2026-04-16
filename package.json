@@ -1,6 +1,6 @@
 {
   "name": "kordoc-ai",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "한국 문서 변환 AI 데스크톱 도구",
   "type": "module",
   "scripts": {
