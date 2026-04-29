@@ -46,6 +46,18 @@ fn main() -> ExitCode {
     let files: Vec<&String> = args[2..].iter().collect();
 
     let url = match (action, files.len()) {
+        // batch <subaction> <files...> — 명시적 batch 호출
+        ("batch", n) if n >= 2 => {
+            let subaction = files[0];
+            let file_args: Vec<&String> = files[1..].iter().copied().collect();
+            match build_batch_url(subaction, &file_args) {
+                Ok(u) => u,
+                Err(e) => {
+                    eprintln!("manifest 생성 실패: {}", e);
+                    return ExitCode::from(1);
+                }
+            }
+        }
         // convert <file> <subaction>
         ("convert", n) if n >= 2 => {
             let subaction = files[n - 1];
@@ -107,7 +119,8 @@ fn build_batch_url(action: &str, files: &[&String]) -> Result<String, String> {
     let mut f = fs::File::create(&manifest_path).map_err(|e| e.to_string())?;
     f.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
 
-    let encoded = urlencoding::encode(&manifest_path.to_string_lossy());
+    let manifest_str = manifest_path.to_string_lossy().into_owned();
+    let encoded = urlencoding::encode(&manifest_str);
     Ok(format!("kordoc://batch?manifest={}", encoded))
 }
 

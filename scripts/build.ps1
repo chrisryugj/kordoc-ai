@@ -75,6 +75,7 @@ $makeAppx = Get-Command "MakeAppx.exe" -ErrorAction SilentlyContinue
 if (-not $makeAppx) {
     # SDK 표준 경로 시도
     $candidates = @(
+        "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\MakeAppx.exe",
         "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\MakeAppx.exe",
         "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\MakeAppx.exe",
         "C:\Program Files (x86)\Windows Kits\10\bin\x64\MakeAppx.exe"
