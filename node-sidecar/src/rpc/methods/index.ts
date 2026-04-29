@@ -1,8 +1,8 @@
 /** RPC 메서드 등록 — 7개 유틸리티 + 10개 핵심 기능 */
 
 import { execFile } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import type { RpcHandler } from '../protocol.js';
 import type { RpcRouter } from '../router.js';
 import { getSettings, updateSettings } from '../../infra/config.js';
@@ -19,6 +19,7 @@ import { extractTables } from '../../core/excel/index.js';
 import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
 import { inspectDocument } from '../../core/inspect/index.js';
 import { detectMcpEnv, installMcpConfig, installNode } from '../../core/mcp-setup/index.js';
+import { printFiles, listPrinters } from '../../core/print/index.js';
 
 /** 모든 메서드를 라우터에 등록 */
 export function registerAllMethods(router: RpcRouter): void {
@@ -298,5 +299,74 @@ export function registerAllMethods(router: RpcRouter): void {
   // 22. install_node — Node.js 설치 시작
   router.register('install_node', async () => {
     return installNode();
+  });
+
+  // ── Phase 2 W2: 인쇄 + deep-link batch (3개) ──
+
+  // 23. print_files — 문서 → PDF → Windows PrintTo
+  router.register('print_files', async (params, signal) => {
+    return printFiles(
+      {
+        files: params.files as string[],
+        printer: params.printer as string | undefined,
+        preset: params.preset as 'default' | 'gov-formal' | 'compact' | undefined,
+        copies: params.copies as number | undefined,
+        duplex: params.duplex as boolean | undefined,
+        color: params.color as boolean | undefined,
+      },
+      signal,
+    );
+  });
+
+  // 24. list_printers — Windows 프린터 목록 (CIM Win32_Printer)
+  router.register('list_printers', async () => {
+    return listPrinters();
+  });
+
+  // 25. read_batch_manifest — kordoc-launcher.exe 가 생성한
+  //   `%TEMP%/kordoc-batch-*.json` manifest 파일 읽기. 보안: %TEMP% 하위 + 파일명 패턴 강제.
+  router.register('read_batch_manifest', async (params) => {
+    const rawPath = params.path as string;
+    if (!rawPath || typeof rawPath !== 'string') {
+      throw new Error('Missing "path" parameter');
+    }
+    const safePath = validatePath(rawPath);
+    const fileName = basename(safePath);
+    if (!/^kordoc-batch-\d+\.json$/.test(fileName)) {
+      throw new Error(`허용되지 않은 manifest 파일명: ${fileName}`);
+    }
+    // tmpdir 검사 — Node tmpdir 과 동일 prefix 인지 확인 (case-insensitive on Windows)
+    const tmpDir = (await import('node:os')).tmpdir();
+    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
+    if (!norm(safePath).startsWith(norm(tmpDir) + '/')) {
+      throw new Error('manifest 는 임시 디렉토리에서만 읽을 수 있습니다');
+    }
+
+    const stats = await stat(safePath);
+    if (stats.size > 1 * 1024 * 1024) {
+      throw new Error('manifest 파일이 너무 큽니다 (>1MB)');
+    }
+
+    const text = await readFile(safePath, 'utf8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`manifest JSON 파싱 실패: ${(e as Error).message}`);
+    }
+    if (
+      typeof parsed !== 'object' || parsed === null ||
+      typeof (parsed as { action?: unknown }).action !== 'string' ||
+      !Array.isArray((parsed as { files?: unknown }).files)
+    ) {
+      throw new Error('manifest 형식 오류 (action + files 필요)');
+    }
+    const obj = parsed as { action: string; files: unknown[]; created_at?: unknown };
+    const files = obj.files.filter((f): f is string => typeof f === 'string');
+    return {
+      action: obj.action,
+      files,
+      created_at: typeof obj.created_at === 'string' ? obj.created_at : undefined,
+    };
   });
 }

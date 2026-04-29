@@ -21,6 +21,7 @@
     "kordoc": "link:../../kordoc",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
+    "puppeteer-core": "^24.0.0",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
