@@ -43,30 +43,33 @@ cd D:\AI_Project\kordoc-shell                # Rust는 cargo가 첫 빌드 시 �
 
 ## 1. Claude Code에 복붙할 시작 프롬프트
 
-작업 디렉토리: `D:\AI_Project\kordoc-ai` (또는 본인 경로)
+작업 디렉토리: `c:\github_project\kordoc-ai` (또는 본인 경로)
 
 ```
-KorDoc Suite Phase 2 W2 — kordoc-ai deep-link 핸들러 + 인쇄 RPC.
+KorDoc Suite Phase 2 통합 검증 — 코드는 끝났고 실제 동작 확인.
 
-브랜치/레포 상태 (직전 세션에서 푸시됨):
-- kordoc 본체: feat/xls-and-print 브랜치, v2.7.0 커밋 완료 (npm publish 대기)
-- kordoc-shell: main 브랜치, init 커밋 완료 (Phase 2 W1 골격)
-- kordoc-ai: main 브랜치, docs(PRD/ROADMAP/SPEC) 커밋 완료
+브랜치/레포 (이미 푸시):
+- kordoc: feat/xls-and-print, ede40d6 (v2.7.0 + package-lock 동기화)
+- kordoc-ai: main, f32cb1f (W2 D5 tray + notification)
+- kordoc-shell: main, 41d4f34 (W1 변경 없음)
 
 먼저 .claude/memory/activeContext.md 읽고
-docs/SPEC.md §2.1~2.2 (print_files / list_printers) 와 §3.4 (Tauri deep-link) 확인.
+"다음 세션 — Phase 2 통합 검증" 섹션의 5단계를 순서대로 실행해줘.
 
-W2 D1-2: kordoc-ai에 tauri-plugin-deep-link + tauri-plugin-single-instance 추가,
-src-tauri/src/lib.rs deep-link 수신 핸들러,
-프론트엔드 useDeepLink 훅 + 라우팅 (convert / summarize / open / batch).
+5단계 요약:
+  1. kordoc-shell MSIX 설치 + 탐색기 우클릭 메뉴 4개 표시 확인
+     (assets/icons placeholder 누락 시 README 스니펫으로 임시 PNG 생성)
+  2. kordoc-ai pnpm tauri:dev + 단일 deep-link 동작
+     (다른 셸에서 kordoc-launcher.exe 호출 → 깨어남 + import)
+  3. 다중 선택 batch 흐름 (%TEMP%/kordoc-batch-*.json + read_batch_manifest)
+  4. 인쇄 RPC (Microsoft Print to PDF 가상 프린터로 무해 검증)
+  5. Tray 동작 (X 클릭 hide / 좌클릭 토글 / 메뉴) + Win11 native toast
 
-W2 D3-4: node-sidecar/src/core/print/index.ts 신규 → print_files / list_printers RPC.
-- markdownToPdf(kordoc) → 임시 PDF
-- Start-Process -Verb PrintTo
-
-W2 D5: Tauri tray 아이콘 + 진행률 토스트.
-
-Phase 1 publish 진행 여부도 확인 (npm publish kordoc@2.7.0).
+검증 기록은 docs/phase2-integration-test.md 에 새로 작성:
+- 각 단계 PASS/FAIL + 실제 명령어와 결과 로그 포함
+- FAIL 발생 시 원인 분석 + 수정
+- 모두 통과하면 ROADMAP Phase 2 체크박스 체크 + 사용자에게
+  `npm publish kordoc@2.7.0` 진행 여부 확인
 ```
 
 ---
@@ -106,18 +109,38 @@ claude
 - Rust 런처: ShellExecuteW로 deep-link 호출, 다중선택 manifest 파일 방식
 - PowerShell 빌드/서명/설치 스크립트
 
-### Phase 2 W2 작업 흐름
+### Phase 2 W2 결과 (kordoc-ai) — 완료 ✅
+- Tauri: tauri-plugin-deep-link 2.4.7 + single-instance 2.4.0 (deep-link feature) + notification 2.3.3 + tray-icon
+- lib.rs: single-instance 콜백(윈도우 포커스 복귀) + deep_link.on_open_url → emit("deep-link") + System Tray + WindowClose hide
+- 프론트엔드: useDeepLink 훅 (URL 파싱), App.tsx (importFiles + batch read_batch_manifest 호출 + 시스템 알림)
+- node-sidecar: print_files / list_printers / read_batch_manifest RPC (vitest 7건 통과)
+- 화이트리스트: src-tauri/src/commands/sidecar_cmd.rs 동기화
+- 검증: TypeScript 0 / cargo check 0 / Vitest 53 pass
+
+### Phase 2 통합 흐름 (검증 대상)
 ```
 탐색기 우클릭 → kordoc-launcher.exe → kordoc:// URL
                                        ↓
                             Tauri (single-instance + deep-link 플러그인)
-                                       ↓ emit
-                            React (useDeepLink 훅 → 라우팅)
+                                       ↓ emit("deep-link")
+                            React useDeepLink → URL 파싱 → importFiles
+                                       ↓ batch 면 sidecar.read_batch_manifest
+                            사용자 액션 클릭 → handleStartAction
                                        ↓ invoke
                             Node sidecar (kordoc parse + markdownToPdf + PrintTo)
+                                       ↓ 완료/실패
+                            in-app Toast + (창 비포커스 시) Win11 native toast
 ```
 
-### 알려진 함정
+### 알려진 함정 (Phase 2 W2 신규 ★)
+- **tauri-plugin-deep-link 2.4.8 yanked** → 2.4.7 + single-instance 2.4.0 핀 필수
+- **PrintTo verb** copies/duplex/color 제어 불가 (드라이버 기본값)
+- **임시 PDF 60초 지연 unlink** 필수 (즉시 삭제 시 spool 실패)
+- **tauri features = ["tray-icon"]** 명시 필요 (default 미포함)
+- **on_tray_icon_event 클로저 타입 추론 실패** → `|tray: &TrayIcon<tauri::Wry>, event: TrayIconEvent|` 명시
+- **kordoc dist 빌드 누락** 시 link:../../kordoc 사용해도 v2.7 API 미노출 → `cd kordoc && npm install && npm run build`
+
+### 기존 함정
 - BoundSheet8.dt (1B) ≠ BOF.dt (2B). 비교 금지.
 - KordocError(message)만, code는 classifyError가 키워드로 분류.
 - tsup OPTIONAL_EXTERNAL에 puppeteer-core 추가 필수.
