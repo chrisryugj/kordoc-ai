@@ -24,6 +24,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tauri-plugin-deep-link = "=2.4.7"
+tauri-plugin-single-instance = { version = "=2.4.0", features = ["deep-link"] }
 
 [features]
 default = ["custom-protocol"]

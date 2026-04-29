@@ -20,6 +20,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useElapsed } from "./hooks/useElapsed";
 import { useToast } from "./hooks/useToast";
 import { useWindowSize } from "./hooks/useWindowSize";
+import { useDeepLink, type DeepLinkPayload } from "./hooks/useDeepLink";
 import type { ImportedFile, PipelineAction, MergeMode, SummarizeOptions, FormExtractOptions, PdfUtilsOptions } from "./types/pipeline";
 import type { NavItem } from "./types/nav";
 import { detectFileType, SUPPORTED_EXT_RE } from "./utils/fileType";
@@ -325,6 +326,52 @@ export default function App() {
       pendingSummarizeRef.current = null;
     }
   }, [settings, doSummarize]);
+
+  // Deep-link 처리 — 탐색기 우클릭 → kordoc-launcher.exe → kordoc:// → Tauri → 여기.
+  // 단일 파일은 즉시 import + Workspace 이동, 사용자가 액션 버튼 클릭.
+  // batch 는 sidecar `read_batch_manifest` RPC 로 manifest 읽고 files 일괄 추가.
+  const importFiles = useCallback((paths: string[]) => {
+    const existing = new Set(filesRef.current.map((f) => f.path));
+    const additions = paths
+      .filter((p) => p && !existing.has(p))
+      .map<ImportedFile>((p) => {
+        const n = p.split(/[/\\]/).pop() ?? p;
+        return { path: p, name: n, size: 0, type: detectFileType(n) };
+      });
+    if (additions.length > 0) {
+      pipeline.setFiles([...filesRef.current, ...additions]);
+    }
+    if (pipeline.step === "idle") pipeline.setStep("import");
+    setNav("pipeline");
+    return additions.length;
+  }, [pipeline.setFiles, pipeline.setStep, pipeline.step]);
+
+  const handleDeepLink = useCallback(async (payload: DeepLinkPayload) => {
+    if (payload.type === "batch") {
+      try {
+        const manifest = await sidecar.call("read_batch_manifest", { path: payload.manifestPath }) as {
+          action: string; files: string[]; created_at?: string;
+        };
+        const added = importFiles(manifest.files);
+        showToast(`일괄 처리: ${added}개 파일 추가됨 (${manifest.action})`, "info");
+      } catch (e) {
+        showToast(`batch manifest 읽기 실패: ${e}`, "error");
+      }
+      return;
+    }
+
+    const added = importFiles([payload.path]);
+    const name = payload.path.split(/[/\\]/).pop() ?? payload.path;
+    const hint =
+      payload.type === "convert"
+        ? `우클릭 변환 (${payload.action.toUpperCase()}): ${name}${added > 0 ? " — 변환 버튼을 누르세요" : ""}`
+        : payload.type === "summarize"
+        ? `우클릭 요약: ${name} — 변환 후 결과 화면에서 요약을 누르세요`
+        : `KorDoc에서 열기: ${name}`;
+    showToast(hint, "info");
+  }, [importFiles, sidecar.call, showToast]);
+
+  useDeepLink(handleDeepLink);
 
   const handleNavigate = useCallback((item: NavItem) => {
     if (item === "settings") setSettingsOpen(true);

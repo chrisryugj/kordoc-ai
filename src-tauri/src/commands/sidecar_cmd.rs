@@ -35,6 +35,10 @@ const ALLOWED_METHODS: &[&str] = &[
     "detect_mcp_env",
     "install_mcp_config",
     "install_node",
+    // Phase 2 W2: 인쇄 + deep-link batch
+    "print_files",
+    "list_printers",
+    "read_batch_manifest",
 ];
 
 #[tauri::command]
