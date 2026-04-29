@@ -61,7 +61,7 @@ await build({
   // pdfjs-dist의 worker는 런타임에 별도 로드 — 번들에서 제외
   // puppeteer-core는 Chromium 외부 실행 + 동적 require 패턴이 많아 external 처리.
   // 인쇄 기능 사용 시 sidecar 배포 디렉토리에 puppeteer-core가 함께 있어야 함.
-  external: ['puppeteer-core'],
+  external: ['puppeteer-core', 'onnxruntime-node', 'sharp', '@huggingface/transformers'],
   plugins: [dynamicRequirePlugin],
   minify: false,        // 디버깅 용이
   sourcemap: true,
