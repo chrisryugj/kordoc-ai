@@ -3,6 +3,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { Sidebar } from "./components/layout/Sidebar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { Workspace } from "./components/pipeline/Workspace";
@@ -250,6 +255,19 @@ export default function App() {
     }
   }, [pipeline.files, pipeline.setFiles, sidecar.call, showToast]);
 
+  // 시스템 알림 — 백그라운드/tray 상태에서 변환 완료/실패를 Win11 native toast 로.
+  // 권한은 첫 사용 시 1회 요청. 창이 포커스된 경우 in-app Toast 와 중복이라 스킵.
+  const notifySystem = useCallback(async (title: string, body: string) => {
+    try {
+      const focused = await getCurrentWindow().isFocused().catch(() => true);
+      if (focused) return;
+      if (!(await isPermissionGranted())) return;
+      sendNotification({ title, body });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   // Start action
   const handleStartAction = useCallback(async (action: PipelineAction, actionOptions?: { outputDir?: string; mergeMode?: MergeMode; orderedFiles?: ImportedFile[]; summarizeOptions?: SummarizeOptions; formExtractOptions?: FormExtractOptions; pdfUtilsOptions?: PdfUtilsOptions }) => {
     if (pipeline.files.length === 0) { showToast("파일을 먼저 추가하세요", "error"); return; }
@@ -261,13 +279,15 @@ export default function App() {
         ...actionOptions,
       });
       showToast("처리 완료", "success");
+      void notifySystem("KorDoc — 처리 완료", `${action}: ${pipeline.files.length}개 파일`);
     } catch (e) {
       const msg = String(e).replace(/^Error:\s*/, "").replace(/^JSON-RPC error:\s*/, "");
       logsRef.current = [...logsRef.current, `ERROR: ${msg}`];
       setLogsVersion((v) => v + 1);
       showToast(msg, "error");
+      void notifySystem("KorDoc — 처리 실패", msg);
     }
-  }, [pipeline.files, pipeline.startAction, sidecar.call, outputDir, showToast]);
+  }, [pipeline.files, pipeline.startAction, sidecar.call, outputDir, showToast, notifySystem]);
 
   const handleCancel = useCallback(() => {
     pipeline.cancel(sidecar.call);
@@ -372,6 +392,19 @@ export default function App() {
   }, [importFiles, sidecar.call, showToast]);
 
   useDeepLink(handleDeepLink);
+
+  // notification 권한 — 첫 사용 시 1회 요청
+  useEffect(() => {
+    void (async () => {
+      try {
+        if (!(await isPermissionGranted())) {
+          await requestPermission();
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   const handleNavigate = useCallback((item: NavItem) => {
     if (item === "settings") setSettingsOpen(true);

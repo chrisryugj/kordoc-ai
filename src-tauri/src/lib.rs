@@ -4,7 +4,11 @@ mod sidecar;
 
 use sidecar::manager::SidecarManager;
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
+};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,6 +30,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
@@ -78,6 +83,59 @@ pub fn run() {
                 }
             });
 
+            // System tray — 윈도우 닫아도 백그라운드 sidecar 유지.
+            //   좌클릭: 윈도우 토글 (없으면 표시)
+            //   메뉴: Show / Hide / Quit
+            let show_item = MenuItem::with_id(app, "tray-show", "창 열기", true, None::<&str>)?;
+            let hide_item = MenuItem::with_id(app, "tray-hide", "창 숨기기", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "tray-quit", "완전 종료", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+
+            let _ = TrayIconBuilder::with_id("kordoc-ai-tray")
+                .tooltip("KorDoc AI")
+                .icon(app.default_window_icon().cloned().ok_or("default icon 없음")?)
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app: &tauri::AppHandle, event| match event.id.as_ref() {
+                    "tray-show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "tray-hide" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    "tray-quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray: &tauri::tray::TrayIcon<tauri::Wry>, event: TrayIconEvent| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let visible = w.is_visible().unwrap_or(false);
+                            if visible {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.unminimize();
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
             // Auto-start Node.js sidecar in background
             tauri::async_runtime::spawn(async move {
                 mgr_for_setup.set_app_handle(handle.clone()).await;
@@ -91,13 +149,28 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building KorDoc AI")
-        .run(move |_app, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Graceful sidecar shutdown — orphan process 방지
-                let mgr = mgr_for_exit.clone();
-                tauri::async_runtime::block_on(async move {
-                    mgr.stop().await;
-                });
+        .run(move |app, event| {
+            match event {
+                tauri::RunEvent::Exit => {
+                    // Graceful sidecar shutdown — orphan process 방지
+                    let mgr = mgr_for_exit.clone();
+                    tauri::async_runtime::block_on(async move {
+                        mgr.stop().await;
+                    });
+                }
+                // 윈도우 X 클릭 시 종료 대신 tray 로 hide (sidecar 백그라운드 유지).
+                // 완전 종료는 tray 메뉴 "완전 종료" 또는 OS exit 신호.
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::CloseRequested { api, .. },
+                    ..
+                } if label == "main" => {
+                    api.prevent_close();
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                }
+                _ => {}
             }
         });
 }
