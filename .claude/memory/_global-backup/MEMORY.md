@@ -1,0 +1,2 @@
+- [PDF 파서 업그레이드](project_pdf_parser_upgrade.md) — Phase 1+2 완료, Phase 3(공백누락/목차) 대기
+- [KorDoc Suite Phase 1](project_kordoc_suite_phase1.md) — XLS 파서 + Print Renderer 추가 중, W1 D1-2 완료 (브랜치 feat/xls-and-print)
