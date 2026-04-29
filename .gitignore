@@ -1,3 +1,6 @@
+# Claude Code 메모리 (개인 컨텍스트)
+.claude/
+
 # 빌드
 dist/
 build/
