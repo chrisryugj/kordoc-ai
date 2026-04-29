@@ -13,7 +13,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "^2.5", features = [] }
 
 [dependencies]
-tauri = { version = "^2.10", features = [] }
+tauri = { version = "^2.10", features = ["tray-icon"] }
 tauri-plugin-dialog = "^2.6"
 tauri-plugin-process = "^2.3"
 tauri-plugin-shell = "^2.2"
@@ -26,6 +26,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-deep-link = "=2.4.7"
 tauri-plugin-single-instance = { version = "=2.4.0", features = ["deep-link"] }
+tauri-plugin-notification = "2.3.3"
 
 [features]
 default = ["custom-protocol"]
