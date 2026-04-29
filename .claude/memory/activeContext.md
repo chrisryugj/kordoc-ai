@@ -4,89 +4,119 @@
 
 ---
 
-## 📌 현재 상태 (2026-04-29)
+## 📌 현재 상태 (2026-04-29 21:55, 집 PC)
 
 ### Phase 1 완료 ✅ (kordoc v2.7.0)
-- `feat/xls-and-print` 브랜치, 커밋 `f41da76`
-- XLS (BIFF8) 파서: `src/xls/{record,encoding,sst,cell,parser,index}.ts`
-- Print Renderer: `src/print/{renderer,index}.ts` — markdown-it → puppeteer-core PDF
-- 합성 픽스처 5건 (xlwt 생성)
-- 318 tests pass (기존 296 + XLS 12 + Print 10)
-- `package.json` 2.6.2 → 2.7.0 bump
-- `CHANGELOG.md` v2.7.0 항목 정리
-- **publish 대기**: 사용자 승인 필요 (`npm publish`)
+- `feat/xls-and-print` 브랜치, 마지막 커밋 `ede40d6` (집 PC에서 package-lock 동기화 추가)
+- v2.7.0 release 본커밋: `f41da76`
+- XLS (BIFF8) 파서 + Print Renderer (`markdownToPdf`/`PrintPreset` 노출)
+- 318 tests pass
+- **publish 미진행** — kordoc-ai sidecar 가 `link:../../kordoc` 로 v2.7.0 dist 직접 사용 중. 통합 검증 끝난 다음에 publish.
 
 ### Phase 2 W1 완료 ✅ (kordoc-shell v0.1)
-**신규 레포**: `d:/AI_Project/kordoc-shell`, 커밋 `41d4f34`
+- `c:/github_project/kordoc-shell`, 커밋 `41d4f34` (변경 없음)
+- AppxManifest, Microsoft.Registry.xml, Rust 런처, build/sign/install-dev 스크립트
 
-- `manifest/AppxManifest.xml` — 7개 확장자 연결 + `kordoc://` 프로토콜
-- `manifest/Microsoft.Registry.xml` — 7개 확장자 × `KorDoc` 서브메뉴 + 4개 verb
-- `kordoc-launcher/` (Rust) — verb → kordoc:// deep-link 변환 (단일/다중 모두)
-  - 단일: `kordoc://<action>?path=<encoded>`
-  - 다중: `%TEMP%/kordoc-batch-*.json` manifest → `kordoc://batch?manifest=<path>`
-- `scripts/{build,sign,install-dev,uninstall-dev}.ps1` 4개
-- `README.md`, `CLAUDE.md`, `docs/README.md`
+### Phase 2 W2 **완료** ✅ (kordoc-ai)
+- main 브랜치, 커밋 `20dd679` (W2 D1-D4) + `f32cb1f` (W2 D5)
+- 모두 origin/main 푸시 완료
 
-### 다음 작업 — **Phase 2 W2 시작**
-**작업 위치**: 주로 `d:/AI_Project/kordoc-ai` (Tauri sidecar) + 일부 `d:/AI_Project/kordoc-shell` (테스트)
+**구현 내용:**
+- W2 D1-2: Tauri deep-link + single-instance 플러그인, `lib.rs` 핸들러, `useDeepLink` 훅, `App.tsx` 라우팅
+- W2 D3-4: `node-sidecar/src/core/print/index.ts` (print_files + list_printers), `read_batch_manifest` RPC, vitest 7건
+- W2 D5: System tray (Show/Hide/Quit + 좌클릭 토글), 윈도우 X → hide, `tauri-plugin-notification` 으로 Win11 native toast (창 비포커스 시만)
 
-#### W2 D1-2: kordoc-ai deep-link 핸들러
-1. `pnpm tauri add deep-link` (또는 `tauri-plugin-deep-link` Cargo.toml 추가)
-2. `pnpm tauri add single-instance`
-3. `src-tauri/src/lib.rs` — single-instance 핸들러에서 args 파싱 → `kordoc://` URL 추출 → 프론트엔드에 emit
-4. `src/App.tsx` 또는 신규 `src/hooks/useDeepLink.ts` — `listen('deep-link')` → URL 파싱 → 라우팅
-   - `convert?path=<file>&action=md|pdf|hwpx`: 변환 작업 시작
-   - `summarize?path=<file>`: 요약 패널
-   - `open?path=<file>`: 폴더 열기 + 파일 선택
-   - `batch?manifest=<path>`: manifest 읽고 BatchPanel로
-
-#### W2 D3-4: 인쇄 RPC
-1. `node-sidecar/src/core/print/index.ts` 신규
-2. `print_files(files, printer?, preset?, copies?, duplex?, color?)` RPC
-   - kordoc 라이브러리의 `parseFile(file)` → `markdownToPdf(md, {preset})` → 임시 PDF
-   - `Start-Process -FilePath $pdf -Verb PrintTo -ArgumentList "$printer"`
-3. `list_printers()` RPC — `Get-Printer | ConvertTo-Json`
-4. Vitest 테스트
-
-#### W2 D5: UX 마무리
-- Tauri tray 아이콘 + 메뉴
-- 변환 진행률 토스트 (시스템 알림)
-- 에러 알림
-
-### Phase 2 완료 기준 (ROADMAP)
-- [ ] 탐색기 .hwp 우클릭 → KorDoc 메뉴 < 100ms
-- [ ] 4개 메뉴 deep-link 통해 kordoc-ai 호출 성공
-- [ ] 5개 파일 동시 인쇄 큐잉
-- [ ] MSIX 자체서명 + 로컬 설치 가능
+**검증 통과:**
+- TypeScript 0 error
+- cargo check 0 error
+- Vitest 53 pass / 1 skip
 
 ---
 
-## 🗺️ 전체 로드맵 요약
+## 🎯 다음 세션 — Phase 2 통합 검증 (사람 손 필요)
+
+코드 작업은 모두 끝났음. 다음 세션은 **실제 탐색기에서 동작 확인**.
+
+### 1. kordoc-shell MSIX 설치 + 우클릭 메뉴 확인
+```powershell
+# 관리자 PowerShell
+cd c:\github_project\kordoc-shell
+.\scripts\install-dev.ps1
+# 탐색기에서 .hwp/.pdf/.xlsx 등 우클릭 → KorDoc 메뉴 4개 표시되는지 확인
+```
+
+**기대:**
+- "마크다운으로 변환", "PDF로 변환", "AI 요약", "KorDoc 앱 열기..." 4개 메뉴
+- 빌드 실패 시 함정: `assets/icons/` 의 `StoreLogo.png` / `Square150.png` / `Square44.png` placeholder 누락 가능성. README.md 의 PowerShell 스니펫으로 임시 PNG 생성.
+
+### 2. kordoc-ai 빌드 + 단일 deep-link 동작
+```powershell
+cd c:\github_project\kordoc-ai
+pnpm build:node-sidecar    # sidecar bundle (puppeteer-core external)
+pnpm tauri:dev              # dev 모드. deep-link register_all 로 OS registry 자동 등록
+```
+- 다른 셸에서: `kordoc-launcher.exe convert "C:\path\to\test.hwp" md`
+  → kordoc-ai 윈도우 깨어남, 파일이 import 되는지 확인
+- 이미 실행 중일 때 우클릭 → single-instance 가 두 번째 args 첫 인스턴스로 전달
+
+### 3. 다중 선택 batch 흐름
+- 탐색기에서 `.hwp` 5개 선택 후 우클릭 → KorDoc → 마크다운으로 변환
+- `%TEMP%/kordoc-batch-<ts>.json` manifest 생성 확인
+- kordoc-ai 가 read_batch_manifest 호출 → files 일괄 추가 확인
+- 토스트: "일괄 처리: 5개 파일 추가됨 (convert_md)"
+
+### 4. 인쇄 RPC 검증
+- "Microsoft Print to PDF" 가상 프린터로 무해 검증 권장
+- DevTools Console: `await invoke('sidecar_call', { method: 'list_printers' })`
+- 그 다음: `await invoke('sidecar_call', { method: 'print_files', params: { files: ['C:\\test.hwp'], printer: 'Microsoft Print to PDF' } })`
+- `%TEMP%/kordoc-print/*.pdf` 생성 + 60초 후 정리되는지
+
+### 5. Tray + 알림
+- 윈도우 X 클릭 → 종료 안 되고 tray 로 hide
+- tray 좌클릭 → 복귀
+- tray 우클릭 → 메뉴 (창 열기 / 창 숨기기 / 완전 종료)
+- 변환 실행 후 즉시 다른 창으로 포커스 이동 → 완료 시 Win11 native toast
+
+### 검증 통과 후
+- ROADMAP §Phase 2 종료 4개 체크박스 체크
+- `npm publish kordoc@2.7.0` 진행 (사용자 승인)
+- Phase 3 (다중선택 + 일괄 처리 UX) 진입
+
+---
+
+## 🗺️ 전체 로드맵
 
 | Phase | 기간 | 주제 | 산출물 | 상태 |
 |-------|------|------|--------|------|
-| **1** | 2주 | 코어 갭 (XLS + Print Renderer) | kordoc v2.7.0 | ✅ 완료 (publish 대기) |
-| **2** | 2주 | MSIX Shell Extension PoC | kordoc-shell v0.1 + kordoc-ai 통합 | 🟡 W1 완료 |
-| 3 | 3주 | 다중선택 + 일괄 처리 | kordoc-ai v2.0 | ⬜ |
+| 1 | 2주 | 코어 갭 (XLS + Print Renderer) | kordoc v2.7.0 | ✅ (publish 대기) |
+| 2 | 2주 | MSIX Shell Extension PoC | kordoc-shell v0.1 + kordoc-ai 통합 | ✅ (실동작 검증 대기) |
+| 3 | 3주 | 다중선택 + 일괄 처리 UX | kordoc-ai v2.0 | ⬜ |
 | 4 | 3주 | 공공기관 특화 (PII/템플릿/DOC) | v2.1 | ⬜ |
 
 ---
 
-## 📚 참고 문서
+## ⚠️ 알려진 함정
 
-### kordoc-ai (이 레포)
-- [docs/PRD.md](../../docs/PRD.md) — 제품 요구사항
-- [docs/ROADMAP.md](../../docs/ROADMAP.md) — 체크리스트
-- [docs/SPEC.md](../../docs/SPEC.md) — 기술 명세 (특히 §2 Layer 2 RPC, §3 Layer 3 Shell)
+### Phase 1 (kordoc)
+- `BoundSheet8.dt` (1B) ≠ `BOF.dt` (2B). 비교 금지.
+- SST CONTINUE 분할: 단순 concat 안 됨. 경계마다 새 flags 재해석 필요.
+- `KordocError(message)` 만 받음. ErrorCode 는 `classifyError` 가 message 키워드로 자동.
+- tsup `OPTIONAL_EXTERNAL`: optional dep 안 추가하면 dist 폭증.
+- ESM 에서 `require` 금지. `import { existsSync } from "fs"` 정적 import.
 
-### kordoc 본체
-- [d:/AI_Project/kordoc](../../../kordoc/)
-- [docs/biff8-spec.md](../../../kordoc/docs/biff8-spec.md) — XLS 파서 명세
+### Phase 2 W1 (kordoc-shell)
+- MSIX SparsePackage `MinVersion="10.0.17763.0"` 미만 미지원.
+- `Add-AppxPackage -ExternalLocation`: Sparse 는 절대 경로 필요.
+- 자체서명 cert: LocalMachine\Root + TrustedPeople 양쪽 (관리자 권한).
 
-### kordoc-shell (신규)
-- [d:/AI_Project/kordoc-shell](../../../kordoc-shell/)
-- [README.md](../../../kordoc-shell/README.md)
-- [CLAUDE.md](../../../kordoc-shell/CLAUDE.md)
+### Phase 2 W2 (kordoc-ai) — 신규 함정 ★
+- **`tauri-plugin-deep-link@2.4.8` yanked**. single-instance 2.4.1 이 이걸 강제 의존하므로 single-instance 2.4.0 으로 다운그레이드 + deep-link 2.4.7 핀 필수.
+- **`PrintTo` verb 는 copies/duplex/color 제어 불가**. 드라이버 기본값 사용. 옵션 UI 표시 시 "드라이버 기본값" 명시 필요. 세부 제어 필요하면 SumatraPDF 또는 Win32 EnumPrintProcessors.
+- **임시 PDF 즉시 unlink 금지**. PrintTo 가 spool 시작하기 전에 OS 가 파일 못 읽음. 60초 setTimeout(unref) 으로 지연.
+- **kordoc-ai 의 `tauri-plugin-window-state`** 와 single-instance 호환 OK (단일 인스턴스 가정이라 충돌 없음).
+- **`tauri features = ["tray-icon"]`** 명시 필요. default 에 포함 안 됨.
+- **`on_tray_icon_event` 클로저 타입 추론 실패** → `|tray: &tauri::tray::TrayIcon<tauri::Wry>, event: TrayIconEvent|` 명시.
+- **kordoc dist v2.7 빌드 누락**: link:../../kordoc 사용 시 dist 가 옛 버전이면 `markdownToPdf`/`PrintPreset` 미노출. 본 레포 작업 전 `cd c:\github_project\kordoc && npm install && npm run build` 권장.
 
 ---
 
@@ -96,80 +126,38 @@
 2. **DOC 파싱**: LibreOffice headless 폴백 (Phase 4)
 3. **인쇄 엔진**: PDF 변환 → ShellExecute "print"
 4. **AI 격리**: 기본 비활성, 옵트인
-5. **Print Renderer**: markdown-it → puppeteer-core HTML ✅ kordoc v2.7.0
-6. **XLS OLE2 파서**: 기존 `cfb-lenient.ts` 재사용 ✅ kordoc v2.7.0
-7. **Shell 런처 언어**: Rust (Tauri와 동일 스택, 50KB 단일 exe)
-8. **다중선택 처리**: `%TEMP%/kordoc-batch-*.json` manifest 파일 방식 (verb N번 호출 회피)
-9. **개발 서명**: 자체서명 (CN=KorDoc), 배포 EV 코드사인 — Phase 2 종료 후 결정
-
----
-
-## ⚠️ 알려진 함정 (학습)
-
-- **BoundSheet8.dt (1바이트)** vs **BOF.dt (2바이트)** 별개. 비교 금지.
-- **SST CONTINUE 분할**: 단순 concat 안 됨. 경계마다 새 flags 재해석 필요.
-- **KordocError 생성자**: `(message: string)`만 받음. ErrorCode는 message 키워드로 `classifyError`가 자동 분류.
-- **tsup external**: optional dep은 반드시 `OPTIONAL_EXTERNAL`에 추가. 안 그러면 dist 폭증.
-- **ESM에서 require 금지**: `import { existsSync } from "fs"` 정적 import.
-- **MSIX SparsePackage**: `MinVersion="10.0.17763.0"` 미만 미지원.
-- **Add-AppxPackage -ExternalLocation**: Sparse Package는 절대 경로 필요.
-- **자체서명 cert**: LocalMachine\Root + TrustedPeople 양쪽 등록 필수 (관리자 권한).
-
----
-
-## 🎯 Phase 2 W2 진입 명령어
-
-```bash
-# 환경 확인
-cd d:/AI_Project/kordoc-ai
-git status
-pnpm install
-
-# kordoc 의존성을 v2.7.0으로 — npm publish 후
-# pnpm update kordoc
-
-# Tauri 플러그인 추가
-cd src-tauri
-cargo add tauri-plugin-deep-link tauri-plugin-single-instance
-cd ..
-pnpm add @tauri-apps/plugin-deep-link
-
-# kordoc-shell 빌드 검증 (선택)
-cd d:/AI_Project/kordoc-shell
-.\scripts\build.ps1 -SkipPackage  # cargo build만
-```
+5. **Print Renderer**: markdown-it → puppeteer-core HTML ✅
+6. **XLS OLE2 파서**: 기존 `cfb-lenient.ts` 재사용 ✅
+7. **Shell 런처 언어**: Rust ✅
+8. **다중선택 처리**: `%TEMP%/kordoc-batch-*.json` manifest 파일 방식 ✅
+9. **개발 서명**: 자체서명 (Phase 2), 배포 EV (미정)
 
 ---
 
 ## 💬 다음 세션 시작 프롬프트
 
 ```
-KorDoc Suite Phase 2 W2 — kordoc-ai deep-link 핸들러 + 인쇄 RPC.
+KorDoc Suite Phase 2 통합 검증 — 코드는 끝났고 실제 동작 확인.
 
-브랜치/레포 상태:
-- kordoc 본체: feat/xls-and-print 브랜치, v2.7.0 커밋 완료 (publish 대기)
-- kordoc-shell: main 브랜치, init 커밋 완료 (Phase 2 W1 골격)
-- kordoc-ai: 작업 미착수
+브랜치/레포 (이미 푸시):
+- kordoc: feat/xls-and-print, ede40d6 (v2.7.0 + package-lock)
+- kordoc-ai: main, f32cb1f (W2 D5 tray + notification)
+- kordoc-shell: main, 41d4f34 (W1 변경 없음)
 
 먼저 .claude/memory/activeContext.md 읽고
-docs/SPEC.md §2.1~2.2 (print_files / list_printers) 와 §3.4 (Tauri deep-link) 확인.
+"다음 세션 — Phase 2 통합 검증" 섹션의 5단계를 순서대로 실행해줘.
 
-W2 D1-2 작업: kordoc-ai에 tauri-plugin-deep-link + tauri-plugin-single-instance 추가,
-src-tauri/src/lib.rs deep-link 수신 핸들러,
-프론트엔드 useDeepLink 훅 + 라우팅.
-
-W2 D3-4: node-sidecar/src/core/print/index.ts → print_files / list_printers RPC.
-
-W2 D5: tray 아이콘 + 진행률 토스트.
-
-Phase 1 publish 진행 여부도 확인 (npm publish kordoc@2.7.0).
+검증 기록은 docs/phase2-integration-test.md 에 새로 작성:
+- 각 단계 PASS/FAIL + 실제 명령어와 결과 로그
+- FAIL 발생 시 원인 분석 + 수정 PR
+- 통과하면 ROADMAP Phase 2 체크박스 체크 + npm publish kordoc@2.7.0 안내
 ```
 
 ---
 
 ## 📝 변경 이력
-- 2026-04-29: 초기 작성, Phase 1 진입 준비
-- 2026-04-29: Phase 1 W1 D1-2 완료 — biff8-spec, fixtures README, 디렉토리, 브랜치
-- 2026-04-29: Phase 1 W1 D3 ~ W2 D4 완료 — XLS 파서 모듈 6개 + 합성 픽스처 5건 + 12개 테스트
-- 2026-04-29: **Phase 1 전체 완료** — Print Renderer 추가, 318 tests pass, v2.7.0 커밋 (`f41da76`)
-- 2026-04-29: **Phase 2 W1 완료** — kordoc-shell 신규 레포 init 커밋 (`41d4f34`), MSIX 매니페스트 + Rust 런처 + 빌드/서명 스크립트
+- 2026-04-29: Phase 1 완료, kordoc v2.7.0 (`f41da76`)
+- 2026-04-29: Phase 2 W1 완료, kordoc-shell init (`41d4f34`)
+- 2026-04-29: 회사 PC → 집 PC 인계용 메모리 백업 커밋 (kordoc-ai `3cb1001`, kordoc `d307c11`)
+- 2026-04-29: 집 PC, Phase 2 W2 D1-D4 완료 (`20dd679`)
+- 2026-04-29: 집 PC, Phase 2 W2 D5 완료 (`f32cb1f`) — **현재**
