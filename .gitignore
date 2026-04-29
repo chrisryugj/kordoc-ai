@@ -19,7 +19,10 @@ build/
 .DS_Store
 Thumbs.db
 
-# 메모리 / 임시
-.claude/
+# Claude Code 개인 설정 — 단, .claude/memory/는 세션 컨텍스트 인계용으로 추적
+.claude/*
+!.claude/memory/
+
+# 임시
 *.log
 *.tmp
