@@ -20,6 +20,9 @@ import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../co
 import { inspectDocument } from '../../core/inspect/index.js';
 import { detectMcpEnv, installMcpConfig, installNode } from '../../core/mcp-setup/index.js';
 import { printFiles, listPrinters } from '../../core/print/index.js';
+import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
+import { renderPreview } from '../../core/preview/index.js';
+import type { BlockEdit } from 'kordoc';
 
 /** 모든 메서드를 라우터에 등록 */
 export function registerAllMethods(router: RpcRouter): void {
@@ -321,6 +324,60 @@ export function registerAllMethods(router: RpcRouter): void {
   // 24. list_printers — Windows 프린터 목록 (CIM Win32_Printer)
   router.register('list_printers', async () => {
     return listPrinters();
+  });
+
+  // ── KorDoc Studio Phase B: 양식 채우기 작업대 (4개) ──
+
+  // 26. form_schema — 양식 필드 인식 + 타입 추론 (FillWizard 폼 자동 생성)
+  router.register('form_schema', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    signal.throwIfAborted();
+    return formSchema({
+      input_path,
+      pages: params.pages as string | undefined,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 27. form_fill — fillHwpx 바이트 보존 채우기 + 재파싱 검증
+  router.register('form_fill', async (params, signal) => {
+    const input_path = validatePath(params.input_path as string);
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
+    signal.throwIfAborted();
+    return formFill({
+      input_path,
+      values: params.values as Record<string, string>,
+      output_path,
+      dry_run: params.dry_run as boolean | undefined,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 28. patch_blocks — 블록 단위 증분 패치 (kordoc v3.1 patchHwpxBlocks)
+  router.register('patch_blocks', async (params, signal) => {
+    const input_path = params.input_path ? validatePath(params.input_path as string) : undefined;
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
+    if (!input_path && !params.doc_b64) throw new Error('input_path 또는 doc_b64가 필요합니다');
+    signal.throwIfAborted();
+    return patchBlocks({
+      input_path,
+      doc_b64: params.doc_b64 as string | undefined,
+      edits: params.edits as BlockEdit[],
+      output_path,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 29. render_preview — rhwp WASM SVG 렌더 (HEAVY 제외 — 미리보기 반응성)
+  router.register('render_preview', async (params, signal) => {
+    const input_path = params.input_path ? validatePath(params.input_path as string) : undefined;
+    if (!input_path && !params.doc_b64) throw new Error('input_path 또는 doc_b64가 필요합니다');
+    return renderPreview({
+      input_path,
+      doc_b64: params.doc_b64 as string | undefined,
+      pages: params.pages as number[] | undefined,
+      max_pages: params.max_pages as number | undefined,
+    }, signal);
   });
 
   // 25. read_batch_manifest — kordoc-launcher.exe 가 생성한
