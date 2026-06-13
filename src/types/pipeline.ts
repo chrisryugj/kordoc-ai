@@ -13,6 +13,7 @@ export type PipelineAction =
   | "extract_tables" // 표 추출
   | "form_extract"   // 양식 필드 추���
   | "form_fill"      // 양식 채우기 작업대 (FillWizard — KorDoc Studio)
+  | "doc_edit"       // 문서 클릭-편집 (DocEditor — KorDoc Studio Phase C)
   | "generate_hwpx"  // 마크다운 → HWPX
   | "merge_files"        // 문서 병합
   | "pdf_utils"          // PDF 도구 (병합/분할/추출)

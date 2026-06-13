@@ -22,6 +22,7 @@ import { detectMcpEnv, installMcpConfig, installNode } from '../../core/mcp-setu
 import { printFiles, listPrinters } from '../../core/print/index.js';
 import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
 import { renderPreview } from '../../core/preview/index.js';
+import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '../../core/edit/index.js';
 import type { BlockEdit } from 'kordoc';
 
 /** 모든 메서드를 라우터에 등록 */
@@ -378,6 +379,54 @@ export function registerAllMethods(router: RpcRouter): void {
       pages: params.pages as number[] | undefined,
       max_pages: params.max_pages as number | undefined,
     }, signal);
+  });
+
+  // ── KorDoc Studio Phase C: 클릭-편집 세션 (6개) ──
+
+  // 30. edit_open — HwpxSession 열기 (blocks + capability 잠금 정보 + 미리보기 바이트)
+  router.register('edit_open', async (params, signal) => {
+    const input_path = params.input_path ? validatePath(params.input_path as string) : undefined;
+    if (!input_path && !params.doc_b64) throw new Error('input_path 또는 doc_b64가 필요합니다');
+    signal.throwIfAborted();
+    return editOpen({
+      input_path,
+      doc_b64: params.doc_b64 as string | undefined,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 31. edit_patch — 세션 누적 블록 패치 (undo 스냅샷 자동 기록)
+  router.register('edit_patch', async (params, signal) => {
+    return editPatch({
+      session_id: params.session_id as string,
+      edits: params.edits as BlockEdit[],
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 32-33. edit_undo / edit_redo — 바이트 스냅샷 복원
+  router.register('edit_undo', async (params, signal) => {
+    return editUndo({
+      session_id: params.session_id as string,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+  router.register('edit_redo', async (params, signal) => {
+    return editRedo({
+      session_id: params.session_id as string,
+      include_doc: params.include_doc as boolean | undefined,
+    }, signal);
+  });
+
+  // 34. edit_save — 현재 세션 바이트 저장 (수동 저장 + 30초 자동저장 공용)
+  router.register('edit_save', async (params) => {
+    const output_path = validatePath(params.output_path as string);
+    return editSave({ session_id: params.session_id as string, output_path });
+  });
+
+  // 35. edit_close — 세션 해제
+  router.register('edit_close', async (params) => {
+    return editClose({ session_id: params.session_id as string });
   });
 
   // 25. read_batch_manifest — kordoc-launcher.exe 가 생성한

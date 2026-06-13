@@ -3,7 +3,7 @@ import {
   Upload, FileText, X, FolderOpen, Trash2, Copy, ExternalLink,
   Scan, Sparkles, GitCompareArrows,
   Table, ClipboardList, FileOutput, Merge, ShieldCheck, AlertTriangle, Wifi,
-  ArrowRight, Scissors, PenLine,
+  ArrowRight, Scissors, PenLine, SquarePen,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
@@ -16,6 +16,7 @@ import { MergeOrderDialog } from "./MergeOrderDialog";
 import { PdfToolsDialog } from "./PdfToolsDialog";
 import { FormFieldSelector } from "./FormFieldSelector";
 import { FillWizard } from "../fill/FillWizard";
+import { DocEditor } from "../edit/DocEditor";
 import { Plug } from "lucide-react";
 
 // ── Action 정의 ──
@@ -37,6 +38,7 @@ const ACTIONS: ActionDef[] = [
   { action: "extract_tables", label: "표 추출", desc: "문서에서 표만 추출", icon: <Table size={18} />, color: "#7C3AED", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [] },
   { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [] },
   { action: "form_fill", label: "양식 채우기", desc: "자동 폼 + 미리보기 — 서식 그대로", icon: <PenLine size={18} />, color: "#0891B2", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["hwpx"] },
+  { action: "doc_edit", label: "문서 편집", desc: "미리보기 클릭 편집 — 서식 그대로", icon: <SquarePen size={18} />, color: "#9333EA", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["hwpx"] },
   { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: [] },
   { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: [] },
   { action: "pdf_utils", label: "PDF 도구", desc: "병합 · 분할 · 추출", icon: <Scissors size={18} />, color: "#EF4444", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["pdf"] },
@@ -139,6 +141,7 @@ export function Workspace({
   const [convertOpen, setConvertOpen] = useState(false);
   const [formFieldOpen, setFormFieldOpen] = useState(false);
   const [fillWizardOpen, setFillWizardOpen] = useState(false);
+  const [docEditorOpen, setDocEditorOpen] = useState(false);
   const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
   const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
   const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
@@ -210,6 +213,11 @@ export function Workspace({
     // form_fill: 양식 채우기 작업대 (자체 사이드카 호출 — 파이프라인 비경유)
     if (action === "form_fill") {
       setFillWizardOpen(true);
+      return;
+    }
+    // doc_edit: 클릭-편집 작업대 (자체 사이드카 호출 — 파이프라인 비경유)
+    if (action === "doc_edit") {
+      setDocEditorOpen(true);
       return;
     }
     // form_extract: 필드 후보 fetch → 선택 다이얼로그
@@ -595,6 +603,18 @@ export function Workspace({
           outputDir={outputDir}
           showToast={showToast}
           onClose={() => setFillWizardOpen(false)}
+          onOpenFolder={(p) => { void sidecarCall("open_folder", { path: p.replace(/[\\/][^\\/]+$/, "") }).catch(() => showToast(`저장 경로: ${p}`, "info")); }}
+        />
+      )}
+
+      {/* 문서 클릭-편집 (KorDoc Studio Phase C) */}
+      {docEditorOpen && files[0] && (
+        <DocEditor
+          file={files[0]}
+          sidecarCall={sidecarCall}
+          outputDir={outputDir}
+          showToast={showToast}
+          onClose={() => setDocEditorOpen(false)}
           onOpenFolder={(p) => { void sidecarCall("open_folder", { path: p.replace(/[\\/][^\\/]+$/, "") }).catch(() => showToast(`저장 경로: ${p}`, "info")); }}
         />
       )}
