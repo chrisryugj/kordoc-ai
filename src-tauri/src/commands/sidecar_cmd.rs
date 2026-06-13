@@ -44,6 +44,13 @@ const ALLOWED_METHODS: &[&str] = &[
     "form_fill",
     "patch_blocks",
     "render_preview",
+    // KorDoc Studio Phase C: 클릭-편집 세션
+    "edit_open",
+    "edit_patch",
+    "edit_undo",
+    "edit_redo",
+    "edit_save",
+    "edit_close",
 ];
 
 #[tauri::command]

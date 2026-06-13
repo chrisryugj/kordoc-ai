@@ -4,7 +4,28 @@
 
 ---
 
-## 📌 최신: KorDoc Studio Phase B 구현 완료 (2026-06-12)
+## 📌 최신: Phase C 검증 + 들여쓰기 버그픽스 + Studio 개편 플랜 (2026-06-13 오후)
+
+- **앱 실사용 검증**: tauri:dev에서 DocEditor 클릭-편집 동작 확인 (사용자). 편집된 문단의 **들여쓰기 소실 버그 발견** → kordoc 코어 수정
+- **kordoc PR #35** (`fix/patch-indent-preserve`): `buildParagraphSplices`가 통째 교체 시 원본 선행/후행 공백(들여쓰기·전각공백)을 버리던 것 복원. session/patchHwpx/fillHwpx/표셀 공통 경로 — 동등성 유지. kordoc 517/517 + 회귀 테스트 추가
+- **Studio UI 개편 플랜 신규 작성**: `.claude/memory/studio-redesign-plan.md` (**git 추적** — 회사 PC 로컬에 갇혔던 구 플랜 대체). 핵심: 3-pane 문서 워크벤치 + DocumentSession 컨텍스트 + 도구 탭(채우기/편집/AI/변환), W1~W4
+- **머지 대기 스택 (순서대로)**: kordoc #35 → kordoc-ai #1 (Phase B) → kordoc-ai #2 (Phase C, base가 #1 브랜치라 자동 리타겟). 이후 `npm login` + kordoc 3.1.1 publish (3.1.0 publish도 아직 보류 상태였음 — 픽스 포함해 3.1.1로 올리는 게 깔끔)
+- 미검증 잔여: 들여쓰기 픽스 후 앱 재시작했으나 사용자 육안 재확인 전. 한/글에서 저장본 열어보기, 실양식 3종째도 그대로 남음
+
+## KorDoc Studio Phase C 클릭-편집 구현 완료 (2026-06-13)
+
+- 브랜치 `feat/doc-editor-phase-c` (Phase B 브랜치에서 분기 — PR #1 머지 후 자동 리타겟)
+- 사이드카 RPC 6종: `edit_open`(HEAVY)/`edit_patch`/`edit_undo`/`edit_redo`/`edit_save`/`edit_close` — `node-sidecar/src/core/edit/`, kordoc v3.1 `HwpxSession` 상태 유지(세션 4개 상한 LRU, undo 깊이 50, 바이트 스냅샷)
+- DocEditor (`src/components/edit/DocEditor.tsx`): 미리보기 클릭→문단/셀 인라인 편집 팝오버, capability 잠금 시각화(잠금=흐림+사유 토스트, 편집가능=점선 밑줄 토글), Ctrl+Z/Y undo/redo, 30초 자동저장(`{stem}_편집.hwpx`), 닫기 시 미저장분 자동 저장
+- `svg-annotate.ts`에 `annotateBlocks` 추가 — 여러 줄 문단 허용(같은 줄 x증가 또는 다음 줄), 긴 텍스트 우선 매칭, data-kd-block/-cell/-locked
+- Workspace 액션 `doc_edit` (hwpx 1개) + Rust 화이트리스트 동기화
+- 검증: vitest **64/64** (edit-session 8개 신규, 실문서 포함), tsc 프론트/사이드카 0, vite/cargo/esbuild 번들 그린, 프로덕션 번들 stdin RPC 스모크(edit 6종 왕복) 통과
+- 함정: kordoc dist stale이면 `HwpxSession` 미노출 → `cd kordoc && npm run build` 필수 (이 PC에서 재현됨). 실문서 PUA 글리프(`󰏅`) 문단은 capability=text라도 패처가 "공백 정규화 불안정"으로 graceful-skip — 정상 동작
+- v1 제약: 텍스트 있는 문단/셀만 클릭 가능(빈 셀 채우기는 FillWizard), 페이지 경계 걸친 문단은 매칭 실패로 클릭 불가 가능
+
+---
+
+## KorDoc Studio Phase B 구현 완료 (2026-06-12)
 
 - 브랜치 `feat/fill-wizard-phase-b`, **PR #1 머지 대기**
 - RPC 4종: form_schema / form_fill / patch_blocks (HEAVY) + render_preview (HEAVY 제외) — `node-sidecar/src/core/{fill,preview}/`, Rust 화이트리스트 동기화
