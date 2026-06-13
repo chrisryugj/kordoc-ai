@@ -409,3 +409,7 @@ select.input-modern option {
 .kd-preview svg { max-width: 100%; height: auto; display: block; }
 .kd-preview text[data-kd-label] { cursor: pointer; }
 .kd-preview text[data-kd-label]:hover { fill: var(--color-accent); }
+
+/* DocEditor — 클릭-편집 (KorDoc Studio Phase C) */
+.kd-editor text[data-kd-block] { cursor: pointer; }
+.kd-editor text[data-kd-locked] { cursor: not-allowed; }

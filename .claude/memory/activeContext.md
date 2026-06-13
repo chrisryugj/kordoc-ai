@@ -4,7 +4,20 @@
 
 ---
 
-## 📌 최신: KorDoc Studio Phase B 구현 완료 (2026-06-12)
+## 📌 최신: KorDoc Studio Phase C 클릭-편집 구현 완료 (2026-06-13)
+
+- 브랜치 `feat/doc-editor-phase-c` (Phase B 브랜치에서 분기 — PR #1 머지 후 자동 리타겟)
+- 사이드카 RPC 6종: `edit_open`(HEAVY)/`edit_patch`/`edit_undo`/`edit_redo`/`edit_save`/`edit_close` — `node-sidecar/src/core/edit/`, kordoc v3.1 `HwpxSession` 상태 유지(세션 4개 상한 LRU, undo 깊이 50, 바이트 스냅샷)
+- DocEditor (`src/components/edit/DocEditor.tsx`): 미리보기 클릭→문단/셀 인라인 편집 팝오버, capability 잠금 시각화(잠금=흐림+사유 토스트, 편집가능=점선 밑줄 토글), Ctrl+Z/Y undo/redo, 30초 자동저장(`{stem}_편집.hwpx`), 닫기 시 미저장분 자동 저장
+- `svg-annotate.ts`에 `annotateBlocks` 추가 — 여러 줄 문단 허용(같은 줄 x증가 또는 다음 줄), 긴 텍스트 우선 매칭, data-kd-block/-cell/-locked
+- Workspace 액션 `doc_edit` (hwpx 1개) + Rust 화이트리스트 동기화
+- 검증: vitest **64/64** (edit-session 8개 신규, 실문서 포함), tsc 프론트/사이드카 0, vite/cargo/esbuild 번들 그린, 프로덕션 번들 stdin RPC 스모크(edit 6종 왕복) 통과
+- 함정: kordoc dist stale이면 `HwpxSession` 미노출 → `cd kordoc && npm run build` 필수 (이 PC에서 재현됨). 실문서 PUA 글리프(`󰏅`) 문단은 capability=text라도 패처가 "공백 정규화 불안정"으로 graceful-skip — 정상 동작
+- v1 제약: 텍스트 있는 문단/셀만 클릭 가능(빈 셀 채우기는 FillWizard), 페이지 경계 걸친 문단은 매칭 실패로 클릭 불가 가능
+
+---
+
+## KorDoc Studio Phase B 구현 완료 (2026-06-12)
 
 - 브랜치 `feat/fill-wizard-phase-b`, **PR #1 머지 대기**
 - RPC 4종: form_schema / form_fill / patch_blocks (HEAVY) + render_preview (HEAVY 제외) — `node-sidecar/src/core/{fill,preview}/`, Rust 화이트리스트 동기화
