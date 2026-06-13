@@ -17,17 +17,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Create kordoc stub and install
+      - name: Install with published kordoc
         shell: bash
         working-directory: node-sidecar
         run: |
-          mkdir -p ../../kordoc
-          echo '{"name":"kordoc","version":"0.0.0","main":"index.js","type":"module"}' > ../../kordoc/package.json
-          echo "export default {};" > ../../kordoc/index.js
-          # Override link: to file: for npm compatibility
-          sed -i 's|"link:../../kordoc"|"file:../../kordoc"|' package.json
+          # 로컬 개발은 link:../../kordoc (모노레포 인접 체크아웃)이지만
+          # CI는 npm 배포본으로 치환 — 실제 kordoc 함수로 E2E 통합 검증한다.
+          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^3.1.1"|' package.json
           npm install
-          # Restore original
           git checkout package.json
 
       - name: Run tests
