@@ -9,6 +9,8 @@ const HEAVY_METHODS = new Set([
   'diff', 'form_extract', 'form_extract_candidates', 'form_extract_batch',
   'extract_tables', 'generate_hwpx',
   'merge_files', 'pdf_extract_pages', 'inspect_document',
+  // KorDoc Studio — render_preview는 의도적 제외 (미리보기 반응성)
+  'form_schema', 'form_fill', 'patch_blocks',
 ]);
 
 /** 최대 동시 실행 수 (Python 이전 구현의 max_workers=2와 동일) */

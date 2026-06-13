@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
-import { readFileSync } from 'fs';
+import { readFileSync, cpSync } from 'fs';
+import { createRequire } from 'module';
+import { dirname, join } from 'path';
 
 /**
  * kordoc 내부에서 createRequire()로 동적 require하는 패키지들을
@@ -61,9 +63,18 @@ await build({
   // pdfjs-dist의 worker는 런타임에 별도 로드 — 번들에서 제외
   // puppeteer-core는 Chromium 외부 실행 + 동적 require 패턴이 많아 external 처리.
   // 인쇄 기능 사용 시 sidecar 배포 디렉토리에 puppeteer-core가 함께 있어야 함.
-  external: ['puppeteer-core', 'onnxruntime-node', 'sharp', '@huggingface/transformers'],
+  // @rhwp/core는 WASM 파일을 디스크에서 로드해야 해서 번들 불가 — external +
+  // 아래 copy 단계로 dist/node_modules에 동봉 (preview/index.ts의 createRequire가 해석)
+  external: ['puppeteer-core', 'onnxruntime-node', 'sharp', '@huggingface/transformers', '@rhwp/core'],
   plugins: [dynamicRequirePlugin],
   minify: false,        // 디버깅 용이
   sourcemap: true,
   logLevel: 'info',
 });
+
+// @rhwp/core 패키지(rhwp.js + rhwp_bg.wasm)를 번들 옆 node_modules로 복사 —
+// Tauri resources가 dist/만 가져가므로 WASM이 MSI에 함께 패키징되게 한다.
+const require = createRequire(import.meta.url);
+const rhwpDir = dirname(require.resolve('@rhwp/core'));
+cpSync(rhwpDir, join('dist', 'node_modules', '@rhwp', 'core'), { recursive: true });
+console.log('[esbuild] @rhwp/core → dist/node_modules/@rhwp/core 복사 완료');

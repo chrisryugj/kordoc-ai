@@ -39,6 +39,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "print_files",
     "list_printers",
     "read_batch_manifest",
+    // KorDoc Studio Phase B: 양식 채우기 작업대
+    "form_schema",
+    "form_fill",
+    "patch_blocks",
+    "render_preview",
 ];
 
 #[tauri::command]
