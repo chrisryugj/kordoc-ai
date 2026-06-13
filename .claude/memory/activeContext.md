@@ -4,7 +4,15 @@
 
 ---
 
-## 📌 최신: KorDoc Studio Phase C 클릭-편집 구현 완료 (2026-06-13)
+## 📌 최신: Phase C 검증 + 들여쓰기 버그픽스 + Studio 개편 플랜 (2026-06-13 오후)
+
+- **앱 실사용 검증**: tauri:dev에서 DocEditor 클릭-편집 동작 확인 (사용자). 편집된 문단의 **들여쓰기 소실 버그 발견** → kordoc 코어 수정
+- **kordoc PR #35** (`fix/patch-indent-preserve`): `buildParagraphSplices`가 통째 교체 시 원본 선행/후행 공백(들여쓰기·전각공백)을 버리던 것 복원. session/patchHwpx/fillHwpx/표셀 공통 경로 — 동등성 유지. kordoc 517/517 + 회귀 테스트 추가
+- **Studio UI 개편 플랜 신규 작성**: `.claude/memory/studio-redesign-plan.md` (**git 추적** — 회사 PC 로컬에 갇혔던 구 플랜 대체). 핵심: 3-pane 문서 워크벤치 + DocumentSession 컨텍스트 + 도구 탭(채우기/편집/AI/변환), W1~W4
+- **머지 대기 스택 (순서대로)**: kordoc #35 → kordoc-ai #1 (Phase B) → kordoc-ai #2 (Phase C, base가 #1 브랜치라 자동 리타겟). 이후 `npm login` + kordoc 3.1.1 publish (3.1.0 publish도 아직 보류 상태였음 — 픽스 포함해 3.1.1로 올리는 게 깔끔)
+- 미검증 잔여: 들여쓰기 픽스 후 앱 재시작했으나 사용자 육안 재확인 전. 한/글에서 저장본 열어보기, 실양식 3종째도 그대로 남음
+
+## KorDoc Studio Phase C 클릭-편집 구현 완료 (2026-06-13)
 
 - 브랜치 `feat/doc-editor-phase-c` (Phase B 브랜치에서 분기 — PR #1 머지 후 자동 리타겟)
 - 사이드카 RPC 6종: `edit_open`(HEAVY)/`edit_patch`/`edit_undo`/`edit_redo`/`edit_save`/`edit_close` — `node-sidecar/src/core/edit/`, kordoc v3.1 `HwpxSession` 상태 유지(세션 4개 상한 LRU, undo 깊이 50, 바이트 스냅샷)
