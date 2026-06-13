@@ -4,6 +4,19 @@
 
 ---
 
+## 📌 최신: KorDoc Studio Phase B 구현 완료 (2026-06-12)
+
+- 브랜치 `feat/fill-wizard-phase-b`, **PR #1 머지 대기**
+- RPC 4종: form_schema / form_fill / patch_blocks (HEAVY) + render_preview (HEAVY 제외) — `node-sidecar/src/core/{fill,preview}/`, Rust 화이트리스트 동기화
+- @rhwp/core@0.7.15 듀얼 임베드: 프론트 Vite wasm 번들 (`src/lib/rhwp.ts`, CSP `wasm-unsafe-eval` 추가) + 사이드카 Node WASM 폴백 (esbuild external + dist/node_modules 복사 — MSI 동봉)
+- FillWizard (`src/components/fill/FillWizard.tsx`): 좌 자동 폼 / 우 rhwp SVG, 필드↔미리보기 하이라이트+역점프(`src/lib/svg-annotate.ts`), 출처 배지(명부 xlsx), dry_run 미리보기, 재파싱 검증 배지
+- 검증: vitest fill-e2e **9/9** (실양식 2종), 프로덕션 번들 stdin RPC 실구동, tsc/vite/cargo 그린
+- 주의: pnpm 전역 minimum-release-age(7일) → `.npmrc`에 @rhwp/core 예외 추가됨. concat.test.ts 실패 1건은 기존 픽스처 부재(무관)
+- 수동 확인 필요: tauri:dev 웹뷰 WASM 초기화, 한/글 육안 검증, 실양식 3종째
+- 코어: kordoc v3.1.0 머지+태그 완료 (npm publish만 토큰 만료 보류 — `npm login` 필요)
+
+---
+
 ## 📌 현재 상태 (2026-04-29 21:55, 집 PC)
 
 ### Phase 1 완료 ✅ (kordoc v2.7.0)

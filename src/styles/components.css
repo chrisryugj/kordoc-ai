@@ -402,3 +402,10 @@ select.input-modern option {
 }
 
 
+
+/* ============================================
+   FillWizard — rhwp SVG preview (KorDoc Studio)
+   ============================================ */
+.kd-preview svg { max-width: 100%; height: auto; display: block; }
+.kd-preview text[data-kd-label] { cursor: pointer; }
+.kd-preview text[data-kd-label]:hover { fill: var(--color-accent); }
