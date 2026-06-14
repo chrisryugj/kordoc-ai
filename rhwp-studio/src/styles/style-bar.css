@@ -1,0 +1,378 @@
+/* ================================================================
+   3행: 서식 도구 모음 (style bar) — 한컴 웹기안기 패턴
+   ================================================================ */
+#style-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 8px;
+  background: var(--color-bg);
+  border-bottom: 1px solid #c8c8c8;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  height: 28px;
+}
+
+/* 구분선 */
+.sb-sep {
+  width: 1px;
+  height: 20px;
+  background: #c0c0c0;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* 콤보 (드롭다운) */
+.sb-combo {
+  height: 22px;
+  border: 1px solid #b0b0b0;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  padding: 0 2px;
+  outline: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sb-combo:focus { border-color: var(--color-focus-border); }
+
+#style-name { width: 60px; }
+.sb-font-lang { width: 44px; font-size: var(--font-size-sm); }
+.sb-font { width: 110px; }
+
+/* 크기 그룹 */
+.sb-size-group {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.sb-size {
+  width: 36px;
+  height: 22px;
+  border: 1px solid #b0b0b0;
+  border-radius: var(--radius-sm) 0 0 2px;
+  text-align: center;
+  font-size: var(--font-size-base);
+  outline: none;
+  background: var(--color-surface);
+  border-right: none;
+}
+
+.sb-size:focus { border-color: var(--color-focus-border); }
+
+.sb-size-unit {
+  height: 22px;
+  line-height: 22px;
+  padding: 0 3px;
+  border: 1px solid #b0b0b0;
+  border-left: none;
+  border-right: none;
+  background: #e8e8e8;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.sb-size-arrows {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.sb-arrow {
+  width: 14px;
+  height: 11px;
+  border: 1px solid #b0b0b0;
+  background: #e8e8e8;
+  cursor: pointer;
+  font-size: 6px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
+.sb-arrow:hover { background: #d0d0d0; }
+
+#btn-size-up {
+  border-bottom: none;
+  border-radius: 0 2px 0 0;
+}
+
+#btn-size-down {
+  border-radius: 0 0 2px 0;
+}
+
+/* 서식 버튼 */
+.sb-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  color: var(--color-text);
+  position: relative;
+}
+
+.sb-btn:hover {
+  background: #dce0e8;
+  border-color: #b0b8c8;
+}
+
+.sb-btn.active {
+  background: #c8d0e0;
+  border-color: #8898b8;
+}
+
+/* 가 글자 서식 아이콘 */
+.sb-ga {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  font-family: '맑은 고딕', 'Malgun Gothic', sans-serif;
+}
+
+.sb-bold { font-weight: bold; }
+.sb-italic { font-style: italic; }
+.sb-underline { text-decoration: underline; text-underline-offset: 2px; }
+.sb-strike { text-decoration: line-through; }
+.sb-emboss { text-shadow: -1px -1px 0 #999, 1px 1px 0 #fff; color: var(--color-text-secondary); }
+.sb-engrave { text-shadow: 1px 1px 0 #999, -1px -1px 0 #fff; color: var(--color-text-disabled); }
+.sb-outline { -webkit-text-stroke: 1px #333; color: transparent; }
+.sb-sup { font-size: var(--font-size-xs); vertical-align: super; }
+.sb-sub { font-size: var(--font-size-xs); vertical-align: sub; }
+
+/* 드롭다운 화살표 있는 버튼 */
+.sb-has-arrow {
+  width: 32px;
+  gap: 0;
+}
+
+.sb-dd {
+  font-size: 8px;
+  color: #777;
+  margin-left: 1px;
+  line-height: 1;
+}
+
+/* 글자 효과 드롭다운 */
+.sb-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sb-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  min-width: 100px;
+  background: var(--color-surface);
+  border: 1px solid #b0b8c8;
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  padding: 2px 0;
+}
+
+.sb-dropdown.open .sb-dropdown-menu {
+  display: block;
+}
+
+.sb-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.sb-dropdown-item:hover {
+  background: #dce0e8;
+}
+
+.sb-dropdown-item.active {
+  background: #c8d0e0;
+  font-weight: bold;
+}
+
+.sb-dropdown-item .sb-ga {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+/* 글자색 */
+.sb-color-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+#btn-text-color {
+  flex-direction: column;
+  padding: 1px;
+}
+
+#color-bar {
+  display: block;
+  width: 16px;
+  height: 3px;
+  background: #ff0000;
+  margin-top: 0;
+}
+
+#text-color-picker {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  border: none;
+  padding: 0;
+}
+
+/* 형광펜 */
+.sb-highlight-icon {
+  font-size: var(--font-size-lg);
+  color: #e8a020;
+}
+
+#highlight-bar {
+  display: block;
+  width: 16px;
+  height: 3px;
+  background: var(--color-surface)f00;
+  margin-top: 0;
+}
+
+/* 형광펜 팔레트 */
+.sb-hl-palette {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 200;
+  background: var(--color-bg);
+  border: 1px solid #999;
+  padding: 4px;
+  box-shadow: 2px 2px 4px var(--overlay-bg);
+}
+#highlight-dropdown.open .sb-hl-palette { display: block; }
+
+.sb-hl-palette-row {
+  display: flex;
+  gap: 1px;
+  margin-bottom: 1px;
+}
+.sb-hl-palette-actions {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0 2px;
+  border-top: 1px solid #ccc;
+  margin-top: 2px;
+}
+.sb-hl-palette-actions button {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  padding: 2px 4px;
+  background: var(--color-surface);
+  border: 1px solid #aaa;
+  cursor: pointer;
+}
+.sb-hl-palette-actions button:hover { background: var(--color-hover-bg); }
+.sb-hl-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #999;
+  cursor: pointer;
+}
+.sb-hl-swatch:hover { border-color: var(--color-text); }
+.sb-hl-swatch.selected { border: 2px solid #000; }
+
+/* 정렬 아이콘 (SVG 4줄 패턴, 한컴 스타일) */
+.sb-align {
+  width: 16px;
+  height: 14px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 12px;
+}
+.sb-align::before, .sb-align::after { display: none; }
+
+/* 왼쪽 정렬: 줄이 왼쪽에 붙고 길이가 다름 */
+.sb-al-left { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='3' width='9' height='1.2' fill='%23444'/%3E%3Crect x='0' y='6' width='12' height='1.2' fill='%23444'/%3E%3Crect x='0' y='9' width='7' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 가운데 정렬: 줄이 가운데 정렬 */
+.sb-al-center { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='2' y='3' width='10' height='1.2' fill='%23444'/%3E%3Crect x='1' y='6' width='12' height='1.2' fill='%23444'/%3E%3Crect x='3' y='9' width='8' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 오른쪽 정렬: 줄이 오른쪽에 붙고 길이가 다름 */
+.sb-al-right { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='5' y='3' width='9' height='1.2' fill='%23444'/%3E%3Crect x='2' y='6' width='12' height='1.2' fill='%23444'/%3E%3Crect x='7' y='9' width='7' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 양쪽 정렬: 모든 줄 같은 너비, 마지막 줄만 왼쪽 짧음 */
+.sb-al-justify { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='3' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='6' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='9' width='9' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 배분 정렬: 위 3줄 full + 마지막 줄 3등분 */
+.sb-al-distribute { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='3' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='6' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='9' width='3.5' height='1.2' fill='%23444'/%3E%3Crect x='5.25' y='9' width='3.5' height='1.2' fill='%23444'/%3E%3Crect x='10.5' y='9' width='3.5' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 나눔 정렬: 위 3줄 full + 마지막 줄 2등분 */
+.sb-al-split { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='12'%3E%3Crect x='0' y='0' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='3' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='6' width='14' height='1.2' fill='%23444'/%3E%3Crect x='0' y='9' width='6' height='1.2' fill='%23444'/%3E%3Crect x='8' y='9' width='6' height='1.2' fill='%23444'/%3E%3C/svg%3E"); }
+
+/* 줄 간격 */
+.sb-ls-group {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+}
+
+.sb-ls-select {
+  width: 56px;
+  height: 22px;
+  font-size: var(--font-size-sm);
+  border: 1px solid #b0b0b0;
+  border-radius: var(--radius-sm) 0 0 2px;
+  padding: 0 2px;
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: center;
+}
+
+.sb-ls-select:focus {
+  outline: none;
+  border-color: #5b9bd5;
+}
+
+.sb-ls-arrows {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.sb-ls-arrows .sb-arrow {
+  border-radius: 0;
+}
+
+.sb-ls-arrows #btn-ls-up {
+  border-bottom: none;
+  border-radius: 0 2px 0 0;
+}
+
+.sb-ls-arrows #btn-ls-down {
+  border-radius: 0 0 2px 0;
+}

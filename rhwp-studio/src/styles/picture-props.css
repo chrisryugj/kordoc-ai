@@ -1,0 +1,308 @@
+/* ── 개체 속성 대화상자 (picture-props, pp-) ─── */
+.pp-dialog {
+  width: 580px;
+}
+.pp-dialog .dialog-body {
+  min-height: 400px;
+}
+.pp-dialog .dialog-label {
+  min-width: 60px;
+}
+.pp-dialog .cs-fieldset {
+  width: 100%;
+  box-sizing: border-box;
+}
+.pp-wrap-btn {
+  width: 32px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.pp-wrap-btn:hover:not(:disabled) {
+  background: var(--color-accent-bg);
+  border-color: #a0b0d8;
+}
+.pp-wrap-btn.active {
+  background: #dde3f4;
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px #6182d6;
+}
+.pp-wrap-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pp-desc-btn {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  padding: 0 8px;
+  height: 22px;
+}
+.pp-pos-detail .dialog-select {
+  min-width: 56px;
+}
+.pp-stub-msg {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+  padding: 40px 20px;
+  text-align: center;
+}
+
+/* ── 회전 프리뷰 ── */
+.pp-rot-preview {
+  display: inline-block;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg-light);
+  position: relative;
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.pp-rot-line {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 2px;
+  background: var(--color-primary);
+  transform-origin: left center;
+  transform: translateY(-50%);
+}
+
+/* ── 동기 스피너 (모두) — 화살표만 ── */
+.pp-sync-arrows {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+.pp-sync-arrow-btn {
+  width: 18px;
+  height: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-light);
+  cursor: pointer;
+  font-size: 7px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pp-sync-arrow-btn:hover {
+  background: #e0e8f4;
+  border-color: #a0b0d8;
+}
+
+/* ── 캡션 가로 배치 (그리드 + 속성) ── */
+.pp-caption-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 4px 0;
+}
+.pp-caption-attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+.pp-caption-attrs .dialog-row {
+  margin-bottom: 0;
+}
+
+/* ── 캡션 3×3 그리드 ── */
+.pp-caption-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(3, 44px);
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pp-caption-btn {
+  width: 52px;
+  height: 44px;
+  font-size: var(--font-size-xs);
+  white-space: pre;
+  line-height: 1.2;
+}
+
+/* ── 모서리 곡률 ── */
+.pp-corner-btn {
+  width: 44px;
+  height: 36px;
+  font-size: var(--font-size-xl);
+}
+
+/* ── 채우기 서브 영역 ── */
+.pp-fill-sub {
+  margin-left: 20px;
+  margin-bottom: 4px;
+  transition: opacity 0.15s;
+}
+
+/* ── 그러데이션 방향 아이콘 ── */
+.pp-gradient-dir {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 28px);
+  grid-template-rows: repeat(2, 28px);
+  gap: 2px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.pp-grad-dir-btn {
+  width: 28px;
+  height: 28px;
+  font-size: var(--font-size-lg);
+}
+
+/* ── 세로 정렬 아이콘 ── */
+.pp-valign-btn {
+  width: 36px;
+  height: 30px;
+  font-size: var(--font-size-lg);
+}
+
+/* ── 영문 눕힘/세움 ── */
+.pp-eng-btn {
+  width: 52px;
+  height: 48px;
+  font-size: var(--font-size-xs);
+  white-space: pre;
+  line-height: 1.2;
+  margin-right: 6px;
+}
+
+/* ── 그림자 종류 2×5 그리드 ── */
+.pp-shadow-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 44px);
+  grid-template-rows: repeat(2, 40px);
+  gap: 4px;
+  margin: 8px 0;
+}
+.pp-shadow-type-btn {
+  width: 44px;
+  height: 40px;
+  font-size: var(--font-size-xl);
+}
+
+/* ── 8방향 버튼 3×3 ── */
+.pp-direction-grid {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 28px);
+  grid-template-rows: repeat(3, 28px);
+  gap: 2px;
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.pp-dir-btn {
+  width: 28px;
+  height: 28px;
+  font-size: var(--font-size-lg);
+}
+.pp-dir-spacer {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ccc;
+  font-size: var(--font-size-base);
+}
+
+/* ── 개체 설명문 서브 대화상자 ─── */
+.pp-desc-dialog {
+  width: 420px;
+}
+.pp-desc-dialog .cs-main-row {
+  display: flex;
+}
+.pp-desc-dialog .cs-left-col {
+  flex: 1;
+  padding: 12px;
+}
+.pp-desc-textarea {
+  width: 100%;
+  height: 140px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+.pp-desc-textarea:focus {
+  border-color: var(--color-primary);
+}
+
+/* ── 그림 탭 ── */
+.pp-effect-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+}
+.pp-effect-radios label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+.pp-effect-attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 16px;
+}
+.pp-sync-spinner {
+  width: 50px !important;
+}
+
+/* ── 프리셋 그리드 (반사/네온/열은 테두리) ── */
+.pp-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 6px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+.pp-reflect-grid { width: 300px; }
+.pp-reflect-grid .pp-preset-btn { width: 54px; height: 54px; }
+.pp-glow-grid { width: 360px; }
+.pp-glow-grid .pp-preset-btn { width: 50px; height: 50px; }
+.pp-softedge-grid { width: 400px; }
+.pp-softedge-grid .pp-preset-btn { width: 58px; height: 58px; }
+.pp-preset-btn {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pp-preset-btn:disabled { opacity: 0.5; cursor: default; }
+.pp-preset-btn.active { border-color: #4472c4; background: #e0ecff; }
+
+/* ── 슬라이더 ── */
+.pp-slider {
+  width: 160px;
+  margin: 0 8px;
+}

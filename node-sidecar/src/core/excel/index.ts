@@ -8,8 +8,12 @@ import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 
 export interface ExtractTablesParams {
-  /** 입력 파일 경로 */
-  input_path: string;
+  /** 입력 파일 경로 (doc_b64 제공 시 생략 가능) */
+  input_path?: string;
+  /** 문서 바이트(base64) — 편집 세션 등 인메모리 문서용. input_path보다 우선 */
+  doc_b64?: string;
+  /** 출력 파일명 stem(확장자 제외) — doc_b64 모드에서 결과 파일명 지정용 */
+  source_name?: string;
   /** 페이지 범위 */
   pages?: string;
   /** 출력 디렉토리 (미지정 시 설정값 → 원본 폴더) */
@@ -128,13 +132,14 @@ function findFootnotes(blocks: IRBlock[], tableIdx: number): string[] {
 }
 
 export async function extractTables(params: ExtractTablesParams, signal?: AbortSignal): Promise<ExtractTablesResult> {
-  const { input_path, pages, output_dir } = params;
+  const { input_path, doc_b64, source_name, pages, output_dir } = params;
+  if (!input_path && !doc_b64) throw new Error('input_path 또는 doc_b64가 필요합니다');
 
-  logger.info(`[extract_tables] 시작: ${input_path}`);
+  logger.info(`[extract_tables] 시작: ${input_path ?? '(inline doc)'}`);
   sendProgress({ current: 0, total: 3, message: '문서 읽는 중...' });
   signal?.throwIfAborted();
 
-  const buffer = await readFile(input_path);
+  const buffer = doc_b64 ? Buffer.from(doc_b64, 'base64') : await readFile(input_path!);
   signal?.throwIfAborted();
 
   sendProgress({ current: 1, total: 3, message: '문서 파싱 중...' });
@@ -181,8 +186,13 @@ export async function extractTables(params: ExtractTablesParams, signal?: AbortS
 
   // 출력 경로 결정 + 마크다운 파일 저장
   const cfg = getConfig('convert');
-  const outDir = output_dir || cfg.output_dir || dirname(input_path);
-  const stem = basename(input_path, extname(input_path));
+  const outDir = output_dir || cfg.output_dir || (input_path ? dirname(input_path) : process.cwd());
+  // source_name은 검증되지 않은 입력 — basename으로 경로 분리자(../, \, /)를 제거해
+  // outDir 밖으로의 쓰기를 차단한다 (다른 RPC의 validatePath 경계와 일관).
+  const rawStem = source_name
+    ? basename(source_name).replace(/\.[^.]+$/, '')
+    : (input_path ? basename(input_path, extname(input_path)) : 'document');
+  const stem = rawStem && rawStem !== '.' && rawStem !== '..' ? rawStem : 'document';
   const outputPath = join(outDir, `${stem}_tables.md`);
 
   const markdownContent = tables.length > 0

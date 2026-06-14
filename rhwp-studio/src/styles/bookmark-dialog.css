@@ -1,0 +1,162 @@
+/* ================================================================
+   책갈피 대화상자
+   ================================================================ */
+.bm-dialog {
+  width: 360px;
+}
+
+.bm-body {
+  padding: 10px 14px;
+}
+
+.bm-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  margin-bottom: 3px;
+}
+
+.bm-row {
+  margin-bottom: 8px;
+}
+
+.bm-name-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  font-size: var(--font-size-base);
+  border: 1px solid #aab;
+  margin-top: 3px;
+}
+
+/* 중간 영역: 목록 + 버튼 */
+.bm-mid {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.bm-list-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bm-list-header {
+  display: flex;
+  border: 1px solid #aab;
+  border-bottom: none;
+  background: var(--color-accent-bg);
+  padding: 2px 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.bm-list-hcol {
+  flex: 1;
+}
+
+.bm-list-hcol-type {
+  flex: 0 0 50px;
+  text-align: center;
+}
+
+.bm-list {
+  border: 1px solid #aab;
+  background: var(--color-surface);
+  height: 160px;
+  overflow-y: auto;
+  font-size: var(--font-size-base);
+}
+
+.bm-item {
+  display: flex;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.bm-item:hover {
+  background: #e8edf5;
+}
+
+.bm-item.selected {
+  background: #c5d4f0;
+}
+
+.bm-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-item-type {
+  flex: 0 0 50px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.bm-empty {
+  padding: 10px;
+  color: var(--color-text-hint);
+  font-size: var(--font-size-sm);
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.bm-status {
+  font-size: var(--font-size-sm);
+  min-height: 16px;
+  margin-top: 2px;
+}
+
+/* 버튼 컬럼 */
+.bm-btn-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bm-btn-col .dialog-btn {
+  min-width: 70px;
+}
+
+/* 아이콘 버튼 행 */
+.bm-icon-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.bm-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #aab;
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+}
+
+.bm-icon-btn:hover {
+  background: #dfe4ec;
+}
+
+/* 정렬 기준 행 */
+.bm-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 2px;
+  border-top: 1px solid #d0d0d0;
+}
+
+.bm-radio {
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}

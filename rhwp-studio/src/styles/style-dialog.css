@@ -1,0 +1,240 @@
+/* 스타일 대화상자 (sd- 접두어) */
+
+.sd-body {
+  display: flex;
+  gap: 12px;
+  min-height: 340px;
+}
+
+.sd-left {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.sd-list-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.sd-style-list {
+  flex: 1;
+  border: 1px solid #c0c8d8;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-y: auto;
+  min-height: 200px;
+  max-height: 280px;
+}
+
+.sd-style-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.sd-style-item:hover {
+  background: #eef1f8;
+}
+
+.sd-style-item.sd-selected {
+  background: #d0daf0;
+  font-weight: 600;
+}
+
+.sd-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: var(--font-size-sm);
+  color: #5070b0;
+  border: 1px solid #b0c0e0;
+  border-radius: var(--radius-sm);
+  background: #f4f6fc;
+  flex-shrink: 0;
+}
+
+.sd-style-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-icon-bar {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.sd-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #b0b8c8;
+  border-radius: var(--radius-md);
+  background: #f8f9fb;
+  cursor: pointer;
+  font-size: var(--font-size-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+}
+
+.sd-icon-btn:hover {
+  background: #e0e4f0;
+}
+
+.sd-cur-style {
+  margin-top: 8px;
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  padding: 4px 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+.sd-cur-style-name {
+  font-weight: 600;
+  color: var(--color-primary-dark);
+}
+
+/* 우측 정보 패널 */
+
+.sd-info-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sd-info-section {
+  background: #fafbfc;
+  border: 1px solid #d8dce4;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+}
+
+.sd-info-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-primary-dark);
+  margin-bottom: 4px;
+  border-bottom: 1px solid #e8ecf4;
+  padding-bottom: 3px;
+}
+
+.sd-info-content {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+/* 스타일 편집 서브 대화상자 (se- 접두어) */
+
+.se-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Row: 이름 + 영문 이름 (가로 배치) */
+.se-name-row {
+  display: flex;
+  gap: 16px;
+}
+
+.se-field-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.se-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.se-field-input {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid #c0c8d8;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  height: 24px;
+  box-sizing: border-box;
+}
+
+.se-field-select {
+  width: 100%;
+  padding: 3px 4px;
+  border: 1px solid #c0c8d8;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  height: 24px;
+  box-sizing: border-box;
+}
+
+/* Row: 종류 + 다음 스타일 (가로 배치) */
+.se-type-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.se-type-radios {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.se-type-radios label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.se-next-group {
+  flex: 1.2;
+}
+
+/* 모양 버튼 */
+.se-shape-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.se-shape-btn {
+  padding: 5px 14px;
+  border: 1px solid #b0b8c8;
+  border-radius: var(--radius-md);
+  background: #f0f2f6;
+  cursor: pointer;
+  font-size: var(--font-size-md);
+}
+
+.se-shape-btn:hover {
+  background: #dde0ea;
+}
+
+/* 안내 문구 */
+.se-note {
+  font-size: var(--font-size-sm);
+  color: #777;
+  line-height: 1.5;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 8px;
+  margin-top: 2px;
+}

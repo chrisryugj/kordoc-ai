@@ -88,6 +88,31 @@ export function annotateLabels(svg: string, labels: string[]): string {
   return injectAttrs(svg, chars, tagged);
 }
 
+/**
+ * 한 페이지 SVG에 해당 라벨 문자 시퀀스가 존재하는지 검사 (annotateLabels와 동일 매칭 규칙).
+ * 채우기 필드 포커스 시 라벨이 어느 페이지에 있는지 찾아 자동 전환하는 데 쓴다.
+ */
+export function svgHasLabel(svg: string, label: string): boolean {
+  const seq = [...label.replace(/\s/g, "")];
+  if (seq.length === 0) return false;
+  const chars = collectChars(svg);
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i].ch !== seq[0]) continue;
+    let ok = true;
+    let prev = chars[i];
+    for (let k = 1; k < seq.length; k++) {
+      const next = chars[i + k];
+      if (!next || next.ch !== seq[k] || Math.abs(next.y - prev.y) > 1 || next.x <= prev.x) {
+        ok = false;
+        break;
+      }
+      prev = next;
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
 // ── 블록 단위 어노테이션 (Phase C 클릭-편집) ──
 
 /** 편집 가능 단위 — 문단/헤딩 블록 또는 표 셀 */

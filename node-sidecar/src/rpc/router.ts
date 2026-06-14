@@ -11,6 +11,8 @@ const HEAVY_METHODS = new Set([
   'merge_files', 'pdf_extract_pages', 'inspect_document',
   // KorDoc Studio — render_preview는 의도적 제외 (미리보기 반응성)
   'form_schema', 'form_fill', 'patch_blocks',
+  // Phase R — form_infer는 참고자료 파싱 + Gemini 호출이라 HEAVY
+  'form_infer',
   // Phase C — edit_open만 HEAVY (전체 파싱 1회). patch/undo/redo는 에디터
   // 상호작용 경로라 배치 변환 큐에 막히면 안 되고, 세션 내부에서 직렬화됨.
   'edit_open',

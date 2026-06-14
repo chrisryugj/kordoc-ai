@@ -8,8 +8,10 @@ import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 
 export interface ConvertParams {
-  /** 입력 파일 경로 */
-  input_path: string;
+  /** 입력 파일 경로 (doc_b64 제공 시 생략 가능) */
+  input_path?: string;
+  /** 문서 바이트(base64) — 편집 세션 등 인메모리 문서 변환용. input_path보다 우선 */
+  doc_b64?: string;
   /** 출력 파일 경로 (생략 시 자동 생성) */
   output_path?: string;
   /** 페이지 범위 (예: "1-3", "1,3,5") */
@@ -49,12 +51,13 @@ export interface ConvertResult {
 }
 
 export async function convert(params: ConvertParams, signal?: AbortSignal): Promise<ConvertResult> {
-  const { input_path, pages, ocrProvider } = params;
+  const { input_path, doc_b64, pages, ocrProvider } = params;
+  if (!input_path && !doc_b64) throw new Error('input_path 또는 doc_b64가 필요합니다');
 
-  logger.info(`[convert] ${input_path}`);
+  logger.info(`[convert] ${input_path ?? '(inline doc)'}`);
   signal?.throwIfAborted();
 
-  const buffer = await readFile(input_path);
+  const buffer = doc_b64 ? Buffer.from(doc_b64, 'base64') : await readFile(input_path!);
 
   signal?.throwIfAborted();
 
@@ -67,10 +70,10 @@ export async function convert(params: ConvertParams, signal?: AbortSignal): Prom
     },
   });
 
-  // 출력 경로 결정
+  // 출력 경로 결정 (doc_b64 인메모리 변환 시 output_path 필수 — 폴백은 cwd/document.md)
   const cfg = getConfig('convert');
-  const outDir = cfg.output_dir || dirname(input_path);
-  const outName = basename(input_path, extname(input_path)) + '.md';
+  const outDir = cfg.output_dir || (input_path ? dirname(input_path) : process.cwd());
+  const outName = (input_path ? basename(input_path, extname(input_path)) : 'document') + '.md';
   const outputPath = params.output_path ?? join(outDir, outName);
 
   if (!result.success) {

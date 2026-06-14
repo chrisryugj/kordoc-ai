@@ -51,6 +51,8 @@ const ALLOWED_METHODS: &[&str] = &[
     "edit_redo",
     "edit_save",
     "edit_close",
+    // KorDoc Studio Phase R: AI 필드 추론 (참고자료 → 채우기 제안)
+    "form_infer",
 ];
 
 #[tauri::command]

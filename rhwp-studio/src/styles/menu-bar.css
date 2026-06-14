@@ -1,0 +1,198 @@
+/* ================================================================
+   1행: 메뉴바
+   ================================================================ */
+#menu-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px;
+  background: var(--color-bg-light);
+  border-bottom: 1px solid #d0d0d0;
+  flex-shrink: 0;
+  height: 28px;
+  font-size: var(--font-size-md);
+}
+
+.menu-item {
+  position: relative;
+  user-select: none;
+}
+
+.menu-title {
+  display: inline-block;
+  padding: 4px 14px;
+  cursor: pointer;
+  color: var(--color-text);
+  line-height: 20px;
+  border: 1px solid transparent;
+}
+
+.menu-title:hover {
+  background: #e2e6f1;
+  border-color: #96a6cd;
+  color: var(--color-primary-dark);
+}
+
+.menu-item.open > .menu-title {
+  background: #3e62bb;
+  border-color: #4c73d5;
+  color: #fff;
+  z-index: 1001;
+  position: relative;
+}
+
+/* 드롭다운 패널 */
+.menu-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  background: var(--color-surface);
+  border: 1px solid #c8c8c8;
+  box-shadow: var(--shadow-dropdown);
+  z-index: 1000;
+  padding: 4px 0;
+}
+
+.menu-item.open > .menu-dropdown {
+  display: block;
+}
+
+/* 메뉴 항목 */
+.md-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 16px 5px 32px;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  white-space: nowrap;
+  line-height: 16px;
+  position: relative;
+}
+
+/* 메뉴 아이콘 (16×16, 한컴 SVG 스프라이트) */
+.md-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -8px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-image: url(/images/icon_small_ko.svg);
+  background-repeat: no-repeat;
+}
+
+/* 텍스트 기반 아이콘은 메뉴에서도 absolute 유지 */
+.md-icon.icon-ctrl-mark,
+.md-icon.icon-para-mark {
+  position: absolute;
+}
+.md-icon.icon-ctrl-mark::before,
+.md-icon.icon-para-mark::before {
+  width: 16px;
+  height: 16px;
+  font-size: var(--font-size-base);
+  line-height: 16px;
+}
+
+.md-item:hover {
+  background: #e9eefb;
+  color: var(--color-primary-dark);
+}
+
+.md-item.disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.md-item.disabled:hover {
+  background: transparent;
+  color: var(--color-text-disabled);
+}
+
+/* 단축키 */
+.md-shortcut {
+  margin-left: auto;
+  padding-left: 28px;
+  color: var(--color-text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.md-item.disabled .md-shortcut {
+  color: #c0c0c0;
+}
+
+/* 구분선 */
+.md-sep {
+  height: 0;
+  margin: 3px 8px;
+  border-top: 1px solid #e0e0e0;
+}
+
+/* 서브메뉴 컨테이너 */
+.md-sub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 5px 16px 5px 32px;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  white-space: nowrap;
+  line-height: 16px;
+}
+
+/* 서브메뉴 컨테이너 내 아이콘 (absolute 배치) */
+.md-sub > .md-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -8px;
+}
+
+.md-sub:hover {
+  background: #e9eefb;
+  color: var(--color-primary-dark);
+}
+
+.md-sub.disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.md-sub.disabled:hover {
+  background: transparent;
+  color: var(--color-text-disabled);
+}
+
+.md-arrow {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 8px;
+  color: var(--color-text-placeholder);
+}
+
+.md-sub.disabled .md-arrow {
+  color: #ccc;
+}
+
+/* 서브메뉴 패널 */
+.md-sub-panel {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  min-width: 150px;
+  background: var(--color-surface);
+  border: 1px solid #c8c8c8;
+  box-shadow: var(--shadow-dropdown);
+  padding: 4px 0;
+  z-index: 1001;
+}
+
+.md-sub:not(.disabled):hover > .md-sub-panel {
+  display: block;
+}

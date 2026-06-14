@@ -15,8 +15,7 @@ import { detectFileType, SUPPORTED_EXT_RE } from "../../utils/fileType";
 import { MergeOrderDialog } from "./MergeOrderDialog";
 import { PdfToolsDialog } from "./PdfToolsDialog";
 import { FormFieldSelector } from "./FormFieldSelector";
-import { FillWizard } from "../fill/FillWizard";
-import { DocEditor } from "../edit/DocEditor";
+import { DocumentWorkbench } from "../workbench/DocumentWorkbench";
 import { Plug } from "lucide-react";
 
 // ── Action 정의 ──
@@ -38,7 +37,7 @@ const ACTIONS: ActionDef[] = [
   { action: "extract_tables", label: "표 추출", desc: "문서에서 표만 추출", icon: <Table size={18} />, color: "#7C3AED", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: [] },
   { action: "form_extract", label: "양식 추출", desc: "문서에서 필드 배치 추출", icon: <ClipboardList size={18} />, color: "#2563EB", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: [] },
   { action: "form_fill", label: "양식 채우기", desc: "자동 폼 + 미리보기 — 서식 그대로", icon: <PenLine size={18} />, color: "#0891B2", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["hwpx"] },
-  { action: "doc_edit", label: "문서 편집", desc: "미리보기 클릭 편집 — 서식 그대로", icon: <SquarePen size={18} />, color: "#9333EA", needsApi: false, minFiles: 1, maxFiles: 1, fileTypes: ["hwpx"] },
+  { action: "doc_edit", label: "문서 작업대", desc: "클릭 편집·변환·AI를 한 작업대에서", icon: <SquarePen size={18} />, color: "#9333EA", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["hwpx"] },
   { action: "diff", label: "문서 비교", desc: "두 문서 차이점 비교", icon: <GitCompareArrows size={18} />, color: "#059669", needsApi: false, minFiles: 2, maxFiles: 2, fileTypes: [] },
   { action: "merge_files", label: "문서 병합", desc: "여러 문서를 하나로", icon: <Merge size={18} />, color: "#D97706", needsApi: false, minFiles: 2, maxFiles: 0, fileTypes: [] },
   { action: "pdf_utils", label: "PDF 도구", desc: "병합 · 분할 · 추출", icon: <Scissors size={18} />, color: "#EF4444", needsApi: false, minFiles: 1, maxFiles: 0, fileTypes: ["pdf"] },
@@ -140,8 +139,10 @@ export function Workspace({
   const [summarizeOpen, setSummarizeOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [formFieldOpen, setFormFieldOpen] = useState(false);
-  const [fillWizardOpen, setFillWizardOpen] = useState(false);
-  const [docEditorOpen, setDocEditorOpen] = useState(false);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  // 워크벤치 진입 시 초기 탭(편집 vs 채우기) + 초기 활성 문서 인덱스(hwpx 필터 기준)
+  const [workbenchTab, setWorkbenchTab] = useState<"edit" | "fill">("edit");
+  const [workbenchIndex, setWorkbenchIndex] = useState(0);
   const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
   const [formCandidates, setFormCandidates] = useState<FieldCandidate[]>([]);
   const [formCandidatesLoading, setFormCandidatesLoading] = useState(false);
@@ -183,6 +184,15 @@ export function Workspace({
     return f.every((file) => file.type === first) ? first : null;
   }, []);
 
+  // 문서 워크벤치 진입 — hwpx 문서를 3-pane 작업대로 연다 (편집/채우기 탭 선택)
+  const openWorkbench = useCallback((tab: "edit" | "fill", path?: string) => {
+    const hwpxFiles = files.filter((f) => f.type === "hwpx");
+    if (hwpxFiles.length === 0) { showToast("HWPX 문서만 작업대에서 열 수 있습니다", "info"); return; }
+    setWorkbenchIndex(path ? Math.max(0, hwpxFiles.findIndex((f) => f.path === path)) : 0);
+    setWorkbenchTab(tab);
+    setWorkbenchOpen(true);
+  }, [files, showToast]);
+
   const handleActionClick = useCallback((action: PipelineAction) => {
     const def = ACTIONS.find((a) => a.action === action);
     if (def?.needsApi && aiMode === "offline") {
@@ -210,14 +220,10 @@ export function Workspace({
       setPdfToolsOpen(true);
       return;
     }
-    // form_fill: 양식 채우기 작업대 (자체 사이드카 호출 — 파이프라인 비경유)
-    if (action === "form_fill") {
-      setFillWizardOpen(true);
-      return;
-    }
-    // doc_edit: 클릭-편집 작업대 (자체 사이드카 호출 — 파이프라인 비경유)
-    if (action === "doc_edit") {
-      setDocEditorOpen(true);
+    // form_fill / doc_edit: 문서 워크벤치 진입 (3-pane 단일 작업대 — KorDoc Studio Phase R)
+    // 채우기로 들어오면 채우기 탭, 문서 작업대로 들어오면 편집 탭에서 시작.
+    if (action === "form_fill" || action === "doc_edit") {
+      openWorkbench(action === "form_fill" ? "fill" : "edit");
       return;
     }
     // form_extract: 필드 후보 fetch → 선택 다이얼로그
@@ -235,7 +241,7 @@ export function Workspace({
       return;
     }
     onAction(action);
-  }, [aiMode, onAction, files, detectUniformFormat]);
+  }, [aiMode, onAction, files, detectUniformFormat, openWorkbench]);
 
   const handleConfirmSwitch = useCallback(() => {
     onToggleMode();
@@ -376,7 +382,9 @@ export function Workspace({
                 <div
                   key={file.path}
                   className="flex items-center gap-2.5 px-3 py-1.5 rounded-md"
-                  style={{ backgroundColor: "var(--color-bg-tertiary)" }}
+                  style={{ backgroundColor: "var(--color-bg-tertiary)", cursor: file.type === "hwpx" ? "pointer" : "default" }}
+                  title={file.type === "hwpx" ? "더블클릭하여 문서 작업대 열기" : undefined}
+                  onDoubleClick={() => { if (file.type === "hwpx") openWorkbench("edit", file.path); }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -595,26 +603,16 @@ export function Workspace({
         />
       )}
 
-      {/* 양식 채우기 작업대 (KorDoc Studio) */}
-      {fillWizardOpen && files[0] && (
-        <FillWizard
-          file={files[0]}
+      {/* 문서 워크벤치 (KorDoc Studio Phase R) — 채우기·편집·AI·변환 단일 작업대, HWPX 다중 전환 */}
+      {workbenchOpen && files.some((f) => f.type === "hwpx") && (
+        <DocumentWorkbench
+          files={files.filter((f) => f.type === "hwpx")}
+          initialIndex={workbenchIndex}
+          initialTab={workbenchTab}
           sidecarCall={sidecarCall}
           outputDir={outputDir}
           showToast={showToast}
-          onClose={() => setFillWizardOpen(false)}
-          onOpenFolder={(p) => { void sidecarCall("open_folder", { path: p.replace(/[\\/][^\\/]+$/, "") }).catch(() => showToast(`저장 경로: ${p}`, "info")); }}
-        />
-      )}
-
-      {/* 문서 클릭-편집 (KorDoc Studio Phase C) */}
-      {docEditorOpen && files[0] && (
-        <DocEditor
-          file={files[0]}
-          sidecarCall={sidecarCall}
-          outputDir={outputDir}
-          showToast={showToast}
-          onClose={() => setDocEditorOpen(false)}
+          onClose={() => setWorkbenchOpen(false)}
           onOpenFolder={(p) => { void sidecarCall("open_folder", { path: p.replace(/[\\/][^\\/]+$/, "") }).catch(() => showToast(`저장 경로: ${p}`, "info")); }}
         />
       )}

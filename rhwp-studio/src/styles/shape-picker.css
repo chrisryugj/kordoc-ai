@@ -1,0 +1,55 @@
+/* ─── 도형 선택 드롭다운 (한컴 스타일 층구조) ─── */
+.shape-picker {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-primary-subtle);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 10000;
+  font-size: var(--font-size-base);
+  min-width: 180px;
+}
+.shape-picker-title {
+  padding: 4px 10px;
+  background: var(--color-accent-bg);
+  font-weight: bold;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary-dark);
+  border-bottom: 1px solid #c0c0c0;
+}
+.shape-picker-title:not(:first-child) {
+  border-top: 1px solid #c0c0c0;
+}
+.shape-picker-grid {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+}
+.shape-picker-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+  padding: 4px 4px;
+  min-width: 36px;
+}
+.shape-picker-btn:hover {
+  background: var(--color-accent-bg);
+  border-color: #748bc9;
+}
+.shape-picker-icon {
+  font-size: 18px;
+  line-height: 22px;
+  color: var(--color-text);
+}
+.shape-picker-label {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 52px;
+  text-align: center;
+}

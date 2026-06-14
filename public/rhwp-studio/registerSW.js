@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/rhwp-studio/sw.js', { scope: '/rhwp-studio/' })})}

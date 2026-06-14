@@ -1,0 +1,23 @@
+/* ================================================================
+   F5 셀 블록 선택 하이라이트
+   ================================================================ */
+.cell-selection-highlight {
+  background: rgba(51, 122, 183, 0.25);
+  pointer-events: none;
+}
+
+/* ================================================================
+   표 객체 선택 (외곽선 + 리사이즈 핸들)
+   ================================================================ */
+.table-object-border {
+  border: 2px solid #337ab7;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.table-object-handle {
+  background: #337ab7;
+  border: 1px solid #fff;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+

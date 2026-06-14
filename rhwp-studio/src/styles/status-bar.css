@@ -1,0 +1,105 @@
+/* ================================================================
+   하단 상태 바 — 한컴 웹기안기 #status_bar 패턴
+   ================================================================ */
+#status-bar {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--color-surface-raised);
+  border-top: 1px solid #b4b4b4;
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  font-family: 'Malgun Gothic', dotum, Arial, sans-serif;
+  user-select: none;
+}
+
+/* 좌측 항목 — 한컴 .status_bar .inline_panel */
+.stb-item {
+  line-height: 22px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  flex-basis: auto;
+  flex-wrap: nowrap;
+}
+
+/* 세로 구분선 — 한컴 .vertical_line_wrap .col_line */
+.stb-divider {
+  display: inline-block;
+  position: relative;
+  align-self: stretch;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+.stb-divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 10px;
+  border-left: 1px solid #b4b4b4;
+  border-right: 1px solid #fff;
+}
+
+/* 상태 메시지 — 한컴 .status_bar .message */
+.stb-message {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4c73d5;
+  padding: 0 12px;
+  line-height: 22px;
+}
+
+/* 우측 줌 영역 — 한컴 .inline_panel.justify_right.align_item_center */
+.stb-right {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  margin-left: auto;
+  flex-wrap: nowrap;
+}
+
+/* 한컴 zoom_out 버튼 margin: 0 8px */
+#sb-zoom-out { margin: 0 8px; }
+
+/* 아이콘 버튼 — 한컴 .btn_wo.btn_icon (24x24) */
+.stb-icon-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.stb-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: #b4b4b4;
+}
+
+/* 줌 값 표시 — 한컴 .btn_dropdown (height:20px) */
+.stb-zoom-val {
+  font-size: var(--font-size-sm);
+  height: 20px;
+  line-height: 20px;
+  min-width: 32px;
+  text-align: center;
+  color: var(--color-text);
+  padding: 0 4px;
+}
+
+/* 줌 스프라이트 아이콘 — 한컴 hcwo.css 참조 (row 24, -960px) */
+.icon-zoom-out       { background-position: 0 -960px; }
+.icon-zoom-in        { background-position: -40px -960px; }
+.icon-zoom-fit-width { background-position: -80px -960px; }
+.icon-zoom-fit       { background-position: -120px -960px; }

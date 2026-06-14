@@ -1,0 +1,110 @@
+/* ── /커맨드 팔레트 ─────────────────────────────────── */
+
+.cp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  /* 배경 클릭으로 닫기 전용 — 반투명하지 않음 */
+  background: transparent;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.cp-panel {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: 480px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 입력 영역 */
+.cp-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+}
+
+.cp-slash {
+  font-size: 16px;
+  font-weight: 700;
+  color: #888;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.cp-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #222;
+  padding: 0;
+  min-width: 0;
+}
+
+.cp-input::placeholder {
+  color: #aaa;
+}
+
+/* 결과 목록 */
+.cp-list {
+  overflow-y: auto;
+  max-height: 360px;
+  padding: 4px 0;
+}
+
+.cp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  cursor: pointer;
+  gap: 12px;
+  border-radius: 4px;
+  margin: 0 4px;
+}
+
+.cp-item:hover,
+.cp-item--selected {
+  background: #f0f4ff;
+}
+
+.cp-item-label {
+  font-size: 13px;
+  color: #222;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-item-shortcut {
+  font-size: 11px;
+  color: #888;
+  background: #f4f4f4;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: 'Consolas', 'Menlo', monospace;
+}
+
+.cp-empty {
+  padding: 16px 14px;
+  font-size: 13px;
+  color: #aaa;
+  text-align: center;
+}

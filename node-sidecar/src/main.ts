@@ -10,6 +10,15 @@ import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
 
+/**
+ * 단일 RPC 요청(한 줄)의 최대 문자 수.
+ * 인라인 문서(doc_b64) 응답 상한이 30MB이고 base64는 원본의 4/3이므로,
+ * 입력 인라인 문서 + JSON 래핑 오버헤드를 고려해 64MB로 둔다. 이 한도를
+ * 넘는 라인은 JSON.parse / Buffer 디코드로 증폭되기 전에 거부해 메모리 폭발을 막는다.
+ * (응답 동봉 가드 MAX_INLINE_DOC_BYTES와는 별개의 입력 측 상한)
+ */
+const MAX_RPC_MESSAGE_CHARS = 64 * 1024 * 1024;
+
 /** stdout에 JSON-RPC 응답 쓰기 */
 function writeResponse(response: JsonRpcResponse): void {
   process.stdout.write(JSON.stringify(response) + '\n');
@@ -51,6 +60,13 @@ async function main(): Promise<void> {
   const rl = createInterface({ input: process.stdin, terminal: false });
 
   rl.on('line', async (line) => {
+    // 입력 크기 가드 — 거대 페이로드가 JSON.parse/Buffer 디코드로 증폭되기 전에 거부
+    if (line.length > MAX_RPC_MESSAGE_CHARS) {
+      logger.warn(`[main] 요청 거부 — 메시지 크기 초과 (${line.length} > ${MAX_RPC_MESSAGE_CHARS} 자)`);
+      sendError(null, RPC_ERRORS.INVALID_REQUEST, '요청이 너무 큽니다');
+      return;
+    }
+
     const trimmed = line.trim();
     if (!trimmed) return;
 

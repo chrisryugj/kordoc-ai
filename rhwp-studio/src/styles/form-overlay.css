@@ -1,0 +1,43 @@
+/* 양식 개체 오버레이 (Task 233) */
+
+/* 콤보박스 드롭다운 */
+.form-combo-dropdown {
+  position: absolute;
+  z-index: 20;
+  background: var(--color-surface);
+  border: 1px solid #999;
+  box-shadow: 0 2px 6px var(--overlay-bg);
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.form-combo-dropdown .form-combo-item {
+  padding: 2px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.form-combo-dropdown .form-combo-item:hover {
+  background: #e5f1fb;
+}
+
+.form-combo-dropdown .form-combo-item.selected {
+  background: #0078d7;
+  color: #fff;
+}
+
+.form-combo-dropdown .form-combo-item.selected:hover {
+  background: #005fa3;
+}
+
+/* Edit 입력 오버레이 */
+.form-edit-input {
+  position: absolute;
+  z-index: 20;
+  box-sizing: border-box;
+  padding: 0 2px;
+  border: 1px solid #0078d7;
+  outline: none;
+}

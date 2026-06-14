@@ -1,0 +1,209 @@
+/* ================================================================
+   표/셀 속성 대화상자 전용 CSS
+   접두어: tcp-
+   ================================================================ */
+
+/* ── 탭 패널 내부 공통 패딩 ── */
+.tcp-tab-content {
+  padding: 12px;
+}
+
+/* ── "모두" 일괄 조정 스피너 ── */
+.tcp-all-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+}
+
+.tcp-all-spinner .dialog-label {
+  min-width: auto;
+}
+
+.tcp-all-spinner-btn {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  text-align: center;
+  padding: 0;
+}
+
+.tcp-all-spinner-btn:hover {
+  background: var(--color-accent-bg);
+  border-color: var(--color-primary);
+}
+
+/* ── 여백 그리드 + "모두" 영역 ── */
+.tcp-margin-row {
+  display: flex;
+  align-items: start;
+  gap: 4px;
+}
+
+/* ── 테두리 선 종류 시각적 격자 ── */
+.tcp-line-type-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 4px;
+  width: 200px;
+}
+
+.tcp-line-type-item {
+  height: 18px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+}
+
+.tcp-line-type-item:hover {
+  border-color: #a0b0d8;
+  background: var(--color-accent-bg-light);
+}
+
+.tcp-line-type-item.active {
+  border-color: var(--color-primary);
+  background: var(--color-accent-bg);
+}
+
+.tcp-line-type-item svg {
+  width: 100%;
+  height: 10px;
+}
+
+/* 선 없음 텍스트 */
+.tcp-line-type-none {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-hint);
+}
+
+/* ── 테두리 미리보기 (SVG 기반) ── */
+.tcp-border-preview-wrap {
+  display: grid;
+  grid-template-columns: 24px 1fr 24px;
+  grid-template-rows: 24px 1fr 24px;
+  gap: 2px;
+  width: 180px;
+  height: 140px;
+}
+
+.tcp-border-preview-wrap .tcp-dir-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--color-primary-dark);
+  padding: 0;
+}
+
+.tcp-border-preview-wrap .tcp-dir-btn:hover {
+  background: var(--color-accent-bg);
+  border-color: var(--color-primary);
+}
+
+/* 방향 버튼 배치: grid-area */
+.tcp-dir-left { grid-column: 1; grid-row: 2; }
+.tcp-dir-right { grid-column: 3; grid-row: 2; }
+.tcp-dir-top { grid-column: 2; grid-row: 1; justify-self: center; }
+.tcp-dir-bottom { grid-column: 2; grid-row: 3; justify-self: center; }
+.tcp-dir-all { grid-column: 1; grid-row: 1; }
+
+.tcp-border-preview-svg {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #e0e0e0;
+  background: var(--color-surface);
+}
+
+/* ── 테두리 자동 경계선 설정 ── */
+.tcp-page-border-group {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.tcp-page-border-group.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── 배경 무늬 영역 ── */
+.tcp-pattern-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.tcp-bg-preview {
+  width: 120px;
+  height: 60px;
+  margin: 8px auto;
+  border: 1px solid var(--color-border-input);
+}
+
+/* ── 캡션 넣기 아이콘 그리드 ── */
+.tcp-caption-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.tcp-caption-item {
+  width: 56px;
+  height: 42px;
+  border: 1.5px solid #d8d8d8;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.tcp-caption-item:hover {
+  border-color: #a0b0d8;
+  background: var(--color-accent-bg-light);
+}
+
+.tcp-caption-item.active {
+  border-color: var(--color-primary);
+  background: var(--color-accent-bg);
+}
+
+.tcp-caption-item svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── 안내 문구 ── */
+.tcp-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-hint);
+  margin-top: 4px;
+}
+
+/* ── 비활성 그룹 ── */
+.tcp-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

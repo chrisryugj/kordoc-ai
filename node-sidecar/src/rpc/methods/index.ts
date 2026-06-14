@@ -21,6 +21,8 @@ import { inspectDocument } from '../../core/inspect/index.js';
 import { detectMcpEnv, installMcpConfig, installNode } from '../../core/mcp-setup/index.js';
 import { printFiles, listPrinters } from '../../core/print/index.js';
 import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
+import { aiExtractFields } from '../../core/form/ai-extract.js';
+import { parse } from 'kordoc';
 import { renderPreview } from '../../core/preview/index.js';
 import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '../../core/edit/index.js';
 import type { BlockEdit } from 'kordoc';
@@ -116,13 +118,15 @@ export function registerAllMethods(router: RpcRouter): void {
 
   // ── 핵심 기능 (10개) ──
 
-  // 8. convert — 문서 변환 (HWP/HWPX/PDF → 마크다운)
+  // 8. convert — 문서 변환 (HWP/HWPX/PDF → 마크다운). doc_b64 시 인메모리(편집 세션) 변환
   router.register('convert', async (params, signal) => {
-    const input_path = validatePath(params.input_path as string);
+    const doc_b64 = params.doc_b64 as string | undefined;
+    const input_path = doc_b64 ? undefined : validatePath(params.input_path as string);
     signal.throwIfAborted();
     const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
     return convert({
       input_path,
+      doc_b64,
       output_path,
       pages: params.pages as string | undefined,
     }, signal);
@@ -221,13 +225,16 @@ export function registerAllMethods(router: RpcRouter): void {
     }, signal);
   });
 
-  // 15. extract_tables — 문서에서 표 추출
+  // 15. extract_tables — 문서에서 표 추출. doc_b64 시 인메모리(편집 세션) 추출
   router.register('extract_tables', async (params, signal) => {
-    const input_path = validatePath(params.input_path as string);
+    const doc_b64 = params.doc_b64 as string | undefined;
+    const input_path = doc_b64 ? undefined : validatePath(params.input_path as string);
     const output_dir = params.output_dir ? validatePath(params.output_dir as string) : undefined;
     signal.throwIfAborted();
     return extractTables({
       input_path,
+      doc_b64,
+      source_name: params.source_name as string | undefined,
       pages: params.pages as string | undefined,
       as_markdown: params.as_markdown as boolean | undefined,
       output_dir,
@@ -352,6 +359,26 @@ export function registerAllMethods(router: RpcRouter): void {
       dry_run: params.dry_run as boolean | undefined,
       include_doc: params.include_doc as boolean | undefined,
     }, signal);
+  });
+
+  // 27-b. form_infer — 참고자료(파일/텍스트)에서 양식 필드값을 Gemini로 추론 (KorDoc Studio Phase R)
+  //        문서 자체가 아니라 별도 참고자료에서 라벨별 값을 뽑아 채우기 폼에 제안한다.
+  router.register('form_infer', async (params, signal) => {
+    const labels = params.labels as string[] | undefined;
+    if (!Array.isArray(labels) || labels.length === 0) throw new Error('추론할 필드 라벨이 없습니다 ("labels")');
+    let markdown = ((params.reference_text as string | undefined) ?? '').trim();
+    if (!markdown && params.reference_path) {
+      const refPath = validatePath(params.reference_path as string);
+      const buffer = await readFile(refPath);
+      signal.throwIfAborted();
+      const result = await parse(new Uint8Array(buffer).buffer);
+      if (!result.success) throw new Error(`참고자료 파싱 실패: ${result.error}`);
+      markdown = result.markdown;
+    }
+    if (!markdown) throw new Error('참고자료(텍스트 또는 파일)가 비어 있습니다');
+    signal.throwIfAborted();
+    const fields = await aiExtractFields(markdown, labels, signal);
+    return { success: true, fields };
   });
 
   // 28. patch_blocks — 블록 단위 증분 패치 (kordoc v3.1 patchHwpxBlocks)

@@ -1,0 +1,47 @@
+/* 환경 설정 대화상자 (opt-) */
+
+.opt-body {
+  min-height: 240px;
+}
+
+.opt-tab-panel {
+  display: none;
+  padding: 12px 0 0;
+}
+.opt-tab-panel.active {
+  display: block;
+}
+
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.opt-count-input {
+  width: 48px;
+  text-align: center;
+}
+
+.opt-count-label {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.opt-desc {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin: 4px 0 10px;
+  line-height: 1.4;
+}
+
+.opt-fontset-btn {
+  padding: 6px 16px;
+}
+
+.opt-local-status {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin-left: 8px;
+}

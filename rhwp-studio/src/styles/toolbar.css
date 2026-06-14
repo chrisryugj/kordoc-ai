@@ -1,0 +1,255 @@
+/* ================================================================
+   2행: 아이콘 툴바
+   ================================================================ */
+#icon-toolbar {
+  display: flex;
+  align-items: stretch;
+  padding: 2px 8px;
+  background: linear-gradient(to bottom, #fafafa, #f0f0f0);
+  border-bottom: 1px solid #c8c8c8;
+  flex-shrink: 0;
+  height: 56px;
+  overflow: visible;
+}
+
+.tb-group {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.tb-mode-group {
+  align-items: stretch;
+  min-width: 0;
+}
+
+.tb-sep {
+  width: 1px;
+  margin: 4px 4px;
+  background: #c0c0c0;
+  flex-shrink: 0;
+}
+
+.tb-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 44px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.tb-btn:hover {
+  background: #dfe4ec;
+  border-color: #b0b8c8;
+}
+
+/* 한컴 SVG 스프라이트 아이콘 시스템 */
+.tb-sprite {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background-image: url(/images/icon_small_ko.svg);
+  background-repeat: no-repeat;
+  flex-shrink: 0;
+}
+
+/* 스프라이트 위치: calc(-40px * col) calc(-40px * row) */
+.icon-cut           { background-position: calc(-40px * 2) calc(-40px * 1); }
+.icon-copy          { background-position: calc(-40px * 3) calc(-40px * 1); }
+.icon-paste         { background-position: calc(-40px * 4) calc(-40px * 1); }
+.icon-format-copy   { background-position: calc(-40px * 0) calc(-40px * 10); }
+/* icon_small_ko.svg에 조판부호/문단부호 아이콘이 없으므로 CSS 대체 아이콘 */
+.icon-ctrl-mark {
+  background-image: none !important;
+  position: relative;
+}
+.icon-ctrl-mark::before {
+  content: '¶';
+  position: absolute;
+  top: 0; left: 0;
+  width: 18px; height: 18px;
+  font-size: var(--font-size-lg);
+  line-height: 18px;
+  text-align: center;
+  color: #4a7abb;
+  font-family: serif;
+}
+
+.icon-para-mark {
+  background-image: none !important;
+  position: relative;
+}
+.icon-para-mark::before {
+  content: '↵';
+  position: absolute;
+  top: 0; left: 0;
+  width: 18px; height: 18px;
+  font-size: var(--font-size-lg);
+  line-height: 18px;
+  text-align: center;
+  color: #4a7abb;
+  font-family: sans-serif;
+}
+.icon-grid          { background-position: calc(-40px * 13) calc(-40px * 2); }
+.icon-char-shape    { background-position: calc(-40px * 12) calc(-40px * 8); }
+.icon-para-shape    { background-position: calc(-40px * 13) calc(-40px * 8); }
+.icon-table         { background-position: calc(-40px * 2) calc(-40px * 3); }
+.icon-shape         { background-position: calc(-40px * 0) calc(-40px * 3); }
+.icon-image         { background-position: calc(-40px * 1) calc(-40px * 3); }
+.icon-obj-props     { background-position: calc(-40px * 17) calc(-40px * 1); }
+.icon-symbols       { background-position: calc(-40px * 4) calc(-40px * 3); }
+.icon-hyperlink     { background-position: calc(-40px * 5) calc(-40px * 3); }
+.icon-footnote      { background-position: calc(-40px * 4) calc(-40px * 4); }
+.icon-endnote       { background-position: calc(-40px * 5) calc(-40px * 4); }
+.icon-header        { background-position: calc(-40px * 1) calc(-40px * 4); }
+.icon-footer        { background-position: calc(-40px * 2) calc(-40px * 4); }
+.icon-find          { background-position: calc(-40px * 15) calc(-40px * 1); }
+
+/* 메뉴 드롭다운 전용 추가 아이콘 위치 */
+.icon-new-doc       { background-position: calc(-40px * 0) calc(-40px * 0); }
+.icon-save          { background-position: calc(-40px * 1) calc(-40px * 0); }
+.icon-undo          { background-position: calc(-40px * 0) calc(-40px * 1); }
+.icon-redo          { background-position: calc(-40px * 1) calc(-40px * 1); }
+.icon-print         { background-position: calc(-40px * 4) calc(-40px * 0); }
+.icon-page-setup    { background-position: calc(-40px * 5) calc(-40px * 0); }
+.icon-help          { background-position: calc(-40px * 26) calc(-40px * 6); }
+.icon-delete        { background-position: calc(-40px * 9) calc(-40px * 1); }
+.icon-select-all    { background-position: calc(-40px * 5) calc(-40px * 1); }
+.icon-find-replace  { background-position: calc(-40px * 16) calc(-40px * 1); }
+.icon-textbox       { background-position: calc(-40px * 3) calc(-40px * 3); }
+.icon-comment       { background-position: calc(-40px * 3) calc(-40px * 4); }
+.icon-zoom-menu-in  { background-position: -40px -960px; }
+.icon-zoom-menu-out { background-position: 0 -960px; }
+
+.tb-label {
+  font-size: var(--font-size-xs);
+  line-height: 1.1;
+  text-align: center;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* 텍스트 기반 아이콘 (스프라이트 없는 버튼용) */
+.tb-icon-text {
+  display: block;
+  width: 18px;
+  height: 18px;
+  font-size: var(--font-size-xl);
+  line-height: 18px;
+  text-align: center;
+  color: #4a7abb;
+  flex-shrink: 0;
+}
+
+/* 스플릿 버튼 (메인 + 화살표 + 드롭다운) */
+.tb-split {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.tb-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 2px;
+  min-width: 36px;
+}
+
+.tb-split-arrow {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  min-width: 14px;
+  padding: 0 1px;
+}
+
+.tb-arrow-icon {
+  font-size: 8px;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.tb-split-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 180px;
+  background: var(--color-surface-raised);
+  border: 1px solid #b0b8c8;
+  box-shadow: var(--shadow-light);
+  z-index: 9000;
+  padding: 2px 0;
+  font-size: var(--font-size-base);
+}
+
+.tb-split.open > .tb-split-menu {
+  display: block;
+}
+
+.tb-split-item {
+  padding: 5px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.tb-split-item:hover {
+  background: #dfe4ec;
+}
+
+.tb-split-shortcut {
+  color: var(--color-text-hint);
+  font-size: var(--font-size-sm);
+  margin-left: 20px;
+}
+
+.tb-split-sep {
+  height: 1px;
+  margin: 2px 4px;
+  background: #d0d0d0;
+}
+
+.tb-paste {
+  min-width: 50px;
+}
+
+/* 머리말/꼬리말 편집 모드 도구상자 */
+.tb-hf-label {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: #2c5aa0;
+  white-space: nowrap;
+}
+
+/* 주석 편집 모드 도구상자 */
+.tb-note-label {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: #2c5aa0;
+  white-space: nowrap;
+}
+
+.tb-note-group .tb-btn {
+  min-width: 56px;
+}
+
+.tb-note-close .tb-icon-text {
+  color: #3f78d8;
+  font-size: 28px;
+  line-height: 18px;
+}

@@ -4,7 +4,143 @@
 
 ---
 
-## 📌 최신: Phase C 검증 + 들여쓰기 버그픽스 + Studio 개편 플랜 (2026-06-13 오후)
+## 📌 최신: rhwp-studio 편집기 임베드 진행 중 — **NEXT-SESSION.md 참조** (2026-06-14 밤)
+
+- 편집기를 **rhwp studio(공식 WYSIWYG 에디터) iframe 임베드**로 대전환. kordoc-ai 안에서 studio가
+  문서 로드·렌더까지 성공(12페이지). 파란 세로바·단독앱 팝업 제거 완료.
+- **미해결**: 글머리(□,◦) 찌그러짐(폰트), same-origin CSP 충돌(저장/연계 선결), 양방향 통신 미완.
+- 전부 미커밋. 상세 핸드오프 = `.claude/memory/NEXT-SESSION.md` (7섹션 + 시작 프롬프트).
+- ⚠️ 이 아래 "프로덕션 리뷰" 섹션의 수정(보안/UX)도 **미커밋 상태로 남아있음**.
+
+---
+
+## Phase R 워크벤치 통합·gap 수정 완료 — 프로덕션 리뷰 (2026-06-14)
+
+- **검증 세션 수행**: gap-detector로 플랜 vs 구현 대조(초기 Match Rate ~62%) → 의심
+  지점 8건 전부 처리. 사용자 결정(최대 범위): 채우기 워크벤치 완전 흡수 / hwpx 열기
+  시 워크벤치 진입 / 편집 세션 바이트 근본 연결.
+- **수정 내역**:
+  - 항목1: `DocEditor` 데드코드 제거 (Workspace docEditorOpen 분기)
+  - 항목2+3: `form_fill`·`doc_edit` 모두 워크벤치 진입(initialTab fill/edit), hwpx
+    파일 **더블클릭 진입**, 구 `FillWizard`/`DocEditor` 모달 **파일 삭제**(edit/·fill/ 디렉토리)
+  - 항목4: 사이드카 `convert`/`extract_tables`에 `doc_b64`(+`source_name`) 옵션 →
+    `ConvertPanel`이 `getDocB64`로 **편집 세션 현재 바이트 변환**(클릭편집·채움 반영)
+  - 항목5: 채우기 `dry_run`→`reopenSession` **일원화**("미리보기"→"문서에 적용",
+    setPreviewDoc 제거) → 미리보기·편집 blocks·변환 한 바이트 공유
+  - 항목6: `annotateLabels` 배선(죽은 유틸) → 채우기 필드 focus→미리보기 라벨 강조+스크롤
+  - 항목8: AI 추론 성공 → 채우기 탭 자동 전환(onApplied)
+  - 구조: `tab`/`fillForm`/`focusedLabel`을 `WorkbenchShell`로 lift(항목6·8 토대)
+- **빌드 그린**: 프론트 tsc / vite 1928 modules / 사이드카 tsc / vitest **64 passed** / esbuild 번들.
+- **미커밋 상태**. 사이드카 소스 수정함 → 본 세션 재빌드 필요(`pnpm build && pnpm build:bundle`).
+
+### 다음 세션 = 프로덕션 리뷰
+진입점: `.claude/memory/NEXT-SESSION.md` (리뷰 관점 4종 + 실동작 체크리스트).
+- 코드 품질(useFillForm 셸 호출 비용, annotateLabels 2중 적용), 보안(convert doc_b64
+  크기 가드 부재 — edit/fill은 30MB 가드 있음), 개편 일관성(액션카드 2개 유지 검토),
+  실동작(tauri:dev 6항목). 리뷰 후 커밋·배포.
+
+### ⚠️ 보류/한계 (리뷰가 판단)
+- 항목7(다중파일 전환 시 폼 값 손실): key 재마운트는 세션 정합성 위한 의도 — 플랜 필수 아님, 보류.
+- 항목5 트레이드오프: 채움을 `reopenSession`(새 세션)으로 수렴 → 채움 직전으로 undo 불가(토스트 안내).
+
+---
+
+## Phase R(문서 워크벤치) 구현 완료 — 검증 완료(gap 8건 수정됨) (2026-06-14 이른 시각)
+
+- **W1~W4 한 세션에 구현**: `doc_edit` → 3-pane 문서 워크벤치. **빌드 검증만 그린**
+  (프론트 tsc/vite 1930 modules, 사이드카 tsc/vitest 64 passed, cargo check, esbuild 번들).
+  **실동작·UX·개편 일관성은 미검증**.
+- **신규 파일**: `src/contexts/DocumentSession.tsx`(세션 edit_* + 미리보기 rhwp 단일 소스,
+  setPreviewDoc/reopenSession), `src/components/workbench/` 8개(DocumentWorkbench/PreviewPanel/
+  ToolTabs/FileRail/FillPanel/ConvertPanel/AiPanel/useFillForm). 사이드카 신규 RPC `form_infer`
+  (methods/index.ts + router HEAVY + Rust 화이트리스트 동기화 — aiExtractFields 재사용).
+- **변경**: Workspace `doc_edit`→워크벤치 라우팅(기존 DocEditor 모달 **보존=죽은 분기**),
+  `doc_edit` maxFiles 0(다중 hwpx)·"문서 작업대"로 개명.
+- **디자인**: Figma 3-pane 공간 + Linear 정제미(기존 var(--color-*)/ts-* 토큰 유지).
+  frontend-design 스킬 대신 상용앱 패턴 차용(사용자 피드백 — 도구앱엔 대담함보다 신뢰감).
+
+### ⚠️ 다음 세션이 검증할 의심 지점 (구현자가 인지한 gap)
+- **개편 미완**: ①`form_fill` 액션은 아직 구 FillWizard 풀스크린 모달 → 워크벤치 채우기 탭과
+  기능 중복(채우기 경로 2개) ②DocEditor 모달 죽은 분기 잔존 ③워크벤치 진입점이 `doc_edit`
+  단일 — 플랜의 "문서 열기 시 워크벤치 진입" 일반화 안 됨.
+- **UI/UX 미연계**: ①변환 탭(ConvertPanel)이 원본 file.path 기준 → 클릭-편집 결과 미반영
+  ②채우기 dry_run 미리보기는 setPreviewDoc로 미리보기만 교체 → 편집 탭 blocks와 불일치
+  ③채우기 탭에 필드 포커스→미리보기 라벨 하이라이트/역점프 없음(annotateLabels 미연동,
+  PreviewPanel은 annotateBlocks만) ④다중파일 전환 시 Provider key 재마운트로 폼 값 초기화
+  ⑤AI applySuggestions 후 채우기 탭 자동전환 없음.
+- **실호출 미검증(tauri:dev 육안 필요)**: form_infer Gemini(API 키), 채우기 저장→reopenSession
+  수렴, rhwp WASM 웹뷰 SVG 렌더, 저장 폴더 열기.
+
+### 다음 세션 시작 프롬프트
+```
+KorDoc Studio Phase R 검증 세션 — 구현 완료도 + UI/UX 연계 + 개편 일관성 점검.
+
+직전 세션에서 Phase R(문서 워크벤치) W1~W4를 한 번에 구현했고 빌드 검증만 끝난
+상태야(tsc/vite/사이드카 vitest 64 passed/cargo check 전부 그린). 단 실동작·UX·
+개편 일관성은 미검증. 이 세션의 임무는 "코드가 플랜대로이고 UI/UX가 실제로 연결돼
+있으며 KorDoc Studio로 제대로 개편됐는가"를 검증하고, 발견한 gap을 수정하는 것.
+
+■ 먼저 Read로 실제 코드를 읽고 아래 주장을 코드와 대조 검증해 (추측 금지):
+  - .claude/memory/studio-redesign-plan.md             ← 플랜(단일 진실 소스)
+  - src/contexts/DocumentSession.tsx                    ← 세션+미리보기 단일 소스
+  - src/components/workbench/ 전체 8개
+    (DocumentWorkbench, PreviewPanel, ToolTabs, FileRail,
+     FillPanel, ConvertPanel, AiPanel, useFillForm)
+  - src/components/pipeline/Workspace.tsx               ← doc_edit 라우팅
+  - node-sidecar/src/rpc/methods/index.ts (form_infer), rpc/router.ts
+  - src-tauri/src/commands/sidecar_cmd.rs               ← form_infer 화이트리스트
+
+■ KorDoc Studio 개편 완료도 — 반드시 확인할 의심 지점:
+  1. doc_edit는 워크벤치로 진입하지만 기존 DocEditor 모달(docEditorOpen)이 죽은
+     분기로 잔존한다(보존 지시였음). 개편 관점에서 정리할지/언제 제거할지 판단.
+  2. form_fill 액션은 아직 구 FillWizard 풀스크린 모달을 쓴다 → 워크벤치 "채우기
+     탭"과 기능 중복. 사용자에게 채우기 경로가 둘. 개편 미완 — form_fill도
+     워크벤치로 흡수할지 결정 필요(플랜 의도는 단일 작업대).
+  3. 워크벤치 진입점이 doc_edit 카드 하나뿐. 플랜의 "문서 열기 시 워크벤치 진입"
+     일반화가 안 됐다. 액션카드 홈과 워크벤치의 관계가 정리됐는지.
+
+■ UI/UX 미연계 의심 지점 — 실제로 끊겼는지 확인:
+  4. 변환 탭(ConvertPanel)이 원본 file.path 기준 → 클릭-편집 결과 미반영(dirty
+     안내만 있음). 편집→변환 흐름이 끊김. 편집 세션 바이트를 변환에 넘길 방법 검토.
+  5. 채우기 dry_run "미리보기 반영"은 setPreviewDoc로 미리보기만 바꾼다 → 편집 탭
+     blocks/캡션은 원본 세션 그대로라 불일치. 사용자가 미리보기↔편집 탭 오가면 어긋남.
+  6. 채우기 탭에 "필드 포커스→미리보기 라벨 하이라이트/역점프"가 없다(구 FillWizard
+     엔 있던 핵심 UX). PreviewPanel은 annotateBlocks(편집)만 쓰고 annotateLabels
+     (채우기)는 미연동. 라벨 어노테이션을 탭에 따라 전환할지 검토.
+  7. 다중 파일 전환 시 Provider가 key로 재마운트되어 ToolTabs/useFillForm도 초기화
+     → 채우던 폼 값 손실. 의도인지(파일별 폼) 사용자 흐름상 문제인지 판단.
+  8. AI 추론(applySuggestions) 후 채우기 탭으로 자동 전환이 없다 → 사용자가 수동
+     이동해야 제안을 봄. 탭 자동 전환/배지 필요한지.
+
+■ 실동작 검증(헤드리스 불가 — pnpm tauri:dev 필요):
+  9. form_infer Gemini 실호출(API 키 필요) — RPC 등록·화이트리스트는 코드 확인됨,
+     실응답 파싱은 미검증.
+  10. 채우기 저장 → reopenSession이 실제로 편집 세션에 수렴해 이어서 클릭-편집 되는지.
+  11. rhwp WASM 미리보기가 Tauri WebView에서 실제 SVG를 그리는지(3-pane 진입).
+  12. 저장 후 "저장 위치 열기" 등 경로 동작.
+
+■ 진행 방식:
+  - 먼저 코드 대조로 1~8을 PASS/GAP 판정(gap-detector 에이전트 활용 가능 —
+    플랜 vs 구현 Match Rate). 그다음 사용자가 tauri:dev 띄워 9~12 육안.
+  - 명확한 버그/끊긴 연계는 질문 없이 수정 후 보고. 개편 방향 결정(2,3번 같은
+    제품 판단)은 선택지 제시하고 확인.
+  - 사이드카는 link:../../kordoc 로컬 dist 사용 — kordoc 소스 안 건드리면 재빌드
+    불필요. 프론트만 고쳤으면 vite로 충분.
+  - 검증/수정 끝나면 그때 커밋·배포(사용자가 "모든 작업 끝나고" 지시).
+
+산출: 검증 리포트(각 항목 PASS/GAP + 근거 파일:라인) + 발견 gap 수정.
+```
+
+---
+
+## 머지 스택 + npm publish 완료 (2026-06-13 저녁)
+
+- **머지 스택 3개 완료**: kordoc #35(들여쓰기 픽스) → kordoc-ai #1(Phase B) → kordoc-ai #3(Phase C) 전부 main 머지. ⚠️ 구 PR #2는 #1 머지 시 base 브랜치 삭제로 GitHub이 자동 닫음(reopen 거부) → 동일 head 브랜치로 **#3 재생성**해 해결
+- **kordoc 3.1.1 npm publish 완료** (3.0.1 → 3.1.1, 3.1.0은 미배포였고 기능 전부 3.1.1에 포함). git 태그 `v3.1.1` + GitHub release 생성. 토큰은 `sm`(ssh)으로 원격 `~/.npmrc`에서 가져옴
+- **사이드카 CI 근본 수정** (`1ce1ce5`): CI가 kordoc 빈 스텁을 깔아 실함수 호출 E2E(fill-e2e/edit-session)가 전부 `is not a function`으로 죽던 것 → `link:../../kordoc`를 npm `^3.1.1`로 치환 설치. 이제 CI 3개 그린, 진짜 통합 검증
+- kordoc-ai main 최신 = `cd82c54` (Phase B+C 통합). 미검증 잔여: 들여쓰기 픽스 앱 육안 재확인(사용자 몫)
+
+## Phase C 검증 + 들여쓰기 버그픽스 + Studio 개편 플랜 (2026-06-13 오후)
 
 - **앱 실사용 검증**: tauri:dev에서 DocEditor 클릭-편집 동작 확인 (사용자). 편집된 문단의 **들여쓰기 소실 버그 발견** → kordoc 코어 수정
 - **kordoc PR #35** (`fix/patch-indent-preserve`): `buildParagraphSplices`가 통째 교체 시 원본 선행/후행 공백(들여쓰기·전각공백)을 버리던 것 복원. session/patchHwpx/fillHwpx/표셀 공통 경로 — 동등성 유지. kordoc 517/517 + 회귀 테스트 추가

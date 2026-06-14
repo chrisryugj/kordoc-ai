@@ -1,0 +1,105 @@
+/* ─── 디자인 토큰 ───────────────────────────────────── */
+:root {
+  /* 브랜드 */
+  --color-primary: #6182d6;
+  --color-primary-dark: #335095;
+  --color-primary-light: #4a90d9;
+  --color-primary-hover: #a0b0d8;
+  --color-primary-subtle: #748bc9;
+  --color-accent-bg: #e7eaf4;
+  --color-accent-bg-light: #f0f3fa;
+
+  /* 표면 */
+  --color-surface: #fff;
+  --color-surface-raised: #fafafa;
+  --color-bg: #f0f0f0;
+  --color-bg-light: #f5f5f5;
+
+  /* 테두리 */
+  --color-border: #c0c0c0;
+  --color-border-light: #d0d0d0;
+  --color-border-lighter: #d8d8d8;
+  --color-border-dark: #b4b4b4;
+  --color-border-input: #ccc;
+
+  /* 텍스트 */
+  --color-text: #333;
+  --color-text-secondary: #555;
+  --color-text-muted: #666;
+  --color-text-hint: #888;
+  --color-text-disabled: #aaa;
+  --color-text-placeholder: #999;
+
+  /* 상호작용 */
+  --color-hover-bg: #e0e0e0;
+  --color-active-bg: #c8c8c8;
+  --color-selected-bg: #e8f0fe;
+  --color-focus-border: #4a90d9;
+
+  /* 그림자 */
+  --shadow-dropdown: 2px 2px 8px rgba(0, 0, 0, 0.15);
+  --shadow-dialog: 4px 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-light: 2px 2px 6px rgba(0, 0, 0, 0.12);
+
+  /* 오버레이 */
+  --overlay-bg: rgba(0, 0, 0, 0.2);
+
+  /* 타이포그래피 */
+  --font-family-ui: -apple-system, BlinkMacSystemFont, '맑은 고딕', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --font-family-mono: 'Consolas', 'Courier New', monospace;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-base: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+
+  /* 간격 */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-8: 16px;
+  --space-10: 20px;
+  --space-12: 24px;
+
+  /* 모서리 */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+
+  /* 컨트롤 크기 */
+  --control-height-sm: 22px;
+  --control-height-md: 26px;
+  --control-height-lg: 28px;
+
+  /* 터치 타겟 (모바일) */
+  --touch-target-min: 44px;
+
+  /* 브레이크포인트 (참조용, 미디어 쿼리에서 직접 사용) */
+  /* mobile: ~767px, tablet: 768~1023px, desktop: 1024px~ */
+}
+
+/* ─── 리셋 ──────────────────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-bg);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#studio-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}

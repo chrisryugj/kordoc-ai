@@ -1,0 +1,33 @@
+{
+  "name": "rhwp-studio",
+  "version": "0.7.15",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.ts",
+    "e2e": "node e2e/text-flow.test.mjs",
+    "e2e:unsaved-guard": "node e2e/unsaved-changes-guard.test.mjs",
+    "e2e:clipboard-priority": "node e2e/task-871-clipboard-priority.test.mjs",
+    "e2e:drag-autoscroll": "node e2e/drag-selection-autoscroll.test.mjs",
+    "e2e:render-diff": "node e2e/canvas-render-diff.test.mjs --mode=headless",
+    "e2e:render-diff:ci": "node e2e/run-render-diff.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.42",
+    "puppeteer-core": "^25.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vite-plugin-pwa": "^1.3.0",
+    "workbox-window": "^7.4.1"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.5"
+  },
+  "dependencies": {
+    "@rhwp/core": "0.7.15",
+    "canvaskit-wasm": "^0.41.1"
+  }
+}

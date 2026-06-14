@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>hwpctl 호환 레이어 테스트</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; }
+  .header { background: #1a1a2e; color: white; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 18px; }
+  .header .stats { font-size: 13px; color: #8892b0; }
+  .container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; height: calc(100vh - 48px); }
+  .panel { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; }
+  .panel-header { background: #f8f9fa; padding: 8px 16px; border-bottom: 1px solid #e9ecef; font-size: 13px; font-weight: 600; color: #495057; flex-shrink: 0; }
+  .code-area { flex: 1; padding: 12px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border: none; resize: none; outline: none; }
+  .right-panel { display: flex; flex-direction: column; }
+  .log-section { flex: 0 0 25%; max-height: 25%; display: flex; flex-direction: column; border-bottom: 2px solid #dee2e6; overflow: hidden; }
+  .log-area { flex: 1; padding: 8px 12px; font-family: 'Consolas', monospace; font-size: 11px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; }
+  .log-area .ok { color: #4ec9b0; }
+  .log-area .err { color: #f44747; }
+  .log-area .warn { color: #cca700; }
+  .log-area .info { color: #569cd6; }
+  .canvas-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .canvas-wrap { flex: 1; overflow: hidden; background: #e0e0e0; }
+  .canvas-wrap iframe { width: 100%; height: 100%; border: none; }
+  .canvas-wrap canvas { background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; }
+  .btn-bar { padding: 6px 16px; background: #f8f9fa; border-top: 1px solid #e9ecef; display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+  .btn { padding: 5px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500; }
+  .btn-run { background: #0d6efd; color: white; }
+  .btn-run:hover { background: #0b5ed7; }
+  .btn-clear { background: #6c757d; color: white; }
+  .btn-sample { background: #198754; color: white; }
+  .btn-sample:hover { background: #157347; }
+  .btn-render { background: #6f42c1; color: white; }
+  .btn-render:hover { background: #5a32a3; }
+  .status-bar { padding: 4px 16px; background: #e9ecef; font-size: 11px; color: #666; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>hwpctl 호환 레이어 테스트</h1>
+  <div class="stats" id="stats">로딩 중...</div>
+</div>
+
+<div class="container">
+  <!-- 왼쪽: 코드 편집기 -->
+  <div class="panel">
+    <div class="panel-header">JavaScript 코드 (hwpctl API)</div>
+    <textarea class="code-area" id="code">// hwpctl 호환 API 테스트
+// HwpCtrl 객체는 전역 변수로 사용 가능
+
+// 1. 빈 문서 생성
+HwpCtrl.Clear();
+log('빈 문서 생성 완료');
+log('페이지 수: ' + HwpCtrl.PageCount());
+
+// 2. 텍스트 삽입
+HwpCtrl.InsertText("안녕하세요, hwpctl 호환 레이어 테스트입니다.");
+log('텍스트 삽입 완료');
+
+// 3. 렌더링
+render();
+log('렌더링 완료');
+</textarea>
+    <div class="btn-bar">
+      <button class="btn btn-run" onclick="runCode()">▶ 실행 (Ctrl+Enter)</button>
+      <button class="btn btn-render" onclick="render()">🖼 렌더링</button>
+      <button class="btn" onclick="document.getElementById('fileInput').click()">📂 HWP 로드</button>
+      <input type="file" id="fileInput" accept=".hwp" style="display:none" onchange="loadHwpFile(this)">
+      <button class="btn btn-clear" onclick="clearLog()">로그 지우기</button>
+      <select id="testSelect" onchange="loadTestCase(this.value)" style="padding:4px 8px; border-radius:4px; border:1px solid #ccc; font-size:12px; min-width:200px;">
+        <option value="">── 테스트 케이스 선택 ──</option>
+        <optgroup label="Wave 1: 표/텍스트">
+          <option value="w1_table_create">표 생성 (5×3)</option>
+          <option value="w1_table_large">대형 표 (10×6)</option>
+          <option value="w1_insert_text">텍스트 삽입</option>
+          <option value="w1_break_para">문단 나누기</option>
+          <option value="w1_break_page">쪽 나누기</option>
+        </optgroup>
+        <optgroup label="Wave 2: 서식">
+          <option value="w2_char_bold">글자 진하게</option>
+          <option value="w2_char_shape">글자 모양 (크기/색상)</option>
+          <option value="w2_para_shape">문단 모양 (정렬/간격)</option>
+        </optgroup>
+        <optgroup label="Wave 3: 표 편집">
+          <option value="w3_table_insert_row">표 행 삽입</option>
+          <option value="w3_table_delete_row">표 행 삭제</option>
+        </optgroup>
+        <optgroup label="Wave 4: 이동">
+          <option value="w4_move_cursor">커서 이동</option>
+        </optgroup>
+        <optgroup label="Wave 5: 클립보드">
+          <option value="w5_copy_paste">복사/붙여넣기</option>
+        </optgroup>
+        <optgroup label="Wave 6: 용지/머리말">
+          <option value="w6_page_setup">편집 용지 설정</option>
+          <option value="w6_header_footer">머리말 생성</option>
+        </optgroup>
+        <optgroup label="Field API">
+          <option value="field_list">필드 목록 조회 (GetFieldList)</option>
+          <option value="field_put_get">필드 값 설정/조회 (PutFieldText/GetFieldText)</option>
+          <option value="field_template">템플릿 데이터 바인딩</option>
+        </optgroup>
+        <optgroup label="표 셀 API">
+          <option value="cell_text">표 셀 텍스트 입력 (SetCellText)</option>
+          <option value="cell_field_bind">셀 필드 데이터 바인딩 (PutFieldText)</option>
+          <option value="cell_field_full">예산요구서 전체 바인딩</option>
+          <option value="cell_formula">표 계산식 (SUM/AVG/PRODUCT)</option>
+        </optgroup>
+        <optgroup label="한컴 호환">
+          <option value="hancom_sample">한컴 웹기안기 샘플</option>
+          <option value="hancom_table_create">한컴 원본: TableCreate (ColWidth/RowHeight)</option>
+          <option value="hancom_full_test">통합 테스트 (전체)</option>
+        </optgroup>
+      </select>
+    </div>
+  </div>
+
+  <!-- 오른쪽: 로그(25%) + 캔버스(75%) -->
+  <div class="panel right-panel">
+    <div class="log-section">
+      <div class="panel-header">실행 로그</div>
+      <div class="log-area" id="log"></div>
+    </div>
+    <div class="canvas-section">
+      <div class="panel-header">문서 편집기 <span id="pageInfo" style="font-weight:normal; color:#888;"></span></div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <iframe id="editorFrame" src="./index.html"></iframe>
+      </div>
+      <div class="status-bar" id="statusBar">초기화 대기 중</div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import init, { HwpDocument } from '../pkg/rhwp.js';
+
+const logEl = document.getElementById('log');
+const statsEl = document.getElementById('stats');
+const statusEl = document.getElementById('statusBar');
+const codeEl = document.getElementById('code');
+const canvas = document.getElementById('docCanvas');
+const pageInfoEl = document.getElementById('pageInfo');
+
+let wasmDoc = null;
+const editorFrame = document.getElementById('editorFrame');
+
+// 전역 log 함수
+window.log = function(msg, type = 'ok') {
+  const line = document.createElement('div');
+  line.className = type;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+};
+
+window.clearLog = function() {
+  logEl.innerHTML = '';
+};
+
+// 렌더링 함수 (전역) — iframe 에디터 갱신
+window.render = function(pageNum = 0) {
+  const doc = window.HwpCtrl ? window.HwpCtrl.getWasmDoc() : wasmDoc;
+  if (!doc) { log('문서가 로드되지 않음', 'err'); return; }
+  try {
+    const pageCount = doc.pageCount();
+    pageInfoEl.textContent = `(${pageCount}쪽)`;
+    statusEl.textContent = `${pageCount}페이지 — 에디터에서 확인`;
+
+    // iframe 내 에디터에 문서 데이터 전달
+    if (editorFrame && editorFrame.contentWindow) {
+      const bytes = doc.exportHwp();
+      // Uint8Array → ArrayBuffer 복사 (Transferable)
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      editorFrame.contentWindow.postMessage({
+        type: 'hwpctl-load',
+        data: buffer,
+      }, '*', [buffer]);
+    }
+  } catch (e) {
+    log('렌더링 오류: ' + e.message, 'err');
+    console.error(e);
+  }
+};
+
+// hwpctl 모듈 동적 import
+let HwpCtrl = null;
+
+async function initialize() {
+  try {
+    statusEl.textContent = 'WASM 초기화 중...';
+    await init();
+
+    // hwpctl 모듈 로드
+    const { createHwpCtrl } = await import('./src/hwpctl/index.ts');
+    wasmDoc = HwpDocument.createEmpty();
+    wasmDoc.createBlankDocument();
+
+    HwpCtrl = await createHwpCtrl({ wasmModule: wasmDoc });
+    window.HwpCtrl = HwpCtrl;
+
+    const total = HwpCtrl.constructor.getRegisteredActionCount();
+    const impl = HwpCtrl.constructor.getImplementedActionCount();
+    statsEl.textContent = `Action: ${impl}/${total} 구현 (${Math.round(impl/total*100)}%)`;
+    statusEl.textContent = `초기화 완료 — ${total}개 Action 등록, ${impl}개 구현`;
+
+    log('hwpctl 호환 레이어 초기화 완료', 'info');
+    log(`등록 Action: ${total}개, 구현: ${impl}개`, 'info');
+  } catch (e) {
+    statusEl.textContent = '초기화 실패: ' + e.message;
+    log('초기화 실패: ' + e.message, 'err');
+    console.error(e);
+  }
+}
+
+// 코드 실행 (await 지원)
+window.runCode = async function() {
+  const code = codeEl.value;
+  try {
+    const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const fn = new AsyncFn('HwpCtrl', 'log', 'render', 'loadHwpFromUrl', code);
+    await fn(window.HwpCtrl, window.log, window.render, window.loadHwpFromUrl);
+  } catch (e) {
+    log('실행 오류: ' + e.message, 'err');
+    console.error(e);
+  }
+};
+
+// Ctrl+Enter로 실행
+codeEl.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    runCode();
+  }
+});
+
+// 테스트 케이스
+const TEST_CASES = {
+  // Wave 1: 표/텍스트
+  w1_table_create: `// [Wave 1] 표 생성 (5×3)
+HwpCtrl.Clear();
+log('✓ 빈 문서 생성');
+
+var act = HwpCtrl.CreateAction("TableCreate");
+var set = act.CreateSet();
+act.GetDefault(set);
+set.SetItem("Rows", 5);
+set.SetItem("Cols", 3);
+var result = act.Execute(set);
+log(result ? '✓ 5×3 표 생성 성공' : '✗ 표 생성 실패', result ? 'ok' : 'err');
+log('  페이지 수: ' + HwpCtrl.PageCount());
+render();`,
+
+  w1_table_large: `// [Wave 1] 대형 표 (10×6)
+HwpCtrl.Clear();
+log('✓ 빈 문서 생성');
+
+var act = HwpCtrl.CreateAction("TableCreate");
+var set = act.CreateSet();
+set.SetItem("Rows", 10);
+set.SetItem("Cols", 6);
+var result = act.Execute(set);
+log(result ? '✓ 10×6 표 생성 성공' : '✗ 표 생성 실패', result ? 'ok' : 'err');
+
+// 텍스트 삽입으로 셀 내용 확인
+HwpCtrl.SetPos(0, 0, 0);
+HwpCtrl.InsertText("표 위의 텍스트");
+log('  텍스트 삽입 완료');
+log('  페이지 수: ' + HwpCtrl.PageCount());
+render();`,
+
+  w1_insert_text: `// [Wave 1] 텍스트 삽입 + 커서 확인
+HwpCtrl.Clear();
+
+HwpCtrl.InsertText("첫 번째 문장입니다.");
+var pos1 = HwpCtrl.GetPos();
+log('✓ 텍스트 삽입 — 커서: para=' + pos1.para + ' pos=' + pos1.pos);
+
+HwpCtrl.InsertText(" 두 번째 문장을 이어서 입력합니다.");
+var pos2 = HwpCtrl.GetPos();
+log('✓ 연속 삽입 — 커서: para=' + pos2.para + ' pos=' + pos2.pos);
+log(pos2.pos > pos1.pos ? '✓ 커서 위치 정상 증가' : '✗ 커서 위치 이상', pos2.pos > pos1.pos ? 'ok' : 'err');
+render();`,
+
+  w1_break_para: `// [Wave 1] 문단 나누기
+HwpCtrl.Clear();
+HwpCtrl.InsertText("첫 번째 문단");
+log('✓ 텍스트 삽입');
+
+HwpCtrl.Run("BreakPara");
+var pos = HwpCtrl.GetPos();
+log(pos.para === 1 ? '✓ 문단 나누기 성공 (para=' + pos.para + ')' : '✗ 문단 나누기 실패', pos.para === 1 ? 'ok' : 'err');
+
+HwpCtrl.InsertText("두 번째 문단");
+HwpCtrl.Run("BreakPara");
+HwpCtrl.InsertText("세 번째 문단");
+log('✓ 3개 문단 생성 완료');
+render();`,
+
+  w1_break_page: `// [Wave 1] 쪽 나누기
+HwpCtrl.Clear();
+HwpCtrl.InsertText("1페이지 내용");
+var before = HwpCtrl.PageCount();
+
+HwpCtrl.Run("BreakPage");
+HwpCtrl.InsertText("2페이지 내용");
+var after = HwpCtrl.PageCount();
+
+log(after > before ? '✓ 쪽 나누기 성공 (' + before + '→' + after + '페이지)' : '✗ 페이지 증가 없음', after > before ? 'ok' : 'err');
+render();`,
+
+  // Wave 2: 서식
+  w2_char_bold: `// [Wave 2] 글자 진하게/이탤릭/밑줄
+HwpCtrl.Clear();
+HwpCtrl.InsertText("진하게 테스트 문장입니다.");
+log('✓ 텍스트 삽입');
+
+var r1 = HwpCtrl.Run("CharShapeBold");
+log(r1 ? '✓ 진하게 적용' : '✗ 진하게 실패', r1 ? 'ok' : 'err');
+
+var r2 = HwpCtrl.Run("CharShapeItalic");
+log(r2 ? '✓ 이탤릭 적용' : '✗ 이탤릭 실패', r2 ? 'ok' : 'err');
+
+var r3 = HwpCtrl.Run("CharShapeUnderline");
+log(r3 ? '✓ 밑줄 적용' : '✗ 밑줄 실패', r3 ? 'ok' : 'err');
+render();`,
+
+  w2_char_shape: `// [Wave 2] 글자 모양 (크기/색상)
+HwpCtrl.Clear();
+HwpCtrl.InsertText("글자 모양 테스트");
+
+var act = HwpCtrl.CreateAction("CharShape");
+var set = act.CreateSet();
+set.SetItem("Bold", true);
+set.SetItem("FontSize", 2000);  // 20pt
+set.SetItem("TextColor", 0xFF0000);  // 빨간색
+var result = act.Execute(set);
+log(result ? '✓ 글자 모양 적용 (20pt, 빨강, 진하게)' : '✗ 적용 실패', result ? 'ok' : 'err');
+render();`,
+
+  w2_para_shape: `// [Wave 2] 문단 모양 (정렬/간격)
+HwpCtrl.Clear();
+HwpCtrl.InsertText("가운데 정렬 테스트 문장입니다.");
+
+var act = HwpCtrl.CreateAction("ParagraphShape");
+var set = act.CreateSet();
+set.SetItem("Align", 3);  // 가운데
+set.SetItem("SpaceBefore", 500);  // 문단 앞 간격
+set.SetItem("SpaceAfter", 500);   // 문단 뒤 간격
+var result = act.Execute(set);
+log(result ? '✓ 문단 모양 적용 (가운데, 간격 500)' : '✗ 적용 실패', result ? 'ok' : 'err');
+render();`,
+
+  // Wave 3: 표 편집
+  w3_table_insert_row: `// [Wave 3] 표 행 삽입
+HwpCtrl.Clear();
+var tact = HwpCtrl.CreateAction("TableCreate");
+var tset = tact.CreateSet();
+tset.SetItem("Rows", 3);
+tset.SetItem("Cols", 3);
+tact.Execute(tset);
+log('✓ 3×3 표 생성');
+
+// 표 위치로 커서 이동 후 행 삽입
+var act = HwpCtrl.CreateAction("TableInsertRowColumn");
+var set = act.CreateSet();
+set.SetItem("Type", 0);  // 0=행
+var result = act.Execute(set);
+log(result ? '✓ 행 삽입 성공' : '✗ 행 삽입 실패 (표 커서 위치 필요)', result ? 'ok' : 'warn');
+render();`,
+
+  w3_table_delete_row: `// [Wave 3] 표 행 삭제
+HwpCtrl.Clear();
+var tact = HwpCtrl.CreateAction("TableCreate");
+var tset = tact.CreateSet();
+tset.SetItem("Rows", 5);
+tset.SetItem("Cols", 3);
+tact.Execute(tset);
+log('✓ 5×3 표 생성');
+
+var act = HwpCtrl.CreateAction("TableDeleteRowColumn");
+var set = act.CreateSet();
+set.SetItem("Type", 0);  // 0=행
+var result = act.Execute(set);
+log(result ? '✓ 행 삭제 성공' : '✗ 행 삭제 실패 (표 커서 위치 필요)', result ? 'ok' : 'warn');
+render();`,
+
+  // Wave 4: 이동
+  w4_move_cursor: `// [Wave 4] 커서 이동
+HwpCtrl.Clear();
+HwpCtrl.InsertText("첫 번째 문단");
+HwpCtrl.Run("BreakPara");
+HwpCtrl.InsertText("두 번째 문단");
+
+var pos0 = HwpCtrl.GetPos();
+log('현재 위치: para=' + pos0.para + ' pos=' + pos0.pos);
+
+HwpCtrl.Run("MoveLeft");
+var pos1 = HwpCtrl.GetPos();
+log(pos1.pos < pos0.pos ? '✓ MoveLeft 성공' : '✗ MoveLeft 실패', pos1.pos < pos0.pos ? 'ok' : 'err');
+
+HwpCtrl.Run("MoveRight");
+var pos2 = HwpCtrl.GetPos();
+log(pos2.pos > pos1.pos ? '✓ MoveRight 성공' : '✗ MoveRight 실패', pos2.pos > pos1.pos ? 'ok' : 'err');
+
+HwpCtrl.Run("MoveUp");
+var pos3 = HwpCtrl.GetPos();
+log('MoveUp: para=' + pos3.para + ' pos=' + pos3.pos);
+
+HwpCtrl.Run("MoveDown");
+var pos4 = HwpCtrl.GetPos();
+log('MoveDown: para=' + pos4.para + ' pos=' + pos4.pos);
+render();`,
+
+  // Wave 5: 클립보드
+  w5_copy_paste: `// [Wave 5] 복사/붙여넣기
+HwpCtrl.Clear();
+HwpCtrl.InsertText("복사할 텍스트입니다.");
+log('✓ 텍스트 삽입');
+
+var r1 = HwpCtrl.Run("Copy");
+log(r1 ? '✓ 복사 성공' : '✗ 복사 실패', r1 ? 'ok' : 'err');
+
+HwpCtrl.Run("BreakPara");
+var r2 = HwpCtrl.Run("Paste");
+log(r2 ? '✓ 붙여넣기 성공' : '✗ 붙여넣기 실패', r2 ? 'ok' : 'err');
+render();`,
+
+  // Wave 6: 용지/머리말
+  w6_page_setup: `// [Wave 6] 편집 용지 설정
+HwpCtrl.Clear();
+HwpCtrl.InsertText("용지 설정 테스트");
+
+var act = HwpCtrl.CreateAction("PageSetup");
+var set = act.CreateSet();
+set.SetItem("TopMargin", 5000);     // 상단 여백
+set.SetItem("BottomMargin", 5000);  // 하단 여백
+set.SetItem("LeftMargin", 7000);    // 좌측 여백
+var result = act.Execute(set);
+log(result ? '✓ 용지 설정 적용' : '✗ 용지 설정 실패', result ? 'ok' : 'err');
+render();`,
+
+  w6_header_footer: `// [Wave 6] 머리말 생성
+HwpCtrl.Clear();
+HwpCtrl.InsertText("본문 내용입니다.");
+
+var act = HwpCtrl.CreateAction("HeaderFooter");
+var set = act.CreateSet();
+set.SetItem("Type", 0);    // 0=머리말
+set.SetItem("Apply", 0);   // 0=양쪽
+var result = act.Execute(set);
+log(result ? '✓ 머리말 생성 성공' : '✗ 머리말 생성 실패', result ? 'ok' : 'err');
+render();`,
+
+  // 한컴 호환
+  hancom_sample: `// 한컴 웹기안기 실제 샘플 코드 (호환성 테스트)
+// 출처: hwpctl_API_v2.4.md
+
+// 표 생성
+var tbact = HwpCtrl.CreateAction("TableCreate");
+var tbset = tbact.CreateSet();
+tbact.GetDefault(tbset);
+tbset.SetItem("Rows", 5);
+tbset.SetItem("Cols", 5);
+tbact.Execute(tbset);
+log('✓ 한컴 샘플: 5×5 표 생성');
+
+// 글자 진하게
+HwpCtrl.Run("CharShapeBold");
+log('✓ 한컴 샘플: 진하게 토글');
+
+// 진행률
+var total = HwpCtrl.constructor.getRegisteredActionCount();
+var impl = HwpCtrl.constructor.getImplementedActionCount();
+log('호환률: ' + impl + '/' + total + ' (' + Math.round(impl/total*100) + '%)');
+render();`,
+
+  hancom_table_create: `// 한컴 원본 TableCreate 샘플 코드
+// 출처: hwpctl_ParameterSetID_Item_v1.2.md
+
+var act = HwpCtrl.CreateAction("TableCreate");
+var pset = act.CreateSet();
+if (pset.IsSet) {
+    log('✓ pset.IsSet = true');
+    act.GetDefault(pset);
+    pset.SetItem("Rows", 5);
+    pset.SetItem("Cols", 5);
+    pset.SetItem("WidthType", 2);
+    pset.SetItem("HeightType", 1);
+
+    var colset = pset.CreateItemArray("ColWidth", 5);
+    log('✓ CreateItemArray("ColWidth", 5) — Count=' + colset.Count);
+
+    var rowset = pset.CreateItemArray("RowHeight", 5);
+    log('✓ CreateItemArray("RowHeight", 5) — Count=' + rowset.Count);
+
+    if (colset.IsSet) {
+        log('✓ colset.IsSet = true');
+    }
+
+    for (var idx = 0; idx < colset.Count; idx++) {
+        colset.SetItem(idx, 7200);
+    }
+    log('✓ ColWidth 설정: ' + colset.Item(0) + ' (모두 7200)');
+
+    for (idx = 0; idx < rowset.Count; idx++) {
+        rowset.SetItem(idx, colset.Item(0) / 2);
+    }
+    log('✓ RowHeight 설정: ' + rowset.Item(0) + ' (Width의 절반)');
+
+    var result = act.Execute(pset);
+    log(result ? '✓ 표 생성 성공 (5×5, ColWidth=7200)' : '✗ 표 생성 실패', result ? 'ok' : 'err');
+} else {
+    log('✗ pset.IsSet = false', 'err');
+}
+render();`,
+
+  hancom_full_test: `// 통합 테스트 — Wave 1~6 전체 검증
+var pass = 0, fail = 0;
+function check(name, result) {
+  if (result) { pass++; log('✓ ' + name, 'ok'); }
+  else { fail++; log('✗ ' + name, 'err'); }
+}
+
+// 1. 문서 초기화
+HwpCtrl.Clear();
+check('Clear', HwpCtrl.PageCount() >= 1);
+
+// 2. 텍스트 삽입
+check('InsertText', HwpCtrl.InsertText("통합 테스트"));
+
+// 3. 문단 나누기
+check('BreakPara', HwpCtrl.Run("BreakPara"));
+
+// 4. 표 생성
+var tact = HwpCtrl.CreateAction("TableCreate");
+var tset = tact.CreateSet();
+tset.SetItem("Rows", 3);
+tset.SetItem("Cols", 3);
+check('TableCreate', tact.Execute(tset));
+
+// 5. 글자 서식
+check('CharShapeBold', HwpCtrl.Run("CharShapeBold"));
+check('CharShapeItalic', HwpCtrl.Run("CharShapeItalic"));
+
+// 6. 문단 서식
+var pact = HwpCtrl.CreateAction("ParagraphShape");
+var pset = pact.CreateSet();
+pset.SetItem("Align", 3);
+check('ParagraphShape', pact.Execute(pset));
+
+// 7. 커서 이동
+check('MoveLeft', HwpCtrl.Run("MoveLeft"));
+check('MoveRight', HwpCtrl.Run("MoveRight"));
+
+// 8. 용지 설정
+var pgact = HwpCtrl.CreateAction("PageSetup");
+var pgset = pgact.CreateSet();
+pgset.SetItem("TopMargin", 5000);
+check('PageSetup', pgact.Execute(pgset));
+
+// 결과
+log('');
+log('═══════════════════════════');
+log('통과: ' + pass + ' / 실패: ' + fail + ' / 총: ' + (pass+fail), fail === 0 ? 'ok' : 'err');
+log('═══════════════════════════');
+render();`,
+
+  // 표 셀 API 테스트
+  cell_text: `// [표 셀 API] bsbc01 템플릿에 데이터 입력
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+
+// s0:pi=1 표: 4행×4열
+// (0,0)=부서명, (0,1)=값, (0,2)=담당자, (0,3)=값
+// (1,0)=단위사업, (1,1)=값, (1,2)=통계목, (1,3)=값
+// (2,0)=세부사업, (2,1)=값, (2,2)=신규/계속, (2,3)=값
+// (3,0)=자체/보조, (3,1)=값
+
+var pi = 1, cols = 4;
+var data = [
+  [0, 1, "예산정책과"],
+  [0, 3, "홍길동(행정 02-1234-5678)"],
+  [1, 1, "청소년 자립지원사업"],
+  [1, 3, "일반수용비(210-01)"],
+  [2, 1, "자립지원금 지급"],
+  [2, 3, "계속"],
+  [3, 1, "자체"],
+];
+
+var success = 0;
+data.forEach(function(d) {
+  var r = HwpCtrl.SetCellText(pi, d[0], d[1], d[2], cols);
+  log((r ? '✓ ' : '✗ ') + '(' + d[0] + ',' + d[1] + ') = "' + d[2] + '"', r ? 'ok' : 'err');
+  if (r) success++;
+});
+
+log('');
+log('입력 결과: ' + success + '/' + data.length + ' 성공');
+render();`,
+
+  // 표 계산식 테스트
+  cell_formula: `// [표 계산식] SUM, AVG, PRODUCT 테스트
+// 3x4 표 생성 후 숫자 입력 → 계산식 실행
+HwpCtrl.Clear();
+var act = HwpCtrl.CreateAction("TableCreate");
+var set = act.CreateSet();
+set.SetItem("Rows", 4);
+set.SetItem("Cols", 3);
+act.Execute(set);
+log('✓ 3열 4행 표 생성');
+
+// 셀에 숫자 입력 (A1~C3)
+var pi = 1, cols = 3;
+var values = [
+  [0,0,"10"], [0,1,"20"], [0,2,"30"],
+  [1,0,"40"], [1,1,"50"], [1,2,"60"],
+  [2,0,"70"], [2,1,"80"], [2,2,"90"],
+];
+values.forEach(function(v) {
+  HwpCtrl.SetCellText(pi, v[0], v[1], v[2], cols);
+});
+log('✓ A1~C3에 10~90 입력');
+
+// 계산식 실행
+log('');
+log('=== 계산식 테스트 ===');
+
+// SUM(A1:A3) = 10+40+70 = 120 → A4에 기록
+var r1 = HwpCtrl.EvaluateFormula(pi, 3, 0, "=SUM(A1:A3)");
+log('SUM(A1:A3) = ' + r1.result + (r1.result === 120 ? ' ✓' : ' ✗'), r1.result === 120 ? 'ok' : 'err');
+
+// AVG(B1:B3) = (20+50+80)/3 = 50 → B4에 기록
+var r2 = HwpCtrl.EvaluateFormula(pi, 3, 1, "=AVG(B1:B3)");
+log('AVG(B1:B3) = ' + r2.result + (r2.result === 50 ? ' ✓' : ' ✗'), r2.result === 50 ? 'ok' : 'err');
+
+// A1+B2*C3 = 10+50*90 = 4510
+var r3 = HwpCtrl.EvaluateFormula(pi, 3, 2, "=A1+B2*C3");
+log('A1+B2*C3 = ' + r3.result + (r3.result === 4510 ? ' ✓' : ' ✗'), r3.result === 4510 ? 'ok' : 'err');
+
+// SUM(above) — C4 위치에서 위쪽 합계 = 30+60+90 = 180
+var r4 = HwpCtrl.EvaluateFormula(pi, 3, 2, "=SUM(above)", false);
+log('SUM(above) at C4 = ' + r4.result + (r4.result === 180 ? ' ✓' : ' ✗'), r4.result === 180 ? 'ok' : 'err');
+
+// PRODUCT(A1,B1) = 10*20 = 200
+var r5 = HwpCtrl.EvaluateFormula(pi, 3, 0, "=PRODUCT(A1,B1)", false);
+log('PRODUCT(A1,B1) = ' + r5.result + (r5.result === 200 ? ' ✓' : ' ✗'), r5.result === 200 ? 'ok' : 'err');
+
+render();`,
+
+  // 셀 필드 바인딩 테스트
+  cell_field_bind: `// [셀 필드] 사업개요 표 데이터 바인딩
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+
+// 7x2 표 (pi=7) 셀 필드명 기반 바인딩
+var data = {
+  bizPurps:     "청소년 자립 역량 강화 및 사회 적응 지원",
+  bizPrdTxt:    "2026. 1. ~ 2026. 12. (계속)",
+  bizScaleTxt:  "대상자 150명",
+  bizCn:        "자립지원금 지급, 취업 교육, 멘토링 등",
+  insttNm:      "시청 복지과 (직접수행)",
+  demandAmtTxt: "500,000천원(국고 250,000 50%, 도비 100,000 20%, 시비 150,000 30%)",
+};
+
+log('=== 사업개요 표 바인딩 ===');
+var success = 0, total = Object.keys(data).length;
+for (var key in data) {
+  var r = HwpCtrl.PutFieldText(key, data[key]);
+  log((r ? '✓ ' : '✗ ') + key + ' = "' + data[key].substring(0, 30) + (data[key].length > 30 ? '...' : '') + '"', r ? 'ok' : 'err');
+  if (r) success++;
+}
+
+log('');
+log('바인딩: ' + success + '/' + total + ' 성공');
+render();`,
+
+  cell_field_full: `// [예산요구서] 전체 필드 바인딩
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+
+// 1. ClickHere 필드 (문단 레벨)
+var headerData = {
+  mbizNm:      "청소년 자립지원사업",
+  newCtnuTxt:  "계속",
+  chargerNm:   "홍길동",
+  telno:       "02-1234-5678",
+  sFisYear:    "2026",
+};
+
+// 2. 셀 필드 (사업개요 표)
+var bizData = {
+  bizPurps:     "청소년 자립 역량 강화",
+  bizPrdTxt:    "2026.01 ~ 2026.12",
+  bizScaleTxt:  "대상자 150명",
+  bizCn:        "자립지원금 지급, 취업 교육",
+  insttNm:      "시청 복지과",
+  demandAmtTxt: "500,000천원(국고 250,000 50%)",
+};
+
+// 3. 추가 셀 필드
+var extraData = {
+  deptNmTxt:       "예산정책과",
+  ubizNm:          "청소년 복지",
+  teMngMokNmTxt:   "일반수용비(210-01)",
+  dbizNm:          "자립지원금 지급사업",
+  ownSubTxt:       "자체",
+  compGround:      "청소년복지지원법 제31조",
+};
+
+log('=== 예산요구서 전체 바인딩 ===');
+var pass = 0, fail = 0;
+
+function bind(label, obj) {
+  log('');
+  log('── ' + label + ' ──');
+  for (var key in obj) {
+    var r = HwpCtrl.PutFieldText(key, obj[key]);
+    log((r ? '✓ ' : '✗ ') + key, r ? 'ok' : 'err');
+    if (r) pass++; else fail++;
+  }
+}
+
+bind('헤더 필드', headerData);
+bind('사업개요', bizData);
+bind('추가 정보', extraData);
+
+log('');
+log('═══════════════════════════');
+log('통과: ' + pass + ' / 실패: ' + fail + ' / 총: ' + (pass+fail), fail === 0 ? 'ok' : 'err');
+log('═══════════════════════════');
+render();`,
+
+  // Field API 테스트
+  field_list: `// [Field API] 템플릿 로드 → 필드 목록 조회
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+var fields = HwpCtrl.GetFieldList();
+log('필드 수: ' + fields.length);
+fields.forEach(function(f) {
+  log('  - ' + f.name + ' (type=' + f.fieldType + ', value="' + f.value + '")');
+});
+if (fields.length === 0) {
+  log('※ 필드가 없습니다.', 'warn');
+}
+render();`,
+
+  field_put_get: `// [Field API] 템플릿 로드 → 필드 값 설정/조회
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+var fields = HwpCtrl.GetFieldList();
+log('필드 수: ' + fields.length);
+
+if (fields.length > 0) {
+  var name = fields[0].name;
+  log('첫 번째 필드: ' + name);
+
+  var r1 = HwpCtrl.PutFieldText(name, "테스트 값 입력");
+  log(r1 ? '✓ PutFieldText 성공' : '✗ PutFieldText 실패', r1 ? 'ok' : 'err');
+
+  var val = HwpCtrl.GetFieldText(name);
+  log('GetFieldText 결과: "' + val + '"');
+  log(val === "테스트 값 입력" ? '✓ 값 일치' : '✗ 값 불일치', val === "테스트 값 입력" ? 'ok' : 'err');
+} else {
+  log('※ 필드가 없습니다.', 'warn');
+}
+render();`,
+
+  field_template: `// [Field API] 템플릿 데이터 바인딩
+await loadHwpFromUrl('/samples/bsbc01_10_000.hwp');
+var fields = HwpCtrl.GetFieldList();
+log('총 필드 수: ' + fields.length);
+
+// 데이터 바인딩 (실제 필드명에 매핑)
+var data = {
+  mbizNm: "청소년 자립지원사업",
+  newCtnuTxt: "계속",
+  chargerNm: "홍길동",
+  telno: "02-1234-5678",
+  sFisYear: "2026"
+};
+
+var success = 0;
+for (var key in data) {
+  var r = HwpCtrl.PutFieldText(key, data[key]);
+  log((r ? '✓ ' : '✗ ') + key + ' = "' + data[key] + '"', r ? 'ok' : 'err');
+  if (r) success++;
+}
+
+log('');
+log('바인딩 결과: ' + success + '/' + Object.keys(data).length + ' 성공');
+
+// 검증: 값이 실제로 저장되었는지 확인
+log('');
+log('=== 검증 ===');
+for (var key in data) {
+  var val = HwpCtrl.GetFieldText(key);
+  var match = val === data[key];
+  log((match ? '✓ ' : '✗ ') + key + ': "' + val + '"', match ? 'ok' : 'err');
+}
+log('');
+log('에디터에 반영 중...');
+render();`,
+};
+
+window.loadTestCase = function(name) {
+  if (!name) return;
+  codeEl.value = TEST_CASES[name] || '// 테스트 케이스 없음';
+};
+
+/** HWP 파일 로드 (로컬 파일 선택) */
+window.loadHwpFile = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function() {
+    const bytes = new Uint8Array(reader.result);
+    try {
+      const ok = HwpCtrl.Open(bytes);
+      log(ok ? '✓ HWP 로드 성공: ' + file.name : '✗ HWP 로드 실패', ok ? 'ok' : 'err');
+      if (ok) render();
+    } catch (e) {
+      log('✗ HWP 로드 오류: ' + e.message, 'err');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  input.value = ''; // 같은 파일 재선택 허용
+};
+
+/** URL에서 HWP 로드 (base64/binary) — 한컴 호환 */
+window.loadHwpFromUrl = async function(url, format, callback) {
+  try {
+    log('HWP 다운로드: ' + url);
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const ok = HwpCtrl.Open(bytes);
+    log(ok ? '✓ URL 로드 성공' : '✗ URL 로드 실패', ok ? 'ok' : 'err');
+    if (ok) render();
+    if (callback) callback({ result: ok });
+  } catch (e) {
+    log('✗ URL 로드 실패: ' + e.message, 'err');
+    if (callback) callback({ result: false });
+  }
+};
+
+initialize();
+</script>
+</body>
+</html>
