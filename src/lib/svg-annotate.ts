@@ -52,45 +52,10 @@ function injectAttrs(svg: string, chars: CharEl[], tagged: Map<number, string>):
   return out;
 }
 
-/** 라벨 문자 시퀀스를 찾아 data-kd-label 부착한 SVG 반환 */
-export function annotateLabels(svg: string, labels: string[]): string {
-  const chars = collectChars(svg);
-
-  // 라벨별 매칭 — 문서 순서상 인접 + 같은 y + x 증가
-  const tagged = new Map<number, string>(); // char index → label
-  for (const label of labels) {
-    const seq = [...label.replace(/\s/g, "")];
-    if (seq.length === 0) continue;
-    for (let i = 0; i < chars.length; i++) {
-      if (chars[i].ch !== seq[0]) continue;
-      let ok = true;
-      let prev = chars[i];
-      const hit = [i];
-      for (let k = 1; k < seq.length; k++) {
-        const next = chars[i + k];
-        if (!next || next.ch !== seq[k] || Math.abs(next.y - prev.y) > 1 || next.x <= prev.x) {
-          ok = false;
-          break;
-        }
-        hit.push(i + k);
-        prev = next;
-      }
-      if (ok) {
-        for (const idx of hit) {
-          if (!tagged.has(idx)) tagged.set(idx, `data-kd-label="${escapeAttr(label)}"`);
-        }
-        // 같은 라벨이 문서에 여러 번 나올 수 있으므로 계속 스캔
-        i += seq.length - 1;
-      }
-    }
-  }
-
-  return injectAttrs(svg, chars, tagged);
-}
-
 /**
- * 한 페이지 SVG에 해당 라벨 문자 시퀀스가 존재하는지 검사 (annotateLabels와 동일 매칭 규칙).
+ * 한 페이지 SVG에 해당 라벨 문자 시퀀스가 존재하는지 검사.
  * 채우기 필드 포커스 시 라벨이 어느 페이지에 있는지 찾아 자동 전환하는 데 쓴다.
+ * (라벨 매칭 규칙: 문서 순서상 인접 + 같은 y(±1px) + x 증가)
  */
 export function svgHasLabel(svg: string, label: string): boolean {
   const seq = [...label.replace(/\s/g, "")];
@@ -177,8 +142,4 @@ export function annotateBlocks(svg: string, items: BlockAnnotation[]): string {
   }
 
   return injectAttrs(svg, chars, tagged);
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }

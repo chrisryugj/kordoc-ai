@@ -18,7 +18,7 @@ import {
 } from "react";
 import {
   initRhwp, openRhwpDocument, b64ToBytes,
-  type RhwpDoc, type HitResult, type CursorRect,
+  type RhwpDoc,
 } from "../lib/rhwp";
 import { annotateBlocks, svgHasLabel, type BlockAnnotation } from "../lib/svg-annotate";
 import type { ImportedFile } from "../types/pipeline";
@@ -79,6 +79,18 @@ export interface PatchOutcome {
   error?: string;
 }
 
+/**
+ * 외부 편집기(StudioEditor iframe 등)와 저장을 연동하는 핸들.
+ * 본문 편집은 studio가 source of truth이므로, 저장 직전 최신 바이트를 회수해
+ * 사이드카 세션에 수렴시킨 뒤 파일로 쓴다(채우기/AI/변환과도 바이트 공유).
+ */
+export interface ExternalEditor {
+  /** 저장할 최신 문서 바이트(base64). 회수 불가 시 null → 기존 세션 바이트로 저장 */
+  exportBytes: () => Promise<string | null>;
+  /** 호스트가 파일 저장을 완료했음을 통지 — 외부 편집기 내부 dirty 해제용 */
+  onSaved: () => void;
+}
+
 type Busy = "" | "patch" | "undo" | "redo" | "save" | "fill";
 
 interface DocumentSessionValue {
@@ -122,21 +134,12 @@ interface DocumentSessionValue {
   reopenSession: (b64: string) => Promise<boolean>;
   /** 현재 문서 바이트(base64) — 변환 등에 편집 세션 현재 상태를 인메모리로 사용 */
   getDocB64: () => string | null;
+  /** 외부 편집기(studio iframe) 저장 연동 핸들 등록/해제 — save가 저장 직전 바이트를 회수 */
+  setExternalEditor: (editor: ExternalEditor | null) => void;
+  /** 외부 편집기의 dirty 변경을 세션에 반영 — 자동저장·저장상태 동기화 */
+  notifyExternalChange: (dirty: boolean) => void;
   /** 라벨이 있는 페이지 번호 반환 (rhwp 미리보기 한정, 없으면 -1) — 채우기 필드 포커스 시 페이지 점프 */
   findLabelPage: (label: string) => number;
-  // ── rhwp 인메모리 편집 (KorDoc Studio Phase R2 — 한/글급 인라인 편집) ──
-  /** rhwp 사용 가능 여부 (WASM 미리보기 인스턴스 존재) */
-  rhwpReady: boolean;
-  /** 페이지 픽셀 좌표 → 문서 논리 위치 (미리보기 클릭) */
-  rhwpHitTest: (page: number, x: number, y: number) => HitResult | null;
-  /** 논리 위치 → 페이지 픽셀 좌표 (커서 그리기) */
-  rhwpCursorRect: (sec: number, para: number, off: number) => CursorRect | null;
-  /** 문단 글자 수 (커서 경계) */
-  rhwpParagraphLength: (sec: number, para: number) => number;
-  /** 커서 위치에 텍스트 삽입 — 성공 시 dirty + 재렌더 */
-  rhwpInsertText: (sec: number, para: number, off: number, text: string) => boolean;
-  /** 텍스트 삭제 — 성공 시 dirty + 재렌더 */
-  rhwpDeleteText: (sec: number, para: number, off: number, count: number) => boolean;
 }
 
 const Ctx = createContext<DocumentSessionValue | null>(null);
@@ -159,7 +162,13 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
   // 세션
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [sessionId, setSessionId] = useState("");
+  // 비동기 저장 흐름에서 클로저 stale을 피하려 ref와 함께 보관(세션 교체 즉시 반영)
+  const [sessionId, setSessionIdState] = useState("");
+  const sessionIdRef = useRef("");
+  const setSessionId = useCallback((id: string) => {
+    sessionIdRef.current = id;
+    setSessionIdState(id);
+  }, []);
   const [blocks, setBlocks] = useState<EditBlockView[]>([]);
   const [caps, setCaps] = useState<BlockCapabilityInfo[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -167,6 +176,12 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
   const [busy, setBusy] = useState<Busy>("");
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  // 외부 편집기(studio iframe) 저장 연동 — 저장 직전 최신 바이트 회수용
+  const externalEditorRef = useRef<ExternalEditor | null>(null);
+  const setExternalEditor = useCallback((editor: ExternalEditor | null) => {
+    externalEditorRef.current = editor;
+  }, []);
 
   // 미리보기
   const docB64Ref = useRef<string | null>(null);
@@ -282,20 +297,36 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
   }, [file.path]);
 
   // 저장 (수동 + 자동)
+  // 본문 편집은 studio(외부 편집기)가 source of truth — 저장 직전 최신 바이트를 회수해
+  // 사이드카 세션을 교체한 뒤 파일로 쓴다(채우기/AI/변환도 같은 바이트를 공유).
   const save = useCallback(async (auto: boolean) => {
-    if (!sessionId) return;
     setBusy("save");
     try {
-      await sidecarCall("edit_save", { session_id: sessionId, output_path: savePath });
+      let sid = sessionIdRef.current;
+      const ext = externalEditorRef.current;
+      const latest = ext ? await ext.exportBytes().catch(() => null) : null;
+      if (latest) {
+        const res = await sidecarCall("edit_open", { doc_b64: latest }) as EditStateRes;
+        if (res.success) {
+          const prev = sid;
+          sid = res.session_id;
+          setSessionId(sid);
+          if (prev && prev !== sid) void sidecarCall("edit_close", { session_id: prev }).catch(() => {});
+          await applyState(res);
+        }
+      }
+      if (!sid) return;
+      await sidecarCall("edit_save", { session_id: sid, output_path: savePath });
       setDirty(false);
       setSavedAt(new Date());
+      ext?.onSaved();
       if (!auto) showToast(`저장 완료: ${savePath}`, "success");
     } catch (e) {
       showToast(`저장 실패: ${e}`, "error");
     } finally {
       setBusy("");
     }
-  }, [sessionId, savePath, sidecarCall, showToast]);
+  }, [savePath, sidecarCall, showToast, applyState, setSessionId]);
 
   // 변경 후 30초 뒤 자동저장 — dirty가 유지되는 동안 1회
   useEffect(() => {
@@ -344,6 +375,9 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
 
   const getDocB64 = useCallback(() => docB64Ref.current, []);
 
+  // 외부 편집기(studio)의 dirty 변경 반영 — true면 자동저장 타이머 가동
+  const notifyExternalChange = useCallback((d: boolean) => setDirty(d), []);
+
   // 라벨이 있는 페이지 탐색 — rhwp 미리보기 인스턴스로 페이지별 SVG를 훑는다(동기).
   // 사이드카 폴백(rhwp 없음)에선 페이지 위치를 알 수 없어 -1.
   const findLabelPage = useCallback((label: string): number => {
@@ -356,37 +390,6 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
     }
     return -1;
   }, [pageCount]);
-
-  // ── rhwp 인메모리 편집 (Phase R2) ──
-  const rhwpReady = useMemo(() => rhwpDocRef.current !== null, [docVersion, wasmOk]);
-
-  const rhwpHitTest = useCallback(
-    (page: number, x: number, y: number): HitResult | null => rhwpDocRef.current?.hitTest(page, x, y) ?? null, []);
-  const rhwpCursorRect = useCallback(
-    (sec: number, para: number, off: number): CursorRect | null => rhwpDocRef.current?.getCursorRect(sec, para, off) ?? null, []);
-  const rhwpParagraphLength = useCallback(
-    (sec: number, para: number): number => rhwpDocRef.current?.getParagraphLength(sec, para) ?? 0, []);
-
-  // 편집 공통 — rhwp 인스턴스 직접 변경 후 dirty/페이지수/재렌더 신호
-  const rhwpApplyEdit = useCallback((fn: (doc: RhwpDoc) => boolean): boolean => {
-    const doc = rhwpDocRef.current;
-    if (!doc) return false;
-    let ok = false;
-    try { ok = fn(doc); } catch (e) { console.warn("[rhwp edit] 실패:", e); return false; }
-    if (ok) {
-      setDirty(true);
-      setPageCount(doc.refreshPageCount());
-      setDocVersion((v) => v + 1);
-    }
-    return ok;
-  }, []);
-
-  const rhwpInsertText = useCallback(
-    (sec: number, para: number, off: number, text: string): boolean =>
-      rhwpApplyEdit((d) => d.insertText(sec, para, off, text)), [rhwpApplyEdit]);
-  const rhwpDeleteText = useCallback(
-    (sec: number, para: number, off: number, count: number): boolean =>
-      rhwpApplyEdit((d) => d.deleteText(sec, para, off, count)), [rhwpApplyEdit]);
 
   // 채움 결과 바이트로 편집 세션 재오픈 — 채우기↔편집 일관성(플랜 결정 2)
   const reopenSession = useCallback(async (b64: string): Promise<boolean> => {
@@ -414,7 +417,7 @@ export function DocumentSessionProvider({ file, sidecarCall, outputDir, showToas
     pageCount, page, setPage, wasmOk, docVersion, showLocks, setShowLocks,
     annotations, editableCount,
     renderPage, patch, undo, redo, save, reopenSession, getDocB64, findLabelPage,
-    rhwpReady, rhwpHitTest, rhwpCursorRect, rhwpParagraphLength, rhwpInsertText, rhwpDeleteText,
+    setExternalEditor, notifyExternalChange,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

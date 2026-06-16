@@ -451,6 +451,10 @@ function setupEventListeners(): void {
 
   eventBus.on('document-dirty-changed', () => {
     eventBus.emit('command-state-changed');
+    // 임베드(iframe) 호스트에 dirty 변경 통지 — 부모 자동저장·저장상태 동기화
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'rhwp-dirty', dirty: documentState.isDirty() }, '*');
+    }
   });
 
   // 필드 정보 표시
@@ -930,6 +934,13 @@ window.addEventListener('message', async (e) => {
       case 'exportHwpx':
         await initPromise;
         reply(Array.from(wasm.exportHwpx()));
+        break;
+      case 'markSaved':
+        // 임베드 호스트가 exportHwpx 바이트를 파일로 저장 완료 — studio 내부 dirty 해제.
+        // (저장 후 studio가 계속 dirty=true면 다음 편집의 false→true 전이가 누락돼
+        //  호스트 자동저장이 멈추는 문제를 방지)
+        documentState.markClean('embed-host-save');
+        reply(true);
         break;
       case 'exportHwpVerify':
         await initPromise;
