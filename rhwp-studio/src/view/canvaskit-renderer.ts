@@ -89,6 +89,7 @@ export class CanvasKitLayerRenderer {
     private readonly renderMode: CanvasKitRenderMode,
     private readonly surfaceRequest: CanvasKitSurfaceRequest,
     private readonly defaultTypeface: Typeface | null,
+    private readonly spuaTypeface: Typeface | null,
   ) {}
 
   static async create(
@@ -109,6 +110,7 @@ export class CanvasKitLayerRenderer {
     // "글자가 안 나오는" 현상이 나타날 수 있다. 이는 P16 foundation 의 알려진
     // non-goal 이며, 동일 컨트리뷰터의 후속 폰트 단계에서 다룬다 (Refs #536).
     let defaultTypeface: Typeface | null = null;
+    let spuaTypeface: Typeface | null = null;
     try {
       const response = await fetch('fonts/NotoSansKR-Regular.woff2');
       if (response.ok) {
@@ -119,7 +121,21 @@ export class CanvasKitLayerRenderer {
     } catch (error) {
       console.warn('[CanvasKitLayerRenderer] 기본 CJK 폰트 로딩 실패:', error);
     }
-    return new CanvasKitLayerRenderer(canvasKit, renderMode, resolvedSurfaceRequest, defaultTypeface);
+    // 한컴 글머리표·기호(SPUA-A, U+F0000~)는 NotoSansKR 에 글리프가 없어 .notdef 로
+    // 깨진다. CanvasKit 은 CSS @font-face(document.fonts)를 참조하지 않으므로(그 경로는
+    // font-loader.ts 의 Canvas2D 전용), SPUA-A 글리프를 담은 HCRBatang-SPUA 를 별도
+    // typeface 로 직접 로드해 글머리표 run 렌더에 쓴다.
+    try {
+      const response = await fetch('fonts/HCRBatang-SPUA.woff2');
+      if (response.ok) {
+        const bytes = await response.arrayBuffer();
+        spuaTypeface = canvasKit.Typeface.MakeFreeTypeFaceFromData(bytes)
+          ?? canvasKit.Typeface.MakeTypefaceFromData(bytes);
+      }
+    } catch (error) {
+      console.warn('[CanvasKitLayerRenderer] SPUA-A 글머리표 폰트 로딩 실패:', error);
+    }
+    return new CanvasKitLayerRenderer(canvasKit, renderMode, resolvedSurfaceRequest, defaultTypeface, spuaTypeface);
   }
 
   renderPage(tree: PageLayerTree, targetCanvas: HTMLCanvasElement, scale: number, pageInfo?: PageInfo): void {
@@ -204,6 +220,7 @@ export class CanvasKitLayerRenderer {
     }
     this.imageCache.clear();
     this.defaultTypeface?.delete();
+    this.spuaTypeface?.delete();
   }
 
   private makeSurface(targetCanvas: HTMLCanvasElement): SkSurface {
@@ -797,6 +814,19 @@ export class CanvasKitLayerRenderer {
       && bounds.height > 0;
   }
 
+  /**
+   * run 텍스트에 맞는 typeface 를 고른다. run 전체가 SPUA-A 글머리표·기호
+   * (U+F0000~, 공백 허용)면 HCRBatang-SPUA 보강 typeface 를, 아니면 기본 CJK
+   * typeface 를 쓴다. HCRBatang-SPUA 는 SPUA-A subset 이라 일반 한글이 없으므로
+   * 혼합 run 에는 적용하지 않는다(그 run 의 SPUA 글리프만 .notdef 로 남음).
+   */
+  private pickTypeface(text: string): Typeface | null {
+    if (this.spuaTypeface && /^[\u{F0000}-\u{FFFFD}\s]+$/u.test(text)) {
+      return this.spuaTypeface;
+    }
+    return this.defaultTypeface;
+  }
+
   private renderTextRun(canvas: SkCanvas, op: LayerTextRunOp): void {
     if (!op.text) return;
     const style = op.style ?? {};
@@ -807,12 +837,14 @@ export class CanvasKitLayerRenderer {
     // 글리프를 만들 수 없어 조용히 skip 하고 진단(unsupportedOps)에만 남긴다.
     // Canvas2D 로 덮지 않는 것이 P16 본질이다. fontFamily 별 typeface 매핑과
     // 폴백 체인은 동일 컨트리뷰터의 후속 폰트 단계에서 보강한다 (Refs #536).
-    if (!this.defaultTypeface && /[^\u0000-\u00ff]/.test(op.text)) {
+    // 단, 한컴 글머리표·기호(SPUA-A) run 만은 전용 typeface 로 보강한다.
+    const typeface = this.pickTypeface(op.text);
+    if (!typeface && /[^\u0000-\u00ff]/.test(op.text)) {
       this.unsupportedOps.add('textRunFont');
       paint.delete();
       return;
     }
-    const font = new this.canvasKit.Font(this.defaultTypeface, fontSize);
+    const font = new this.canvasKit.Font(typeface, fontSize);
     const x = op.bbox.x;
     const y = op.baseline ?? op.bbox.y + fontSize;
     const rotation = op.rotation ?? 0;
