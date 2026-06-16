@@ -1,4 +1,4 @@
-# KorDoc AI
+# KorDoc Studio
 
 **다 파싱해버리겠다. AI도 붙여버리겠다.**
 

@@ -92,7 +92,7 @@ pub fn run() {
             let tray_menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
 
             let _ = TrayIconBuilder::with_id("kordoc-ai-tray")
-                .tooltip("KorDoc AI")
+                .tooltip("KorDoc Studio")
                 .icon(app.default_window_icon().cloned().ok_or("default icon 없음")?)
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
@@ -148,7 +148,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building KorDoc AI")
+        .expect("error while building KorDoc Studio")
         .run(move |app, event| {
             match event {
                 tauri::RunEvent::Exit => {

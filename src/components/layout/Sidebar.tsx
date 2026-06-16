@@ -50,11 +50,11 @@ export const Sidebar = memo(function Sidebar({ active, onNavigate, sidecarStatus
     >
       {/* Logo */}
       <div className={`sidebar-header flex items-center gap-2${collapsed ? " justify-center px-2" : " px-4"}`} style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
-        <img src="/logo.png" alt="KorDoc AI" className="w-8 h-8 rounded-lg shrink-0 object-cover" />
+        <img src="/logo.png" alt="KorDoc Studio" className="w-8 h-8 rounded-lg shrink-0 object-cover" />
         {!collapsed && (
           <div style={{ lineHeight: 1.2 }} className="min-w-0">
             <h1 className="font-bold text-display truncate" style={{ color: "var(--color-sidebar-text)", letterSpacing: "-0.02em", fontSize: "1.0625rem", margin: 0 }}>
-              KorDoc AI
+              KorDoc Studio
             </h1>
             <span className="truncate" style={{ color: "var(--color-sidebar-muted)", fontSize: "0.75rem", display: "block", marginTop: "1px" }}>다 파싱해버리겠다.</span>
           </div>
