@@ -25,6 +25,7 @@ import { aiExtractFields } from '../../core/form/ai-extract.js';
 import { parse } from 'kordoc';
 import { renderPreview } from '../../core/preview/index.js';
 import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '../../core/edit/index.js';
+import { examGenerate, type ExamQuestionType } from '../../core/exam/index.js';
 import type { BlockEdit } from 'kordoc';
 
 /** 모든 메서드를 라우터에 등록 */
@@ -379,6 +380,30 @@ export function registerAllMethods(router: RpcRouter): void {
     signal.throwIfAborted();
     const fields = await aiExtractFields(markdown, labels, signal);
     return { success: true, fields };
+  });
+
+  // 27-c. exam_generate — 시험지 문항 AI 생성 (W4). fill/text/document 3모드, 참고자료+과목범위 입력
+  router.register('exam_generate', async (params, signal) => {
+    const mode = params.mode as 'fill' | 'text' | 'document' | undefined;
+    if (mode !== 'fill' && mode !== 'text' && mode !== 'document') {
+      throw new Error('mode는 fill|text|document 중 하나여야 합니다');
+    }
+    const reference_path = params.reference_path ? validatePath(params.reference_path as string) : undefined;
+    const output_path = params.output_path ? validatePath(params.output_path as string) : undefined;
+    signal.throwIfAborted();
+    return examGenerate({
+      mode,
+      reference_text: params.reference_text as string | undefined,
+      reference_path,
+      subject: params.subject as string | undefined,
+      scope: params.scope as string | undefined,
+      difficulty: params.difficulty as 'easy' | 'medium' | 'hard' | undefined,
+      count: params.count as number | undefined,
+      types: params.types as ExamQuestionType[] | undefined,
+      include_answers: params.include_answers as boolean | undefined,
+      labels: params.labels as string[] | undefined,
+      output_path,
+    }, signal);
   });
 
   // 28. patch_blocks — 블록 단위 증분 패치 (kordoc v3.1 patchHwpxBlocks)

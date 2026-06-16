@@ -13,6 +13,8 @@ const HEAVY_METHODS = new Set([
   'form_schema', 'form_fill', 'patch_blocks',
   // Phase R — form_infer는 참고자료 파싱 + Gemini 호출이라 HEAVY
   'form_infer',
+  // W4 — exam_generate는 참고자료 파싱 + Gemini + (document 모드)HWPX 생성이라 HEAVY
+  'exam_generate',
   // Phase C — edit_open만 HEAVY (전체 파싱 1회). patch/undo/redo는 에디터
   // 상호작용 경로라 배치 변환 큐에 막히면 안 되고, 세션 내부에서 직렬화됨.
   'edit_open',

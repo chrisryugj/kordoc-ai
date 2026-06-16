@@ -53,6 +53,8 @@ const ALLOWED_METHODS: &[&str] = &[
     "edit_close",
     // KorDoc Studio Phase R: AI 필드 추론 (참고자료 → 채우기 제안)
     "form_infer",
+    // KorDoc Studio W4: 시험지 문항 AI 생성 (fill/text/document)
+    "exam_generate",
 ];
 
 #[tauri::command]
