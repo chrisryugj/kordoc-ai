@@ -23,7 +23,7 @@ jobs:
         run: |
           # 로컬 개발은 link:../../kordoc (모노레포 인접 체크아웃)이지만
           # CI는 npm 배포본으로 치환 — 실제 kordoc 함수로 E2E 통합 검증한다.
-          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^3.1.1"|' package.json
+          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^4.2.9"|' package.json
           npm install
           git checkout package.json
 

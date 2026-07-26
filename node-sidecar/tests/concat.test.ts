@@ -676,11 +676,14 @@ describe('XLSX dxfId(조건부 서식) 리매핑', () => {
 
 describe('XLSX 실제 파일 스타일 병합', () => {
   const fixturesDir = resolve(process.cwd(), '../../kordoc/tests/fixtures/real');
-  const hasFixtures = existsSync(fixturesDir);
+  // 디렉터리 존재만 보면 코퍼스를 일부만 받은 머신에서 skip 이 아니라 **실패**한다
+  // ("수합할 유효한 XLSX 파일이 없습니다"). 실제로 쓰는 파일까지 확인해야 가드가 산다.
+  const requiredFixtures = ['공공체육시설.xlsx', '서식민원처리실적.xlsx'];
+  const hasFixtures =
+    existsSync(fixturesDir) && requiredFixtures.every((f) => existsSync(join(fixturesDir, f)));
 
   it.skipIf(!hasFixtures)('공공체육시설 + 서식민원처리실적 병합 — 셀 스타일 유효성', async () => {
-    const file1 = join(fixturesDir, '공공체육시설.xlsx');
-    const file2 = join(fixturesDir, '서식민원처리실적.xlsx');
+    const [file1, file2] = requiredFixtures.map((f) => join(fixturesDir, f));
     const out = join(tmpDir, 'merged_real.xlsx');
 
     const result = await concatXlsx({ files: [file1, file2], output_path: out, mode: 'native' }, signal);
