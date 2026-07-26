@@ -37,8 +37,11 @@ jobs:
       - name: Build Node.js sidecar
         shell: bash
         run: |
+          # 버전은 레포 루트 .kordoc-version 하나만 본다 — ci.yml 과 같은 값을 쓴다.
+          KORDOC_VERSION="$(tr -d '[:space:]' < .kordoc-version)"
+          echo "번들 kordoc: ^$KORDOC_VERSION"
           cd node-sidecar
-          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^4.2.9"|' package.json
+          sed -i "s|\"kordoc\": \"link:../../kordoc\"|\"kordoc\": \"^$KORDOC_VERSION\"|" package.json
           rm -f pnpm-lock.yaml
           npm install
           npx tsc

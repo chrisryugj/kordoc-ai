@@ -64,6 +64,19 @@ React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
 | 유틸리티 | `ping`, `get_settings`, `update_settings` | — | 로컬 |
 | 파일 관리 | `open_folder`, `open_file`, `list_files` | explorer/fs | 로컬 |
 
+## kordoc 버전 핀
+
+**정본은 레포 루트 `.kordoc-version` 파일 하나.** CI·릴리스 워크플로가 이 값을 읽어
+`node-sidecar/package.json` 의 `link:../../kordoc` 를 `^<버전>` 으로 치환한다.
+
+- 로컬 개발은 `link:` 그대로 — 형제 체크아웃(`../kordoc`)을 자동으로 쓴다
+- **kordoc 을 올릴 땐 `.kordoc-version` 만 고친다.** 워크플로에 버전을 직접 쓰지 말 것
+- CI 가 매 실행마다 핀과 npm 최신을 대조해 뒤처지면 경고 어노테이션을 남긴다
+
+> v1.5.0 이전엔 이 값이 세 군데(로컬 link·`ci.yml` `^3.1.1`·`release.yml` `^2.2.1`)로
+> 흩어져 있어서, **CI 는 3.x 로 통과 도장을 찍고 배포본엔 2.x 가 실려 나갔다.**
+> kordoc 메이저 두 번(4.0 공문서 생산로직, 4.2 내장 OCR)이 앱에 반영되지 않았다.
+
 ## 빌드
 
 ```bash

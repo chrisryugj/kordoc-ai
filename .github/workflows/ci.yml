@@ -23,9 +23,26 @@ jobs:
         run: |
           # 로컬 개발은 link:../../kordoc (모노레포 인접 체크아웃)이지만
           # CI는 npm 배포본으로 치환 — 실제 kordoc 함수로 E2E 통합 검증한다.
-          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^4.2.9"|' package.json
+          # 버전은 레포 루트 .kordoc-version 하나만 본다 (ci·release 가 어긋나면
+          # CI 통과 도장과 배포본이 다른 kordoc 을 쓰게 된다 — v1.5.0 이전 실제 사고).
+          KORDOC_VERSION="$(tr -d '[:space:]' < ../.kordoc-version)"
+          echo "kordoc 핀: ^$KORDOC_VERSION"
+          sed -i "s|\"kordoc\": \"link:../../kordoc\"|\"kordoc\": \"^$KORDOC_VERSION\"|" package.json
           npm install
           git checkout package.json
+
+      # 핀이 npm 최신보다 뒤처지면 알린다. 실패시키지는 않는다 — kordoc 은 자주
+      # 배포돼서(주 단위) 실패로 걸면 무관한 PR 이 계속 막힌다. 알림만으로 충분.
+      - name: kordoc 핀 뒤처짐 감지
+        shell: bash
+        run: |
+          PINNED="$(tr -d '[:space:]' < .kordoc-version)"
+          LATEST="$(npm view kordoc version 2>/dev/null || echo "$PINNED")"
+          if [ "$PINNED" != "$LATEST" ]; then
+            echo "::warning::kordoc 핀 $PINNED < npm 최신 $LATEST — .kordoc-version 갱신 검토"
+          else
+            echo "kordoc 핀이 최신($LATEST)과 일치"
+          fi
 
       - name: Run tests
         working-directory: node-sidecar
