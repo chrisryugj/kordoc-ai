@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           cd node-sidecar
-          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^2.2.1"|' package.json
+          sed -i 's|"kordoc": "link:../../kordoc"|"kordoc": "^4.2.9"|' package.json
           rm -f pnpm-lock.yaml
           npm install
           npx tsc
