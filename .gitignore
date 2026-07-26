@@ -57,3 +57,4 @@ tests/test_logs/
 # OS
 Thumbs.db
 .DS_Store
+node-sidecar/package-lock.json
