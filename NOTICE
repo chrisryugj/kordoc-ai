@@ -1,0 +1,21 @@
+kordoc-ai
+
+이 저장소·배포본에는 아래 제3자 저작물이 포함된다. 각 저작물은 원 저작권자에게
+권리가 있으며 각자의 라이선스를 따른다. 본 제품의 MIT 라이선스는 이들에 적용되지 않는다.
+
+---
+
+Pretendard
+https://github.com/orioncactus/pretendard
+Copyright (c) 2021 Kil Hyung-jin
+SIL Open Font License 1.1 — 전문: assets/fonts/OFL.txt, public/fonts/OFL.txt
+포함 위치: assets/fonts/Pretendard-{Regular,Bold,SemiBold}.otf
+           public/fonts/Pretendard-{Regular,Bold,SemiBold}.otf
+
+---
+
+kordoc
+https://github.com/chrisryugj/kordoc
+MIT License
+문서 변환 사이드카로 사용한다. kordoc 이 포함하는 제3자 고지는 해당 패키지의
+NOTICE·THIRD_PARTY 를 따른다.

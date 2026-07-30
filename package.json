@@ -2,6 +2,7 @@
   "name": "kordoc-ai",
   "version": "1.5.0",
   "description": "한국 문서 변환 AI 데스크톱 도구",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

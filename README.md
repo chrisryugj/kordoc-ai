@@ -182,3 +182,6 @@ cd node-sidecar && pnpm test    # vitest 45개
 ## 라이선스
 
 [MIT](./LICENSE)
+
+포함된 제3자 저작물(Pretendard 폰트 등)의 저작권·라이선스 고지는
+[NOTICE](./NOTICE) 참조. 위 MIT 조건은 제3자 저작물에는 적용되지 않는다.
