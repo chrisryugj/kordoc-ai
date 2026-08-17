@@ -47,6 +47,14 @@ jobs:
           npx tsc
           node esbuild.config.mjs
 
+      # MSI에는 node_modules가 안 들어간다. 번들이 런타임 require를 하나라도 남기면
+      # 사용자 PC에서만 "엔진 오류"가 나고 여기서는 안 보인다 (v1.5.0 cfb 사고).
+      # 깨진 번들이 MSI로 넘어가기 전에 여기서 끊는다.
+      - name: Sidecar 번들 스모크 (엔진 기동 확인)
+        shell: bash
+        working-directory: node-sidecar
+        run: node scripts/smoke-bundle.mjs
+
       - name: Build Tauri MSI
         run: pnpm tauri build
 

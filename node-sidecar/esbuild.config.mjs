@@ -4,39 +4,46 @@ import { createRequire } from 'module';
 import { dirname, join } from 'path';
 
 /**
- * kordoc 내부에서 createRequire()로 동적 require하는 패키지들을
+ * kordoc 내부에서 createRequire()로 동적 require하는 패키지를
  * esbuild가 번들에 포함시키도록 강제하는 플러그인.
  *
- * kordoc ESM 빌드에서 createRequire(import.meta.url) → require2("cfb") 패턴 사용.
- * esbuild는 createRequire로 만든 require를 정적 분석 못 해서
- * 프로덕션에서 "Cannot find module 'cfb'" 발생.
+ * kordoc ESM 빌드는 createRequire(import.meta.url) → <req>("cfb") 패턴을 쓴다.
+ * esbuild는 createRequire로 만든 require를 정적 분석하지 못해 런타임 require로
+ * 남기는데, MSI에는 node_modules가 없어서 "Cannot find module 'cfb'" → 엔진 오류가 난다.
  *
- * 해결: kordoc 소스 로드 시 createRequire 패턴을 정적 import로 치환.
+ * ⚠️ 이름을 짚어 치환하지 말 것. kordoc dist는 같은 패턴을 파일마다 다른 이름으로 낸다
+ * (require2("cfb")와 require3("cfb")). v1.5.0은 앞의 것만 치환하고 뒤의 것을 놓쳐서
+ * 깨진 번들이 그대로 배포됐다 — 개발 환경엔 node_modules가 있어 아무도 못 봤다.
+ * 그래서 이름을 보지 않고 "무엇이든 ("cfb")를 호출하는 자리"를 전부 정적 바인딩으로 바꾼다.
+ * createRequire 선언 자체는 건드리지 않는다 — 안 쓰이면 그만이고, 다른 모듈을 로드하는
+ * 데 쓰이고 있을 수도 있어서다.
  */
+const CFB_CALL = /\b[A-Za-z_$][\w$]*\(\s*["']cfb["']\s*\)/g;
+const CFB_BINDING = '__kordocCfb';
+
+/**
+ * 출력 검사용 — CFB_CALL 과 **일부러 따로** 둔다.
+ * 검사가 치환과 같은 정규식을 쓰면, 치환이 좁아질 때 검사도 같이 눈이 멀어
+ * "고칠 것 없음"으로 통과시킨다. 놓친 걸 잡으라고 있는 관문이 놓친 것과 함께
+ * 실명하면 관문이 아니다. 그러니 여기는 넓게, 독립적으로 잡는다.
+ */
+const CFB_LEAK = /[\w$]+\(\s*["']cfb["']\s*\)/g;
+
+let cfbPatched = 0;
+
 const dynamicRequirePlugin = {
   name: 'dynamic-require-resolver',
   setup(build) {
-    // kordoc의 chunk/index 파일에서 createRequire 패턴을 정적 require로 교체
     build.onLoad({ filter: /kordoc[\\/]dist[\\/].*\.js$/ }, async (args) => {
-      let contents = readFileSync(args.path, 'utf-8');
+      const source = readFileSync(args.path, 'utf-8');
+      const hits = source.match(CFB_CALL);
+      if (!hits) return null;
 
-      // require2 = createRequire(...); require2("cfb") → import cfb from "cfb" 효과
-      // CJS 번들 출력이므로 require("cfb")로 교체하면 esbuild가 인라인함
-      if (contents.includes('require2("cfb")')) {
-        contents = contents
-          // createRequire import 제거
-          .replace(/import\s*\{\s*createRequire\s*\}\s*from\s*"module";\s*/, '')
-          // require2 생성 제거
-          .replace(/var\s+require2\s*=\s*createRequire\([^)]+\);\s*/, '')
-          // require2("cfb") → (await import("cfb")).default || (await import("cfb"))
-          // 대신 정적 import 추가 + 변수 참조로 교체
-          .replace(/var\s+CFB\s*=\s*require2\("cfb"\);/, '// cfb는 esbuild가 정적 번들링');
-
-        // 파일 맨 앞에 정적 import 추가 — esbuild가 번들에 포함시킴
-        contents = `import CFB from "cfb";\n` + contents;
-      }
-
-      return { contents, loader: 'js' };
+      cfbPatched += hits.length;
+      return {
+        contents: `import ${CFB_BINDING} from "cfb";\n` + source.replace(CFB_CALL, CFB_BINDING),
+        loader: 'js',
+      };
     });
   },
 };
@@ -71,6 +78,24 @@ await build({
   sourcemap: true,
   logLevel: 'info',
 });
+
+// cfb 치환이 한 자리도 안 걸렸거나 번들에 여전히 동적 호출이 남았으면 여기서 끊는다.
+// 이걸 놓치면 빌드는 초록인데 사용자 PC에서만 엔진이 죽는다 (v1.5.0 실제 사고).
+if (cfbPatched === 0) {
+  throw new Error(
+    '[esbuild] kordoc dist에서 cfb 동적 require를 한 자리도 못 찾았다. ' +
+      'kordoc이 패턴을 바꿨을 수 있으니 dist를 열어 확인하고 CFB_CALL을 고쳐라.',
+  );
+}
+const bundled = readFileSync('dist/bundle.cjs', 'utf-8');
+const leaked = bundled.match(CFB_LEAK);
+if (leaked) {
+  throw new Error(
+    `[esbuild] 번들에 cfb 동적 호출이 ${leaked.length}자리 남았다 (${[...new Set(leaked)].join(', ')}). ` +
+      'MSI에는 node_modules가 없어 이대로면 엔진 오류가 난다.',
+  );
+}
+console.log(`[esbuild] cfb 동적 require ${cfbPatched}자리를 정적 번들로 치환`);
 
 // @rhwp/core 패키지(rhwp.js + rhwp_bg.wasm)를 번들 옆 node_modules로 복사 —
 // Tauri resources가 dist/만 가져가므로 WASM이 MSI에 함께 패키징되게 한다.

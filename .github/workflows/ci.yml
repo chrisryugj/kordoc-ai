@@ -48,6 +48,21 @@ jobs:
         working-directory: node-sidecar
         run: npx vitest run
 
+      # vitest 는 node_modules 가 옆에 있는 개발 환경에서 돈다 — 번들에 안 들어간
+      # 모듈을 절대 못 잡는다. 사용자 PC와 같은 조건(node_modules 없음)으로 실제
+      # 번들을 띄워봐야 한다. v1.5.0 이 cfb 를 놓친 채 배포된 게 이 구멍 때문이다.
+      - name: Sidecar 번들 스모크 (엔진 기동 확인)
+        shell: bash
+        working-directory: node-sidecar
+        run: |
+          KORDOC_VERSION="$(tr -d '[:space:]' < ../.kordoc-version)"
+          sed -i "s|\"kordoc\": \"link:../../kordoc\"|\"kordoc\": \"^$KORDOC_VERSION\"|" package.json
+          npm install
+          npx tsc
+          node esbuild.config.mjs
+          node scripts/smoke-bundle.mjs
+          git checkout package.json
+
   typescript-check:
     name: TypeScript Check
     runs-on: ubuntu-latest

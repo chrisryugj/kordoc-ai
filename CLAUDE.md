@@ -121,6 +121,25 @@ cd node-sidecar && npx vitest run
 - HTML 테이블 렌더링 지원 (colspan, rowspan, br 등 — kordoc의 복잡한 표 출력 대응)
 - sanitize 스키마: table/thead/tbody/tr/th/td/caption/col/colgroup/br + colspan/rowspan 속성 허용
 
+## 번들 스모크 (릴리스 전 필수 관문)
+
+MSI에는 **node_modules가 들어가지 않는다** (`tauri.conf.json` resources = `dist/` + `config/`).
+그래서 esbuild가 번들에 못 넣고 런타임 require로 남긴 모듈이 하나라도 있으면
+사용자 PC에서만 "엔진 오류"가 난다. 개발 환경엔 node_modules가 옆에 있어 vitest로는 절대 안 잡힌다.
+
+```bash
+cd node-sidecar && npx tsc && node esbuild.config.mjs && pnpm smoke
+```
+
+`scripts/smoke-bundle.mjs`가 dist를 레포 바깥 임시 디렉토리로 옮겨 띄우고 ping을 던진다.
+CI·release 워크플로 양쪽에 물려 있으니 깨진 번들은 MSI로 넘어가지 못한다.
+
+> **v1.5.0 사고**: kordoc dist는 cfb를 `createRequire`로 동적 로드하는데, 같은 패턴을
+> 파일마다 다른 이름으로 낸다(`require2("cfb")`, `require3("cfb")`). esbuild 플러그인이
+> 앞의 것만 이름으로 짚어 치환하고 뒤의 것을 놓쳐서, `Cannot find module 'cfb'`로
+> 엔진이 죽는 MSI가 그대로 배포됐다. 그래서 지금은 **이름을 짚지 않고** `("cfb")` 호출
+> 전부를 치환하고, 한 자리라도 남으면 빌드를 끊는다.
+
 ## 주의사항
 
 - kordoc이 HWP/HWPX/PDF를 순수 JS로 파싱 — **한컴오피스 불필요**
