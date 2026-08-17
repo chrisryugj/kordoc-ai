@@ -44,7 +44,15 @@ function finish(ok, reason) {
   settled = true
   clearTimeout(timer)
   child.kill('SIGKILL')
-  rmSync(stage, { recursive: true, force: true })
+
+  // 임시 디렉토리 청소는 best-effort로 둔다. Windows는 자식을 죽여도 파일 핸들이
+  // 곧바로 안 풀려서 rmdir 이 EBUSY 로 튄다 — 청소 실패가 엔진 판정을 뒤집으면
+  // "엔진은 멀쩡한데 CI 는 빨간" 상태가 된다. 못 지우면 OS 가 temp 를 회수한다.
+  try {
+    rmSync(stage, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch {
+    /* 청소 실패는 판정과 무관 */
+  }
 
   if (ok) {
     console.log('[smoke] ✅ 엔진 준비됨 — ping 응답 확인')
