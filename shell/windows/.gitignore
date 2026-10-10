@@ -1,0 +1,28 @@
+# Rust
+kordoc-launcher/target/
+kordoc-launcher/Cargo.lock
+
+# 빌드 산출물
+build/
+*.msix
+*.appx
+*.pfx
+*.cer
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code 개인 설정 — 단, .claude/memory/는 세션 컨텍스트 인계용으로 추적
+.claude/*
+!.claude/memory/
+
+# 임시
+*.log
+*.tmp

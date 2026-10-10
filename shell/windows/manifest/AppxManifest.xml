@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  KorDoc Shell — MSIX Sparse Package
+  탐색기 우클릭 컨텍스트 메뉴 + kordoc:// 프로토콜 등록.
+  SparsePackage이므로 별도 앱 설치 없이 registry-like 확장만 제공.
+  참조: docs/PRD.md §3.1, docs/SPEC.md §3.1
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity
+    Name="KorDoc.Shell"
+    Publisher="CN=KorDoc"
+    Version="0.1.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>KorDoc Shell</DisplayName>
+    <PublisherDisplayName>KorDoc</PublisherDisplayName>
+    <Logo>assets/icons/StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ko-KR" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="KorDocShell" Executable="kordoc-launcher.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="KorDoc"
+        Description="한국 공문서 변환·인쇄·요약"
+        BackgroundColor="transparent"
+        Square150x150Logo="assets/icons/Square150.png"
+        Square44x44Logo="assets/icons/Square44.png"
+        AppListEntry="none">
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- 파일 타입 연결: 7종 -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="kordoc-files">
+            <uap:DisplayName>KorDoc 문서</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.hwp</uap:FileType>
+              <uap:FileType>.hwpx</uap:FileType>
+              <uap:FileType>.pdf</uap:FileType>
+              <uap:FileType>.xlsx</uap:FileType>
+              <uap:FileType>.xls</uap:FileType>
+              <uap:FileType>.docx</uap:FileType>
+              <uap:FileType>.doc</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+
+        <!-- 커스텀 프로토콜: kordoc:// -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="kordoc">
+            <uap:DisplayName>KorDoc 프로토콜</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
