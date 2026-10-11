@@ -26,8 +26,8 @@ config/settings.yaml
 config/ocr-rules.yaml
 node-sidecar/config/settings.yaml
 
-# 출력
-output/
+# 출력 (레포 루트의 결과 폴더만. node-sidecar/src/core/output 은 소스)
+/output/
 
 # 비교 측정 하네스: 비교 도구 실명·저장소 주소와 측정 PC 경로(results.json)가 들어 있어 공개하지 않음.
 # 공개는 안내(bench/compare/README.md)와 익명 요약(docs/challenge/benchmark.md)만
