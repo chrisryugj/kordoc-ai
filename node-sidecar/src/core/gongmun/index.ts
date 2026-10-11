@@ -45,6 +45,21 @@ export function presetOf(input?: string): GongmunPreset {
   return key;
 }
 
+/** 이미 있는 문서를 한글로 다시 짤 때 문서 모양을 보고 갈래를 고른다. 확실하지 않으면 undefined (서식을 억지로 입히지 않고 꾸밈 없이) */
+export function guessPreset(markdown: string): GongmunPreset | undefined {
+  const head = markdown.slice(0, 4000);
+  const title = (/^#\s+(.+)$/m.exec(head)?.[1] ?? head.split('\n').find((l) => l.trim()) ?? '').trim();
+  const has = (re: RegExp) => re.test(head);
+  if (has(/보도\s*자료|보도\s*일시|배포\s*일시|엠바고/)) return 'press';
+  if (/회의록|회의\s*결과/.test(title) || (has(/참석자?\s*[:：]/) && has(/안건/))) return 'minutes';
+  // 수신 줄 + (제목 줄·시행 번호·"1. 관련:") = 시행문·기안문
+  if (has(/^\s*수신\s*[:：]?\s*\S/m) && (has(/^\s*제목\s*[:：]?\s*\S/m) || has(/시행\s+\S+-\d+/) || has(/^\s*1\.\s*관련\s*[:：]/m))) return 'official';
+  const items = (head.match(/^\s*[□■○◦ㅇ❍]\s/gm) ?? []).length;
+  if (items >= 4) return /계획/.test(title) ? 'plan' : 'report';
+  if (/공고|안내|알림|통지/.test(title)) return 'notice';
+  return undefined;
+}
+
 export function checkAgency(name: string): string {
   const n = name.trim();
   if (n !== AGENCY_COMMON_NAME && !agencyNames().includes(n)) throw new Error(`기관 서식 목록에 없는 기관입니다: ${n}. 목록에서 고르거나 공통을 쓰세요.`);

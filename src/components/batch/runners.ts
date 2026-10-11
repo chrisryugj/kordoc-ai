@@ -29,7 +29,7 @@ export interface RunEnv extends TaskCtx {
 const outDirOf = (o: BatchOpts) => (o.outDir ? { output_dir: o.outDir } : {});
 
 function applyBatch(env: RunEnv, results: BatchItemResult[]) {
-  for (const r of results) env.setRow(r.path, r.ok ? { status: "ok", output: r.output_path } : { status: "fail", error: r.error });
+  for (const r of results) env.setRow(r.path, r.ok ? { status: "ok", output: r.output_path, note: r.note } : { status: "fail", error: r.error });
   const ok = results.filter((r) => r.ok).length;
   return `${ok}개 완료${results.length - ok ? `, ${results.length - ok}개 실패` : ""}`;
 }
@@ -73,7 +73,7 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
     }
     case "hwpx": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("to_hwpx_batch", { paths, preset: opts.preset, ...outDirOf(opts) }, o);
+      const r = await rpc("to_hwpx_batch", { paths, preset: "auto", ...outDirOf(opts) }, o);
       return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
     }
     case "redact": {

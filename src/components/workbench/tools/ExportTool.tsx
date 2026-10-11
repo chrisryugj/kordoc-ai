@@ -19,7 +19,7 @@ const TARGETS: Array<{ value: Target; label: string; desc: string }> = [
   { value: "html", label: "HTML", desc: "웹 브라우저로 여는 문서" },
   { value: "txt", label: "글만", desc: "꾸밈 없이 글자만" },
   { value: "pdf", label: "PDF", desc: "인쇄 모양 그대로 보낼 때" },
-  { value: "hwpx", label: "한글(HWPX)", desc: "글과 표를 한글 문서로 다시 짭니다" },
+  { value: "hwpx", label: "한글(HWPX)", desc: "글과 표를 한글 문서로 다시 짭니다. 서식은 문서 모양을 보고 맞춥니다" },
 ];
 
 export function ExportTool({ doc, info }: ToolProps) {
@@ -29,8 +29,8 @@ export function ExportTool({ doc, info }: ToolProps) {
   const [images, setImages] = useState(true);
   const [ocr, setOcr] = useState<"auto" | "force" | "off">(settings?.convert.ocr ?? "auto");
   const [dir, setDir] = useState("");
-  /** 한글이 아닌 문서를 HWPX 로 다시 짤 때의 서식 (빈 값 = 꾸밈 없이) */
-  const [preset, setPreset] = useState<"" | "report" | "official">("");
+  /** 한글로 바꾼 결과에 엔진이 고른 서식 */
+  const [style, setStyle] = useState("");
   const task = useTask<string>();
 
   const defaultDir = settings?.convert.output_dir || dirName(doc.path);
@@ -43,7 +43,12 @@ export function ExportTool({ doc, info }: ToolProps) {
   const run = () => void task.run(async ({ signal, onProgress }) => {
     const pw = doc.password ? { password: doc.password } : {};
     if (target === "pdf") return (await rpc("export_pdf", { path: doc.path, output_path: joinPath(outDir, `${stem(doc.name)}.pdf`) }, { signal, onProgress })).output_path;
-    if (target === "hwpx") return (await rpc("to_hwpx", { path: doc.path, ocr, ...(preset && !hangulSource ? { preset } : {}), output_path: joinPath(outDir, `${stem(doc.name)}.hwpx`) }, { signal, onProgress })).output_path;
+    if (target === "hwpx") {
+      // 서식은 문서 모양을 보고 엔진이 고른다 (공문은 기안문, □○ 항목은 보고서 …, 애매하면 꾸밈 없이)
+      const r = await rpc("to_hwpx", { path: doc.path, ocr, preset: "auto", output_path: joinPath(outDir, `${stem(doc.name)}.hwpx`) }, { signal, onProgress });
+      setStyle(r.style);
+      return r.output_path;
+    }
     const r = await rpc("convert", {
       path: doc.path, format: target, save: true, output_dir: outDir, images, ...pw,
       ...(pages.trim() ? { pages: pages.trim() } : {}), ...(info.needs_ocr ? { ocr } : {}),
@@ -64,12 +69,6 @@ export function ExportTool({ doc, info }: ToolProps) {
           <span className="block">한글 문서는 한글 편집기에서 HWPX로 저장하면 서식이 그대로 남습니다.</span>
           <Button className="mt-2" size="sm" variant="secondary" onClick={() => startCreate({ path: doc.path })}><FilePen size={13} /> 한글 편집기로 열기</Button>
         </Note>
-      )}
-
-      {target === "hwpx" && !hangulSource && (
-        <Field label="공문 서식" hint="보고서·기안문을 고르면 글꼴·항목 기호·여백을 공문서 모양으로 맞춥니다">
-          <Seg label="공문 서식" value={preset} onChange={setPreset} options={[{ value: "", label: "꾸밈 없이" }, { value: "report", label: "보고서" }, { value: "official", label: "기안문" }]} />
-        </Field>
       )}
 
       {(target === "md" || target === "html" || target === "txt") && (
@@ -102,6 +101,7 @@ export function ExportTool({ doc, info }: ToolProps) {
       )}
       <ErrorLine message={task.error} />
       {task.result && <SavedFile path={task.result} />}
+      {task.result && target === "hwpx" && style && <p className="kd-small kd-muted">{style === "꾸밈 없이" ? "문서 갈래가 뚜렷하지 않아 서식은 입히지 않고 글·표만 옮겼습니다." : style === "서식 그대로" ? "원본 서식 그대로 옮겼습니다." : `문서 모양을 보고 ${style}으로 맞췄습니다.`}</p>}
     </div>
   );
 }

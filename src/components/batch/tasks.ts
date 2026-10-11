@@ -40,7 +40,6 @@ export const GROUPS = [...new Set(TASKS.map((t) => t.group))];
 export interface BatchOpts {
   outDir: string;
   convertFormat: "md" | "html" | "txt";
-  preset: string;
   rules: RedactRule[];
   tablesFormat: "xlsx" | "csv" | "md";
   watermark: string;
@@ -57,7 +56,6 @@ export interface BatchOpts {
 export const DEFAULT_OPTS: BatchOpts = {
   outDir: "",
   convertFormat: "md",
-  preset: "official",
   rules: RULES.filter((r) => r.on).map((r) => r.id),
   tablesFormat: "xlsx",
   watermark: "",

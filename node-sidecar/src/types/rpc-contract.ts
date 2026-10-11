@@ -74,6 +74,8 @@ export interface BatchItemResult {
   ok: boolean;
   output_path?: string;
   error?: string;
+  /** 결과 한 줄 (예: 한글로 바꾸기에서 고른 서식) */
+  note?: string;
 }
 
 // ── 메서드 표: 이름 → [params, result] ──
@@ -193,7 +195,8 @@ export interface RpcMethods {
 
   // ── 직장인 문서 작업 묶음 (methods/documents.ts — A) ──
   /** PDF·워드·스캔본·엑셀 → 고칠 수 있는 한글(HWPX). 레이아웃 그대로가 아니라 글·표를 다시 조판 */
-  to_hwpx: [{ path: string; preset?: string; ocr?: 'auto' | 'force' | 'off'; output_path?: string }, { output_path: string; warnings: string[] }];
+  /** preset: 'auto' 면 문서 모양을 보고 갈래를 고른다(확실하지 않으면 꾸밈 없이). style = 실제로 쓴 서식 */
+  to_hwpx: [{ path: string; preset?: string; ocr?: 'auto' | 'force' | 'off'; output_path?: string }, { output_path: string; warnings: string[]; style: string }];
   to_hwpx_batch: [{ paths: string[]; preset?: string; output_dir?: string }, { results: BatchItemResult[]; output_dir: string }];
   /** 신구대조표를 한글 표(현행 | 개정안)로 — 규정·조례 개정 */
   compare_hwpx: [{ old_path: string; new_path: string; title?: string; output_path?: string }, { output_path: string; stats: CompareResult['stats'] }];

@@ -6,7 +6,6 @@ import type { RedactRule } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { FILTERS, pickFiles, pickFolder } from "../../lib/native";
 import { baseName } from "../../lib/format";
-import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { Button } from "../ui/Button";
 import { Check, Field, Seg, SelectField } from "../common/Field";
 import { ErrorLine, Note, StatusLine } from "../common/Status";
@@ -26,7 +25,6 @@ export function TaskOptions({ task, opts, set, fileCount, collect }: {
   task: BatchTaskId; opts: BatchOpts; set: (p: Partial<BatchOpts>) => void; fileCount: number; collect: CollectState;
 }) {
   const { settings } = useApp();
-  const meta = useGongmunMeta();
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -34,10 +32,7 @@ export function TaskOptions({ task, opts, set, fileCount, collect }: {
         <Field label="형식"><Seg label="바꿀 형식" value={opts.convertFormat} onChange={(v) => set({ convertFormat: v })} options={[{ value: "md", label: "글(마크다운)" }, { value: "html", label: "HTML" }, { value: "txt", label: "글만" }]} /></Field>
       )}
       {task === "hwpx" && (
-        <div style={{ maxWidth: 260 }}>
-          <SelectField label="문서 갈래" hint="글과 표를 이 서식으로 다시 짭니다" value={opts.preset} onChange={(v) => set({ preset: v })}
-            options={(meta?.presets ?? [{ id: "official", label: "기안문", description: "" }]).map((p) => ({ value: p.id, label: p.label }))} />
-        </div>
+        <p className="kd-small kd-muted">문서마다 모양을 보고 서식을 맞춥니다(공문은 기안문, □○ 항목은 보고서 등). 애매하면 글·표만 옮기고, 옛 HWP는 서식 그대로 옮깁니다.</p>
       )}
       {task === "tables" && (
         <Field label="저장 형식"><Seg label="표 저장 형식" value={opts.tablesFormat} onChange={(v) => set({ tablesFormat: v })} options={[{ value: "xlsx", label: "엑셀" }, { value: "csv", label: "CSV" }, { value: "md", label: "마크다운" }]} /></Field>

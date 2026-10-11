@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { markdownToHwpx, parse, validateHwpx } from 'kordoc';
 import { call, corpus, hasCorpus, makePng, sample, setupEnv, SAMPLES } from './doc-helpers.js';
 import { estimatePages } from '../src/core/render/rhwp.js';
+import { guessPreset } from '../src/core/gongmun/index.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -173,6 +174,24 @@ describe('to_hwpx', () => {
     expect(r.results.every((x: { ok: boolean }) => x.ok)).toBe(true);
     const back = await parse(readFileSync(r.results[0].output_path));
     expect(back.success && back.markdown).toContain('둘째 안건');
+  });
+
+  it("preset 'auto' — 문서 모양을 보고 갈래를 고르고, 애매하면 서식 없이 (고른 서식은 style·일괄 note 로)", async () => {
+    const report = join(env.work, '추진보고.md');
+    writeFileSync(report, '# 민원 응대 개선 결과\n\n□ 추진 배경\n\n○ 민원이 늘었음\n\n□ 추진 결과\n\n○ 응대 시간이 줄었음\n');
+    const plain = join(env.work, '메모2.md');
+    writeFileSync(plain, '# 장보기\n\n우유, 달걀, 두부\n');
+    expect((await call('to_hwpx', { path: LETTER_PDF, preset: 'auto' })).style).toBe('기안문 서식');
+    expect((await call('to_hwpx', { path: report, preset: 'auto' })).style).toBe('보고서 서식');
+    expect((await call('to_hwpx', { path: plain, preset: 'auto' })).style).toBe('꾸밈 없이');
+    const b = await call('to_hwpx_batch', { paths: [report, plain], preset: 'auto' });
+    expect(b.results.map((x: { note?: string }) => x.note)).toEqual(['보고서 서식', '꾸밈 없이']);
+    // 규칙: 계획서·회의록·보도자료·공고, 수신만 있고 제목·시행이 없으면 기안문으로 보지 않음
+    expect(guessPreset('# 2027 업무 계획\n\n□ 목표\n○ 가\n○ 나\n□ 과제\n')).toBe('plan');
+    expect(guessPreset('# 3분기 회의록\n\n참석자: 홍길동')).toBe('minutes');
+    expect(guessPreset('# 보도자료\n\n보도 일시: 2026. 10. 1.')).toBe('press');
+    expect(guessPreset('# 하반기 교육 안내\n\n아래와 같이 교육을 엽니다.')).toBe('notice');
+    expect(guessPreset('# 메모\n\n수신 확인 부탁')).toBeUndefined();
   });
 
   it('이미 HWPX 면 안내', async () => {

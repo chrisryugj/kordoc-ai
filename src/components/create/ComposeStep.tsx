@@ -68,7 +68,7 @@ function BlankStart() {
 function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) => void }) {
   const { openInEditor } = useCreate();
   const meta = useGongmunMeta();
-  const [preset, setPreset] = useState("official");
+  const [preset, setPreset] = useState("auto");
   const [ocr, setOcr] = useState<"auto" | "force" | "off">("auto");
   const task = useTask<string>();
 
@@ -82,7 +82,8 @@ function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) =>
         <Button variant="secondary" size="sm" onClick={() => void pickFiles({ multiple: false }).then((p) => p[0] && setFile(p[0]))}><FileUp size={13} /> 파일 고르기</Button>
       </div>
       <div className="kd-form-row">
-        <SelectField label="문서 갈래" value={preset} onChange={setPreset} options={(meta?.presets ?? [{ id: "official", label: "기안문", description: "" }]).map((p) => ({ value: p.id, label: p.label }))} />
+        <SelectField label="문서 갈래" hint="자동은 문서 모양을 보고 고릅니다" value={preset} onChange={setPreset}
+          options={[{ value: "auto", label: "자동" }, ...(meta?.presets ?? []).map((p) => ({ value: p.id, label: p.label }))]} />
         <Field label="스캔 쪽 글자 읽기">
           <Seg label="글자 읽기" value={ocr} onChange={setOcr} options={[{ value: "auto", label: "필요한 쪽만" }, { value: "force", label: "모든 쪽" }, { value: "off", label: "안 함" }]} />
         </Field>

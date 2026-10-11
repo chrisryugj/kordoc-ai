@@ -168,6 +168,7 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-taskitem:disabled { opacity: 0.6; cursor: default; }
 .kd-batch-main { overflow: auto; min-width: 0; padding: 18px 24px 28px; display: flex; flex-direction: column; gap: 18px; }
 .kd-batch-opts { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.kd-batch-opts p.kd-small { text-wrap: balance; }
 .kd-filetable { display: flex; flex-direction: column; }
 .kd-filerow { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--color-border-subtle); }
 .kd-filerow[data-off="true"] { opacity: 0.5; }

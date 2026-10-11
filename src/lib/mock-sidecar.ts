@@ -376,8 +376,8 @@ const handlers: Handlers = {
     return { rows: p.paths.map((x, i) => Object.fromEntries([["문서", baseName(x)], ...p.columns.map((c) => [c, `${c} ${i + 1}`])])), output_path: joinPath(DOCS_DIR, "항목 뽑기.xlsx"), failed: [] };
   },
 
-  to_hwpx: async (p) => { await wait(700); return { output_path: p.output_path ?? out(p.path, "hwpx"), warnings: [] }; },
-  to_hwpx_batch: async (p) => { await wait(800); return { results: p.paths.map((x) => ({ path: x, ok: true, output_path: out(x, "hwpx") })), output_dir: DOCS_DIR }; },
+  to_hwpx: async (p) => { await wait(700); return { output_path: p.output_path ?? out(p.path, "hwpx"), warnings: [], style: p.path.endsWith(".hwp") ? "서식 그대로" : "기안문 서식" }; },
+  to_hwpx_batch: async (p) => { await wait(800); return { results: p.paths.map((x) => ({ path: x, ok: true, output_path: out(x, "hwpx"), note: x.endsWith(".hwp") ? "서식 그대로" : "보고서 서식" })), output_dir: DOCS_DIR }; },
   compare_hwpx: async (p) => { await wait(600); return { output_path: p.output_path ?? out(p.new_path, "hwpx", "_신구대조표"), stats: { added: 1, removed: 1, modified: 3, unchanged: 2 } }; },
   bundle_pdf: async (p) => { await wait(800); return { output_path: p.output_path ?? joinPath(DOCS_DIR, "합본.pdf"), page_count: 9 * p.paths.length, failed: [] }; },
   pdf_stamp: async (p) => ({ output_path: p.output_path ?? out(p.path, "pdf", "_사본") }),
