@@ -61,14 +61,15 @@ export async function showFieldGuides(bytes: Uint8Array): Promise<Uint8Array> {
     if (!edits.length) continue;
     let out = xml;
     for (const e of edits.reverse()) out = out.slice(0, e.at) + e.text + out.slice(e.at);
-    zip.file(name, out);
+    // 원본 항목 시각을 그대로: 같은 문서면 언제 만들어도 같은 바이트 (zip 은 고친 시각을 찍는다)
+    zip.file(name, out, { date: zip.file(name)!.date });
     changed += edits.length;
   }
   if (!changed) return bytes;
   header = header.replace('</hh:charProperties>', `${added.join('')}</hh:charProperties>`)
     .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (_, a: string, n: string, b: string) => `${a}${Number(n) + added.length}${b}`);
-  zip.file('Contents/header.xml', header);
-  const mimetype = await zip.file('mimetype')?.async('uint8array');
-  if (mimetype) zip.file('mimetype', mimetype, { compression: 'STORE' });
+  zip.file('Contents/header.xml', header, { date: headerFile.date });
+  const mime = zip.file('mimetype');
+  if (mime) zip.file('mimetype', await mime.async('uint8array'), { compression: 'STORE', date: mime.date });
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }

@@ -1,6 +1,6 @@
 /** 미리보기 사본의 빈 누름틀 안내문 — XML 특수 문자(& < >)가 든 안내문도 글자 수대로 자르고 다시 이스케이프한다 */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import JSZip from 'jszip';
 import { DOMParser } from '@xmldom/xmldom';
 import { showFieldGuides } from '../src/core/render/guides.js';
@@ -28,6 +28,21 @@ describe('showFieldGuides', () => {
       const errors: string[] = [];
       new DOMParser({ onError: (level, msg) => { if (level !== 'warning') errors.push(msg); } }).parseFromString(xml, 'text/xml');
       expect(errors).toEqual([]);
+    }
+  });
+
+  it('같은 문서면 언제 만들어도 같은 바이트 (zip 에 찍히는 시각은 원본 항목 것)', async () => {
+    const src = await hwpx('Clickhere:set:4:Direction:wstring:2:성명 HelpState:wstring:0: ');
+    vi.useFakeTimers({ toFake: ['Date'] }); // JSZip 은 안에서 타이머를 쓴다
+    try {
+      vi.setSystemTime(new Date('2026-10-11T09:00:00'));
+      const a = await showFieldGuides(src);
+      vi.setSystemTime(new Date('2026-10-11T09:00:05'));
+      const b = await showFieldGuides(src);
+      expect(a).not.toBe(src);
+      expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
