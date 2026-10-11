@@ -54,7 +54,9 @@ async function save(items: Stored[]): Promise<void> {
 }
 
 export function inboxId(path: string): string {
-  const key = process.platform === 'win32' ? path.toLowerCase() : path.normalize('NFC');
+  // 맥에서 옮겨 온 이름은 자소가 갈라진(NFD) 채로 올 수 있어 어느 운영체제에서나 완성형(NFC)으로, Windows 는 대소문자도 무시
+  const nfc = path.normalize('NFC');
+  const key = process.platform === 'win32' ? nfc.toLowerCase() : nfc;
   return createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
 

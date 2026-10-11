@@ -1,5 +1,6 @@
 /** 경로 검증 — UNC(공유 폴더) 차단은 슬래시를 섞은 우회도 막는다 (폐쇄망·NTLM 자격 증명 유출 방지) */
 
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { validatePath } from '../src/infra/pathGuard.js';
 
@@ -11,6 +12,7 @@ describe('validatePath', () => {
   });
 
   it('보통 절대 경로는 그대로 통과', () => {
-    expect(validatePath('/Users/kim/Documents/a.hwpx')).toBe('/Users/kim/Documents/a.hwpx');
+    // Windows 에서는 드라이브가 붙은 같은 경로가 된다
+    expect(validatePath('/Users/kim/Documents/a.hwpx')).toBe(resolve('/Users/kim/Documents/a.hwpx'));
   });
 });

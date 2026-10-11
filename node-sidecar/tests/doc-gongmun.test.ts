@@ -36,6 +36,8 @@ describe('gongmun_meta', () => {
 
 describe('generate_hwpx', () => {
   it('preview_only — 저장 없이 PNG 미리보기 + 표기 검사, 빠르게', async () => {
+    // 첫 호출은 글꼴·렌더러를 올린다. 입력할 때마다 부르는 실시간 미리보기는 그다음부터라 두 번째를 잰다
+    await call('generate_hwpx', { markdown: MD, preset: '보고서', preview_only: true, preview_pages: 1 });
     const t = Date.now();
     const r = await call('generate_hwpx', { markdown: MD, preset: '보고서', preview_only: true, preview_pages: 1 });
     expect(r.output_path).toBeUndefined();
