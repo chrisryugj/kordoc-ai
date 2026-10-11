@@ -17,5 +17,3 @@ export function detectFileType(filename: string): ImportedFile["type"] {
   return "unknown";
 }
 
-/** 지원 확장자 정규식 */
-export const SUPPORTED_EXT_RE = /\.(hwp|hwpx|pdf|xlsx|docx|txt|md|png|jpe?g|gif|webp)$/i;

@@ -12,15 +12,18 @@
  * 페이지 경계에 걸린 문단은 시퀀스 매칭 실패로 클릭 불가할 수 있음.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   X, SquarePen, Undo2, Redo2, Save, Lock, Loader2, AlertTriangle,
   ChevronLeft, ChevronRight, FolderOpen,
 } from "lucide-react";
 import { Button } from "../ui/Button";
-import { initRhwp, openRhwpDocument, b64ToBytes, type RhwpDoc } from "../../lib/rhwp";
+import { useDialogKeys } from "../ui/useDialogKeys";
+import { b64ToBytes } from "../../lib/rhwp";
+import { RhwpPreview } from "../../lib/rhwp-preview";
 import { annotateBlocks, type BlockAnnotation } from "../../lib/svg-annotate";
 import type { ImportedFile } from "../../types/pipeline";
+import { joinPath } from "../../lib/format";
 
 // ── 사이드카 응답 타입 (node-sidecar/src/core/edit과 동기) ──
 
@@ -99,7 +102,9 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
   // ── 미리보기 상태 ──
   const docB64Ref = useRef<string | null>(null);
-  const rhwpDocRef = useRef<RhwpDoc | null>(null);
+  // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
+  const rhwpRef = useRef<RhwpPreview | null>(null);
+  const rhwpReady = useRef(false);   // 지금 문서가 일꾼에 열려 있다
   const [wasmOk, setWasmOk] = useState<boolean | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -114,7 +119,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const savePath = useMemo(() => {
     const stem = file.name.replace(/\.[^.]+$/, "");
     const dir = outputDir || file.path.replace(/[\\/][^\\/]+$/, "");
-    return `${dir}\\${stem}_편집.hwpx`;
+    return joinPath(dir, `${stem}_편집.hwpx`);
   }, [file, outputDir]);
 
   // ── 어노테이션 목록 — 텍스트 있는 문단/셀만 클릭 대상 ──
@@ -143,8 +148,8 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const renderPage = useCallback(async (pageNum: number) => {
     setRenderError("");
     try {
-      if (rhwpDocRef.current) {
-        setSvg(annotateBlocks(rhwpDocRef.current.renderPageSvg(pageNum), annotations));
+      if (rhwpReady.current && rhwpRef.current) {
+        setSvg(annotateBlocks(await (await rhwpRef.current.render(pageNum)).text(), annotations));
         return;
       }
       if (!docB64Ref.current) return;
@@ -155,29 +160,27 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         setSvg(annotateBlocks(res.pages[0].svg, annotations));
       }
     } catch (e) {
-      setRenderError(`미리보기 렌더 실패: ${e}`);
+      setRenderError(`미리보기 표시 실패: ${e}`);
     }
   }, [annotations, sidecarCall]);
 
-  /** 새 문서 바이트로 미리보기 교체 */
+  /** 새 문서 바이트로 미리보기 교체. 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
     docB64Ref.current = b64;
-    const ok = wasmOk ?? await initRhwp();
-    if (wasmOk === null) setWasmOk(ok);
-    if (ok) {
-      try {
-        rhwpDocRef.current?.free();
-        rhwpDocRef.current = null;
-        const doc = openRhwpDocument(b64ToBytes(b64));
-        rhwpDocRef.current = doc;
-        setPageCount(doc.pageCount);
-      } catch (e) {
-        console.warn("[DocEditor] rhwp 문서 열기 실패 — 사이드카 폴백:", e);
-        rhwpDocRef.current = null;
-      }
+    // 일꾼은 받은 차례대로 일한다: 여는 사이 들어온 그리기 요청도 새 문서로 그린다
+    rhwpRef.current ??= new RhwpPreview();
+    try {
+      const meta = await rhwpRef.current.open(b64ToBytes(b64));
+      rhwpReady.current = true;
+      setPageCount(meta.pageCount);
+      setWasmOk(true);
+    } catch (e) {
+      console.warn("[DocEditor] rhwp 문서 열기 실패 — 사이드카 폴백:", e);
+      rhwpReady.current = false;
+      setWasmOk(false);
     }
     setDocVersion((v) => v + 1);
-  }, [wasmOk]);
+  }, []);
 
   /** edit_* 응답 공통 반영 */
   const applyState = useCallback(async (res: EditStateRes) => {
@@ -209,8 +212,9 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     return () => {
       cancelled = true;
       if (openedId) void sidecarCall("edit_close", { session_id: openedId }).catch(() => {});
-      rhwpDocRef.current?.free();
-      rhwpDocRef.current = null;
+      rhwpRef.current?.dispose();
+      rhwpRef.current = null;
+      rhwpReady.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path]);
@@ -277,7 +281,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     setEditing(null);
     try {
       const res = await sidecarCall(`edit_${kind}`, { session_id: sessionId }) as EditStateRes;
-      if (!res.success) { showToast(res.error || `${kind} 실패`, "error"); return; }
+      if (!res.success) { showToast(res.error || (kind === "undo" ? "되돌리지 못했습니다" : "다시 실행하지 못했습니다"), "error"); return; }
       setDirty(true);
       await applyState(res);
     } catch (e) {
@@ -291,15 +295,25 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const handleClose = useCallback(async () => {
     if (dirty && sessionId) {
       await doSave(true);
-      showToast(`변경사항 저장됨: ${savePath}`, "info");
+      showToast(`변경 사항 저장됨: ${savePath}`, "info");
     }
     onClose();
   }, [dirty, sessionId, doSave, savePath, showToast, onClose]);
 
+  // ── 대화상자: Esc 닫기(고치던 칸이 열려 있으면 그 칸만 닫는다) · Tab 은 안에서만 · 연 단추로 포커스 되돌리기 ──
+  const titleId = useId();
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialogKeys(boxRef, true, editing ? undefined : () => void handleClose());
+  useEffect(() => {
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    boxRef.current?.focus();
+    return () => prev?.focus();
+  }, []);
+
   // ── 키보드: Ctrl+Z / Ctrl+Y / Ctrl+S, Esc ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setEditing(null); return; }
+      if (e.key === "Escape") { if (!e.isComposing) setEditing(null); return; }
       if (!e.ctrlKey || busy !== "") return;
       const k = e.key.toLowerCase();
       if (k === "z" && !e.shiftKey && canUndo && !editing) { e.preventDefault(); void doHistory("undo"); }
@@ -380,23 +394,24 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
   // ── 렌더 ──
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: "var(--color-bg-primary)" }}>
+    <div ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}
+      className="fixed inset-0 z-50 flex flex-col outline-none" style={{ backgroundColor: "var(--color-bg-primary)" }}>
       {/* 헤더 + 툴바 */}
       <div className="flex items-center gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
         <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, #9333EA 12%, transparent)", color: "#9333EA" }}>
           <SquarePen size={16} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>문서 편집 — {file.name}</h2>
+          <h2 id={titleId} className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>문서 편집: {file.name}</h2>
           <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
             미리보기에서 문단·셀을 클릭해 수정 · 원본 서식 그대로
-            {wasmOk === false && " · 미리보기: 엔진 렌더 (WASM 폴백)"}
+            {wasmOk === false && " · 미리보기: 문서 엔진으로 표시(WASM 대신)"}
           </p>
         </div>
 
         {/* 저장 상태 */}
         <span className="ts-2xs shrink-0" style={{ color: dirty ? "var(--color-warning)" : "var(--color-text-muted)" }}>
-          {busy === "save" ? "저장 중..." : dirty ? "● 저장 안 됨 (30초 후 자동저장)" : savedAt ? `저장됨 ${savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : ""}
+          {busy === "save" ? "저장 중..." : dirty ? "● 저장 안 됨 (30초 후 자동 저장)" : savedAt ? `저장됨 ${savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : ""}
         </span>
 
         <div className="flex items-center gap-1 shrink-0">
@@ -410,7 +425,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
             onClick={() => setShowLocks((v) => !v)}
             className="p-1.5 rounded-md hover-bg-tertiary"
             aria-label="잠금 영역 표시"
-            title="잠금 영역 표시 — 편집 가능(밑줄)/불가(흐림)"
+            title="잠금 영역 표시: 편집 가능(밑줄), 불가(흐림)"
             style={showLocks ? { backgroundColor: "var(--color-bg-tertiary)" } : undefined}
           >
             <Lock size={15} style={{ color: showLocks ? "var(--color-accent)" : "var(--color-text-secondary)" }} />
@@ -426,7 +441,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
             </button>
           )}
         </div>
-        <button onClick={() => void handleClose()} className="p-1.5 rounded-md hover-bg-tertiary" aria-label="닫기">
+        <button onClick={() => void handleClose()} type="button" className="kd-icon-btn" aria-label="닫기">
           <X size={16} style={{ color: "var(--color-text-muted)" }} />
         </button>
       </div>
@@ -449,7 +464,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
               <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
             </button>
             <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-              {pageCount > 0 ? `${page + 1} / ${pageCount}` : "—"}
+              {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
             </span>
             <button onClick={() => { setEditing(null); setPage((p) => Math.min(pageCount - 1, p + 1)); }} disabled={page >= pageCount - 1} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="다음 페이지">
               <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
@@ -478,7 +493,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
               />
             ) : (
               <div className="flex items-center justify-center gap-2 mt-12" style={{ color: "var(--color-text-muted)" }}>
-                <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">렌더링 중...</span>
+                <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">그리는 중...</span>
               </div>
             )}
 
@@ -499,6 +514,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
                   style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", outline: "none" }}
                   onChange={(e) => setEditing((s) => (s ? { ...s, value: e.target.value } : s))}
                   onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return; // 한글 조합 중 Enter 는 글자 확정이다
                     if (e.key === "Enter" && !e.shiftKey && !editing.cell) { e.preventDefault(); void doPatch(); }
                     if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); void doPatch(); }
                   }}

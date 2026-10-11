@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import {
   Merge, Scissors, FileOutput, FileText, Check, X, FolderOpen,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
+import { useDialogKeys } from "../ui/useDialogKeys";
 import type {
   ImportedFile, PdfUtilsOptions, PdfUtilMode, PdfExtractMode, PdfSplitMode,
 } from "../../types/pipeline";
@@ -17,9 +18,9 @@ interface PdfToolsDialogProps {
 }
 
 const MODES: { id: PdfUtilMode; label: string; desc: string; icon: React.ReactNode; color: string; minFiles: number }[] = [
-  { id: "merge", label: "병합", desc: "여러 PDF → 하나", icon: <Merge size={16} />, color: "#D97706", minFiles: 2 },
-  { id: "split", label: "분할", desc: "하나 → 여러 개", icon: <Scissors size={16} />, color: "#7C3AED", minFiles: 1 },
-  { id: "extract", label: "추출", desc: "페이지 넣기/빼기", icon: <FileOutput size={16} />, color: "#059669", minFiles: 1 },
+  { id: "merge", label: "합치기", desc: "여러 PDF → 하나", icon: <Merge size={16} />, color: "#D97706", minFiles: 2 },
+  { id: "split", label: "나누기", desc: "하나 → 여러 개", icon: <Scissors size={16} />, color: "#7C3AED", minFiles: 1 },
+  { id: "extract", label: "쪽 뽑기", desc: "쪽 고르기·빼기", icon: <FileOutput size={16} />, color: "#059669", minFiles: 1 },
 ];
 
 // ── 페이지 선택 그리드 ──
@@ -36,7 +37,7 @@ function PageGrid({ pageCount, selected, onToggle, onSelectAll, onDeselectAll, c
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-          페이지 선택 <span className="font-normal">({selected.size}/{pageCount})</span>
+          쪽 고르기 <span className="font-normal">({selected.size}/{pageCount})</span>
         </p>
         <div className="flex gap-1.5">
           <button
@@ -103,6 +104,15 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
   const [targetIdx, setTargetIdx] = useState(0);
   const [splitMode, setSplitMode] = useState<PdfSplitMode>("each");
   const [extractMode, setExtractMode] = useState<PdfExtractMode>("include");
+  const boxRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // 대화상자 키보드: Tab 은 상자 안에서만, Esc 는 취소. 열 때 첫 단추로, 닫으면 원래 자리로 포커스
+  useDialogKeys(boxRef, true, onCancel);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    boxRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
+    return () => prev?.focus?.();
+  }, []);
 
   // 내보내기 폴더
   const [outputDir, setOutputDir] = useState<string>("");
@@ -125,7 +135,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
     setPageLoading(true);
     setPageCount(null);
     setSelectedPages(new Set());
-    sidecarCall("pdf_page_count", { file: targetFile.path })
+    sidecarCall("pdf_page_count", { input_path: targetFile.path })
       .then((res) => {
         if (cancelled) return;
         const r = res as { page_count: number };
@@ -205,11 +215,11 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
   const previewText = (() => {
     if (mode !== "extract" || !pageCount || selectedPages.size === 0) return null;
     if (extractMode === "include") {
-      return `${selectedPages.size}페이지를 뽑아서 새 PDF로 만듭니다`;
+      return `${selectedPages.size}쪽을 뽑아 새 PDF로 만듭니다`;
     }
     const remaining = pageCount - selectedPages.size;
-    if (remaining <= 0) return "모든 페이지가 제외됩니다 — 최소 1페이지 남겨주세요";
-    return `${selectedPages.size}페이지를 빼고 ${remaining}페이지로 새 PDF를 만듭니다`;
+    if (remaining <= 0) return "모든 쪽이 빠집니다. 한 쪽 이상 남기세요";
+    return `${selectedPages.size}쪽을 빼고 ${remaining}쪽으로 새 PDF를 만듭니다`;
   })();
 
   return (
@@ -219,6 +229,10 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
       onClick={onCancel}
     >
       <div
+        ref={boxRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="card p-6 mx-4 space-y-4"
         style={{ maxWidth: "32rem", width: "100%" }}
         onClick={(e) => e.stopPropagation()}
@@ -232,7 +246,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
             <FileText size={20} style={{ color: "#EF4444" }} />
           </div>
           <div>
-            <h3 className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>
+            <h3 id={titleId} className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>
               PDF 도구
             </h3>
             <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
@@ -298,7 +312,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
         {/* 분할 옵션 */}
         {mode === "split" && (
           <div className="space-y-2">
-            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>분할 방식</p>
+            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>나누는 방식</p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setSplitMode("each")}
@@ -308,9 +322,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
                   border: `1.5px solid ${splitMode === "each" ? "#7C3AED" : "var(--color-border-subtle)"}`,
                 }}
               >
-                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>1페이지씩</div>
+                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>한 쪽씩</div>
                 <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
-                  각 페이지를 별도 PDF로
+                  쪽마다 따로 PDF로
                 </div>
               </button>
               <button
@@ -321,9 +335,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
                   border: `1.5px solid ${splitMode === "range" ? "#7C3AED" : "var(--color-border-subtle)"}`,
                 }}
               >
-                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>선택 분할</div>
+                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>골라서 나누기</div>
                 <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
-                  선택한 페이지만 분리
+                  고른 쪽만 따로
                 </div>
               </button>
             </div>
@@ -333,7 +347,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
         {/* 추출 옵션 */}
         {mode === "extract" && (
           <div className="space-y-2">
-            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>추출 방식</p>
+            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>뽑는 방식</p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setExtractMode("include")}
@@ -343,9 +357,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
                   border: `1.5px solid ${extractMode === "include" ? "#059669" : "var(--color-border-subtle)"}`,
                 }}
               >
-                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>포함</div>
+                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>고른 쪽만</div>
                 <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
-                  선택 페이지만 추출
+                  고른 쪽만 뽑기
                 </div>
               </button>
               <button
@@ -356,9 +370,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
                   border: `1.5px solid ${extractMode === "exclude" ? "#059669" : "var(--color-border-subtle)"}`,
                 }}
               >
-                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>제외</div>
+                <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>고른 쪽 빼고</div>
                 <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
-                  선택 페이지 빼고 나머지
+                  고른 쪽 빼고 나머지
                 </div>
               </button>
             </div>
@@ -370,7 +384,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
           pageLoading ? (
             <div className="flex items-center justify-center py-6 gap-2">
               <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: activeColor, borderTopColor: "transparent" }} />
-              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>페이지 정보 로딩 중...</span>
+              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>쪽 정보를 읽는 중...</span>
             </div>
           ) : pageCount ? (
             <PageGrid
@@ -384,7 +398,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
           ) : (
             <div className="flex items-center justify-center py-4 gap-2">
               <X size={14} style={{ color: "var(--color-error)" }} />
-              <span className="ts-2xs" style={{ color: "var(--color-error)" }}>페이지 정보를 가져올 수 없습니다</span>
+              <span className="ts-2xs" style={{ color: "var(--color-error)" }}>쪽 정보를 읽지 못했습니다</span>
             </div>
           )
         )}
@@ -406,7 +420,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
         {/* 내보내기 폴더 */}
         {mode && (
           <div className="space-y-1.5">
-            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>내보내기 폴더</p>
+            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>저장할 곳</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleBrowseOutputDir}
@@ -417,7 +431,7 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
               >
                 <FolderOpen size={13} style={{ color: outputDir ? activeColor : "var(--color-text-muted)" }} />
                 <span className="ts-2xs truncate" style={{ color: outputDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
-                  {outputDir ? outputDir.split(/[/\\]/).slice(-2).join("\\") : "원본 파일 위치"}
+                  {outputDir ? outputDir.split(/[/\\]/).slice(-2).join("\\") : "원본 파일 옆"}
                 </span>
                 <span className="ts-2xs font-medium ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: activeColor }}>
                   변경
@@ -448,9 +462,9 @@ export function PdfToolsDialog({ files, sidecarCall, onConfirm, onCancel }: PdfT
             disabled={!canConfirm || (mode === "extract" && extractMode === "exclude" && pageCount != null && pageCount - selectedPages.size <= 0)}
           >
             <span className="flex items-center gap-1.5">
-              {mode === "merge" && <><Merge size={14} /> 병합</>}
-              {mode === "split" && <><Scissors size={14} /> 분할</>}
-              {mode === "extract" && <><FileOutput size={14} /> 추출</>}
+              {mode === "merge" && <><Merge size={14} /> 합치기</>}
+              {mode === "split" && <><Scissors size={14} /> 나누기</>}
+              {mode === "extract" && <><FileOutput size={14} /> 쪽 뽑기</>}
               {!mode && "작업 선택"}
             </span>
           </Button>

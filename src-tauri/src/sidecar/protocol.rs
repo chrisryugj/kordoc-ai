@@ -47,6 +47,11 @@ impl JsonRpcResponse {
         self.id.is_none() && self.method.is_some()
     }
 
+    /// 사이드카를 거치지 않고 만든 응답 (cancel 처럼 기다리지 않는 호출)
+    pub fn synthetic(id: u64, result: serde_json::Value) -> Self {
+        Self { jsonrpc: "2.0".into(), id: Some(id), result: Some(result), error: None, method: None, params: None }
+    }
+
     /// Extract result or convert error to AppError.
     pub fn extract_result(self) -> crate::error::AppResult<serde_json::Value> {
         if let Some(error) = self.error {

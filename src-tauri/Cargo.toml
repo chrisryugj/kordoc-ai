@@ -1,6 +1,6 @@
 [package]
 name = "kordoc-ai"
-version = "1.5.1"
+version = "2.0.0"
 description = "KorDoc AI — HWP/HWPX/PDF/XLSX/DOCX 문서 변환·요약·비교·병합 데스크톱 도구"
 authors = ["Chris"]
 edition = "2021"
@@ -22,6 +22,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 thiserror = "2"
+urlencoding = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-deep-link = "=2.4.7"

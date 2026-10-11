@@ -42,8 +42,19 @@ export function openRhwpDocument(bytes: Uint8Array): RhwpDoc {
 }
 
 export function b64ToBytes(b64: string): Uint8Array {
+  // 새 브라우저 내장 해독이 수십 배 빠르다 (큰 문서 미리보기에서 화면이 덜 멈춤)
+  const fast = (Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array }).fromBase64;
+  if (fast) return fast(b64);
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+export function bytesToB64(bytes: Uint8Array): string {
+  const fast = (bytes as unknown as { toBase64?: () => string }).toBase64;
+  if (fast) return fast.call(bytes);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
 }

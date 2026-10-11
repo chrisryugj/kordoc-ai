@@ -38,7 +38,7 @@ const sessions = new Map<string, EditSessionEntry>();
 
 function getSession(id: string): EditSessionEntry {
   const entry = sessions.get(id);
-  if (!entry) throw new Error('편집 세션이 없거나 만료되었습니다 — 문서를 다시 여세요');
+  if (!entry) throw new Error('편집 세션이 없거나 만료되었습니다. 문서를 다시 여세요.');
   entry.lastAccess = Date.now();
   return entry;
 }
@@ -127,7 +127,7 @@ export async function editOpen(params: EditOpenParams, signal?: AbortSignal): Pr
   const bytes = doc_b64
     ? new Uint8Array(Buffer.from(doc_b64, 'base64'))
     : new Uint8Array(await readFile(input_path!));
-  if (!isZip(bytes)) throw new Error('HWPX 문서만 클릭-편집을 지원합니다 (HWP 5.x는 HWPX로 변환 후 사용)');
+  if (!isZip(bytes)) throw new Error('HWPX 문서만 미리보기에서 고칠 수 있습니다. HWP 5.x는 HWPX로 변환한 뒤 쓰세요.');
   signal?.throwIfAborted();
 
   evictIfNeeded();
@@ -165,7 +165,7 @@ export async function editPatch(params: EditPatchParams, signal?: AbortSignal): 
     return {
       ...stateResult(session_id, entry, false),
       success: false, applied: 0, skipped,
-      error: result.error ?? '패치 실패',
+      error: result.error ?? '적용 실패',
     };
   }
   if (result.applied > 0) {

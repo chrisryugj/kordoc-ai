@@ -262,7 +262,7 @@ export async function concatDocx(
     sendProgress({
       current: i + 1,
       total: files.length,
-      message: `DOCX 수합 ${i + 1}/${files.length}: ${basename(files[i])}`,
+      message: `DOCX 합치는 중 ${i + 1}/${files.length}: ${basename(files[i])}`,
     });
 
     try {
@@ -388,7 +388,7 @@ export async function concatDocx(
     }
   }
 
-  if (!baseZip || !baseDoc || !baseBody) throw new Error('수합할 유효한 DOCX 파일이 없습니다');
+  if (!baseZip || !baseDoc || !baseBody) throw new Error('합칠 수 있는 DOCX 파일이 없습니다');
 
   if (lastSectPr) {
     baseBody.appendChild(baseDoc.importNode(lastSectPr, true));

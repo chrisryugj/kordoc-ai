@@ -1,19 +1,21 @@
 {
   "name": "kordoc-ai",
-  "version": "1.5.1",
+  "version": "2.0.0",
   "description": "한국 문서 변환 AI 데스크톱 도구",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:sidecar": "cd python-sidecar && py -3.11 -m PyInstaller sidecar.spec",
-    "build:node-sidecar": "cd node-sidecar && pnpm install && pnpm build && pnpm build:bundle",
-    "build:all": "pnpm build:node-sidecar && pnpm build",
+    "build:node-sidecar": "node scripts/build-sidecar.mjs",
+    "build:all": "node scripts/fetch-node.mjs && node scripts/build-sidecar.mjs && node scripts/build-rhwp-studio.mjs && node scripts/third-party-notices.mjs && pnpm build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "set WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--no-proxy-server --disable-background-networking --disable-features=msSmartScreenProtection&& tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build:editor": "node scripts/build-rhwp-studio.mjs",
+    "build:node-runtime": "node scripts/fetch-node.mjs",
+    "check:rpc": "node scripts/sync-rpc-whitelist.mjs --check"
   },
   "packageManager": "pnpm@10.20.0",
   "devDependencies": {
@@ -30,7 +32,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@rhwp/core": "0.7.15",
+    "@rhwp/core": "0.8.6",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-deep-link": "^2.4.8",
     "@tauri-apps/plugin-dialog": "^2.6.0",

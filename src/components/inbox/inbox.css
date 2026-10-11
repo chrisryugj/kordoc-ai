@@ -1,0 +1,54 @@
+/* 받은 공문 화면 — 괘선 표 + 펼친 자세히 보기. 색은 변수만 */
+
+.kd-inbox { max-width: 1240px; padding: 18px 24px 32px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
+.kd-inbox-drop[data-over="true"] { outline: 2px dashed var(--color-accent); outline-offset: -8px; background: var(--color-accent-subtle); }
+.kd-inbox-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.kd-inbox-summary { color: var(--color-text-secondary); font-weight: 600; }
+
+.kd-inbox-table { table-layout: fixed; }
+.kd-inbox-w-due { width: 112px; }
+.kd-inbox-w-from { width: 168px; }
+.kd-inbox-w-state { width: 80px; }
+.kd-inbox-w-act { width: 112px; }
+.kd-inbox-table td { vertical-align: top; }
+.kd-inbox-row:hover > td { background: var(--color-bg-primary); }
+.kd-inbox-row[data-open="true"] > td { border-bottom-color: transparent; background: var(--color-bg-primary); }
+.kd-inbox-row[data-done="true"] .kd-inbox-title,
+.kd-inbox-row[data-done="true"] .kd-inbox-req { color: var(--color-text-muted); }
+
+.kd-inbox-due { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.kd-inbox-toggle {
+  display: flex; align-items: flex-start; gap: 4px; width: 100%; padding: 0; margin-left: -2px;
+  text-align: left; background: none; border: 0; cursor: pointer; color: var(--color-text-primary);
+}
+.kd-inbox-toggle:hover .kd-inbox-title { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-border-hover); }
+.kd-inbox-chev { flex: none; margin-top: 3px; color: var(--color-text-muted); transition: transform var(--transition-fast); }
+.kd-inbox-toggle[aria-expanded="true"] .kd-inbox-chev { transform: rotate(90deg); }
+.kd-inbox-title { font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.kd-inbox-from-inline { display: none; padding-left: 16px; }
+.kd-inbox-req { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* 끝냄 칸: 보이는 크기는 그대로, 누르는 자리는 32px (위아래 음수 여백으로 줄 높이 유지) */
+.kd-inbox-check { padding: 0 6px 0 0; margin: -6px 0; min-height: 32px; align-items: center; font-size: 13px; }
+.kd-inbox-check input { margin-top: 0; }
+
+/* 펼친 자세히 보기 */
+.kd-inbox-detail > td { background: var(--color-bg-primary); padding: 4px 16px 16px 30px; }
+.kd-inbox-more { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 14px 24px; }
+.kd-inbox-more > section { min-width: 0; }
+.kd-inbox-reqs { margin-top: 6px; padding-left: 1.3em; list-style: decimal; display: flex; flex-direction: column; gap: 4px; line-height: 1.5; }
+.kd-inbox-dl { margin-top: 2px; }
+.kd-inbox-dl > div { grid-template-columns: 64px minmax(0, 1fr); padding: 5px 0; }
+.kd-inbox-edit { display: flex; flex-direction: column; gap: 6px; }
+.kd-inbox-edit .kd-input { height: 32px; max-width: 180px; }
+.kd-inbox-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--color-border-subtle); }
+
+/* 좁은 화면: 보낸 곳 칸을 제목 아래로 */
+@container (max-width: 900px) {
+  /* 칸은 남기고 폭만 0 (펼친 줄의 colSpan 이 칸 수와 맞아야 표가 끝까지 찬다) */
+  .kd-inbox-table .kd-inbox-c-from { width: 0; padding: 0; font-size: 0; overflow: hidden; }
+  .kd-inbox-table .kd-inbox-c-from > * { display: none; }
+  .kd-inbox-from-inline { display: block; }
+  .kd-inbox-w-due { width: 100px; }
+  .kd-inbox-more { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .kd-inbox-more > section:first-child { grid-column: 1 / -1; }
+}

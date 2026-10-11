@@ -1,21 +1,91 @@
-kordoc-ai
+KorDoc AI
 
-이 저장소·배포본에는 아래 제3자 저작물이 포함된다. 각 저작물은 원 저작권자에게
-권리가 있으며 각자의 라이선스를 따른다. 본 제품의 MIT 라이선스는 이들에 적용되지 않는다.
-
----
-
-Pretendard
-https://github.com/orioncactus/pretendard
-Copyright (c) 2021 Kil Hyung-jin
-SIL Open Font License 1.1 — 전문: assets/fonts/OFL.txt, public/fonts/OFL.txt
-포함 위치: assets/fonts/Pretendard-{Regular,Bold,SemiBold}.otf
-           public/fonts/Pretendard-{Regular,Bold,SemiBold}.otf
+이 저장소와 설치본에는 아래 제3자 저작물이 들어 있다. 각 저작물의 권리는 원 저작권자에게
+있고 각자의 라이선스를 따른다. KorDoc AI 의 MIT 라이선스는 이들에 적용되지 않는다.
+이 파일은 요약이다. 패키지별 이름·버전·라이선스 전문은 THIRD_PARTY_NOTICES.txt 에 있다
+(scripts/third-party-notices.mjs 로 만들고 설치본에 함께 싣는다).
 
 ---
 
-kordoc
+kordoc (문서 엔진)
 https://github.com/chrisryugj/kordoc
 MIT License
-문서 변환 사이드카로 사용한다. kordoc 이 포함하는 제3자 고지는 해당 패키지의
-NOTICE·THIRD_PARTY 를 따른다.
+설치본 node-sidecar/dist/node_modules/kordoc. kordoc 이 포함하는 제3자 고지는 그 패키지의
+NOTICE·THIRD_PARTY 를 따른다 (표준 기안문 서식 원본 rhwp tools/forms, MIT 포함).
+
+---
+
+rhwp · rhwp-studio · @rhwp/core · @rhwp/editor (내장 한글 편집기)
+https://github.com/edwardkim/rhwp
+MIT License, Copyright (c) Edward Kim
+설치본 node-sidecar/editor/. 라이선스 전문: node-sidecar/editor/licenses/rhwp-LICENSE.txt
+본 제품의 편집기는 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발된 rhwp 를 사용한다.
+
+rhwp-studio 동봉 글꼴 (Pretendard·Noto Sans/Serif KR·나눔·고운·D2Coding·Spoqa Han Sans·
+Source Han Serif K 부분집합·Latin Modern Math·Happiness Sans·Cafe24 등)
+각 글꼴 라이선스(대부분 SIL OFL 1.1)와 출처: node-sidecar/editor/licenses/FONTS.md
+글꼴 파일별 저작권 줄과 OFL 전문: THIRD_PARTY_NOTICES.txt 5장
+
+CanvasKit (canvaskit-wasm, 편집기 쪽 그리기, Skia)
+https://github.com/google/skia/tree/main/modules/canvaskit: BSD-3-Clause
+
+---
+
+Node.js (동봉 런타임)
+https://nodejs.org: MIT License 및 포함 구성요소 라이선스
+설치본 node/. 전문: node/LICENSE
+
+---
+
+Tauri 2 와 Rust 크레이트 (앱 본체 실행 파일)
+https://github.com/tauri-apps/tauri: Apache License 2.0 또는 MIT License
+크레이트별 라이선스: THIRD_PARTY_NOTICES.txt 3장. Cargo.lock 에 든 MPL-2.0 크레이트(cssparser·cssparser-macros·
+selectors·dtoa-short·option-ext)는 수정 없이 쓰며, 소스는 crates.io 의 각 크레이트 페이지에서 받을 수 있다.
+
+---
+
+Microsoft Visual C++ 런타임 (Windows 설치본)
+msvcp140·vcruntime140 등. OCR·내장 AI 모듈 폴더에 함께 둔다(앱 폴더 배포).
+Visual Studio 사용권의 재배포 가능 코드(Redistributable Code) 조건으로 배포.
+
+Microsoft Edge WebView2 Runtime 오프라인 설치 파일 (Windows 설치 파일)
+WebView2 가 없는 PC(폐쇄망 포함)에서 설치 중에 함께 설치한다.
+Microsoft WebView2 Runtime 사용권(배포 허용) 조건으로 배포.
+
+---
+
+node-llama-cpp · llama.cpp (내장 AI 엔진)
+https://github.com/withcatai/node-llama-cpp: MIT License
+https://github.com/ggml-org/llama.cpp: MIT License
+
+---
+
+ONNX Runtime (내장 OCR 추론)
+https://github.com/microsoft/onnxruntime: MIT License
+
+PP-OCRv5 korean 모델 (내장 OCR, 설치본 node-sidecar/models/ppocr)
+https://github.com/PaddlePaddle/PaddleOCR: Apache License 2.0
+
+---
+
+sharp · libvips (이미지 처리)
+https://github.com/lovell/sharp: Apache License 2.0
+libvips (동적 라이브러리로 동봉): LGPL-3.0-or-later. 사용자는 동봉된 libvips 를 호환 버전으로
+바꿔 쓸 수 있다 (node-sidecar/dist/node_modules/@img/sharp-libvips-*).
+@img/sharp-wasm32 (WebAssembly 판, libvips 포함): Apache-2.0 AND LGPL-3.0-or-later AND MIT
+
+---
+
+PDFium (@hyzyla/pdfium, PDF 쪽 그리기): BSD-3-Clause / Apache-2.0
+pdf.js (pdfjs-dist, PDF 글 읽기): Apache License 2.0
+@napi-rs/canvas (pdf.js 의 Node 쪽 그리기, Skia 포함): MIT License
+pdf-lib (PDF 합치기·쪽 나누기): MIT License
+JSZip: MIT License 또는 GPLv3 중 MIT 선택
+puppeteer-core (인쇄용 PDF): Apache License 2.0
+
+---
+
+Pretendard (앱 화면 글꼴)
+https://github.com/orioncactus/pretendard
+Copyright (c) 2021 Kil Hyung-jin
+SIL Open Font License 1.1 (전문: public/fonts/OFL.txt)

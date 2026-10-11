@@ -13,7 +13,7 @@ pub async fn save_clipboard_image(
     // base64 디코딩 (순수 구현 — 외부 크레이트 불필요)
     use base64_decode::decode;
     let bytes = decode(&base64_data)
-        .map_err(|e| AppError::Sidecar(format!("base64 디코딩 실패: {}", e)))?;
+        .map_err(|e| AppError::Sidecar(format!("붙여 넣은 그림을 읽지 못했습니다: {}", e)))?;
 
     let temp_dir = std::env::temp_dir().join("kordoc-ai");
     std::fs::create_dir_all(&temp_dir)?;

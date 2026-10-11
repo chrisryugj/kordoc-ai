@@ -9,12 +9,12 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename, extname, join } from 'node:path';
+import { dirname, basename } from 'node:path';
 import {
   parse, extractFormSchema, fillHwpx, patchHwpxBlocks, compare,
   type FormFieldSchema, type BlockEdit, type DiffResult,
 } from 'kordoc';
-import { getConfig } from '../../infra/config.js';
+import { outputFile, stemOf } from '../output/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 
@@ -72,7 +72,7 @@ export async function formSchema(params: FormSchemaParams, signal?: AbortSignal)
     fields: schema.fields,
     confidence: schema.confidence,
     fillable: hwpx,
-    ...(hwpx ? {} : { fillable_reason: 'HWPX 양식만 채우기를 지원합니다. 한컴오피스에서 HWPX로 저장 후 다시 시도하세요.' }),
+    ...(hwpx ? {} : { fillable_reason: 'HWPX 양식만 채울 수 있습니다. 한컴오피스에서 HWPX로 저장한 뒤 다시 시도하세요.' }),
   };
   if (include_doc && hwpx && buffer.length <= MAX_INLINE_DOC_BYTES) {
     out.doc_b64 = buffer.toString('base64');
@@ -112,21 +112,21 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   if (labels.length === 0) throw new Error('채울 값이 없습니다 ("values" 비어 있음)');
 
   logger.info(`[form_fill] 시작: ${input_path} (${labels.length}개 값)`);
-  sendProgress({ current: 0, total: 3, message: '양식 읽는 중...' });
+  sendProgress({ current: 0, total: 3, message: '양식을 읽는 중...' });
   signal?.throwIfAborted();
 
   const buffer = await readFile(input_path);
   if (!isZip(buffer)) {
-    throw new Error('HWPX 양식만 채우기를 지원합니다 (HWP 5.x는 HWPX로 변환 후 사용)');
+    throw new Error('HWPX 양식만 채울 수 있습니다. HWP 5.x는 HWPX로 변환한 뒤 쓰세요.');
   }
   signal?.throwIfAborted();
 
-  sendProgress({ current: 1, total: 3, message: '값 채우는 중 (원본 서식 보존)...' });
+  sendProgress({ current: 1, total: 3, message: '원본 서식 그대로 값을 채우는 중...' });
   const fill = await fillHwpx(toArrayBuffer(buffer), values);
   const filledBuf = Buffer.from(fill.buffer);
 
   // 재파싱 검증 — 채움 결과가 파싱 가능하고 변경이 채움 범위 안인지 기계 증명
-  sendProgress({ current: 2, total: 3, message: '재파싱 검증 중...' });
+  sendProgress({ current: 2, total: 3, message: '다시 읽어 확인 중...' });
   let verification = { reparse_ok: false, changed_blocks: -1 };
   try {
     const diff: DiffResult = await compare(toArrayBuffer(buffer), toArrayBuffer(filledBuf));
@@ -140,15 +140,11 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
 
   let outPath = '';
   if (!dry_run) {
-    const cfg = getConfig('convert');
-    const outDir = output_path ? dirname(output_path) : (cfg.output_dir || dirname(input_path));
-    const stem = basename(input_path, extname(input_path));
-    outPath = output_path || join(outDir, `${stem}_채움.hwpx`);
-    await mkdir(dirname(outPath), { recursive: true });
+    outPath = outputFile({ output_path, source: input_path, name: `${stemOf(input_path)}_채움.hwpx` });
     await writeFile(outPath, filledBuf);
   }
 
-  sendProgress({ current: 3, total: 3, message: `${fill.filled.length}개 필드 채움 완료${outPath ? ` → ${basename(outPath)}` : ''}` });
+  sendProgress({ current: 3, total: 3, message: `칸 ${fill.filled.length}개를 채웠습니다${outPath ? ` → ${basename(outPath)}` : ''}` });
   logger.info(`[form_fill] filled=${fill.filled.length} unmatched=${fill.unmatched.length} verify=${JSON.stringify(verification)}`);
 
   return {
@@ -199,7 +195,7 @@ export async function patchBlocks(params: PatchBlocksParams, signal?: AbortSigna
     return {
       success: false, applied: result.applied, changed_blocks: 0, output_path: '',
       skipped: result.skipped.map((s) => ({ reason: s.reason, detail: s.before ?? s.after })),
-      error: result.error ?? '패치 실패',
+      error: result.error ?? '적용 실패',
     };
   }
 

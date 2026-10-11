@@ -2,10 +2,11 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, basename, extname } from 'node:path';
-import { parse } from 'kordoc';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
-import { concatHwpx } from './concat-hwpx.js';
+import { mergeHwpx } from './hwpx-merge.js';
+import { rhwpConvert, tooBigForRhwp } from '../render/rhwp.js';
+import { parseBytes } from '../converter/index.js';
 import { concatDocx } from './concat-docx.js';
 import { concatXlsx } from './concat-xlsx.js';
 import { concatPdf, splitPdf } from './concat-pdf.js';
@@ -15,37 +16,41 @@ export type { MergeFilesParams, MergeFilesResult } from './types.js';
 export { splitPdf, extractPdfPages, getPdfPageCount } from './concat-pdf.js';
 export type { SplitPdfParams, SplitPdfResult, ExtractPdfPagesParams, ExtractPdfPagesResult } from './concat-pdf.js';
 
-/**
- * HWPX 서식 유지 수합 — COM 실패 시 kordoc 마크다운 병합으로 폴백.
- * COM(pyhwpx): 서식 완벽 보존, 한컴오피스+Python 필요
- * 폴백(kordoc): 텍스트/표 보존, 서식 손실, 의존성 없음
- */
-async function concatHwpxWithFallback(
-  params: MergeFilesParams,
-  signal: AbortSignal,
-): Promise<MergeFilesResult> {
-  try {
-    return await concatHwpx(params, signal);
-  } catch (comErr) {
-    // 사용자가 취소한 건 그대로 전파
-    if (comErr instanceof DOMException && comErr.name === 'AbortError') throw comErr;
-
-    const reason = comErr instanceof Error ? comErr.message : String(comErr);
-    logger.warn(`[merge] HWPX COM 실패 → kordoc 마크다운 병합으로 전환: ${reason}`);
-    sendProgress({ current: 0, total: params.files.length, message: 'COM 실패 — 마크다운 병합으로 전환' });
-
-    // 마크다운 모드로 폴백 (output 확장자를 .md로 변경)
-    const mdOutput = params.output_path.replace(/\.hwpx?$/i, '_병합.md');
-    const fallbackResult = await mergeFiles(
-      { ...params, mode: 'markdown', output_path: mdOutput },
-      signal,
-    );
-
-    return {
-      ...fallbackResult,
-      warnings: [`COM 수합 실패(${reason}) — 마크다운으로 병합됨. 서식이 보존되지 않습니다.`],
-    };
+/** HWPX·HWP 서식 유지 수합 — 한컴오피스 없이 XML 수준으로 이어 붙인다 (HWP 는 rhwp 로 HWPX 로 바꿔서) */
+async function mergeHangul(params: MergeFilesParams, signal: AbortSignal): Promise<MergeFilesResult> {
+  const inputs: Uint8Array[] = [];
+  const failed: string[] = [];
+  for (const [i, f] of params.files.entries()) {
+    signal.throwIfAborted();
+    sendProgress({ current: i, total: params.files.length + 1, message: `${basename(f)} 읽는 중` });
+    try {
+      const bytes = new Uint8Array(await readFile(f));
+      if (extname(f).toLowerCase() === '.hwp') {
+        const big = await tooBigForRhwp(bytes);
+        if (big) throw new Error(`문서가 너무 큽니다(약 ${big}쪽)`);
+        inputs.push(await rhwpConvert(bytes, 'hwpx', signal));
+      } else inputs.push(bytes);
+    } catch (err) {
+      if (signal.aborted) throw err;
+      failed.push(f);
+      logger.warn(`[merge] ${f} 읽기 실패: ${err instanceof Error ? err.message : err}`);
+    }
   }
+  if (inputs.length < 2) throw new Error('합칠 수 있는 한글 문서가 두 개 이상 필요합니다.');
+  sendProgress({ current: params.files.length, total: params.files.length + 1, message: '서식 그대로 합치는 중' });
+  const merged = await mergeHwpx(inputs);
+  let out = merged.bytes;
+  if (extname(params.output_path).toLowerCase() === '.hwp') out = await rhwpConvert(out, 'hwp', signal);
+  await mkdir(dirname(params.output_path), { recursive: true });
+  await writeFile(params.output_path, out);
+  return {
+    success: true,
+    output_path: params.output_path,
+    file_count: inputs.length,
+    total_length: out.byteLength,
+    failed_files: failed,
+    ...(merged.warnings.length ? { warnings: merged.warnings } : {}),
+  };
 }
 
 export async function mergeFiles(
@@ -57,11 +62,11 @@ export async function mergeFiles(
     const ext = extname(params.files[0]).toLowerCase();
     switch (ext) {
       case '.hwp':
-      case '.hwpx': return concatHwpxWithFallback(params, signal);
+      case '.hwpx': return mergeHangul(params, signal);
       case '.xlsx': return concatXlsx(params, signal);
       case '.docx': return concatDocx(params, signal);
       case '.pdf': return concatPdf(params, signal);
-      default: throw new Error(`서식 유지 수합을 지원하지 않는 형식입니다: ${ext}`);
+      default: throw new Error(`서식 유지 합치기를 지원하지 않는 형식입니다: ${ext}`);
     }
   }
 
@@ -86,7 +91,7 @@ export async function mergeFiles(
     const filePath = files[i];
     try {
       const buffer = await readFile(filePath);
-      const result = await parse(new Uint8Array(buffer).buffer);
+      const result = await parseBytes(buffer, {}, undefined, signal);
 
       if (result.success) {
         const fileName = basename(filePath);

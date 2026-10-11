@@ -1,347 +1,134 @@
-/** MCP 설치 마법사 — AI 클라이언트에 kordoc MCP 서버 자동 등록 */
+/** MCP 원클릭 — AI 클라이언트에 kordoc MCP 서버 등록
+ *
+ * npx 없이 동봉 Node(process.execPath) + 동봉 kordoc/dist/mcp.js 절대 경로로 등록한다 (폐쇄망 PC 에서도 동작).
+ * 폐쇄망 모드면 KORDOC_OFFLINE=1, root_dir 을 주면 KORDOC_ROOT(그 폴더 밖 파일 차단), 앱이 받아 둔 OCR 모델을 같이 쓰게 KORDOC_MODEL_CACHE.
+ * 설정 파일에 주석(JSONC)이 있으면 주석을 뺀 채 다시 쓰므로 원본을 `.kordoc-backup` 으로 남긴다.
+ * 읽을 수 없는 설정 파일은 덮어쓰지 않는다 (사용자 설정 보호).
+ */
 
-import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
-import { homedir, platform } from 'node:os';
 import { existsSync } from 'node:fs';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import type { McpEnv } from '../../types/rpc-contract.js';
+import { getSettings } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
+import { kordocMcpPath } from '../kordoc-cli.js';
+import { modelCacheDir } from '../system/index.js';
 
-// ── Types ────────────────────────────────────────────────────────
+type Key = 'mcpServers' | 'servers' | 'context_servers';
+interface ClientDef { id: string; name: string; configPath: string; key: Key; probes: string[] }
 
-export interface McpClient {
-  id: string;
-  name: string;
-  configPath: string;
-  format: 'mcpServers' | 'servers' | 'context_servers';
-  detected: boolean;
-  installed: boolean;
-}
-
-export interface McpEnvInfo {
-  nodeInstalled: boolean;
-  nodeVersion: string | null;
-  npxAvailable: boolean;
-  clients: McpClient[];
-}
-
-export interface McpInstallResult {
-  success: boolean;
-  results: { clientId: string; clientName: string; ok: boolean; error?: string }[];
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-function getClientConfigs(): { id: string; name: string; configPath: string; format: McpClient['format'] }[] {
+function clientDefs(): ClientDef[] {
   const home = homedir();
-  const os = platform();
-  const clients: { id: string; name: string; configPath: string; format: McpClient['format'] }[] = [];
-
-  // Claude Desktop
-  const claudePaths: Record<string, string> = {
-    darwin: resolve(home, 'Library/Application Support/Claude/claude_desktop_config.json'),
-    win32: resolve(process.env['APPDATA'] ?? resolve(home, 'AppData/Roaming'), 'Claude/claude_desktop_config.json'),
-    linux: resolve(home, '.config/Claude/claude_desktop_config.json'),
-  };
-  const claudePath = claudePaths[os];
-  if (claudePath) {
-    clients.push({ id: 'claude-desktop', name: 'Claude Desktop', configPath: claudePath, format: 'mcpServers' });
-  }
-
-  // Cursor
-  clients.push({
-    id: 'cursor',
-    name: 'Cursor',
-    configPath: resolve(home, '.cursor/mcp.json'),
-    format: 'mcpServers',
-  });
-
-  // VS Code (사용자 전역 설정)
-  const vscodePaths: Record<string, string> = {
-    win32: resolve(process.env['APPDATA'] ?? resolve(home, 'AppData/Roaming'), 'Code/User/settings.json'),
-    darwin: resolve(home, 'Library/Application Support/Code/User/settings.json'),
-    linux: resolve(home, '.config/Code/User/settings.json'),
-  };
-  const vscodePath = vscodePaths[os];
-  if (vscodePath) {
-    clients.push({ id: 'vscode', name: 'VS Code', configPath: vscodePath, format: 'mcpServers' });
-  }
-
-  // Windsurf
-  clients.push({
-    id: 'windsurf',
-    name: 'Windsurf',
-    configPath: resolve(home, '.codeium/windsurf/mcp_config.json'),
-    format: 'mcpServers',
-  });
-
-  // Gemini CLI
-  clients.push({
-    id: 'gemini-cli',
-    name: 'Gemini CLI',
-    configPath: resolve(home, '.gemini/settings.json'),
-    format: 'mcpServers',
-  });
-
-  // Zed
-  const zedPaths: Record<string, string> = {
-    darwin: resolve(home, '.zed/settings.json'),
-    linux: resolve(home, '.config/zed/settings.json'),
-    win32: resolve(home, '.zed/settings.json'),
-  };
-  const zedPath = zedPaths[os];
-  if (zedPath) {
-    clients.push({ id: 'zed', name: 'Zed', configPath: zedPath, format: 'context_servers' });
-  }
-
-  return clients;
+  const win = process.platform === 'win32';
+  const mac = process.platform === 'darwin';
+  const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming');
+  const local = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
+  const userCfg = win ? appData : mac ? join(home, 'Library', 'Application Support') : join(home, '.config');
+  return [
+    { id: 'claude-desktop', name: 'Claude Desktop', key: 'mcpServers', configPath: join(userCfg, 'Claude', 'claude_desktop_config.json'),
+      probes: win ? [join(local, 'AnthropicClaude'), join(local, 'Programs', 'claude-desktop')] : mac ? ['/Applications/Claude.app'] : [] },
+    { id: 'cursor', name: 'Cursor', key: 'mcpServers', configPath: join(home, '.cursor', 'mcp.json'),
+      probes: win ? [join(local, 'Programs', 'cursor')] : mac ? ['/Applications/Cursor.app'] : [] },
+    { id: 'vscode', name: 'VS Code', key: 'servers', configPath: join(userCfg, 'Code', 'User', 'mcp.json'),
+      probes: win ? [join(local, 'Programs', 'Microsoft VS Code')] : mac ? ['/Applications/Visual Studio Code.app'] : [] },
+    { id: 'windsurf', name: 'Windsurf', key: 'mcpServers', configPath: join(home, '.codeium', 'windsurf', 'mcp_config.json'),
+      probes: win ? [join(local, 'Programs', 'windsurf')] : mac ? ['/Applications/Windsurf.app'] : [] },
+    { id: 'gemini-cli', name: 'Gemini CLI', key: 'mcpServers', configPath: join(home, '.gemini', 'settings.json'), probes: [] },
+    { id: 'zed', name: 'Zed', key: 'context_servers', configPath: win || mac ? join(home, '.zed', 'settings.json') : join(home, '.config', 'zed', 'settings.json'),
+      probes: mac ? ['/Applications/Zed.app'] : [] },
+  ];
 }
 
-async function readJsonFile(path: string): Promise<Record<string, unknown>> {
+/** 주석·끝 쉼표를 뺀 JSON (문자열 안은 건드리지 않음) */
+function stripJsonc(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (ch === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      out += '\n';
+    } else if (ch === '/' && text[i + 1] === '*') {
+      i = text.indexOf('*/', i + 2);
+      if (i < 0) break;
+      i++;
+    } else out += ch;
+  }
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
+
+/** 설정 파일 읽기 — 없으면 {}, JSONC 면 hadComments, 아예 못 읽으면 오류 */
+async function readConfig(path: string): Promise<{ data: Record<string, unknown>; hadComments: boolean }> {
+  if (!existsSync(path)) return { data: {}, hadComments: false };
+  const raw = (await readFile(path, 'utf-8')).replace(/^﻿/, '');
+  if (!raw.trim()) return { data: {}, hadComments: false };
   try {
-    const raw = await readFile(path, 'utf-8');
-    return JSON.parse(raw) as Record<string, unknown>;
+    return { data: JSON.parse(raw) as Record<string, unknown>, hadComments: false };
   } catch {
-    return {};
-  }
-}
-
-async function writeJsonFile(path: string, data: Record<string, unknown>): Promise<void> {
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
-  }
-  await writeFile(path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
-}
-
-function buildServerEntry(): Record<string, unknown> {
-  return {
-    command: 'npx',
-    args: ['-y', 'kordoc@latest'],
-  };
-}
-
-function buildZedEntry(): Record<string, unknown> {
-  return {
-    command: {
-      path: 'npx',
-      args: ['-y', 'kordoc@latest'],
-    },
-  };
-}
-
-/** shell 명령 실행 헬퍼 — Windows에서 .cmd 파일(npx 등) 실행을 위해 shell 사용 */
-function exec(cmd: string, args: string[]): Promise<string> {
-  const isWin = platform() === 'win32';
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 10_000, windowsHide: true, shell: isWin }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout.trim());
-    });
-  });
-}
-
-/** 시스템 PATH에서 Node.js 검사 */
-async function checkSystemNode(): Promise<{ installed: boolean; version: string | null; npx: boolean }> {
-  let installed = false;
-  let version: string | null = null;
-  let npx = false;
-
-  try {
-    const v = await exec('node', ['--version']);
-    if (v.startsWith('v')) { installed = true; version = v; }
-  } catch { /* not found */ }
-
-  try {
-    await exec('npx', ['--version']);
-    npx = true;
-  } catch { /* not found */ }
-
-  return { installed, version, npx };
-}
-
-/** 앱 설치 여부 감지 — 설정파일, 부모 디렉토리, 알려진 설치 경로 순으로 확인 */
-async function isAppDetected(configPath: string, id: string): Promise<boolean> {
-  // 1) 설정 파일 자체가 존재
-  try { await access(configPath); return true; } catch {}
-
-  // 2) 설정 파일의 부모 디렉토리가 존재 (앱 설치됨, MCP 미설정)
-  try { await access(dirname(configPath)); return true; } catch {}
-
-  // 3) 알려진 앱 설치 경로 (Windows)
-  if (platform() === 'win32') {
-    const local = process.env['LOCALAPPDATA'] ?? '';
-    const appdata = process.env['APPDATA'] ?? '';
-    const home = homedir();
-    const knownPaths: Record<string, string[]> = {
-      'claude-desktop': [
-        resolve(local, 'AnthropicClaude'),
-        resolve(local, 'Programs/claude-desktop'),
-        resolve(appdata, 'Claude'),
-      ],
-      'cursor': [
-        resolve(local, 'Programs/cursor'),
-        resolve(home, '.cursor'),
-      ],
-      'vscode': [
-        resolve(local, 'Programs/Microsoft VS Code'),
-        resolve(appdata, 'Code'),
-      ],
-      'windsurf': [
-        resolve(local, 'Programs/windsurf'),
-        resolve(home, '.codeium'),
-      ],
-      'gemini-cli': [
-        resolve(home, '.gemini'),
-      ],
-      'zed': [
-        resolve(home, '.zed'),
-      ],
-    };
-    for (const dir of knownPaths[id] ?? []) {
-      try { await access(dir); return true; } catch {}
-    }
-  } else {
-    // macOS/Linux — 부모 디렉토리만으로 충분
-    const home = homedir();
-    const knownPaths: Record<string, string[]> = {
-      'claude-desktop': [resolve(home, 'Library/Application Support/Claude')],
-      'cursor': [resolve(home, '.cursor')],
-      'windsurf': [resolve(home, '.codeium')],
-      'gemini-cli': [resolve(home, '.gemini')],
-      'zed': [resolve(home, '.zed')],
-    };
-    for (const dir of knownPaths[id] ?? []) {
-      try { await access(dir); return true; } catch {}
-    }
-  }
-
-  return false;
-}
-
-// ── Public API ────────────────────────────────────────────────────
-
-/** 환경 감지: Node.js 설치 여부 + AI 클라이언트 목록 */
-export async function detectMcpEnv(): Promise<McpEnvInfo> {
-  // Node.js 검사 — 실패해도 클라이언트 감지는 계속
-  let nodeInfo = { installed: false, version: null as string | null, npx: false };
-  try {
-    nodeInfo = await checkSystemNode();
-  } catch (err) {
-    logger.warn(`[mcp-setup] Node.js 검사 실패: ${err}`);
-  }
-
-  const clientConfigs = getClientConfigs();
-  const clients: McpClient[] = [];
-
-  for (const cc of clientConfigs) {
-    let detected = false;
-    let installed = false;
-
     try {
-      // 앱 설치 감지 (설정파일 + 부모디렉토리 + 알려진 경로)
-      detected = await isAppDetected(cc.configPath, cc.id);
-
-      // 이미 kordoc이 등록되어 있는지 확인 (설정파일이 있을 때만)
-      if (detected) {
-        try {
-          const config = await readJsonFile(cc.configPath);
-          const servers = config[cc.format] as Record<string, unknown> | undefined;
-          if (servers && ('kordoc' in servers)) {
-            installed = true;
-          }
-        } catch { /* config 파일 없거나 파싱 실패 — 앱은 설치됨 */ }
-      }
-    } catch (err) {
-      logger.warn(`[mcp-setup] ${cc.name} 감지 오류: ${err}`);
+      return { data: JSON.parse(stripJsonc(raw)) as Record<string, unknown>, hadComments: true };
+    } catch {
+      throw new Error(`설정 파일을 읽을 수 없어 건드리지 않았습니다. 직접 확인하세요: ${path}`);
     }
-
-    clients.push({
-      id: cc.id,
-      name: cc.name,
-      configPath: cc.configPath,
-      format: cc.format,
-      detected,
-      installed,
-    });
   }
-
-  return {
-    nodeInstalled: nodeInfo.installed,
-    nodeVersion: nodeInfo.version,
-    npxAvailable: nodeInfo.npx,
-    clients,
-  };
 }
 
-/** 선택한 클라이언트에 kordoc MCP 설정 기록 */
-export async function installMcpConfig(clientIds: string[]): Promise<McpInstallResult> {
-  const clientConfigs = getClientConfigs();
-  const results: McpInstallResult['results'] = [];
-  const entry = buildServerEntry();
+function serverEntry(key: Key, env: Record<string, string>): Record<string, unknown> {
+  const command = process.execPath;
+  const args = [kordocMcpPath()];
+  const withEnv = Object.keys(env).length ? { env } : {};
+  if (key === 'servers') return { type: 'stdio', command, args, ...withEnv };
+  if (key === 'context_servers') return { command: { path: command, args, ...withEnv } };
+  return { command, args, ...withEnv };
+}
 
-  for (const id of clientIds) {
-    const cc = clientConfigs.find((c) => c.id === id);
-    if (!cc) {
-      results.push({ clientId: id, clientName: id, ok: false, error: '알 수 없는 클라이언트' });
+export async function detectMcpEnv(): Promise<McpEnv> {
+  const clients = await Promise.all(clientDefs().map(async (c) => {
+    const installed = existsSync(c.configPath) || existsSync(dirname(c.configPath)) || c.probes.some((p) => existsSync(p));
+    let configured = false;
+    try {
+      const servers = (await readConfig(c.configPath)).data[c.key];
+      configured = !!servers && typeof servers === 'object' && 'kordoc' in (servers as object);
+    } catch {
+      /* 못 읽는 설정 — 등록 안 된 것으로 */
+    }
+    return { id: c.id, name: c.name, installed, configured, config_path: c.configPath };
+  }));
+  return { clients };
+}
+
+export async function installMcpConfig(ids: string[], rootDir?: string): Promise<{ installed: string[]; failed: Array<{ client: string; error: string }> }> {
+  const env: Record<string, string> = { KORDOC_MODEL_CACHE: modelCacheDir() };
+  if (getSettings().privacy.offline) env.KORDOC_OFFLINE = '1';
+  if (rootDir) env.KORDOC_ROOT = rootDir;
+  const defs = clientDefs();
+  const installed: string[] = [];
+  const failed: Array<{ client: string; error: string }> = [];
+  for (const id of ids) {
+    const c = defs.find((d) => d.id === id);
+    if (!c) {
+      failed.push({ client: id, error: '모르는 프로그램입니다.' });
       continue;
     }
-
     try {
-      const config = await readJsonFile(cc.configPath);
-      const serverEntry = cc.format === 'context_servers' ? buildZedEntry() : entry;
-      const servers = (config[cc.format] ?? {}) as Record<string, unknown>;
-      servers['kordoc'] = serverEntry;
-      config[cc.format] = servers;
-      await writeJsonFile(cc.configPath, config);
-      logger.info(`[mcp-setup] ${cc.name}: kordoc MCP 등록 완료 → ${cc.configPath}`);
-      results.push({ clientId: id, clientName: cc.name, ok: true });
+      const { data, hadComments } = await readConfig(c.configPath);
+      const servers = data[c.key] && typeof data[c.key] === 'object' ? (data[c.key] as Record<string, unknown>) : {};
+      servers.kordoc = serverEntry(c.key, env);
+      data[c.key] = servers;
+      await mkdir(dirname(c.configPath), { recursive: true });
+      if (hadComments) await copyFile(c.configPath, `${c.configPath}.kordoc-backup`);
+      await writeFile(c.configPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+      logger.info(`[mcp-setup] ${c.name}: kordoc MCP 등록 → ${c.configPath}`);
+      installed.push(id);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[mcp-setup] ${cc.name}: 등록 실패 — ${msg}`);
-      results.push({ clientId: id, clientName: cc.name, ok: false, error: msg });
+      failed.push({ client: id, error: err instanceof Error ? err.message : String(err) });
     }
   }
-
-  return { success: results.every((r) => r.ok), results };
-}
-
-/** Node.js 설치 시작 (Windows: winget, macOS: brew, 그 외: 안내) */
-export async function installNode(): Promise<{ started: boolean; method: string; error?: string }> {
-  const os = platform();
-
-  try {
-    if (os === 'win32') {
-      // winget 사용 가능 여부 확인
-      try {
-        await exec('where', ['winget']);
-        // winget으로 Node.js LTS 설치 (비동기 — 새 창 열림)
-        execFile('winget', ['install', 'OpenJS.NodeJS.LTS', '--accept-package-agreements', '--accept-source-agreements'], {
-          windowsHide: false,
-          detached: true,
-          stdio: 'ignore',
-        } as any).unref?.();
-        return { started: true, method: 'winget' };
-      } catch {
-        // winget 없으면 다운로드 페이지 열기
-        execFile('explorer', ['https://nodejs.org'], { windowsHide: true } as any);
-        return { started: true, method: 'browser' };
-      }
-    } else if (os === 'darwin') {
-      try {
-        await exec('which', ['brew']);
-        execFile('brew', ['install', 'node'], { detached: true, stdio: 'ignore' } as any).unref?.();
-        return { started: true, method: 'brew' };
-      } catch {
-        execFile('open', ['https://nodejs.org'], {});
-        return { started: true, method: 'browser' };
-      }
-    } else {
-      // Linux — 안내만
-      return { started: false, method: 'manual', error: 'https://nodejs.org 에서 수동 설치' };
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { started: false, method: 'error', error: msg };
-  }
+  return { installed, failed };
 }

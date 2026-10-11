@@ -7,6 +7,7 @@ import { Copy, Check, Eye, Code, Sparkles } from "lucide-react";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
 import { ContextMenu } from "./ContextMenu";
+import { openExternal } from "../../lib/native";
 
 interface MarkdownViewerProps {
   markdown: string;
@@ -159,7 +160,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
                 pre: (props) => <>{props.children}</>,
                 blockquote: (props) => <blockquote style={{ borderLeft: "3px solid var(--color-accent)", paddingLeft: "1em", margin: "0.75em 0", color: "var(--color-text-muted)", fontStyle: "italic" }} {...props} />,
                 hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--color-border)", margin: "1.5em 0" }} />,
-                a: (props) => <a style={{ color: "var(--color-accent)", textDecoration: "underline" }} {...props} />,
+                a: ({ href, ...props }) => <a style={{ color: "var(--color-accent)", textDecoration: "underline" }} href={href} {...props} onClick={(e) => { e.preventDefault(); void openExternal(href); }} />,
                 strong: (props) => <strong style={{ fontWeight: 600, color: "var(--color-text-primary)" }} {...props} />,
               }}
             >

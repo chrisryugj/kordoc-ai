@@ -4,11 +4,15 @@
  */
 
 import { createInterface } from 'node:readline';
+import { isMainThread } from 'node:worker_threads';
 import { RpcRouter } from './rpc/router.js';
 import { RPC_ERRORS, type JsonRpcRequest, type JsonRpcResponse } from './rpc/protocol.js';
 import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
+import { syncOfflineEnv } from './infra/net-guard.js';
+import { seedBundledModels } from './core/system/index.js';
+import { setWorkerEntry } from './infra/worker.js';
 
 /** stdout에 JSON-RPC 응답 쓰기 */
 function writeResponse(response: JsonRpcResponse): void {
@@ -38,10 +42,13 @@ async function main(): Promise<void> {
   try {
     const settings = getSettings();
     setLogLevel(settings.general.log_level);
+    syncOfflineEnv();
   } catch {
     // 설정 파일 없어도 기본값으로 계속
-    logger.warn('[main] settings.yaml load failed, using defaults');
+    logger.warn('[main] settings load failed, using defaults');
   }
+
+  try { seedBundledModels(); } catch (err) { logger.warn(`[main] OCR 모델 시드 실패: ${err}`); }
 
   const router = new RpcRouter();
   registerAllMethods(router);
@@ -105,7 +112,11 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err) => {
-  logger.error(`[main] fatal: ${err}`);
-  process.exit(1);
-});
+// 무거운 작업은 이 파일을 작업자 스레드로 한 번 더 띄워 돌린다 (infra/worker). 작업자에서는 JSON-RPC 서버를 열지 않는다
+setWorkerEntry(new URL(import.meta.url));
+if (isMainThread) {
+  main().catch((err) => {
+    logger.error(`[main] fatal: ${err}`);
+    process.exit(1);
+  });
+}

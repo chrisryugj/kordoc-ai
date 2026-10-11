@@ -54,6 +54,8 @@ export function Tooltip({ children, content, position = "top", delay = 300, disa
 
   const show = useCallback(() => {
     if (disabled || !content) return;
+    // 마우스 올림과 포커스가 겹쳐 와도 타이머는 하나만 (앞 타이머가 남으면 떠난 뒤에 떠서 붙어 있는다)
+    clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setVisible(true), delay);
   }, [disabled, content, delay]);
 
@@ -62,6 +64,13 @@ export function Tooltip({ children, content, position = "top", delay = 300, disa
     setVisible(false);
     setPos(null);
   }, []);
+
+  // 키보드로 옮겨 온 포커스에만 띄운다 (누른 단추에 남은 포커스로는 띄우지 않는다)
+  const showOnFocus = useCallback((e: React.FocusEvent) => {
+    if (e.target instanceof Element && e.target.matches(":focus-visible")) show();
+  }, [show]);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   useEffect(() => {
     if (!visible || !triggerRef.current) return;
@@ -86,7 +95,8 @@ export function Tooltip({ children, content, position = "top", delay = 300, disa
         ref={triggerRef}
         onMouseEnter={show}
         onMouseLeave={hide}
-        onFocus={show}
+        onPointerDown={hide}
+        onFocus={showOnFocus}
         onBlur={hide}
         style={{ display: "inline-flex" }}
       >

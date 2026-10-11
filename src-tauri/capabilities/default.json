@@ -14,6 +14,7 @@
     "core:window:allow-outer-position",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
+    "core:webview:allow-set-webview-zoom",
     "notification:default",
     "notification:allow-notify"
   ]

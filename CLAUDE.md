@@ -1,148 +1,60 @@
 # kordoc-ai
 
-한국 문서 변환 AI 데스크톱 도구.
+한글 문서 작성·편집·검토·변환 데스크톱 앱 (v2). Windows·macOS, 폐쇄망 동작.
+계획·결정 정본: `.claude/plans/v2-refactor.md`
 
-## 프로젝트 개요
-
-- **목적**: HWP/HWPX/PDF/XLSX/DOCX 문서를 마크다운으로 변환하는 데스크톱 앱
-- **핵심 엔진**: [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS 한국 문서 파서
-
-## 아키텍처
+## 구조
 
 ```
-React 19 (TypeScript + Tailwind) ─── Tauri IPC ─── Rust (Tauri 2.10)
-                                                        │
-                                               stdin/stdout JSON-RPC 2.0
-                                                        │
-                                              Node.js Sidecar (tsc 빌드)
-                                                        │
-                                              kordoc (로컬) + Gemini API (AI)
+src/            React 19 + TS + Tailwind 4 (화면)
+src-tauri/      Tauri 2 (Rust): 사이드카 관리(다중 호출), 우클릭 메뉴, 트레이, kordoc:// 주소
+node-sidecar/   Node 문서 엔진 (JSON-RPC over stdin/stdout)
+  src/infra/      설정(config)·폐쇄망 관문(net-guard)·진행률(progress)·효과 집계(usage)·AI 공급자(llm/)
+  src/core/       기능 모듈 (kordoc 호출)
+  src/rpc/methods 영역별 등록: system·documents·ai·editor·insight
+  editor-host/    내장 한글 편집기 중계 페이지 (소스)
+  editor/         ← build-rhwp-studio.mjs 산출물 (gitignore)
+  models/         ← 내장 OCR 모델 (gitignore)
+  samples/        예제 문서 (가상의 가온시, 커밋)
+shell/windows/  MSIX 우클릭 메뉴 패키지 (선택, Win11 상단 메뉴용. 기본은 앱의 HKCU 등록)
+scripts/        빌드: fetch-node · build-sidecar · build-rhwp-studio · sync-rpc-whitelist
 ```
 
-## 폴더 구조
+## 정본 (어긋나면 CI 가 잡는다)
 
-| 폴더 | 내용 |
-|------|------|
-| `src/` | React 프론트엔드 (components, hooks, types, styles) |
-| `src-tauri/` | Tauri/Rust 백엔드 (sidecar manager, commands) |
-| `node-sidecar/` | Node.js 백엔드 (JSON-RPC 서버, kordoc 연동, Gemini API) |
-| `node-sidecar/src/core/` | 핵심 비즈니스 모듈 |
-| `node-sidecar/config/` | YAML 설정 (settings.yaml) |
-| `assets/fonts/` | Pretendard 폰트 |
+| 사실 | 정본 | 따라가는 곳 |
+| --- | --- | --- |
+| RPC 메서드·모양 | `node-sidecar/src/types/rpc-contract.ts` | 프론트 `import type`, Rust 허용 목록(`node scripts/sync-rpc-whitelist.mjs` 로 생성, CI `--check`) |
+| 편집기 프로토콜 | `node-sidecar/src/types/editor-bridge.ts` | `editor-host/host.js`, `src/lib/hwp-editor.ts` |
+| kordoc 버전 | `node-sidecar/package.json` 정확 버전 | lockfile |
+| rhwp 버전 | `scripts/build-rhwp-studio.mjs` 의 `RHWP_VERSION` | studio·@rhwp/core·@rhwp/editor 같은 버전 |
+| 동봉 Node 버전 | `scripts/fetch-node.mjs` 의 `NODE_VERSION` | |
 
-## 기술 스택
-
-- **프론트엔드**: React 19, TypeScript 5.9, Tailwind CSS 4, Vite 7
-- **데스크톱**: Tauri 2.10 (Rust)
-- **백엔드**: Node.js (JSON-RPC 2.0 sidecar)
-- **문서 파싱**: kordoc v4.2+ (순수 JS — HWP/HWPX/PDF/XLSX/DOCX, 배포용 HWP 복호화, 한컴오피스 불필요)
-- **AI**: Google Gemini (gemini-3-flash-preview)
-- **빌드**: tsc (sidecar) → Tauri MSI 인스톨러
-
-## 핵심 기능
-
-| 기능 | RPC 메서드 | 엔진 | API |
-|------|-----------|------|-----|
-| 마크다운 변환 | `convert` | kordoc parse() | 로컬 |
-| 배치 변환 | `convert_batch` | convert 반복 + progress | 로컬 |
-| 문서 비교 | `diff` | kordoc compare() | 로컬 |
-| 양식 추출 | `form_extract` | kordoc extractFormFields() | 로컬 |
-| 양식 후보 추출 | `form_extract_candidates` | kordoc extractFormFields() | 로컬 |
-| 양식 배치 추출 | `form_extract_batch` | 다중 form_extract + 필드 선택 | 로컬 |
-| HWPX 생성 | `generate_hwpx` | kordoc markdownToHwpx() | 로컬 |
-| 표 추출 | `extract_tables` | kordoc parse → table 필터 | 로컬 |
-| 파일 병합 | `merge_files` | 다중 parse + 병합 | 로컬 |
-| PDF 분리 | `split_pdf` | pdf-lib | 로컬 |
-| PDF 페이지 추출 | `pdf_extract_pages` | pdf-lib | 로컬 |
-| PDF 페이지 수 | `pdf_page_count` | pdfjs-dist | 로컬 |
-| 문서 정합성 검사 | `inspect_document` | kordoc parse + 규칙 검사 | 로컬 |
-| AI OCR | `ocr` | Gemini Vision (PDF 직접 전송) | API |
-| AI 요약 | `summarize` | Gemini text | API |
-| MCP 환경 감지 | `detect_mcp_env` | process/fs | 로컬 |
-| MCP 설정 설치 | `install_mcp_config` | fs writeFile | 로컬 |
-| Node.js 설치 | `install_node` | spawn winget/browser | 로컬 |
-| 유틸리티 | `ping`, `get_settings`, `update_settings` | — | 로컬 |
-| 파일 관리 | `open_folder`, `open_file`, `list_files` | explorer/fs | 로컬 |
-
-## kordoc 버전 핀
-
-**정본은 레포 루트 `.kordoc-version` 파일 하나.** CI·릴리스 워크플로가 이 값을 읽어
-`node-sidecar/package.json` 의 `link:../../kordoc` 를 `^<버전>` 으로 치환한다.
-
-- 로컬 개발은 `link:` 그대로 — 형제 체크아웃(`../kordoc`)을 자동으로 쓴다
-- **kordoc 을 올릴 땐 `.kordoc-version` 만 고친다.** 워크플로에 버전을 직접 쓰지 말 것
-- CI 가 매 실행마다 핀과 npm 최신을 대조해 뒤처지면 경고 어노테이션을 남긴다
-
-> v1.5.0 이전엔 이 값이 세 군데(로컬 link·`ci.yml` `^3.1.1`·`release.yml` `^2.2.1`)로
-> 흩어져 있어서, **CI 는 3.x 로 통과 도장을 찍고 배포본엔 2.x 가 실려 나갔다.**
-> kordoc 메이저 두 번(4.0 공문서 생산로직, 4.2 내장 OCR)이 앱에 반영되지 않았다.
-
-## 빌드
+## 빌드·검증
 
 ```bash
-# 프론트엔드 개발
-pnpm tauri:dev
-
-# Node.js sidecar 빌드
-cd node-sidecar && pnpm build
-
-# 프로덕션 빌드 (MSI 인스톨러)
-pnpm tauri:build
+node scripts/fetch-node.mjs && node scripts/build-sidecar.mjs && node scripts/build-rhwp-studio.mjs
+node node-sidecar/scripts/smoke-bundle.mjs     # 설치본 조건: node_modules 없는 임시 폴더 + 동봉 Node 로 셀프테스트
+cd node-sidecar && node node_modules/vitest/vitest.mjs run
+pnpm exec tsc --noEmit && pnpm exec vite build
+cd src-tauri && cargo test --lib
 ```
 
-## 테스트
+## 함정 (실측)
 
-```bash
-# Node.js sidecar 테스트
-cd node-sidecar && pnpm test
+- **설치본엔 레포 node_modules 가 없다.** 순수 JS 는 `dist/bundle.mjs`(ESM), 네이티브·WASM·kordoc 은 `scripts/stage-natives.mjs` 가 전이 의존까지 `dist/node_modules` 에 깐다. 새 네이티브 패키지를 직접 import 하면 `scripts/externals.mjs` 에 추가. 스모크가 못 통과하면 릴리스 금지 (v1.5.0 은 ping 만 보고 기능이 죽은 번들을 배포했다).
+- kordoc 은 번들에 녹이지 않고 패키지째 싣는다. 공개 API 에 없는 서식 보존 마스킹·폴더 감시는 kordoc CLI(`process.execPath` + kordoc/dist/cli.js), MCP 연결은 동봉 Node + kordoc/dist/mcp.js.
+- 수식 OCR(@huggingface/transformers) 은 onnxruntime-web 140MB 를 끌고 와서 설치본에서 뺐다.
+- **rhwp SDK 는 호스트·studioUrl 모두 HTTP(S) 출처만** → 사이드카가 127.0.0.1 임시 포트로 편집기를 서빙(`editor_server`), 앱 창은 중계 페이지를 iframe 으로. CSP `frame-src http://127.0.0.1:*`.
+- 편집기 안 문단 바꿔 넣기는 스튜디오 문서 에이전트 계약(applyTextCommand). 해시는 현재 문서를 HWPX 로 내보내 중계 페이지의 별도 rhwp WASM 으로 다시 읽어 계산한다. 글자 모양이 섞인 문단·개체·누름틀 문단은 계약이 거부 → 그 문단을 선택해 두고 붙여 넣기 안내. HwpCtrl 선택 블록은 화면 선택과 따로 논다(쓰지 말 것).
+- 비워 둔 누름틀의 안내 글자는 rhwp 인쇄·PDF 에 찍힌다 → 출력 전에 공백으로 채운다.
+- kordoc 렌더(renderDocument)는 칸 안 줄바꿈(hp:lineBreak)을 아직 무시한다. 누름틀로 채운 여러 줄 본문 PDF 는 rhwp 로.
+- 사이드카 stdout 은 JSON-RPC 전용, 로그는 stderr. Rust 는 응답 id 로 oneshot 을 갈라 받는다(v1 은 전 호출 직렬화로 AI 하나에 미리보기까지 막혔다).
+- Windows NSIS 는 사용자 단위 설치(관리자 불필요). WebView2 백그라운드 통신·SmartScreen 은 창 설정에서 끈다(`tauri.windows.conf.json`). WebView2 는 `offlineInstaller` 로 설치 파일에 넣는다(기본 내려받기 방식은 폐쇄망에서 설치가 막힌다).
+- **Node 가 없는 PC 조건.** 설치본은 동봉 Node 만 쓴다(`locate_node` 의 시스템 Node 탐색은 개발 빌드 전용). 스모크는 PATH 에서 node·npm·npx 폴더와 `NODE_OPTIONS` 를 빼고 돌린다. 엔진 안에서 Node 를 부를 땐 `process.execPath`(kordoc CLI·MCP).
+- **Windows VC++ 런타임.** onnxruntime·node-llama-cpp 의 .node·.dll 은 MSVCP140·VCRUNTIME140 을 불러오는데, Node 는 모듈을 `LOAD_WITH_ALTERED_SEARCH_PATH`(모듈 폴더 먼저)로 불러서 node.exe 옆 DLL 은 안 잡힌다 → `stage-natives.mjs` 가 PE 가져오기 표를 읽어 필요한 모듈 폴더마다 VS 재배포 CRT 를 복사(CI 에서 못 찾으면 실패). node-llama-cpp CUDA 판(519MB)·onnxruntime DirectML(38MB, kordoc 은 CPU EP 만)은 뺀다.
+- 셸 훅: `npm`/`npx` 를 직접 치면 pnpm 으로 바뀌어 node_modules 가 깨진다 → `/opt/homebrew/bin/npm`, 도구는 `node node_modules/...` 직접.
 
-# 전체 (vitest 45개)
-cd node-sidecar && npx vitest run
-```
+## 문구 규칙
 
-## IPC 프로토콜
-
-- JSON-RPC 2.0 over stdin/stdout
-- 24개 RPC 메서드 (whitelist 기반 보안)
-- progress notification (비동기)
-- Semaphore 동시성 제한 (max 2)
-- cancel 지원 (fire-and-forget)
-
-## UI 기능
-
-- 폴더 드래그드롭 — 폴더 드래그 시 지원 파일 자동 스캔, 클립보드 붙여넣기 지원
-- 출력 폴더 선택 — 전역/작업별 출력 디렉토리 커스터마이징
-- MCP 원클릭 설치 — Claude Desktop, Cursor, VS Code, Zed 등에 kordoc MCP 자동 등록
-- 접힘 사이드바 — 토글 버튼으로 사이드바 축소/확대
-
-## 마크다운 렌더링
-
-- ReactMarkdown + remark-gfm + rehype-raw + rehype-sanitize
-- HTML 테이블 렌더링 지원 (colspan, rowspan, br 등 — kordoc의 복잡한 표 출력 대응)
-- sanitize 스키마: table/thead/tbody/tr/th/td/caption/col/colgroup/br + colspan/rowspan 속성 허용
-
-## 번들 스모크 (릴리스 전 필수 관문)
-
-MSI에는 **node_modules가 들어가지 않는다** (`tauri.conf.json` resources = `dist/` + `config/`).
-그래서 esbuild가 번들에 못 넣고 런타임 require로 남긴 모듈이 하나라도 있으면
-사용자 PC에서만 "엔진 오류"가 난다. 개발 환경엔 node_modules가 옆에 있어 vitest로는 절대 안 잡힌다.
-
-```bash
-cd node-sidecar && npx tsc && node esbuild.config.mjs && pnpm smoke
-```
-
-`scripts/smoke-bundle.mjs`가 dist를 레포 바깥 임시 디렉토리로 옮겨 띄우고 ping을 던진다.
-CI·release 워크플로 양쪽에 물려 있으니 깨진 번들은 MSI로 넘어가지 못한다.
-
-> **v1.5.0 사고**: kordoc dist는 cfb를 `createRequire`로 동적 로드하는데, 같은 패턴을
-> 파일마다 다른 이름으로 낸다(`require2("cfb")`, `require3("cfb")`). esbuild 플러그인이
-> 앞의 것만 이름으로 짚어 치환하고 뒤의 것을 놓쳐서, `Cannot find module 'cfb'`로
-> 엔진이 죽는 MSI가 그대로 배포됐다. 그래서 지금은 **이름을 짚지 않고** `("cfb")` 호출
-> 전부를 치환하고, 한 자리라도 남으면 빌드를 끊는다.
-
-## 주의사항
-
-- kordoc이 HWP/HWPX/PDF를 순수 JS로 파싱 — **한컴오피스 불필요**
-- stdout은 JSON-RPC 전용 — 로깅은 반드시 stderr로
-- Gemini 기본 모델: `gemini-3-flash-preview` (3.x가 최신)
-
+사용자에게 보이는 한국어에 줄표(—·–) 금지(`:`·`·`·괄호). 오류 문장은 무엇을 하면 되는지까지. 숫자는 지어내지 않는다. 효과 집계의 기준 시간은 가정치로 밝히고 설정에서 바꾸게 한다.

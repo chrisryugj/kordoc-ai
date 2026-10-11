@@ -442,7 +442,7 @@ export async function concatXlsx(
     sendProgress({
       current: fi + 1,
       total: files.length,
-      message: `XLSX 수합 ${fi + 1}/${files.length}: ${basename(files[fi])}`,
+      message: `XLSX 합치는 중 ${fi + 1}/${files.length}: ${basename(files[fi])}`,
     });
 
     try {
@@ -537,7 +537,7 @@ export async function concatXlsx(
     }
   }
 
-  if (!baseZip || collectedSheets.length === 0) throw new Error('수합할 유효한 XLSX 파일이 없습니다');
+  if (!baseZip || collectedSheets.length === 0) throw new Error('합칠 수 있는 XLSX 파일이 없습니다');
 
   // ── 출력 ZIP 구성 ──
 

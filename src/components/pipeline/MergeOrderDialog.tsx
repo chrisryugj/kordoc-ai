@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useId, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -23,7 +23,11 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { Badge, getFileTypeBadgeVariant } from "../ui/Badge";
+import { useDialogKeys } from "../ui/useDialogKeys";
 import type { ImportedFile, MergeMode } from "../../types/pipeline";
+
+/** Tab 으로 갈 수 있는 것 — 열 때 이 중 첫째로 포커스를 옮기고, 닫을 때 원래 자리로 돌린다 */
+const TABBABLE = 'button:not([tabindex="-1"]):not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])';
 
 // ── Sortable item ──
 
@@ -65,7 +69,7 @@ function SortableFileItem({
         className="p-0.5 rounded cursor-grab active:cursor-grabbing shrink-0"
         style={{ color: "var(--color-text-muted)" }}
         tabIndex={-1}
-        aria-label="드래그하여 순서 변경"
+        aria-label="끌어서 순서 바꾸기"
       >
         <GripVertical size={16} />
       </button>
@@ -123,7 +127,7 @@ function SortableFileItem({
           color: total <= 2 ? "var(--color-text-disabled)" : "var(--color-text-muted)",
           cursor: total <= 2 ? "default" : "pointer",
         }}
-        aria-label={`${file.name} 제거`}
+        aria-label={`${file.name} 빼기`}
       >
         <X size={13} />
       </button>
@@ -145,6 +149,16 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
   const [items, setItems] = useState<ImportedFile[]>(() => [...files]);
   const [mergeMode, setMergeMode] = useState<MergeMode>(uniformType ? "native" : "markdown");
   const [localOutputDir, setLocalOutputDir] = useState("");
+  const boxRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // 키보드로 끄는 중에 누른 Esc 는 끌기만 취소한다 (상자는 닫지 않는다)
+  const dragging = useRef(false);
+  useDialogKeys(boxRef, true, () => { if (!dragging.current) onCancel(); });
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    boxRef.current?.querySelector<HTMLElement>(TABBABLE)?.focus();
+    return () => prev?.focus?.();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -198,6 +212,10 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
       onClick={onCancel}
     >
       <div
+        ref={boxRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="card p-6 mx-4 space-y-5"
         style={{ maxWidth: "28rem", width: "100%" }}
         onClick={(e) => e.stopPropagation()}
@@ -211,11 +229,11 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
             <Merge size={20} style={{ color: "#D97706" }} />
           </div>
           <div>
-            <h3 className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>
-              문서 병합
+            <h3 id={titleId} className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>
+              합치기
             </h3>
             <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-              순서를 드래그하여 정하세요 · {items.length}개 파일
+              끌어서 순서를 정하세요 · {items.length}개 파일
             </p>
           </div>
         </div>
@@ -228,7 +246,9 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
+            onDragStart={() => { dragging.current = true; }}
+            onDragEnd={(e) => { handleDragEnd(e); setTimeout(() => { dragging.current = false; }, 0); }}
+            onDragCancel={() => setTimeout(() => { dragging.current = false; }, 0)}
           >
             <SortableContext
               items={items.map((f) => f.path)}
@@ -253,7 +273,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
         {uniformType && (
           <div className="space-y-2">
             <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              병합 방식
+              합칠 방식
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -288,7 +308,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
                     마크다운
                   </div>
                   <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
-                    텍스트 변환
+                    글로 바꿈
                   </div>
                 </div>
               </button>
@@ -298,7 +318,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
 
         {/* 내보내기 폴더 */}
         <div className="space-y-1.5">
-          <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>내보내기 폴더</p>
+          <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>저장할 곳</p>
           <div className="flex items-center gap-2">
             <button
               onClick={handleBrowseOutputDir}
@@ -311,7 +331,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
               <span className="ts-2xs truncate" style={{ color: effectiveDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
                 {effectiveDir
                   ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir ? " (전역)" : ""}`
-                  : "원본 파일 위치"
+                  : "원본 파일 옆"
                 }
               </span>
               <span className="ts-2xs font-medium ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "#D97706" }}>
@@ -342,7 +362,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
             disabled={items.length < 2}
           >
             <span className="flex items-center gap-1.5">
-              <Merge size={14} /> 병합 시작
+              <Merge size={14} /> 합치기
             </span>
           </Button>
         </div>

@@ -2,7 +2,8 @@ use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("Sidecar error: {0}")]
+    /// 화면에 그대로 보이는 한국어 문장 (설정의 엔진 상태 줄은 앞머리를 떼지 않는다)
+    #[error("{0}")]
     Sidecar(String),
     #[error("JSON-RPC error: {0}")]
     JsonRpc(String),

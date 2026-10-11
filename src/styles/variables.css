@@ -1,10 +1,9 @@
 /* ============================================
-   KorDoc AI Design System
-   World-Class Premium Identity
-   Deep Navy + Cobalt Blue palette
+   KorDoc AI 디자인 토큰 (v2)
+   종이 위 먹: 따뜻한 미색 종이 + 먹색 글자 + 로고의 인장 초록 한 가지 강조색
    ============================================ */
 
-/* Pretendard 폰트 번들링 */
+/* Pretendard 폰트 번들링 (400·600·700 만 있다. 500·800 은 쓰지 않는다) */
 @font-face {
   font-family: 'Pretendard';
   font-weight: 400;
@@ -28,221 +27,206 @@
 }
 
 @theme {
-  --font-sans: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
-  --font-mono: 'Consolas', 'D2Coding', 'Fira Code', monospace;
-  --font-display: 'Pretendard', system-ui, sans-serif;
-
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
-  --color-primary-200: #bfdbfe;
-  --color-primary-300: #93c5fd;
-  --color-primary-400: #60a5fa;
-  --color-primary-500: #3b82f6;
-  --color-primary-600: #2563eb;
-  --color-primary-700: #1d4ed8;
-  --color-primary-800: #1e40af;
-  --color-primary-900: #1e3a8a;
-  --color-primary-950: #172554;
-
-  --shadow-glass: 0 8px 32px 0 rgba(15, 23, 42, 0.06);
-
-  /* Fluid Spacing & Micro-Typography */
-  --space-fluid-sm: clamp(1rem, 2vw, 1.5rem);
-  --space-fluid-md: clamp(1.5rem, 3vw, 2.5rem);
-  --space-fluid-lg: clamp(2rem, 5vw, 4rem);
-  
-  --tracking-hero: -0.04em;
-  --tracking-heading: -0.02em;
-  --tracking-body: 0.01em;
-  --tracking-tight: -0.01em;
+  --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --font-mono: 'D2Coding', 'Consolas', 'SF Mono', 'Menlo', monospace;
+  --font-display: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 }
 
 :root {
-  --color-bg-primary: #F8FAFC;
-  --color-bg-secondary: #FFFFFF;
-  --color-bg-tertiary: #F1F5F9;
-  --color-bg-subtle: #E2E8F0;
+  color-scheme: light;
 
-  --sidebar-width: 220px;
-  --color-sidebar-bg: #FFFFFF;
-  --color-sidebar-text: #0F172A;
-  --color-sidebar-muted: #64748B;
-  --color-sidebar-hover: rgba(37, 99, 235, 0.07);
-  --color-sidebar-active: rgba(37, 99, 235, 0.08);
-  --color-sidebar-border: #E2E8F0;
-  --color-sidebar-section: #94A3B8;
+  /* 면 */
+  --color-spine: #ECE8DE;          /* 왼쪽 탐색 (책등) */
+  --color-bg-primary: #F3F0E8;     /* 입력칸·안쪽 면 */
+  --color-bg-secondary: #FBFAF6;   /* 종이 면 (화면 바탕) */
+  --color-bg-tertiary: #E9E5DA;    /* 올려 놓기·선택 */
+  --color-bg-subtle: #DED9CC;
+  --color-desk: #E2DED3;           /* 쪽 미리보기 책상 */
+  --color-paper: #FFFFFF;          /* 문서 쪽 */
 
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #334155;
-  --color-text-muted: #64748B;
-  --color-text-disabled: #CBD5E1;
-  --color-text-inverse: #F8FAFC;
+  /* 글자 */
+  --color-text-primary: #1C1E1B;
+  --color-text-secondary: #3E413C;
+  --color-text-muted: #5F625B;     /* 책등 5.07 · 안쪽 면 5.45 · 종이 5.94 · 선택 면 4.93 : 1 */
+  --color-text-disabled: #A6A89F;
+  --color-text-inverse: #FBFAF6;
 
-  --color-border: #E2E8F0;
-  --color-border-subtle: #F1F5F9;
-  --color-border-hover: #CBD5E1;
+  /* 선 */
+  --color-border: #DAD5C8;
+  --color-border-subtle: #E6E2D7;
+  --color-border-hover: #BDB7A8;
+  --color-rule-strong: #1C1E1B;
 
-  --color-accent: #2563EB;
-  --color-accent-hover: #1D4ED8;
-  --color-accent-active: #1e40af;
-  --color-accent-subtle: rgba(37, 99, 235, 0.06);
-  --color-accent-light: rgba(37, 99, 235, 0.06);
-  --color-accent-glow: rgba(37, 99, 235, 0.25);
-
-  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
-  --glass-blur: blur(12px);
-
-  --color-success: #059669;
-  --color-warning: #D97706;
-  --color-error: #BE123C;
-  --color-error-hover: #9F1239;
-  --color-error-bg: rgba(190, 18, 60, 0.1);
-  --color-info: #0284C7;
-  --color-info-bg: rgba(2, 132, 199, 0.1);
-
-  --color-backdrop: rgba(15, 23, 42, 0.4);
-  --color-primary-rgb: 37, 99, 235;
-  --color-primary-light: #3B82F6;
+  /* 강조: 로고 초록을 종이 위 대비(6.1:1)에 맞춘 인장 초록. 옅은 배지 바탕 위 11.5px 글자도 책등·선택 면까지 4.6:1 이상 */
+  --color-accent: #096C4F;
+  --color-accent-hover: #075E45;
+  --color-accent-active: #054A36;
+  --color-accent-ink: #FFFFFF;
+  --color-accent-subtle: rgba(10, 117, 86, 0.08);
+  --color-accent-light: rgba(10, 117, 86, 0.08);
+  --color-accent-glow: rgba(10, 117, 86, 0.22);
   --color-accent-bg: var(--color-accent-subtle);
 
-  /* Semantic badge/status backgrounds */
-  --color-success-bg: rgba(5, 150, 105, 0.15);
-  --color-warning-bg: rgba(217, 119, 6, 0.15);
-  --color-danger-bg: rgba(190, 18, 60, 0.15);
-  --color-success-subtle: rgba(5, 150, 105, 0.1);
-  --color-warning-subtle: rgba(217, 119, 6, 0.1);
-  --color-error-subtle: rgba(190, 18, 60, 0.1);
+  /* 상태 (색만으로 알리지 않는다: 늘 글로도 쓴다). 성공·주의는 배지(옅은 바탕 위 11.5px)에서 4.6:1 이상 되게 어둡게 */
+  --color-success: #266830;
+  --color-warning: #805100;
+  --color-error: #B42318;
+  --color-error-hover: #8F1C13;
+  --color-info: #2A5A86;
+  --color-seal: #B42318;           /* 인주 */
+  --color-success-bg: rgba(46, 125, 58, 0.12);
+  --color-warning-bg: rgba(143, 91, 0, 0.12);
+  --color-danger-bg: rgba(180, 35, 24, 0.11);
+  --color-error-bg: rgba(180, 35, 24, 0.09);
+  --color-info-bg: rgba(42, 90, 134, 0.10);
+  --color-success-subtle: rgba(46, 125, 58, 0.08);
+  --color-warning-subtle: rgba(143, 91, 0, 0.08);
+  --color-error-subtle: rgba(180, 35, 24, 0.07);
 
-  /* File type colors */
-  --color-file-hwp: #0EA5E9;
-  --color-file-pdf: #E11D48;
-  --color-file-xlsx: #10B981;
-  --color-file-txt: #64748B;
-  --color-file-hwp-bg: rgba(14, 165, 233, 0.06);
-  --color-file-pdf-bg: rgba(225, 29, 72, 0.05);
-  --color-file-xlsx-bg: rgba(16, 185, 129, 0.05);
-  --color-file-txt-bg: rgba(100, 116, 139, 0.05);
+  --color-backdrop: rgba(28, 30, 27, 0.42);
+  --color-primary-rgb: 10, 117, 86;
+  --color-primary-light: #13926B;
 
-  /* Pipeline step colors */
-  --color-step-active: var(--color-accent);
-  --color-step-done: var(--color-success);
-  --color-step-pending: var(--color-text-muted);
+  /* 형식 표시 (연 문서 목록의 고른 줄(선택 면) 위 10.5px 배지도 4.6:1 이상) */
+  --color-file-hwp: #23588C;
+  --color-file-pdf: #A8261C;
+  --color-file-xlsx: #296A34;
+  --color-file-doc: #2F55A4;
+  --color-file-ppt: #97451C;
+  --color-file-img: #6B5B43;
+  --color-file-txt: #5A5E56;
+  --color-file-hwp-bg: rgba(35, 88, 140, 0.09);
+  --color-file-pdf-bg: rgba(168, 38, 28, 0.08);
+  --color-file-xlsx-bg: rgba(43, 110, 54, 0.09);
+  --color-file-doc-bg: rgba(47, 85, 164, 0.09);
+  --color-file-ppt-bg: rgba(162, 74, 30, 0.09);
+  --color-file-img-bg: rgba(107, 91, 67, 0.10);
+  --color-file-txt-bg: rgba(94, 98, 90, 0.10);
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
-  --shadow-lg: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
-  --shadow-xl: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.03);
-  --shadow-card-hover: 0 4px 12px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(37, 99, 235, 0.12);
-  --shadow-inner: inset 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  /* 그림자: 쪽 미리보기와 떠 있는 판에만 */
+  --shadow-sm: 0 1px 2px 0 rgba(28, 30, 27, 0.05);
+  --shadow-md: 0 1px 3px 0 rgba(28, 30, 27, 0.07), 0 1px 2px -1px rgba(28, 30, 27, 0.06);
+  --shadow-lg: 0 6px 16px -6px rgba(28, 30, 27, 0.18);
+  --shadow-xl: 0 18px 40px -12px rgba(28, 30, 27, 0.28);
+  --shadow-card: 0 0 0 1px var(--color-border);
+  --shadow-card-hover: 0 0 0 1px var(--color-border-hover);
+  --shadow-inner: inset 0 1px 1px 0 rgba(28, 30, 27, 0.04);
+  --shadow-page: 0 1px 2px rgba(28, 30, 27, 0.10), 0 8px 22px -10px rgba(28, 30, 27, 0.30);
 
-  /* Radii */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
+  /* 모서리: 각진 편집 디자인 (알약·큰 둥근 카드 없음) */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
 
-  /* Type Scale */
-  --text-2xs: 0.75rem;
-  --text-xs: 0.8125rem;
-  --text-sm: 0.875rem;
-  --text-base: 0.9375rem;
-  --text-md: 1rem;
-  --text-lg: 1.25rem;
-  --text-xl: 1.75rem;
-  --text-2xl: 2.125rem;
-  --text-hero: 3rem;
+  /* 글자 크기 */
+  --text-2xs: 0.75rem;     /* 12 */
+  --text-xs: 0.8125rem;    /* 13 */
+  --text-sm: 0.875rem;     /* 14 */
+  --text-base: 0.9375rem;  /* 15 */
+  --text-md: 1rem;         /* 16 */
+  --text-lg: 1.25rem;      /* 20 */
+  --text-xl: 1.625rem;     /* 26 */
+  --text-2xl: 2rem;        /* 32 */
+  --text-hero: 2.5rem;
 
-  /* Easing */
+  /* 배치 */
+  --nav-width: 232px;
+  --nav-width-collapsed: 80px;
+
+  /* 움직임 */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out-sine: cubic-bezier(0.37, 0, 0.63, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  /* Transitions */
   --transition-fast: 120ms var(--ease-out-expo);
   --transition-normal: 200ms var(--ease-out-expo);
   --transition-spring: 400ms var(--ease-spring);
 }
 
-/* Dark Mode */
+/* 어두운 화면: 먹 바탕. 문서 쪽은 흰 종이 그대로 둔다 */
 .dark {
   color-scheme: dark;
-  --color-bg-primary: #020617;
-  --color-bg-secondary: #0F172A;
-  --color-bg-tertiary: #1E293B;
-  --color-bg-subtle: #334155;
 
-  --color-sidebar-bg: #020617;
-  --color-sidebar-text: #F8FAFC;
-  --color-sidebar-muted: #94A3B8;
-  --color-sidebar-hover: rgba(56, 189, 248, 0.1);
-  --color-sidebar-active: rgba(56, 189, 248, 0.12);
-  --color-sidebar-border: rgba(255, 255, 255, 0.06);
+  --color-spine: #0D0F0D;
+  --color-bg-primary: #121512;
+  --color-bg-secondary: #181B18;
+  --color-bg-tertiary: #232723;
+  --color-bg-subtle: #2D322D;
+  --color-desk: #0F120F;
+  --color-paper: #FFFFFF;
 
-  --color-text-primary: #F8FAFC;
-  --color-text-secondary: #CBD5E1;
-  --color-text-muted: #94A3B8;
-  --color-text-disabled: #475569;
-  --color-text-inverse: #0F172A;
+  --color-text-primary: #ECEDE7;
+  --color-text-secondary: #C4C7BE;
+  --color-text-muted: #979B91;
+  --color-text-disabled: #5A5E57;
+  --color-text-inverse: #121512;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.04);
-  --color-border-hover: rgba(255, 255, 255, 0.14);
+  --color-border: rgba(236, 237, 231, 0.12);
+  --color-border-subtle: rgba(236, 237, 231, 0.07);
+  --color-border-hover: rgba(236, 237, 231, 0.22);
+  --color-rule-strong: #ECEDE7;
 
-  --color-accent: #38BDF8;
-  --color-accent-hover: #7DD3FC;
-  --color-accent-active: #0284C7;
-  --color-accent-subtle: rgba(56, 189, 248, 0.10);
-  --color-accent-light: rgba(56, 189, 248, 0.10);
-  --color-accent-glow: rgba(56, 189, 248, 0.25);
+  --color-accent: #3FCF98;
+  --color-accent-hover: #6BDDB1;
+  --color-accent-active: #2BB27F;
+  --color-accent-ink: #062B1E;
+  --color-accent-subtle: rgba(63, 207, 152, 0.10);
+  --color-accent-light: rgba(63, 207, 152, 0.10);
+  --color-accent-glow: rgba(63, 207, 152, 0.25);
 
-  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
-  --glass-blur: blur(16px);
+  --color-success: #6CC97A;
+  --color-warning: #E3B35A;
+  --color-error: #F07A6E;
+  --color-error-hover: #F49A90;
+  --color-info: #86B6E6;
+  --color-seal: #F07A6E;
+  --color-success-bg: rgba(108, 201, 122, 0.16);
+  --color-warning-bg: rgba(227, 179, 90, 0.16);
+  --color-danger-bg: rgba(240, 122, 110, 0.16);
+  --color-error-bg: rgba(240, 122, 110, 0.13);
+  --color-info-bg: rgba(134, 182, 230, 0.14);
+  --color-success-subtle: rgba(108, 201, 122, 0.10);
+  --color-warning-subtle: rgba(227, 179, 90, 0.10);
+  --color-error-subtle: rgba(240, 122, 110, 0.10);
 
-  --color-backdrop: rgba(2, 6, 23, 0.6);
-  --color-primary-rgb: 56, 189, 248;
+  --color-backdrop: rgba(5, 7, 5, 0.62);
+  --color-primary-rgb: 63, 207, 152;
 
-  --color-success-bg: rgba(16, 185, 129, 0.2);
-  --color-warning-bg: rgba(251, 191, 36, 0.2);
-  --color-danger-bg: rgba(225, 29, 72, 0.2);
-  --color-success-subtle: rgba(16, 185, 129, 0.15);
-  --color-warning-subtle: rgba(217, 119, 6, 0.15);
-  --color-error-subtle: rgba(225, 29, 72, 0.15);
+  --color-file-hwp: #8FB8E3;
+  --color-file-pdf: #F09A90;
+  --color-file-xlsx: #8DD39A;
+  --color-file-doc: #9DB4EC;
+  --color-file-ppt: #EDA57E;
+  --color-file-img: #CDBB9C;
+  --color-file-txt: #B3B7AD;
+  --color-file-hwp-bg: rgba(143, 184, 227, 0.12);
+  --color-file-pdf-bg: rgba(240, 154, 144, 0.12);
+  --color-file-xlsx-bg: rgba(141, 211, 154, 0.12);
+  --color-file-doc-bg: rgba(157, 180, 236, 0.12);
+  --color-file-ppt-bg: rgba(237, 165, 126, 0.12);
+  --color-file-img-bg: rgba(205, 187, 156, 0.12);
+  --color-file-txt-bg: rgba(179, 183, 173, 0.12);
 
-  --color-file-hwp: #38BDF8;
-  --color-file-pdf: #FB7185;
-  --color-file-xlsx: #34D399;
-  --color-file-txt: #94A3B8;
-  --color-file-hwp-bg: rgba(56, 189, 248, 0.08);
-  --color-file-pdf-bg: rgba(251, 113, 133, 0.08);
-  --color-file-xlsx-bg: rgba(52, 211, 153, 0.08);
-  --color-file-txt-bg: rgba(148, 163, 184, 0.08);
-
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 8px -1px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 40px -8px rgba(0, 0, 0, 0.5);
-  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(56, 189, 248, 0.2);
-  --shadow-inner: inset 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px -1px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 22px -6px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 20px 44px -12px rgba(0, 0, 0, 0.7);
+  --shadow-inner: inset 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-page: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 26px -10px rgba(0, 0, 0, 0.8);
 }
 
-:root {
-  color-scheme: light;
-}
-
-/* Global Reset */
+/* 전역 바탕 */
 html, body, #root {
   height: 100%;
   font-family: var(--font-sans);
-  background-color: var(--color-bg-primary);
-  background-image: var(--bg-noise);
+  background-color: var(--color-bg-secondary);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
-  letter-spacing: var(--tracking-body);
+  letter-spacing: -0.005em;
   word-break: keep-all;
+  overflow-wrap: break-word;
+  font-synthesis: none;
 }

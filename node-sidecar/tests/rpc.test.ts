@@ -54,8 +54,28 @@ describe('RpcRouter', () => {
     const methods = router.listMethods();
     expect(methods).toContain('ping');
     expect(methods).toContain('convert');
-    expect(methods).toContain('inspect_document');
+    expect(methods).toContain('doc_info');
+    expect(methods).toContain('render_pages');
     // cancel은 router 내부 처리이므로 등록 목록에 없음
     expect(methods).not.toContain('cancel');
+  });
+});
+
+describe('RpcRouter 대기열', () => {
+  it('대기열이 차거나 기다리다 취소돼도 응답(error)은 돌려준다', async () => {
+    const r = new RpcRouter();
+    const gates: Array<() => void> = [];
+    r.register('slow_job', () => new Promise((resolve) => gates.push(() => resolve('done'))), { heavy: true });
+    const running = [r.dispatch('slow_job', {}, 1), r.dispatch('slow_job', {}, 2)];
+    const queued = Array.from({ length: 10 }, (_, i) => r.dispatch('slow_job', {}, 10 + i));
+    // 대기열 10개가 찼다 → 다음은 바로 오류 응답 (거부로 끝나면 응답 줄이 안 나간다)
+    await expect(r.dispatch('slow_job', {}, 99)).resolves.toMatchObject({ error: { message: expect.stringMatching(/대기열이 가득/) } });
+    // 기다리던 것 하나를 취소하면 그것도 오류 응답
+    await r.dispatch('cancel', { id: 10 });
+    await expect(queued[0]).resolves.toMatchObject({ error: expect.anything() });
+    while (gates.length) gates.shift()!();
+    await new Promise((res) => setTimeout(res, 0));
+    while (gates.length) gates.shift()!();
+    await Promise.all(running);
   });
 });

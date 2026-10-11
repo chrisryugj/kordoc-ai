@@ -1,38 +1,25 @@
-/** OCR — 이미지 PDF를 Gemini Vision으로 텍스트 추출
+/** OCR — 스캔 PDF·이미지에서 글자 읽기
  *
- * 전략:
- * 1. kordoc parse() 시도 (텍스트 기반 PDF는 여기서 성공)
- * 2. IMAGE_BASED_PDF 에러 시 → PDF 전체를 Gemini Vision에 직접 전송
- *    (pdfjs-dist canvas 렌더링 불필요 — Gemini가 PDF를 네이티브 지원)
+ * 기본: kordoc 내장 OCR(PP-OCRv5 korean, 이 PC 안에서, 키·인터넷 불필요). 스캔 표 구조도 복원.
+ * 선택: engine="ai" 면 쪽 이미지를 설정된 비전 AI 에 보낸다 (kordoc OcrProvider 훅 — 쪽 단위).
  */
 
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
-import { dirname, basename, extname, join } from 'node:path';
-import { parse } from 'kordoc';
-import { callGeminiVision } from '../../infra/gemini.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { parse, type OcrProvider } from 'kordoc';
+import { ask, getProvider } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
-import { getConfig } from '../../infra/config.js';
-
-/** Gemini 인라인 데이터 상한 (20MB) */
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
-
-/** 이미지 확장자 → MIME 매핑 */
-const IMAGE_MIME: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
+import { outputFile, stemOf } from '../output/index.js';
+import { cleanMessage } from '../errors.js';
 
 export interface OcrParams {
-  /** 입력 PDF 경로 */
   input_path: string;
-  /** 출력 파일 경로 */
   output_path?: string;
-  /** 페이지 범위 */
   pages?: string;
+  /** local(기본) · ai(비전 AI) */
+  engine?: 'local' | 'ai';
+  /** 텍스트층이 있어도 전 쪽 OCR */
+  force?: boolean;
 }
 
 export interface OcrResult {
@@ -40,124 +27,57 @@ export interface OcrResult {
   output_path: string;
   markdown: string;
   page_count?: number;
+  engine: 'local' | 'ai';
   warnings?: string[];
   error?: string;
 }
 
-/** Gemini Vision으로 직접 OCR (PDF/이미지 모두 지원) */
-async function ocrWithGemini(
-  buffer: Buffer,
-  mimeType: string,
-  signal: AbortSignal,
-): Promise<string> {
-  const label = mimeType.startsWith('image/') ? '이미지' : 'PDF';
-  logger.info(`[ocr] Gemini Vision ${label} 직접 전송`);
+const AI_OCR_SYSTEM = '당신은 한국어 문서 OCR 전문가입니다. 이미지의 글자만 정확히 옮기세요. 표는 마크다운 표로. 설명·주석을 붙이지 마세요. 숫자·날짜·고유명사는 보이는 그대로.';
 
-  sendProgress({ current: 1, total: 2, message: `Gemini Vision으로 ${label} OCR 중...` });
-
-  const base64 = buffer.toString('base64');
-  const text = await callGeminiVision({
-    prompt: '이 문서의 모든 텍스트를 정확하게 추출해주세요. 표가 있으면 마크다운 테이블로 변환하세요. 원본 구조와 순서를 유지하세요. 페이지 구분은 "---"으로 표시하세요.',
-    imageBase64: base64,
-    mimeType,
-    signal,
-    systemInstruction: '당신은 한국어 문서 OCR 전문가입니다. 텍스트만 정확히 추출하세요. 설명이나 주석을 추가하지 마세요.',
-  });
-
-  sendProgress({ current: 2, total: 2, message: 'OCR 완료' });
-
-  return text;
+function aiOcrProvider(signal: AbortSignal): OcrProvider {
+  const provider = getProvider();
+  if (!provider.supportsVision) {
+    throw new Error('지금 연결된 AI는 이미지를 못 읽습니다. 내장 OCR을 쓰거나 설정 > AI 연결에서 비전 모델을 고르세요.');
+  }
+  return async (pageImage, pageNumber, mimeType) => {
+    sendProgress({ current: pageNumber, total: 0, message: `AI가 ${pageNumber}쪽을 읽는 중...` });
+    const { text } = await ask({
+      system: AI_OCR_SYSTEM,
+      messages: [{ role: 'user', content: '이 쪽의 모든 글자를 옮겨 주세요.', images: [{ mime: mimeType, base64: Buffer.from(pageImage).toString('base64') }] }],
+      signal,
+      stream: false,
+    });
+    return text;
+  };
 }
 
 export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrResult> {
   const { input_path, pages } = params;
-
-  logger.info(`[ocr] ${input_path}`);
-
-  // 파일 크기 체크 — Gemini 인라인 데이터 상한 초과 시 즉시 에러
-  const fileInfo = await stat(input_path);
-  if (fileInfo.size > MAX_FILE_SIZE) {
-    throw new Error(`파일이 너무 큽니다 (${Math.round(fileInfo.size / 1024 / 1024)}MB). 최대 ${MAX_FILE_SIZE / 1024 / 1024}MB까지 지원합니다.`);
-  }
+  const engine = params.engine ?? 'local';
+  logger.info(`[ocr] ${input_path} engine=${engine}`);
 
   const buffer = await readFile(input_path);
-  const ext = extname(input_path).toLowerCase();
+  signal.throwIfAborted();
 
-  // 이미지 파일 → 바로 Gemini Vision OCR
-  const imageMime = IMAGE_MIME[ext];
-  if (imageMime) {
-    logger.info(`[ocr] 이미지 파일 감지: ${ext}`);
-    const cfg = getConfig('convert');
-    const outDir = cfg.output_dir || dirname(input_path);
-    const outName = basename(input_path, extname(input_path)) + '.md';
-    const outputPath = params.output_path ?? join(outDir, outName);
-
-    const markdown = await ocrWithGemini(buffer, imageMime, signal);
-
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, markdown, 'utf-8');
-
-    logger.info(`[ocr] done → ${outputPath} (${markdown.length}자)`);
-    return {
-      success: true,
-      output_path: outputPath,
-      markdown,
-      warnings: [`Gemini Vision OCR 사용 (${ext} 이미지)`],
-    };
-  }
-
-  // 1단계: kordoc parse 시도 (텍스트 기반 PDF면 바로 성공)
   const result = await parse(new Uint8Array(buffer).buffer, {
     pages,
-    onProgress: (current, total) => {
-      sendProgress({ current, total, message: `페이지 ${current}/${total} 처리 중` });
-    },
+    ocr: engine === 'ai' ? aiOcrProvider(signal) : params.force ? 'force' : true,
+    onProgress: (current, total) => { signal.throwIfAborted(); sendProgress({ current, total, message: `${current}/${total}쪽 읽는 중` }); },
   });
+  signal.throwIfAborted();
 
-  const cfg = getConfig('convert');
-  const outDir = cfg.output_dir || dirname(input_path);
-  const outName = basename(input_path, extname(input_path)) + '.md';
-  const outputPath = params.output_path ?? join(outDir, outName);
-
-  // 텍스트 기반 PDF → 바로 성공
-  if (result.success) {
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, result.markdown, 'utf-8');
-    logger.info(`[ocr] 텍스트 기반 PDF → ${outputPath}`);
-    return {
-      success: true,
-      output_path: outputPath,
-      markdown: result.markdown,
-      page_count: result.pageCount,
-      warnings: result.warnings?.map((w) => w.message),
-    };
+  if (!result.success) {
+    return { success: false, output_path: '', markdown: '', engine, error: cleanMessage(result.error) };
   }
-
-  // 2단계: IMAGE_BASED_PDF → Gemini Vision으로 직접 OCR
-  if (result.isImageBased) {
-    logger.info('[ocr] 이미지 기반 PDF 감지 → Gemini Vision 폴백');
-
-    const markdown = await ocrWithGemini(buffer, 'application/pdf', signal);
-
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, markdown, 'utf-8');
-
-    logger.info(`[ocr] done → ${outputPath} (${markdown.length}자)`);
-
-    return {
-      success: true,
-      output_path: outputPath,
-      markdown,
-      page_count: result.pageCount,
-      warnings: ['Gemini Vision OCR 사용 (이미지 기반 PDF)'],
-    };
-  }
-
-  // 기타 에러
+  const outputPath = outputFile({ output_path: params.output_path, source: input_path, name: `${stemOf(input_path)}.md` });
+  await writeFile(outputPath, result.markdown, 'utf-8');
+  logger.info(`[ocr] done → ${outputPath} (${result.markdown.length}자)`);
   return {
-    success: false,
+    success: true,
     output_path: outputPath,
-    markdown: '',
-    error: result.error,
+    markdown: result.markdown,
+    page_count: result.pageCount,
+    engine,
+    warnings: result.warnings?.map((w) => w.message),
   };
 }

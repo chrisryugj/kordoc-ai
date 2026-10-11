@@ -3,7 +3,7 @@
   KorDoc Shell — MSIX Sparse Package
   탐색기 우클릭 컨텍스트 메뉴 + kordoc:// 프로토콜 등록.
   SparsePackage이므로 별도 앱 설치 없이 registry-like 확장만 제공.
-  참조: docs/PRD.md §3.1, docs/SPEC.md §3.1
+  참조: docs/archive/PRD.md §3.1, docs/archive/SPEC.md §3.1 (v1 기획)
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -38,7 +38,7 @@
     <Application Id="KorDocShell" Executable="kordoc-launcher.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="KorDoc"
-        Description="한국 공문서 변환·인쇄·요약"
+        Description="한글 문서 열기·변환·개인정보 가리기·AI 요약"
         BackgroundColor="transparent"
         Square150x150Logo="assets/icons/Square150.png"
         Square44x44Logo="assets/icons/Square44.png"

@@ -1,11 +1,11 @@
 /**
- * Print core — 문서를 PDF로 변환한 후 Windows PrintTo verb로 인쇄 큐에 투입.
+ * 인쇄 — 문서를 인쇄용 PDF 로 만든 뒤 OS 인쇄 큐에 넣는다.
  *
  * 흐름:
- *   1. kordoc.parse(file) → markdown
- *   2. kordoc.markdownToPdf(md, {preset}) → PDF buffer (puppeteer-core, Chrome/Edge 자동 검출)
- *   3. %TEMP%/kordoc-print/<timestamp>-<basename>.pdf 저장
- *   4. PowerShell `Start-Process -Verb PrintTo -ArgumentList "<printer>"` 호출
+ *   1. PDF 만들기는 PDF 내보내기와 같은 경로(docToPdf): HWP·HWPX 는 rhwp 조판 그대로, PDF 는 그대로
+ *      (종전엔 글로 바꿔 다시 찍어서 한글 서식이 날아갔다)
+ *   2. 임시 폴더 kordoc-print/<시각>-<이름>.pdf 저장
+ *   3. Windows: PowerShell `Start-Process -Verb PrintTo` · macOS·리눅스: CUPS `lp`
  *
  * 함정:
  *   - PrintTo verb는 시스템 등록 PDF 핸들러(Adobe Reader/Edge 등)에 의존. 미설치 시 실패.
@@ -13,17 +13,19 @@
  *     세부 제어가 필요하면 SumatraPDF 같은 외부 도구나 Win32 EnumPrintProcessors 필요.
  *   - 임시 PDF는 인쇄 큐 투입 후 즉시 삭제하면 OS가 못 읽음. 60초 지연 삭제.
  *
- * 참조: docs/SPEC.md §2.1, §2.2
+ * 참조: docs/archive/SPEC.md §2.1, §2.2 (v1 기획)
  */
 
 import { execFile } from 'node:child_process';
-import { writeFile, mkdir, unlink } from 'node:fs/promises';
+import { writeFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { promisify } from 'node:util';
-import { parse, markdownToPdf, type PrintPreset } from 'kordoc';
+import type { PrintPreset } from 'kordoc';
+import { docToPdf } from '../export/index.js';
 import { validatePath } from '../../infra/pathGuard.js';
 import { logger } from '../../infra/logger.js';
+import { errorText } from '../errors.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +61,12 @@ const TEMP_PDF_TTL_MS = 60_000;
 
 async function ensurePrintTempDir(): Promise<void> {
   await mkdir(PRINT_TEMP_DIR, { recursive: true });
+  // 60초 안에 엔진이 꺼져 못 지운 지난 인쇄 파일
+  const cut = Date.now() - 3_600_000;
+  for (const name of await readdir(PRINT_TEMP_DIR)) {
+    const f = join(PRINT_TEMP_DIR, name);
+    await stat(f).then((s) => (s.mtimeMs < cut ? unlink(f) : undefined)).catch(() => {});
+  }
 }
 
 function quotePsArg(s: string): string {
@@ -87,17 +95,12 @@ export async function printFiles(
   signal: AbortSignal,
 ): Promise<PrintFilesResult> {
   if (!Array.isArray(params.files) || params.files.length === 0) {
-    throw new Error('files 가 비어있습니다');
+    throw new Error('인쇄할 파일이 없습니다. 파일을 고른 뒤 다시 시도하세요.');
   }
-  if (process.platform !== 'win32') {
-    throw new Error('인쇄는 Windows 에서만 지원됩니다 (PrintTo verb)');
-  }
-
   await ensurePrintTempDir();
 
   const failed: PrintFailure[] = [];
   const jobIds: string[] = [];
-  const preset = params.preset ?? 'default';
 
   for (let i = 0; i < params.files.length; i++) {
     signal.throwIfAborted();
@@ -110,25 +113,23 @@ export async function printFiles(
     }
 
     try {
-      const result = await parse(safePath);
-      if (!result.success) {
-        throw new Error(result.error ?? '파싱 실패');
-      }
-      const md = result.markdown ?? '';
-      if (!md.trim()) throw new Error('변환된 마크다운이 비어있습니다');
-
-      const pdfBuf = await markdownToPdf(md, { preset });
+      const pdfBuf = await docToPdf(safePath, signal);
       const pdfName = `${Date.now()}-${i}-${basename(safePath, extname(safePath))}.pdf`;
       const pdfPath = join(PRINT_TEMP_DIR, pdfName);
       await writeFile(pdfPath, pdfBuf);
 
-      await shellPrint(pdfPath, params.printer);
-      jobIds.push(pdfPath);
+      if (process.platform === 'win32') {
+        await shellPrint(pdfPath, params.printer);
+        jobIds.push(pdfPath);
+      } else {
+        const { stdout } = await execFileAsync('lp', lpArgs(pdfPath, params.printer), { env: { ...process.env, LANG: 'C', LC_ALL: 'C' } });
+        jobIds.push(/request id is (\S+)/.exec(stdout)?.[1] ?? pdfPath);
+      }
       void scheduleTempCleanup(pdfPath);
     } catch (e) {
-      const reason = e instanceof Error ? e.message : String(e);
-      logger.warn(`[print_files] 실패 ${safePath}: ${reason}`);
-      failed.push({ file: safePath, reason });
+      logger.warn(`[print_files] 실패 ${safePath}: ${e instanceof Error ? e.message : String(e)}`);
+      // 화면엔 명령줄 원문 대신 할 일을 (기본 PDF 프로그램이 인쇄를 못 받는 PC 가 많다)
+      failed.push({ file: safePath, reason: /Command failed|powershell|Start-Process|lp:/i.test(String(e)) ? '프린터로 보내지 못했습니다. PDF로 저장한 뒤 PDF 프로그램에서 인쇄하세요.' : errorText(e) });
     }
   }
 
@@ -152,9 +153,26 @@ function mapPrinterStatus(raw: unknown): Printer['status'] {
   return 'error';
 }
 
+/** CUPS lp 인자 — 프린터를 안 고르면 기본 프린터 */
+export function lpArgs(pdfPath: string, printer?: string): string[] {
+  return [...(printer ? ['-d', printer] : []), '--', pdfPath];
+}
+
+/** `LANG=C lpstat -p -d` 출력 → 프린터 목록 */
+export function parseLpstat(out: string): Printer[] {
+  const def = /system default destination:\s*(\S+)/.exec(out)?.[1];
+  return [...out.matchAll(/^printer (\S+) (?:is (\w+)|(disabled))/gm)].map((m) => ({
+    name: m[1],
+    isDefault: m[1] === def,
+    status: m[3] ? 'offline' : m[2] === 'idle' || m[2] === 'printing' ? 'ready' : 'error',
+  }));
+}
+
 export async function listPrinters(): Promise<Printer[]> {
   if (process.platform !== 'win32') {
-    throw new Error('listPrinters 는 Windows 에서만 지원됩니다');
+    // 프린터가 하나도 없으면 lpstat 이 0 이 아닌 종료 코드를 낸다 → 빈 목록
+    const r = await execFileAsync('lpstat', ['-p', '-d'], { env: { ...process.env, LANG: 'C', LC_ALL: 'C' } }).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }));
+    return parseLpstat(r.stdout);
   }
 
   // Get-CimInstance Win32_Printer 가 default/share/status 정보 모두 제공

@@ -8,7 +8,7 @@
  * "미리보기 반영"은 dry_run으로 미저장 채움 바이트를 받아 즉시 재렌더.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   X, ClipboardList, Save, Eye, FolderOpen, ShieldCheck, AlertTriangle,
   Table2, CalendarDays, Phone, Mail, Banknote, CheckSquare, Type, IdCard,
@@ -16,9 +16,12 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
-import { initRhwp, openRhwpDocument, b64ToBytes, type RhwpDoc } from "../../lib/rhwp";
+import { useDialogKeys } from "../ui/useDialogKeys";
+import { b64ToBytes } from "../../lib/rhwp";
+import { RhwpPreview } from "../../lib/rhwp-preview";
 import { annotateLabels } from "../../lib/svg-annotate";
 import type { ImportedFile } from "../../types/pipeline";
+import { joinPath } from "../../lib/format";
 
 // ── 사이드카 응답 타입 (node-sidecar/src/core/fill과 동기) ──
 
@@ -85,6 +88,21 @@ function colLetter(c: number): string {
 
 const norm = (s: string) => s.replace(/[\s:：()（）·*※★]/g, "");
 
+type RosterTable = { rows: number; cols: number; cells: Array<Array<{ text: string }>> };
+
+/** 파싱 결과 JSON 에서 처음 나오는 표 (블록 구조가 감싸져 있어도 찾아 들어간다) */
+function findFirstTable(node: unknown): RosterTable | null {
+  if (!node || typeof node !== "object") return null;
+  const o = node as Record<string, unknown>;
+  const t = o.table as RosterTable | undefined;
+  if (o.type === "table" && t && Array.isArray(t.cells)) return t;
+  for (const v of Object.values(o)) {
+    const found = Array.isArray(v) ? v.map(findFirstTable).find(Boolean) : findFirstTable(v);
+    if (found) return found;
+  }
+  return null;
+}
+
 interface FillWizardProps {
   file: ImportedFile;
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -105,9 +123,10 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
   const [busy, setBusy] = useState<"" | "preview" | "save">("");
 
   // ── 미리보기 상태 ──
-  const docBytesRef = useRef<Uint8Array | null>(null);   // 현재 미리보기 문서 (원본 또는 dry_run 결과)
   const docB64Ref = useRef<string | null>(null);          // 사이드카 폴백용
-  const rhwpDocRef = useRef<RhwpDoc | null>(null);
+  // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
+  const rhwpRef = useRef<RhwpPreview | null>(null);
+  const rhwpReady = useRef(false);                         // 지금 문서가 일꾼에 열려 있다
   const [wasmOk, setWasmOk] = useState<boolean | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -122,8 +141,8 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
   const renderPage = useCallback(async (pageNum: number) => {
     setRenderError("");
     try {
-      if (rhwpDocRef.current) {
-        const raw = rhwpDocRef.current.renderPageSvg(pageNum);
+      if (rhwpReady.current && rhwpRef.current) {
+        const raw = await (await rhwpRef.current.render(pageNum)).text();
         setSvg(annotateLabels(raw, labels));
         return;
       }
@@ -137,30 +156,27 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         setSvg(annotateLabels(res.pages[0].svg, labels));
       }
     } catch (e) {
-      setRenderError(`미리보기 렌더 실패: ${e}`);
+      setRenderError(`미리보기 표시 실패: ${e}`);
     }
   }, [labels, sidecarCall, file.path]);
 
-  /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신) */
+  /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신). 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
     docB64Ref.current = b64;
-    const ok = wasmOk ?? await initRhwp();
-    if (wasmOk === null) setWasmOk(ok);
-    if (ok) {
-      try {
-        rhwpDocRef.current?.free();
-        rhwpDocRef.current = null;
-        const bytes = b64ToBytes(b64);
-        docBytesRef.current = bytes;
-        const doc = openRhwpDocument(bytes);
-        rhwpDocRef.current = doc;
-        setPageCount(doc.pageCount);
-      } catch (e) {
-        console.warn("[FillWizard] rhwp 문서 열기 실패 — 사이드카 폴백:", e);
-        rhwpDocRef.current = null;
-      }
+    const bytes = b64ToBytes(b64);
+    // 일꾼은 받은 차례대로 일한다: 여는 사이 들어온 그리기 요청도 새 문서로 그린다
+    rhwpRef.current ??= new RhwpPreview();
+    try {
+      const meta = await rhwpRef.current.open(bytes.slice()); // 일꾼에 넘기는 사본 (넘긴 버퍼는 이쪽에서 못 쓴다)
+      rhwpReady.current = true;
+      setPageCount(meta.pageCount);
+      setWasmOk(true);
+    } catch (e) {
+      console.warn("[FillWizard] rhwp 문서 열기 실패 — 사이드카 폴백:", e);
+      rhwpReady.current = false;
+      setWasmOk(false);
     }
-  }, [wasmOk]);
+  }, []);
 
   // ── 초기 로드: form_schema ──
   useEffect(() => {
@@ -192,15 +208,16 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
     })();
     return () => {
       cancelled = true;
-      rhwpDocRef.current?.free();
-      rhwpDocRef.current = null;
+      rhwpRef.current?.dispose();
+      rhwpRef.current = null;
+      rhwpReady.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path]);
 
   // 페이지/문서 변경 시 렌더
   useEffect(() => {
-    if (!loading && (rhwpDocRef.current || docB64Ref.current || file.path)) void renderPage(page);
+    if (!loading && (rhwpReady.current || docB64Ref.current || file.path)) void renderPage(page);
   }, [page, loading, renderPage]);
 
   // ── 필드 포커스 → 미리보기 하이라이트 + 스크롤 ──
@@ -255,16 +272,15 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
       if (!selected) return;
       const rosterPath = Array.isArray(selected) ? selected[0] : selected;
       const rosterName = rosterPath.split(/[/\\]/).pop() ?? rosterPath;
-      const res = await sidecarCall("extract_tables", { input_path: rosterPath, as_markdown: false }) as {
-        success: boolean;
-        tables: Array<{ table: { rows: number; cols: number; cells: Array<Array<{ text: string }>> } }>;
-      };
-      if (!res.success || res.tables.length === 0) {
+      // v2: convert(json) 로 읽어 첫 표를 찾는다 (extract_tables 는 계약에서 빠짐)
+      // 읽기만 한다: save:false (안 주면 명부 옆에 .json 사본이 생기고 효과 집계에 변환으로 잡힌다)
+      const res = await sidecarCall("convert", { path: rosterPath, format: "json", save: false }) as { content: string };
+      const t = findFirstTable(JSON.parse(res.content));
+      if (!t) {
         showToast("명부에서 표를 찾지 못했습니다", "error");
         return;
       }
-      const t = res.tables[0].table;
-      if (t.rows < 2) { showToast("명부에 데이터 행이 없습니다 (헤더 + 1행 이상 필요)", "error"); return; }
+      if (t.rows < 2) { showToast("명부에 값이 든 행이 없습니다(제목 행 아래 1행 이상 필요)", "error"); return; }
 
       // 헤더 → 필드 라벨 매핑, 첫 데이터 행 값 사용
       let mapped = 0;
@@ -285,7 +301,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         });
         mapped++;
       }
-      showToast(mapped > 0 ? `명부에서 ${mapped}개 필드 자동 매핑` : "라벨이 일치하는 열이 없습니다", mapped > 0 ? "success" : "info");
+      showToast(mapped > 0 ? `명부에서 값 ${mapped}개를 가져왔습니다` : "칸 이름과 같은 열이 없습니다", mapped > 0 ? "success" : "info");
     } catch (e) {
       showToast(`명부 가져오기 실패: ${e}`, "error");
     }
@@ -304,7 +320,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         input_path: file.path,
         values: fillValues,
         dry_run: dryRun,
-        ...(dryRun ? {} : outputDir ? { output_path: `${outputDir}\\${stem}_채움.hwpx` } : {}),
+        ...(dryRun ? {} : outputDir ? { output_path: joinPath(outputDir, `${stem}_채움.hwpx`) } : {}),
       }) as FormFillRes;
       setFillResult(res);
       if (res.doc_b64) {
@@ -312,7 +328,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         await renderPage(page);
       }
       if (!dryRun && res.success) {
-        showToast(`저장 완료: ${res.filled.length}개 필드 채움${res.verification.reparse_ok ? " · 재파싱 검증 통과" : ""}`, "success");
+        showToast(`저장 완료: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
       }
     } catch (e) {
       showToast(`채우기 실패: ${e}`, "error");
@@ -323,22 +339,33 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
 
   const filledSet = useMemo(() => new Set(fillResult?.filled.map((f) => norm(f.label)) ?? []), [fillResult]);
 
+  // ── 대화상자: Esc 닫기 · Tab 은 안에서만 · 연 단추로 포커스 되돌리기 ──
+  const titleId = useId();
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialogKeys(boxRef, true, onClose);
+  useEffect(() => {
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    boxRef.current?.focus();
+    return () => prev?.focus();
+  }, []);
+
   // ── 렌더 ──
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: "var(--color-bg-primary)" }}>
+    <div ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}
+      className="fixed inset-0 z-50 flex flex-col outline-none" style={{ backgroundColor: "var(--color-bg-primary)" }}>
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
         <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, #2563EB 12%, transparent)", color: "#2563EB" }}>
           <ClipboardList size={16} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>양식 채우기 — {file.name}</h2>
+          <h2 id={titleId} className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>양식 채우기: {file.name}</h2>
           <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
             원본 서식 1바이트도 변경 없이 값만 채웁니다
-            {wasmOk === false && " · 미리보기: 엔진 렌더 (WASM 폴백)"}
+            {wasmOk === false && " · 미리보기: 문서 엔진으로 표시(WASM 대신)"}
           </p>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-md hover-bg-tertiary" aria-label="닫기">
+        <button onClick={onClose} type="button" className="kd-icon-btn" aria-label="닫기">
           <X size={16} style={{ color: "var(--color-text-muted)" }} />
         </button>
       </div>
@@ -369,7 +396,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
             <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
               {fields.length === 0 && (
                 <p className="ts-2xs px-3 py-2 rounded-md" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>
-                  인식된 양식 필드가 없습니다. 라벨-값 구조(표 또는 "라벨:")가 있는 양식인지 확인하세요.
+                  채울 칸을 찾지 못했습니다. 표에 이름 칸과 값 칸이 있거나 "성명:"처럼 쓴 양식인지 확인하세요.
                 </p>
               )}
               {fields.map((f) => {
@@ -441,12 +468,12 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
                   <div className="flex items-center gap-1.5 ts-2xs font-semibold" style={{ color: fillResult.verification.reparse_ok ? "var(--color-success)" : "var(--color-warning)" }}>
                     <ShieldCheck size={13} />
                     {fillResult.verification.reparse_ok
-                      ? `재파싱 검증 통과 · ${fillResult.filled.length}개 채움 · 변경 ${fillResult.verification.changed_blocks}블록`
-                      : "검증 경고 — 결과를 확인하세요"}
+                      ? `다시 읽어 확인함 · 칸 ${fillResult.filled.length}개 채움 · 바뀐 곳 ${fillResult.verification.changed_blocks}곳`
+                      : "검증 경고: 결과를 확인하세요"}
                   </div>
                   {fillResult.unmatched.length > 0 && (
                     <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
-                      매칭 실패: {fillResult.unmatched.join(", ")}
+                      못 채움: {fillResult.unmatched.join(", ")}
                     </p>
                   )}
                   {fillResult.output_path && (
@@ -480,7 +507,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
                 <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
               </button>
               <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-                {pageCount > 0 ? `${page + 1} / ${pageCount}` : "—"}
+                {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
               </span>
               <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="다음 페이지">
                 <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
@@ -498,7 +525,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
                 />
               ) : (
                 <div className="flex items-center justify-center gap-2 mt-12" style={{ color: "var(--color-text-muted)" }}>
-                  <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">렌더링 중...</span>
+                  <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">그리는 중...</span>
                 </div>
               )}
             </div>

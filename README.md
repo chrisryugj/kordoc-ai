@@ -1,187 +1,106 @@
 # KorDoc AI
 
-**다 파싱해버리겠다. AI도 붙여버리겠다.**
+**한글 문서를 읽고, 만들고, 고치고, 내보내는 공공 문서 도구.**
+**문서 엔진·한글 편집기가 이 PC 안에서 돌아 인터넷이 없는 망에서도 씁니다. AI 도 모델 파일을 한 번 받거나 USB 로 옮겨 오면 이 PC 안에서 돕니다.**
 
-> *HWP, HWPX, PDF, XLSX, DOCX — 관공서에서 쏟아지는 모든 문서를 AI로 변환하고, 요약하고, 비교하고, 병합하는 데스크톱 도구.*
-
-> 7년차 공무원이 만든, 공무원을 위한 문서 도구.
-> 한컴오피스도, MS Office도 필요 없다. [kordoc](https://github.com/chrisryugj/kordoc)이 순수 JS로 전부 파싱한다.
+> 지방공무원이 만든, 한글 문서를 쓰는 모든 사람을 위한 도구.
+> 한컴오피스·MS Office·서버·API 키 없이 설치 파일 하나로 시작합니다.
 
 [![Release](https://img.shields.io/github/v/release/chrisryugj/kordoc-ai)](https://github.com/chrisryugj/kordoc-ai/releases/latest)
 
 ---
 
-## 무엇을 할 수 있나요?
+## 서무 업무가 이렇게 바뀝니다
 
-| 기능 | 설명 |
-|------|------|
-| 📄 **마크다운 변환** | HWP · HWPX · PDF · XLSX · DOCX → 마크다운. 배포용(열람 제한) HWP도 파싱. |
-| 📦 **배치 변환** | 폴더째 던지면 한번에. 진행률 실시간 표시. |
-| 🤖 **AI 요약** | 4가지 스타일(일반·보고·검토·조치 추출) × 3가지 분량. 공문서 최적화 프롬프트. |
-| 👁️ **AI OCR** | 스캔 PDF도 Gemini Vision으로 텍스트 추출. 원본 레이아웃 최대 보존. |
-| 🔍 **문서 비교** | 두 문서의 차이점을 신구대조표로. HWP↔HWPX 크로스 포맷 가능. |
-| 📊 **표 추출** | 선 없는 PDF, 복잡한 병합 HWP 표도 정확한 마크다운 테이블로. |
-| 🔗 **문서 병합** | HWPX · DOCX · XLSX · PDF 서식 유지 수합. 마크다운 합치기도 가능. |
-| ✂️ **PDF 도구** | 페이지 분리, 추출, 제외. 필요한 페이지만 뽑아내기. |
-| 📝 **HWPX 역변환** | AI가 작성한 마크다운을 다시 보고서 양식(`.hwpx`)으로 되돌리기. |
-| 📋 **양식 추출** | 문서에서 양식 필드 자동 인식 → 다수 문서 일괄 추출. |
-| 🔬 **K팀장 검토** | AI가 논리 구조·숫자·날짜·오탈자 전체 정합성 검사. |
-| 🔌 **MCP 원클릭 설치** | Claude · Cursor · VS Code · Zed 등 AI 도구에 kordoc MCP 자동 등록. |
-| 📂 **폴더 드래그드롭** | 폴더째 드래그하면 지원 파일 자동 인식. 클립보드 붙여넣기도 지원. |
-| 📁 **출력 폴더 선택** | 처리 결과 저장 위치 자유 선택. 전역 또는 작업별 개별 지정. |
+| 하던 일 | KorDoc AI 에서 |
+| --- | --- |
+| 받은 공문을 읽고 회신 공문을 처음부터 작성 | 받은 공문을 넣으면 회신 초안이 기관 서식으로 나오고, 내장 한글 편집기에서 고쳐 HWP·PDF 로 저장 |
+| 부서마다 받은 제출 양식을 하나씩 열어 엑셀에 옮겨 적기 | 양식 파일 여러 개를 넣으면 칸 이름을 찾아 엑셀 한 장으로 취합 |
+| 정보공개 전 주민등록번호·연락처를 손으로 가리기 | 서식 그대로 가리고, 가린 뒤 남은 개인정보가 없는지 다시 검사 |
+| 명단을 보며 같은 문서를 사람 수만큼 복사·수정 | 명부(엑셀) 한 줄이 문서 한 장, 한 번에 만들기 |
+| 규정 개정 때 신구조문대비표를 표로 다시 그리기 | 옛 문서와 새 문서를 넣으면 한글 2단 표(현행·개정안)로 |
+| 스캔본·PDF 를 한글로 다시 타이핑 | 내장 OCR 로 읽어 고칠 수 있는 HWPX 로 |
+| 결재용으로 본문과 붙임을 각각 PDF 로 바꿔 합치기 | 순서만 정하면 합본 PDF 한 개, 쪽번호·워터마크까지 |
 
----
+## 작성 → 편집 → 출력
 
-## 아키텍처
+1. **작성**: 서식함에서 고르면 끝입니다. 표준 기안문 2종, 기관별 시작 서식, 내가 등록한 우리 기관 서식(HWP·HWPX)의 누름틀 칸을 자동으로 찾아 **내 기관 정보(기관명·부서·담당자·연락처·결재 라인)로 채우고**, 빈 칸은 AI 가 참고 문서를 읽고 제안합니다. 받은 공문 회신·민원 답변·회의록·한 장 보고·보도자료는 AI 초안에서 바로 시작합니다.
+2. **편집**: 진짜 한글 워드프로세서([rhwp](https://github.com/edwardkim/rhwp))가 앱 안에 들어 있습니다. 메뉴·도구 상자·표 편집 그대로 고치고, 옆 패널에서 공문서 표기법 검사(누르면 그 문단으로 이동)와 **AI 문단 다듬기(편집기 안에서 바로 바꿔 넣고 실행 취소)**를 씁니다.
+3. **출력**: HWP·HWPX 저장, PDF, 인쇄, 관인·서명 날인, 공개용 사본(개인정보 가림), 결재·공개용 합본 PDF.
+
+## 할 수 있는 일
+
+| 분야 | 기능 |
+| --- | --- |
+| 읽기 | HWP 3·5, HWPX, HWPML, PDF, XLS·XLSX, DOCX, PPTX, 이미지 → 글(마크다운)·HTML·JSON·RAG 조각. 암호 문서, 배포용 문서, 스캔본 OCR(이 PC 안에서) |
+| 만들기 | 공문서 프리셋(보고서·계획서·개조식·기안문·보도자료·회의록·업무보고·방침), 중앙부처 기관 서식 52곳, 견본 문서에서 단계별 서식 학습, 표준 기안문, 명부로 여러 장 |
+| 고치기 | 내장 한글 편집기, 서식 보존 패치, 누름틀 채우기, 도장 날인 |
+| 검토 | 공문서 표기법 검사(날짜·시각·금액·띄어쓰기·끝맺음 등)·본문↔표 수치 대조, AI 검토(K팀장), HWPX 구조 검증 |
+| 보안 | 개인정보 서식 보존 마스킹 + 잔존 재검사, 인터넷 AI 로 보내기 전 자동 마스킹 |
+| 비교·모으기 | 신구대조표(화면·HWPX·엑셀), 취합(양식 N개 → 엑셀), 표 → 엑셀, 여러 문서에서 찾기, 그림만 뽑기 |
+| 출력 | PDF(조판 그대로), 합본 PDF·워터마크·쪽번호, 인쇄, PDF·스캔 → 한글, 옛 HWP → HWPX(서식 그대로) |
+| AI | 요약 4종, 문서와 대화(근거 문장 인용), 초안, 다듬기(개조식·서술문·쉬운 공공언어·공문체), 서식 칸 값 제안, 여러 문서 항목 뽑기 |
+| 연결 | 탐색기·Finder 우클릭 메뉴, 폴더 감시(받은 문서 자동 변환, 드라이브 문자로 연결한 공유 폴더 포함), AI 도구(MCP) 원클릭 연결 |
+
+## 폐쇄망·보안
+
+- **기본 설정과 폐쇄망 모드에서는 밖으로 나가는 통신 0**: 인터넷 AI·법령 확인(법제처)·AI 모델 받기처럼 직접 켠 기능만 밖으로 나가고, 앱이 밖으로 나가려 한 시도는 모두 설정 > 보안에 기록됩니다. "이번 실행에서 인터넷으로 나간 요청" 건수를 직접 확인할 수 있습니다.
+- **폐쇄망 모드**: 켜면 인터넷 주소로의 모든 요청을 보내기 전에 막고, 기관 내부망·이 PC 주소만 허용합니다.
+- **AI 를 고르는 세 갈래**: ① 이 PC 안에서(내장 엔진 + GGUF 모델 파일, 쓸 때 인터넷 불필요) ② 기관 AI 서버·Ollama(OpenAI 호환 주소) ③ 인터넷 AI(Gemini·Claude). ①의 모델 파일(기본 추천 모델 약 2.3GB)은 설치 파일에 들어 있지 않아 처음 한 번 받거나, 인터넷이 되는 PC 에서 받은 파일을 USB 로 옮겨 가져옵니다(설정 > AI 연결). ③은 보내기 전 개인정보를 자동으로 가립니다.
+- **사용 통계 전송 없음**, 계정·로그인 없음. 설정·기록은 이 PC 의 앱 데이터 폴더에만.
+- 설치본에 Node.js 런타임·문서 엔진·OCR 모델·한글 편집기가 들어 있어 문서 기능은 설치 후 인터넷 없이 됩니다. Node.js 를 따로 깔지 않아도 되고, PC 에 다른 버전이 깔려 있어도 쓰지 않습니다.
+- Windows 설치 파일은 관리자 권한 없이 사용자 단위로 설치되고, WebView2(화면 엔진)와 VC++ 런타임까지 들어 있어 인터넷이 막힌 PC 에서도 설치됩니다.
+- **공유 폴더**: `\\서버\공유` 같은 네트워크 경로(UNC)는 보안상 열거나 저장하지 않습니다. 공유 폴더는 드라이브 문자(예: `Z:`)로 연결해서 고릅니다.
+- **기관 배포 설정**: 정보통신 담당자가 `policy.json` 하나로 여러 PC에 내부 AI 서버 주소·기관 정보·폐쇄망 모드를 미리 넣고, 일부는 설정 화면에서 바꾸지 못하게 잠급니다(보안 경계는 아님: 사용자 환경변수 `KORDOC_AI_POLICY` 가 가리키는 파일을 먼저 읽음). 우클릭 메뉴를 여러 PC에 넣는 명령도 같은 문서에 있습니다. [기관 배포 설정](./docs/deploy-policy.md)
+
+## 근거
+
+문서 엔진 [kordoc](https://github.com/chrisryugj/kordoc) 의 공개 검증 결과입니다(앱에 든 kordoc 4.21.18 의 README 기준).
+
+- **PDF 공개 벤치 종합 0.963**: opendataloader-bench 200문서, 공개 12개 파서 비교 1위(2026-09-29 기록)
+- **한국 공문서 표 구조 100%**: 원본 HWPX 2,424문서의 보이는 표 10,342개 전부 구조 일치(4.21.18 검증)
+
+수치의 측정 조건은 [kordoc 벤치마크](https://github.com/chrisryugj/kordoc/blob/main/docs/benchmarks.md)에 있습니다.
+
+## 설치
+
+| 운영체제 | 파일 | 비고 |
+| --- | --- | --- |
+| Windows 10·11 | `KorDoc AI_x.y.z_x64-setup.exe` | 관리자 권한 없이 사용자 계정에 설치 |
+| Windows (기관 배포) | `KorDoc AI_x.y.z_x64_ko-KR.msi` | 일괄 배포용 |
+| macOS 14 이상 (Apple 실리콘) | `KorDoc AI_x.y.z_aarch64.dmg` | |
+
+v2 설치 파일은 릴리스 예정입니다. 위 표는 v2 기준이고, 지금 [최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest)는 v1.5.1 입니다. 처음 실행하면 내 기관 정보와 AI 연결을 한 번 묻습니다.
+
+- PDF 내보내기(한글·글 문서를 PDF 로, 합본 PDF)는 PC 에 Microsoft Edge 나 Google Chrome 이 있어야 합니다. Windows 10·11 은 보통 Edge 가 들어 있고, macOS 는 Chrome(또는 Edge)을 설치해야 합니다.
+- 우클릭 메뉴는 사용자마다 설정 > 저장과 연결에서 넣습니다. 여러 PC에 한꺼번에 넣는 명령(`kordoc-ai.exe --shell-menu install`)은 [기관 배포 설정](./docs/deploy-policy.md)에 있습니다.
+- 설치 파일은 아직 코드 서명 전이라 처음 열 때 운영체제가 막을 수 있습니다. Windows 는 "Windows의 PC 보호" 창에서 추가 정보 > 실행을, macOS 는 "Apple이 확인할 수 없음" 창이 뜨면 시스템 설정 > 개인정보 보호 및 보안 아래쪽의 "그래도 열기"를 누릅니다. 한 번 열면 다음부터는 묻지 않습니다.
+
+## 구조
 
 ```
-┌──────────────────────────────────────────────┐
-│  React 19 (TypeScript + Tailwind CSS 4)      │
-│  15개 액션 UI · MCP 설치 · 폴더 드래그 · 설정  │
-└──────────────── ↕ Tauri IPC ─────────────────┘
-┌──────────────────────────────────────────────┐
-│  Tauri 2.10 (Rust)                           │
-│  SidecarManager · JSON-RPC 라우터 · Whitelist │
-└────────────── ↕ stdin/stdout ────────────────┘
-┌──────────────────────────────────────────────┐
-│  Node.js Sidecar (JSON-RPC 2.0)             │
-│  kordoc v4.2.9 (로컬 파싱) + Gemini API (AI)   │
-│  24개 RPC 메서드 · 동시성 제한 · cancel 지원  │
-└──────────────────────────────────────────────┘
+React 19 화면 ── Tauri 2 (Rust) ── JSON-RPC(stdin/stdout, 동시 호출) ── Node 24 문서 엔진(동봉)
+                     │                                                    ├─ kordoc 4.21 (파싱·생성·렌더·마스킹·OCR)
+                     │                                                    ├─ AI 공급자 계층 (내장 llama.cpp·OpenAI 호환·Gemini·Claude)
+                     │                                                    └─ 한글 편집기 서버 (127.0.0.1, rhwp-studio)
+                     └─ 우클릭 메뉴(Windows 레지스트리·macOS 빠른 동작)·트레이·kordoc:// 주소
 ```
 
-### 왜 Node.js Sidecar?
-
-| 기능 | Rust 생태계 | Node.js (kordoc) |
-|------|-------------|-------------------|
-| HWP/HWPX 파싱 | 라이브러리 없음 | [kordoc](https://github.com/chrisryugj/kordoc) — 순수 JS, 한컴오피스 불필요 |
-| 배포용 HWP 복호화 | — | kordoc v4.2.9 — AES-128 ECB + LCG |
-| PDF 텍스트 추출 | 한글 깨짐 빈번 | kordoc — pdfjs 기반, 이중 표 감지 |
-| XLSX/DOCX 파싱 | 미성숙 | kordoc — 직접 구현 |
-| Gemini API | 공식 SDK 없음 | `@google/generative-ai` 공식 SDK |
-
----
-
-## 기술 스택
-
-| 계층 | 기술 |
-|------|------|
-| **UI** | React 19 · TypeScript 5.9 · Tailwind CSS 4 · Vite 7 |
-| **데스크톱** | Tauri 2.10 (Rust) · window-state 플러그인 |
-| **백엔드** | Node.js · [kordoc](https://github.com/chrisryugj/kordoc) v2.2.5 · Gemini API |
-| **AI** | gemini-3-flash-preview |
-| **빌드** | pnpm · tsc → Tauri MSI 인스톨러 |
-
----
-
-## 빠른 시작
-
-### 사전 요구사항
-
-- **Windows 10/11**
-- **Node.js 20+** / **pnpm 10+**
-- **Rust** (stable) + Tauri CLI
-- **Gemini API 키** ([Google AI Studio](https://aistudio.google.com/)에서 발급)
-
-> 한컴오피스, MS Office 등 **별도 프로그램 설치 불필요** — kordoc이 순수 JS로 파싱
-
-### 개발 모드
+## 개발
 
 ```bash
-# 프론트엔드 의존성
 pnpm install
-
-# Node.js sidecar 빌드
-cd node-sidecar && pnpm install && pnpm build && cd ..
-
-# 개발 앱 실행
-pnpm tauri:dev
+node scripts/fetch-node.mjs          # 동봉할 Node 런타임 (SHA-256 검증)
+node scripts/build-sidecar.mjs       # 문서 엔진: tsc → 번들 → 네이티브 스테이징 → OCR 모델
+node scripts/build-rhwp-studio.mjs   # 내장 한글 편집기 (rhwp v0.8.6, Rust 불필요)
+node scripts/third-party-notices.mjs # 제3자 고지 모음 THIRD_PARTY_NOTICES.txt (빌드 산출물을 읽음, 네트워크 없음)
+node node-sidecar/scripts/smoke-bundle.mjs   # 설치본 조건 셀프테스트 (릴리스 관문)
+pnpm tauri dev                       # 개발 실행
+pnpm tauri build                     # 설치 파일
 ```
 
-### 프로덕션 빌드
-
-```bash
-pnpm tauri:build
-# → src-tauri/target/release/bundle/msi/*.msi
-```
-
----
-
-## 문서 병합
-
-| 포맷 | 방식 | 서식 보존 |
-|------|------|-----------|
-| **XLSX** | ZIP+XML 네이티브 스타일 병합 | 완벽 (폰트·색상·테두리·조건부서식) |
-| **DOCX** | ZIP+XML 스타일+넘버링 리매핑 | 완벽 (스타일·번호매기기·미디어) |
-| **PDF** | pdf-lib 페이지 복사 | 완벽 (원본 그대로) |
-| **HWPX** | pyhwpx COM 자동화 → 실패 시 kordoc 마크다운 폴백 | COM: 우수 / 폴백: 텍스트만 |
-
-> HWPX 서식 유지 수합은 한컴오피스 + Python + pyhwpx 필요. 미설치 시 자동으로 마크다운 병합으로 전환.
-
----
-
-## 보안
-
-- **RPC 화이트리스트 이중 검증** — Rust 측 + Node.js 측
-- **경로 검증** — UNC 차단, 시스템 디렉토리 차단, 확장자 화이트리스트
-- **API 키 마스킹** — 프론트엔드 전달 시 `AIza****` 형태로 마스킹
-- **XSS 방지** — rehype-sanitize 커스텀 스키마 (table/colspan/rowspan 등 허용, 스크립트 차단)
-- **동시성 제한** — 세마포어(max 2) + 큐 크기 제한(max 10)
-- **프로토타입 오염 방지** — `__proto__`, `constructor`, `prototype` 키 차단
-
----
-
-## 테스트
-
-```bash
-cd node-sidecar && pnpm test    # vitest 45개
-```
-
----
-
-## 업데이트 내역
-
-### v1.5.0 (2026-07-27)
-
-- **kordoc 4.2.9 반영** — 릴리스 빌드가 kordoc **2.2.1** 을 번들하고 있었다(로컬 개발은 4.x, CI 검증은 3.1.1 — 셋이 따로 놀았음). 배포·CI 핀을 4.2.9 로 통일. 2.x 이후 kordoc 에 들어간 파서·생성기 개선이 전부 앱에 반영된다.
-- 실제 파일 픽스처 테스트가 코퍼스를 일부만 받은 환경에서 skip 대신 실패하던 가드 수정
-
-### v1.4.1 (2026-04-10)
-
-- **HTML 테이블 렌더링** — rehype-raw + sanitize 스키마 확장으로 colspan/rowspan 포함 복잡한 표 정상 렌더링
-- **Release CI 안정화** — npm install로 node-sidecar 의존성 설치 보장 (lockfile mismatch 해결)
-
-### v1.4.0 (2026-04-10)
-
-- **인스톨러 Gemini API 키 수정** — Program Files 설치 시 설정 파일 쓰기 실패 해결. `%APPDATA%` 자동 폴백으로 API 키가 정상 저장·유지됨.
-- **CI 워크플로우 안정화** — GitHub Actions에서 node-sidecar 테스트·빌드 파이프라인 정상화 (kordoc 링크 호환성, vitest 경로 등 8건 수정)
-- **UI 개선** — API 키 설정 버튼 호버 효과 추가 (glow + brightness)
-
-### v1.3.1 (2026-04-09)
-
-- kordoc 2.2.3 — 병합 표 HTML 렌더링 지원
-- 테이블 셀 내 `<br>` 줄바꿈 렌더링 (rehype-raw)
-- Node.js 미설치 안내 UI
-- NSIS 인스톨러 전환 + 파일 로깅
-- OCR 레이스 수정 + HWPX 서식 강화 + 클립보드 HTML 지원
-
-### v1.1.0
-
-- MCP 원클릭 설치 (Claude Desktop, Cursor, VS Code, Zed)
-- 폴더 드래그드롭 + 클립보드 붙여넣기
-- 출력 폴더 커스터마이징
-- GitHub Actions release workflow
-
-### v1.0.0
-
-- 최초 출시 — 15개 액션, 24개 RPC 메서드
-- kordoc 2.2.1 순수 JS 파싱 엔진
-
----
+세부 규칙(RPC 계약·허용 목록·번들 함정)은 [CLAUDE.md](./CLAUDE.md).
 
 ## 라이선스
 
-[MIT](./LICENSE)
-
-포함된 제3자 저작물(Pretendard 폰트 등)의 저작권·라이선스 고지는
-[NOTICE](./NOTICE) 참조. 위 MIT 조건은 제3자 저작물에는 적용되지 않는다.
+[MIT](./LICENSE). 포함된 제3자 저작물(kordoc·rhwp·Node.js·llama.cpp·ONNX Runtime·글꼴 등)의 요약 고지는 [NOTICE](./NOTICE), 패키지별 이름·버전·라이선스 전문은 [THIRD_PARTY_NOTICES.txt](./THIRD_PARTY_NOTICES.txt)(`node scripts/third-party-notices.mjs` 로 만듦). 둘 다 설치본에 들어 있고, 앱에서는 설정 > 화면과 정보 > 오픈소스 고지에서 엽니다.

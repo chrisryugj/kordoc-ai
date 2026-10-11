@@ -1,0 +1,29 @@
+{
+  "bundle": {
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      }
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "KorDoc AI",
+        "visible": false,
+        "width": 1280,
+        "height": 920,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 960,
+        "minHeight": 680,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking"
+      }
+    ]
+  }
+}

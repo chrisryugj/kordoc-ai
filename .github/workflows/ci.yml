@@ -7,96 +7,77 @@ on:
     branches: [main]
 
 jobs:
-  node-sidecar-test:
-    name: Node Sidecar Tests
-    runs-on: windows-latest
+  # 문서 엔진: 테스트 + 설치본 조건 셀프테스트 (Windows·macOS 각각 — 네이티브 모듈이 OS 마다 다르다)
+  engine:
+    name: Engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
-      - name: Install with published kordoc
-        shell: bash
+      - name: 동봉 Node 런타임 받기
+        run: node scripts/fetch-node.mjs
+
+      - name: 사이드카 빌드 (설치 → tsc → 번들 → 네이티브 스테이징 → OCR 모델)
+        run: node scripts/build-sidecar.mjs
+
+      - name: 사이드카 테스트
         working-directory: node-sidecar
-        run: |
-          # 로컬 개발은 link:../../kordoc (모노레포 인접 체크아웃)이지만
-          # CI는 npm 배포본으로 치환 — 실제 kordoc 함수로 E2E 통합 검증한다.
-          # 버전은 레포 루트 .kordoc-version 하나만 본다 (ci·release 가 어긋나면
-          # CI 통과 도장과 배포본이 다른 kordoc 을 쓰게 된다 — v1.5.0 이전 실제 사고).
-          KORDOC_VERSION="$(tr -d '[:space:]' < ../.kordoc-version)"
-          echo "kordoc 핀: ^$KORDOC_VERSION"
-          sed -i "s|\"kordoc\": \"link:../../kordoc\"|\"kordoc\": \"^$KORDOC_VERSION\"|" package.json
-          npm install
-          git checkout package.json
+        run: node node_modules/vitest/vitest.mjs run
 
-      # 핀이 npm 최신보다 뒤처지면 알린다. 실패시키지는 않는다 — kordoc 은 자주
-      # 배포돼서(주 단위) 실패로 걸면 무관한 PR 이 계속 막힌다. 알림만으로 충분.
-      - name: kordoc 핀 뒤처짐 감지
-        shell: bash
-        run: |
-          PINNED="$(tr -d '[:space:]' < .kordoc-version)"
-          LATEST="$(npm view kordoc version 2>/dev/null || echo "$PINNED")"
-          if [ "$PINNED" != "$LATEST" ]; then
-            echo "::warning::kordoc 핀 $PINNED < npm 최신 $LATEST — .kordoc-version 갱신 검토"
-          else
-            echo "kordoc 핀이 최신($LATEST)과 일치"
-          fi
+      - name: 내장 한글 편집기 빌드 (rhwp-studio)
+        run: node scripts/build-rhwp-studio.mjs
 
-      - name: Run tests
+      # 설치본엔 레포 node_modules 가 없다. dist + models + editor 만 임시 폴더로 옮겨
+      # 동봉 Node 로 띄우고 HWPX 왕복·PDF·렌더·OCR·llama·편집기 서버까지 실제로 돌린다.
+      # (v1.5.0 은 ping 만 봐서 기능이 죽은 번들이 배포됐다)
+      - name: 번들 스모크 (설치본 조건 셀프테스트)
         working-directory: node-sidecar
-        run: npx vitest run
+        run: node scripts/smoke-bundle.mjs
 
-      # vitest 는 node_modules 가 옆에 있는 개발 환경에서 돈다 — 번들에 안 들어간
-      # 모듈을 절대 못 잡는다. 사용자 PC와 같은 조건(node_modules 없음)으로 실제
-      # 번들을 띄워봐야 한다. v1.5.0 이 cfb 를 놓친 채 배포된 게 이 구멍 때문이다.
-      - name: Sidecar 번들 스모크 (엔진 기동 확인)
-        shell: bash
-        working-directory: node-sidecar
-        run: |
-          KORDOC_VERSION="$(tr -d '[:space:]' < ../.kordoc-version)"
-          sed -i "s|\"kordoc\": \"link:../../kordoc\"|\"kordoc\": \"^$KORDOC_VERSION\"|" package.json
-          npm install
-          npx tsc
-          node esbuild.config.mjs
-          node scripts/smoke-bundle.mjs
-          git checkout package.json
-
-  typescript-check:
-    name: TypeScript Check
+  frontend:
+    name: Frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tsc --noEmit
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm exec vite build
+      # Rust 허용 목록이 RPC 계약과 어긋나면 실패 (정본: node-sidecar/src/types/rpc-contract.ts)
+      - run: node scripts/sync-rpc-whitelist.mjs --check
 
-  rust-check:
-    name: Rust Check
-    runs-on: windows-latest
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Create frontend dist placeholder
-        run: mkdir dist && echo "<!-- placeholder -->" > dist/index.html
-
-      - name: Create sidecar dist placeholder
-        run: mkdir node-sidecar\dist && echo "// placeholder" > node-sidecar\dist\index.js
-
-      - name: Cargo check
+      - name: 빌드 산출물 자리표시 (tauri 설정의 리소스 경로 확인용)
+        shell: bash
+        run: |
+          mkdir -p dist node-sidecar/dist node-sidecar/models node-sidecar/editor src-tauri/resources/node
+          echo "<!doctype html>" > dist/index.html
+      - name: cargo check · test
         working-directory: src-tauri
-        run: cargo check --lib
+        run: |
+          cargo check --lib
+          cargo test --lib

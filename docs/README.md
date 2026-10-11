@@ -1,41 +1,12 @@
-# KorDoc Suite Documentation
+# 문서 목록
 
-공공기관 특화 문서처리 솔루션 — 3-Layer 아키텍처 (kordoc / kordoc-ai / kordoc-shell)
+KorDoc AI v2 의 현행 문서. 앱 소개·설치는 레포 루트 [README.md](../README.md), 개발 규칙(RPC 계약·허용 목록·번들 함정)은 [CLAUDE.md](../CLAUDE.md).
 
-## 📖 문서 목록
+| 문서 | 내용 |
+| --- | --- |
+| [deploy-policy.md](./deploy-policy.md) | 기관 배포: `policy.json` 기본값·고정, 우클릭 메뉴 일괄 설치(`kordoc-ai.exe --shell-menu`), 공유 폴더(UNC) 제한, PC 준비(PDF 내보내기용 Edge·Chrome, 내장 AI 모델 파일) |
+| [challenge/README.md](./challenge/README.md) | AI실험실 챌린지 출품 준비(작업 문서): 심사 기준 대응, 실측 수치와 출처, 수요조사서 초안, 3분 시연 |
+| [challenge/benchmark.md](./challenge/benchmark.md) | 한글 공문서 작성 도구 비교 측정(2026-10-10, 비교 도구 익명) |
+| [archive/](./archive/README.md) | 현행 아님: v1 기획 문서(PRD·ROADMAP·SPEC, 2026-04) |
 
-| 문서 | 용도 |
-|------|------|
-| [PRD.md](./PRD.md) | 제품 요구사항 — 비전, 기능 명세, 의사결정 |
-| [ROADMAP.md](./ROADMAP.md) | 4-Phase 구현 체크리스트 |
-| [SPEC.md](./SPEC.md) | 코드 레벨 기술 명세 (API, 시그니처, 에러) |
-
-## 🚀 빠른 시작
-
-**다음 작업 — Phase 1**:
-```bash
-cd d:/AI_Project/kordoc
-git checkout -b feat/xls-and-print
-# ROADMAP.md의 Phase 1 W1 D1-2부터 진행
-```
-
-**세션 컨텍스트**: [.claude/memory/activeContext.md](../.claude/memory/activeContext.md)
-
-## 🏗️ 아키텍처 개요
-
-```
-탐색기 우클릭
-    ↓
-kordoc-shell (MSIX) → kordoc-launcher.exe
-    ↓ kordoc:// deep-link
-kordoc-ai (Tauri) → Node Sidecar (JSON-RPC)
-    ↓
-kordoc (npm) — XLS/HWP/HWPX/PDF/XLSX/DOCX 파싱
-```
-
-## 📊 Phase 진행 상태
-
-- [ ] Phase 1: 코어 갭 (XLS + Print) — **다음 시작**
-- [ ] Phase 2: MSIX Shell Extension
-- [ ] Phase 3: 다중선택 + 일괄 처리
-- [ ] Phase 4: 공공기관 특화 (선택)
+라이선스: [LICENSE](../LICENSE)(MIT). 제3자 고지 요약은 [NOTICE](../NOTICE), 패키지별 이름·버전·라이선스 전문은 [THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt)(`node scripts/third-party-notices.mjs` 로 만듦).

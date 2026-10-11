@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback, useMemo, useId, type ReactNode } from "react";
+import { useEffect, useRef, useMemo, useId, type ReactNode } from "react";
+import { useDialogKeys } from "./useDialogKeys";
 
 interface ModalProps {
   isOpen: boolean;
@@ -20,28 +21,18 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape" && closable) { handleClose(); return; }
-    if (e.key === "Tab" && modalRef.current) {
-      const els = modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
-      const first = els[0], last = els[els.length - 1];
-      if (!first) return;
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-    }
-  }, [closable, handleClose]);
+  // Esc: 닫을 수 있으면 닫기, 닫기 단추가 없는 확인 상자도 onClose 를 주면 Esc 로 취소
+  useDialogKeys(modalRef, isOpen, closable || onClose ? handleClose : undefined);
 
   useEffect(() => {
     if (!isOpen) return;
     // 열기 전 포커스 저장 (닫을 때 복원용)
     previousFocusRef.current = document.activeElement;
-    document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
     requestAnimationFrame(() => {
       modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE)?.[0]?.focus();
     });
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
       // 모달 닫힘 시 이전 포커스 복원 (WCAG 2.1 Level A)
       const prev = previousFocusRef.current;
@@ -49,7 +40,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
         requestAnimationFrame(() => prev.focus());
       }
     };
-  }, [isOpen, handleKeyDown]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -65,7 +56,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
         <div className="shrink-0 flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
           <h2 id={titleId} className="text-base font-bold" style={{ color: "var(--color-text-primary)" }}>{title}</h2>
           {closable && (
-            <button onClick={handleClose} className="p-1.5 rounded-md btn-icon-hover" aria-label="닫기">
+            <button type="button" onClick={handleClose} className="grid place-items-center w-8 h-8 -mr-1.5 rounded-md btn-icon-hover" aria-label="닫기">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>

@@ -5,12 +5,10 @@ import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// kordoc mock
-const mockParse = vi.fn();
-const mockMarkdownToPdf = vi.fn();
-vi.mock('kordoc', () => ({
-  parse: (...args: unknown[]) => mockParse(...args),
-  markdownToPdf: (...args: unknown[]) => mockMarkdownToPdf(...args),
+// 인쇄용 PDF 만들기 mock — 실제로는 PDF 내보내기와 같은 docToPdf (HWP·HWPX 는 rhwp 조판)
+const mockDocToPdf = vi.fn();
+vi.mock('../src/core/export/index.js', () => ({
+  docToPdf: (...args: unknown[]) => mockDocToPdf(...args),
 }));
 
 // child_process mock — Start-Process 실제 실행 차단
@@ -60,19 +58,18 @@ afterEach(async () => {
 });
 
 describe('printFiles', () => {
-  it('단일 파일 → parse → markdownToPdf → PrintTo 호출', async () => {
+  it('단일 파일 → docToPdf(조판 그대로) → PrintTo 호출', async () => {
     const file = join(tmp, 'sample.hwpx');
     await writeFile(file, 'dummy');
 
-    mockParse.mockResolvedValue({ success: true, markdown: '# 제목\n본문', fileType: 'hwpx' });
-    mockMarkdownToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
+    mockDocToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
 
     const result = await printFiles({ files: [file], printer: 'Test Printer' }, new AbortController().signal);
 
     expect(result.queued).toBe(1);
     expect(result.failed).toEqual([]);
     expect(result.jobIds[0]).toMatch(/kordoc-print/);
-    expect(mockMarkdownToPdf).toHaveBeenCalledWith('# 제목\n본문', { preset: 'default' });
+    expect(mockDocToPdf).toHaveBeenCalledWith(file, expect.anything());
     // execFile 가 PowerShell Start-Process 명령으로 호출됨
     expect(mockExecFile).toHaveBeenCalledWith('powershell', expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']));
     const command = mockExecFile.mock.calls[0][1].at(-1) as string;
@@ -81,15 +78,15 @@ describe('printFiles', () => {
     expect(command).toContain("'Test Printer'");
   });
 
-  it('파싱 실패 시 failed 에 추가하고 다른 파일은 계속 처리', async () => {
+  it('PDF 만들기 실패 시 failed 에 추가하고 다른 파일은 계속 처리', async () => {
     const ok = join(tmp, 'ok.hwpx');
     const bad = join(tmp, 'bad.hwpx');
     await Promise.all([writeFile(ok, 'a'), writeFile(bad, 'b')]);
 
-    mockParse.mockImplementation(async (path: string) =>
-      path.endsWith('bad.hwpx') ? { success: false, error: '깨진 파일' } : { success: true, markdown: 'x' },
-    );
-    mockMarkdownToPdf.mockResolvedValue(Buffer.from('pdf'));
+    mockDocToPdf.mockImplementation(async (path: string) => {
+      if (path.endsWith('bad.hwpx')) throw new Error('깨진 파일');
+      return Buffer.from('pdf');
+    });
 
     const result = await printFiles({ files: [ok, bad] }, new AbortController().signal);
 
@@ -98,10 +95,10 @@ describe('printFiles', () => {
     expect(result.failed[0].reason).toContain('깨진');
   });
 
-  it('files 가 비어있으면 throw', async () => {
+  it('파일이 없으면 안내 오류', async () => {
     await expect(
       printFiles({ files: [] }, new AbortController().signal),
-    ).rejects.toThrow(/비어있/);
+    ).rejects.toThrow(/인쇄할 파일이 없습니다/);
   });
 
   it('AbortSignal 발화 시 throw', async () => {

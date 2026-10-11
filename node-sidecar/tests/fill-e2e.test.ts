@@ -7,7 +7,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
 
 // progress가 stdout(JSON-RPC 채널)에 쓰는 것 방지
@@ -152,6 +153,26 @@ describe('patch_blocks', () => {
     const xml = await zip.file('Contents/section0.xml')!.async('text');
     expect(xml).toContain('수정된 본문입니다.');
   });
+});
+
+/** 레포 예제 서식 (가상의 가온시) — rhwp 0.8.6 렌더가 맥·CI 에서도 늘 돈다 */
+const SAMPLE_FORM = join(dirname(fileURLToPath(import.meta.url)), '..', 'samples', '취합', '교육수요조사서_총무과.hwpx');
+
+describe('render_preview (rhwp 0.8.6, 예제 서식)', () => {
+  it('SVG 쪽 렌더', async () => {
+    const r = await renderPreview({ input_path: SAMPLE_FORM, max_pages: 1 });
+    expect(r.success).toBe(true);
+    expect(r.page_count).toBeGreaterThanOrEqual(1);
+    expect(r.pages[0].svg).toContain('<svg');
+    expect(r.pages[0].svg).toContain('>총</text>');
+  }, 30_000);
+
+  it('채움 직후 미저장 바이트(doc_b64) 렌더', async () => {
+    const fill = await formFill({ input_path: SAMPLE_FORM, values: { 담당자: '홍길동' }, dry_run: true });
+    expect(fill.filled.map((f) => f.label)).toContain('담당자');
+    const r = await renderPreview({ doc_b64: fill.doc_b64!, pages: [0] });
+    for (const ch of ['홍', '길', '동']) expect(r.pages[0].svg).toContain(`>${ch}</text>`);
+  }, 30_000);
 });
 
 describe('render_preview (rhwp WASM)', () => {

@@ -38,7 +38,7 @@ export async function concatPdf(
     }
   }
 
-  if (merged.getPageCount() === 0) throw new Error('병합할 유효한 PDF 파일이 없습니다');
+  if (merged.getPageCount() === 0) throw new Error('병합할 수 있는 PDF 파일이 없습니다');
 
   await mkdir(dirname(output_path), { recursive: true });
   const outputBytes = await merged.save();
@@ -203,7 +203,7 @@ export async function splitPdf(
       sendProgress({
         current: i + 1,
         total: totalPages,
-        message: `PDF 분리 ${i + 1}/${totalPages}p`,
+        message: `PDF 분리 ${i + 1}/${totalPages}쪽`,
       });
 
       const doc = await PDFDocument.create();

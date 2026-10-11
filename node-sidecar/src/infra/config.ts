@@ -1,166 +1,220 @@
-/** YAML 설정 로더 — 원자적 쓰기, LRU 캐시 */
+/** 설정 로더 — 앱 데이터 폴더의 settings.json, 원자적 쓰기
+ *
+ * 위치: KORDOC_AI_DATA_DIR(Tauri 가 OS 앱 데이터 폴더를 넘김) → 없으면 OS 기본 경로.
+ * v1(YAML, %APPDATA%/com.kordoc-ai.app/config/settings.yaml) 이 있으면 키·출력 폴더만 옮겨 온다.
+ * 적용 순서: 기본값 < 기관 배포 설정 defaults < 사용자 값(settings.json) < 기관 배포 설정 locked (policy.ts).
+ * settings.json 에는 사용자가 정한 값만 쓴다 — 고정값·기관 기본값을 굳혀 두지 않아야 정책을 고치거나 빼면 그대로 따라간다.
+ */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, accessSync, constants } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, chmodSync, renameSync } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
-import { parse, stringify } from 'yaml';
+import { basename, join } from 'node:path';
+import { homedir, totalmem } from 'node:os';
+import { parse as parseYaml } from 'yaml';
 import type { Settings } from '../types/index.js';
 import { logger } from './logger.js';
+import { FORBIDDEN_KEYS, isObj, loadPolicy, type Policy } from './policy.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+export const DEFAULT_SETTINGS: Settings = {
+  version: 2,
+  ai: {
+    provider: 'none',
+    // 메모리 8GB 이하 PC 는 4천 토큰. 8천이면 4B 모델이 4.4GB(실측)라 한글·브라우저와 같이 쓰기 빠듯하다
+    embedded: { model_path: '', context_size: totalmem() <= 8 * 1024 ** 3 ? 4096 : 8192, gpu: 'auto' },
+    openai: { base_url: 'http://127.0.0.1:11434/v1', api_key: '', model: '', vision_model: '' },
+    gemini: { api_key: '', model: 'gemini-3.8-flash' },
+    anthropic: { api_key: '', model: 'claude-opus-5-5' },
+    redact_before_cloud: true,
+    timeout_ms: 180_000,
+  },
+  privacy: { offline: false },
+  org: {
+    name: '', dept: '', position: '', person: '', phone: '', fax: '', email: '', address: '', homepage: '',
+    approval_line: [], agency: '', seal_image: '', doc_number_prefix: '',
+  },
+  convert: { output_dir: '', ocr: 'auto' },
+  general: { log_level: 'info' },
+  impact: { baselines: {} },
+  law: { oc: '' },
+};
 
-const DEFAULT_YAML = `gemini:
-  model: gemini-3-flash-preview
-  lite_model: gemini-3-flash-preview
-  api_key: ""
-  proxy_url: ""
-  max_retries: 5
-  timeout_ms: 60000
-  mode: online
-convert:
-  output_dir: ""
-  ocr_fallback: true
-general:
-  log_level: info
-`;
-
-/** 번들된 settings.yaml 탐색 (tsc / esbuild 경로 모두 대응) */
-function findBundledConfig(): string | null {
-  const candidates = [
-    join(process.cwd(), 'config', 'settings.yaml'),          // Rust가 current_dir 설정
-    join(__dirname, '..', 'config', 'settings.yaml'),         // esbuild bundle: dist/ → ../config/
-    join(__dirname, '..', '..', 'config', 'settings.yaml'),   // tsc: dist/infra/ → ../../config/
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
+/** 앱 데이터 폴더 (설정·모델·로그) */
+export function dataDir(): string {
+  const env = process.env.KORDOC_AI_DATA_DIR;
+  if (env && env.trim()) return env;
+  if (process.platform === 'win32') {
+    return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'com.kordoc-ai.app');
   }
-  return null;
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'com.kordoc-ai.app');
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'com.kordoc-ai.app');
 }
 
-/** 번들 config가 쓰기 가능하면 dev 모드 → 그대로 사용.
- *  Program Files 등 읽기 전용이면 → %APPDATA% 폴백. */
-function resolveConfigPath(): string {
-  const bundled = findBundledConfig();
+const configPath = () => join(dataDir(), 'settings.json');
 
-  // dev 모드: 번들 config 직접 사용 (쓰기 가능할 때)
-  if (bundled) {
-    try {
-      accessSync(dirname(bundled), constants.W_OK);
-      return bundled;
-    } catch { /* 쓰기 불가 → AppData 폴백 */ }
-  }
-
-  // 프로덕션: AppData에 설정 저장
-  const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
-  const userConfigDir = join(appData, 'com.kordoc-ai.app', 'config');
-  const userConfig = join(userConfigDir, 'settings.yaml');
-
-  if (!existsSync(userConfig)) {
-    mkdirSync(userConfigDir, { recursive: true });
-    if (bundled) {
-      copyFileSync(bundled, userConfig);
-    } else {
-      // 번들 config도 못 찾으면 기본값 생성
-      writeFileSync(userConfig, DEFAULT_YAML, 'utf-8');
-    }
-    logger.info(`[config] created: ${userConfig}`);
-  }
-
-  logger.info(`[config] using AppData config: ${userConfig}`);
-  return userConfig;
-}
-
-const CONFIG_PATH = resolveConfigPath();
+type Obj = Record<string, unknown>;
 
 let cached: Settings | null = null;
+/** 사용자가 정한 값 — settings.json 그대로 (없으면 v1 이관분) */
+let user: Obj = {};
+let policy: Policy | null = null;
 
-/** 설정 전체 로드 (캐시 — 불변 참조) */
+/** v1 YAML 에서 쓸 만한 값만 옮김 — 옮긴 값만 둬야 기관 기본값을 가리지 않는다 */
+function migrateV1(): Obj | null {
+  const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+  const v1 = join(appData, 'com.kordoc-ai.app', 'config', 'settings.yaml');
+  if (!existsSync(v1)) return null;
+  try {
+    const old = parseYaml(readFileSync(v1, 'utf-8')) as {
+      gemini?: { api_key?: string };
+      convert?: { output_dir?: string };
+    };
+    const key = old.gemini?.api_key?.trim() ?? '';
+    logger.info(`[config] v1 설정 이관: ${v1}`);
+    const out: Obj = {};
+    if (key) out.ai = { provider: 'gemini', gemini: { api_key: key } };
+    if (old.convert?.output_dir) out.convert = { output_dir: old.convert.output_dir };
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export function getSettings(): Readonly<Settings> {
   if (cached) return cached;
   return reload();
 }
 
-/** 캐시 무효화 후 재로드 */
+let tmpSeq = 0;
+
 export function reload(): Settings {
-  try {
-    const raw = readFileSync(CONFIG_PATH, 'utf-8');
-    cached = Object.freeze(parse(raw) as Settings);
-    logger.info(`[config] loaded: ${CONFIG_PATH}`);
-    return cached;
-  } catch (err) {
-    logger.error(`[config] load failed: ${err}`);
-    throw err;
+  const p = configPath();
+  let loaded: unknown = {};
+  if (existsSync(p)) {
+    try {
+      loaded = JSON.parse(readFileSync(p, 'utf-8'));
+    } catch (err) {
+      // 깨진 파일을 그대로 두면 다음 저장 한 번에 AI 키·기관 정보가 기본값으로 덮인다 → 옆으로 옮겨 남긴다
+      const kept = `${p}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      try { renameSync(p, kept); } catch { /* 옮기지 못해도 기본값으로 연다 */ }
+      logger.error(`[config] 설정 파일이 깨져 기본값으로 엽니다 (${basename(kept)} 에 남김): ${err}`);
+    }
+  } else {
+    loaded = migrateV1() ?? {};
   }
+  user = isObj(loaded) ? loaded : {};
+  policy = loadPolicy(POLICY_SHAPE);
+  return compose();
 }
 
-/** 특정 섹션 조회 */
+/** 기본값 < 기관 기본값 < 사용자 값 < 기관 고정값, 그리고 화면용 policy 표지 */
+function compose(): Settings {
+  let s = structuredClone(DEFAULT_SETTINGS) as unknown as Obj;
+  for (const layer of [policy?.defaults, user, policy?.locked]) if (layer) s = deepMerge(s, structuredClone(layer));
+  delete s.policy; // settings.json 을 손으로 고쳐 넣은 표지는 버린다
+  if (policy) {
+    s.policy = {
+      source: policy.source,
+      ...(policy.notice ? { notice: policy.notice } : {}),
+      locked: [...policy.lockedPaths],
+      ...(policy.error ? { error: policy.error } : {}),
+    };
+  }
+  cached = Object.freeze(s as unknown as Settings);
+  return cached;
+}
+
 export function getConfig<K extends keyof Settings>(section: K): Settings[K] {
   return getSettings()[section];
 }
 
-/** 허용된 설정 최상위 키 (화이트리스트) */
-const ALLOWED_SECTIONS = new Set(['gemini', 'convert', 'general']);
+const ALLOWED_SECTIONS = new Set(['ai', 'privacy', 'org', 'convert', 'general', 'impact', 'law']);
+/** 기관 배포 설정이 정할 수 있는 모양 — 허용 구획의 기본값 */
+const POLICY_SHAPE: Obj = Object.fromEntries([...ALLOWED_SECTIONS].map((k) => [k, DEFAULT_SETTINGS[k as keyof Settings]]));
+const SECRET_FIELDS = ['api_key'];
 
-/** 프로토타입 오염 방지 키 */
-const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
-/** 마스킹된 API 키 감지 (get_settings가 반환한 값의 역전파 방지) */
-function isMaskedApiKey(value: unknown): boolean {
-  return typeof value === 'string' && value.includes('****');
+/** 프론트로 보낼 때 키 마스킹 */
+export function maskSecrets(settings: Readonly<Settings>): Settings {
+  const s = structuredClone(settings) as Settings;
+  for (const p of ['openai', 'gemini', 'anthropic'] as const) {
+    const k = s.ai[p].api_key;
+    if (k && k.trim()) s.ai[p].api_key = k.length > 4 ? `${k.slice(0, 4)}****` : '****';
+  }
+  return s;
 }
 
-/** 설정 업데이트 (원자적 쓰기: tmp → rename) */
+const isMasked = (v: unknown) => typeof v === 'string' && v.includes('****');
+
+/** 마스킹된 키가 되돌아오면 버림 (재귀) */
+function dropMaskedSecrets(obj: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(obj)) {
+    if (SECRET_FIELDS.includes(k) && isMasked(v)) delete obj[k];
+    else if (v && typeof v === 'object' && !Array.isArray(v)) dropMaskedSecrets(v as Record<string, unknown>);
+  }
+}
+
+/** 고정 경로는 버리고 실제 적용된 설정을 돌려준다. settings.json 에는 사용자 값만 쓴다 */
 export async function updateSettings(patch: Record<string, unknown>): Promise<Settings> {
-  // 허용된 섹션만 필터
+  const shown = getSettings() as unknown as Obj;
   const sanitized: Record<string, unknown> = {};
   for (const key of Object.keys(patch)) {
-    if (FORBIDDEN_KEYS.has(key)) continue;
-    if (!ALLOWED_SECTIONS.has(key)) continue;
+    if (FORBIDDEN_KEYS.has(key) || !ALLOWED_SECTIONS.has(key)) continue;
     sanitized[key] = patch[key];
   }
+  dropMaskedSecrets(sanitized);
 
-  // 마스킹된 API 키 역전파 방지 — "AIza****" 같은 값이 들어오면 해당 필드 제외
-  const geminiPatch = sanitized.gemini as Record<string, unknown> | undefined;
-  if (geminiPatch && isMaskedApiKey(geminiPatch.api_key)) {
-    delete geminiPatch.api_key;
+  const next = structuredClone(user);
+  applyPatch(next, sanitized, shown, new Set(policy?.lockedPaths), '');
+  const dir = dataDir();
+  mkdirSync(dir, { recursive: true });
+  const p = configPath();
+  // 동시에 두 번 저장해도 같은 임시 파일을 두고 다투지 않게
+  const tmp = `${p}.${process.pid}.${++tmpSeq}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify({ version: 2, ...next }, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmp, p);
+  } catch (err) {
+    // 문서 저장 오류 안내("설정 > 저장 위치를 바꾸세요")는 여기와 맞지 않는다
+    if (/^(EACCES|EPERM|EROFS)$/.test((err as NodeJS.ErrnoException).code ?? '')) {
+      throw new Error(`설정 파일을 저장할 권한이 없습니다. 앱 데이터 폴더(${dir})에 쓸 수 있는지 확인하거나 IT 담당자에게 문의하세요.`);
+    }
+    throw err;
   }
+  try { chmodSync(p, 0o600); } catch { /* Windows 는 무시 */ }
 
-  const prevApiKey = cached?.gemini?.api_key;
-  const current = getSettings();
-  const merged = deepMerge(current as unknown as Record<string, unknown>, sanitized) as unknown as Settings;
-
-  const tmp = CONFIG_PATH + '.tmp';
-  await writeFile(tmp, stringify(merged), 'utf-8');
-  await rename(tmp, CONFIG_PATH);
-
-  cached = Object.freeze(merged);
+  user = next;
   logger.info('[config] updated');
+  return compose();
+}
 
-  // API 키 변경 감지 시 Gemini 클라이언트 자동 리셋
-  if (merged.gemini?.api_key && merged.gemini.api_key !== prevApiKey) {
-    try {
-      const { resetClient } = await import('./gemini.js');
-      resetClient();
-      logger.info('[config] Gemini client reset (API key changed)');
-    } catch { /* gemini 모듈 로드 실패 시 무시 */ }
+/** 사용자 값에 patch 를 얹는다. 고정 경로는 버리고(정책을 빼면 원래 값이 돌아오게),
+ *  사용자가 정한 적 없는 값을 보이는 그대로 돌려보낸 것도 굳히지 않는다(화면은 구획째 보낸다 — 기관 기본값이 바뀌면 따라가게) */
+function applyPatch(target: Obj, patch: Obj, shown: Obj | undefined, locked: Set<string>, prefix: string): void {
+  for (const [k, v] of Object.entries(patch)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
+    const path = prefix + k;
+    if (locked.has(path)) { logger.info(`[config] ${path} 는 기관 배포 설정으로 고정돼 바꾸지 않습니다`); continue; }
+    const own = Object.hasOwn(target, k);
+    const cur = shown && Object.hasOwn(shown, k) ? shown[k] : undefined;
+    if (isObj(v) && (!own || isObj(target[k]))) {
+      const sub = own ? target[k] as Obj : {};
+      applyPatch(sub, v, isObj(cur) ? cur : undefined, locked, `${path}.`);
+      if (!own && Object.keys(sub).length) target[k] = sub;
+    } else if (own || JSON.stringify(v) !== JSON.stringify(cur)) {
+      target[k] = v;
+    }
   }
-
-  return merged;
 }
 
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target };
   for (const key of Object.keys(source)) {
     if (FORBIDDEN_KEYS.has(key)) continue;
     const sv = source[key];
     const tv = target[key];
     if (sv && typeof sv === 'object' && !Array.isArray(sv) && tv && typeof tv === 'object' && !Array.isArray(tv)) {
-      result[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
-    } else {
-      result[key] = sv;
+      target[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
+    } else if (sv !== undefined) {
+      target[key] = sv;
     }
   }
-  return result;
+  return target;
 }

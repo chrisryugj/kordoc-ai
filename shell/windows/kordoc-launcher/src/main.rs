@@ -12,7 +12,7 @@
 //! 다중선택 동작 함정:
 //!   Windows는 다중선택 우클릭 시 verb를 N번 반복 호출함. 동시 호출 충돌을 방지하기 위해
 //!   `%TEMP%/kordoc-batch.lock` 파일 기반 200ms debounce 처리.
-//!   참조: docs/PRD.md §F3-3, docs/SPEC.md §3.3
+//!   참조: docs/archive/PRD.md §F3-3, docs/archive/SPEC.md §3.3 (v1 기획)
 
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -38,51 +38,37 @@ fn main() -> ExitCode {
     // args[0] = exe path, args[1] = action, args[2..] = files
     if args.len() < 3 {
         eprintln!("usage: kordoc-launcher <action> <file> [more files...]");
-        eprintln!("  actions: convert <file> <md|pdf|hwpx> | summarize <file> | open <file> | batch <action> <files...>");
+        eprintln!("  actions: open | convert | pdf | redact | summarize <file…>  (batch <action> <files…> 도 가능)");
         return ExitCode::from(2);
     }
 
     let action = args[1].as_str();
     let files: Vec<&String> = args[2..].iter().collect();
 
-    let url = match (action, files.len()) {
-        // batch <subaction> <files...> — 명시적 batch 호출
-        ("batch", n) if n >= 2 => {
-            let subaction = files[0];
-            let file_args: Vec<&String> = files[1..].iter().copied().collect();
-            match build_batch_url(subaction, &file_args) {
-                Ok(u) => u,
-                Err(e) => {
-                    eprintln!("manifest 생성 실패: {}", e);
-                    return ExitCode::from(1);
-                }
-            }
+    // 동작 이름은 앱(src-tauri/src/shell.rs ACTIONS)과 같다: open · convert · pdf · redact · summarize
+    // 구형 호출 `convert <file…> <md|pdf|hwpx>` 도 받는다 (pdf → pdf, 나머지 → convert)
+    let (action, files): (&str, Vec<&String>) = match action {
+        "convert" if files.len() >= 2 && matches!(files[files.len() - 1].as_str(), "md" | "pdf" | "hwpx") => {
+            let sub = files[files.len() - 1].as_str();
+            (if sub == "pdf" { "pdf" } else { "convert" }, files[..files.len() - 1].to_vec())
         }
-        // convert <file> <subaction>
-        ("convert", n) if n >= 2 => {
-            let subaction = files[n - 1];
-            let file_args: Vec<&String> = files[..n - 1].iter().copied().collect();
-            if file_args.len() == 1 {
-                build_single_url("convert", file_args[0], Some(subaction))
-            } else {
-                match build_batch_url(&format!("convert_{}", subaction), &file_args) {
-                    Ok(u) => u,
-                    Err(e) => {
-                        eprintln!("manifest 생성 실패: {}", e);
-                        return ExitCode::from(1);
-                    }
-                }
-            }
-        }
-        // summarize | open | print 등 단일/다중 모두 호환
-        (act, 1) => build_single_url(act, files[0], None),
-        (act, _) => match build_batch_url(act, &files) {
+        "batch" if files.len() >= 2 => (files[0].as_str(), files[1..].to_vec()),
+        other => (other, files),
+    };
+    if !matches!(action, "open" | "convert" | "pdf" | "redact" | "summarize") {
+        eprintln!("모르는 동작: {}", action);
+        return ExitCode::from(2);
+    }
+    let url = if files.len() == 1 {
+        build_single_url(action, files[0], None)
+    } else {
+        match build_batch_url(action, &files) {
             Ok(u) => u,
             Err(e) => {
                 eprintln!("manifest 생성 실패: {}", e);
                 return ExitCode::from(1);
             }
-        },
+        }
     };
 
     if let Err(e) = launch_url(&url) {

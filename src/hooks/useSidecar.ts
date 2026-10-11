@@ -1,129 +1,60 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import type { SidecarStatus } from "../types/sidecar";
+import { useState, useEffect, useCallback } from "react";
+import { invokeCmd, isTauri, listenEvent } from "../lib/rpc";
 
-interface UseSidecarReturn {
-  status: SidecarStatus;
-  errorMessage: string;
-  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-  start: () => Promise<void>;
+/** Rust SidecarStatus 직렬화: Stopped→"stopped", Ready→"ready", Error(msg)→{"error":"msg"} */
+export type SidecarStatus = "stopped" | "starting" | "ready" | "error";
+
+/** Rust 오류는 이미 한국어 문장이다. 상태 표시용 짧은 값("프로세스 종료됨")만 문장으로 */
+function translateError(msg: string): string {
+  if (msg.includes("프로세스 종료됨")) return "문서 엔진이 멈췄습니다";
+  return msg;
 }
 
-export function useSidecar(): UseSidecarReturn {
-  const [status, setStatus] = useState<SidecarStatus>("stopped");
+/** 엔진 상태 감시 — 3초마다 확인하고, 멈추면 세 번까지 스스로 다시 켠다 */
+export function useSidecar() {
+  const [status, setStatus] = useState<SidecarStatus>(isTauri ? "starting" : "ready");
   const [errorMessage, setErrorMessage] = useState("");
 
-  /** Rust 영문 에러를 사용자 친화적 한글로 변환 */
-  const translateError = (msg: string): string => {
-    if (msg.includes("Failed to spawn sidecar")) return "엔진을 시작할 수 없습니다 (Node.js 설치 확인)";
-    if (msg.includes("Unexpected ping")) return "엔진이 응답하지 않습니다";
-    if (msg.includes("프로세스 종료됨")) return "엔진이 비정상 종료되었습니다";
-    if (msg.includes("Timeout")) return "엔진 응답 시간 초과";
-    return msg;
-  };
-
-  // Poll sidecar status — recursive setTimeout to prevent overlap
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
+    if (!isTauri) return;
     let cancelled = false;
-    let autoRestartAttempts = 0;
-    const MAX_AUTO_RESTARTS = 3;
-    const POLL_INTERVAL = 3000;
+    let restarts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const checkStatus = async () => {
+    const check = async () => {
       if (cancelled) return;
       try {
-        const s = await invoke<SidecarStatus | { error: string }>("sidecar_status");
+        const s = await invokeCmd<SidecarStatus | { error: string }>("sidecar_status");
         if (cancelled) return;
         if (typeof s === "object" && s !== null && "error" in s) {
-          const msg = (s as { error: string }).error;
           setStatus("error");
-          setErrorMessage(translateError(msg || "알 수 없는 오류"));
-          if (autoRestartAttempts < MAX_AUTO_RESTARTS) {
-            autoRestartAttempts++;
-            try {
-              await invoke("sidecar_start");
-              if (!cancelled) setStatus("starting");
-            } catch { /* retry on next poll */ }
+          setErrorMessage(translateError(s.error || "알 수 없는 오류"));
+          if (restarts < 3) {
+            restarts++;
+            try { await invokeCmd("sidecar_start"); if (!cancelled) setStatus("starting"); } catch { /* 다음 확인에서 다시 */ }
           }
         } else {
-          const newStatus = s as SidecarStatus;
-          setStatus(newStatus);
-          if (newStatus === "ready") {
-            autoRestartAttempts = 0;
-            setErrorMessage("");
-          }
+          setStatus(s);
+          if (s === "ready") { restarts = 0; setErrorMessage(""); }
         }
       } catch {
-        // Sidecar not yet available
+        /* 아직 준비 전 */
       }
-      if (!cancelled) {
-        timeoutRef.current = setTimeout(checkStatus, POLL_INTERVAL);
-      }
+      if (!cancelled) timer = setTimeout(check, 3000);
     };
+    void check();
 
-    checkStatus();
-
-    // sidecar:error 이벤트 즉시 수신 — 3초 폴링 대기 없이 에러 표시
-    let unlistenError: (() => void) | null = null;
-    listen<string>("sidecar:error", (event) => {
-      if (cancelled) return;
+    const off = listenEvent<string>("sidecar:error", (payload) => {
       setStatus("error");
-      setErrorMessage(translateError(event.payload || "엔진 시작 실패"));
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlistenError = fn;
+      setErrorMessage(translateError(payload || "문서 엔진을 시작하지 못했습니다"));
     });
-
-    return () => {
-      cancelled = true;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      unlistenError?.();
-    };
+    return () => { cancelled = true; if (timer) clearTimeout(timer); off(); };
   }, []);
 
-  const call = useCallback(async (method: string, params?: Record<string, unknown>) => {
-    try {
-      const result = await invoke("sidecar_call", { method, params: params ?? null });
-      return result;
-    } catch (e) {
-      // Auto-restart sidecar on call failure (process may have crashed)
-      const errStr = String(e).toLowerCase();
-      const isProcessDead = errStr.includes("not started") || errStr.includes("closed") || errStr.includes("write failed");
-      if (isProcessDead) {
-        setStatus("starting");
-        // 최대 2회 재시작 시도 (지수 백오프: 800ms, 2000ms)
-        const delays = [800, 2000];
-        for (let attempt = 0; attempt < delays.length; attempt++) {
-          try {
-            await invoke("sidecar_start");
-            await new Promise((r) => setTimeout(r, delays[attempt]));
-            const result = await invoke("sidecar_call", { method, params: params ?? null });
-            setStatus("ready");
-            return result;
-          } catch {
-            // 다음 시도로
-          }
-        }
-        setStatus("error");
-        setErrorMessage("엔진 재시작 실패");
-      }
-      throw e;
-    }
-  }, []);
-
-  const start = useCallback(async () => {
+  const restart = useCallback(() => {
     setStatus("starting");
-    try {
-      await invoke("sidecar_start");
-      // Let the polling detect readiness — don't prematurely set "ready"
-    } catch (e) {
-      setStatus("error");
-      throw e;
-    }
+    invokeCmd("sidecar_start").catch((e) => { setStatus("error"); setErrorMessage(translateError(String(e))); });
   }, []);
 
-  return { status, errorMessage, call, start };
+  return { status, errorMessage, restart };
 }

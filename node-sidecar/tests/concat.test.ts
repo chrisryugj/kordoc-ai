@@ -18,25 +18,9 @@ vi.mock('../src/infra/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { concatHwpx } from '../src/core/merge/concat-hwpx.js';
 import { concatDocx } from '../src/core/merge/concat-docx.js';
 import { concatXlsx } from '../src/core/merge/concat-xlsx.js';
 
-// 한/글 COM + pyhwpx 사용 가능 여부
-import { execSync } from 'node:child_process';
-let hasHwpCom = false;
-try {
-  execSync('python -c "from pyhwpx import Hwp"', { timeout: 10_000, stdio: 'pipe' });
-  const out = execSync(
-    'reg query "HKLM\\SOFTWARE\\Classes\\HWPFrame.HwpObject" /ve',
-    { timeout: 5_000, stdio: 'pipe', encoding: 'utf-8' },
-  );
-  hasHwpCom = out.includes('HWPFrame');
-} catch { /* 한컴오피스 또는 pyhwpx 미설치 */ }
-
-// HWPX 테스트 fixture 경로
-const hwpxFixturesDir = resolve(process.cwd(), '../../kordoc/tests/fixtures/real');
-const hasHwpxFixtures = existsSync(hwpxFixturesDir);
 
 const signal = new AbortController().signal;
 let tmpDir: string;
@@ -49,7 +33,7 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-// ─── HWPX는 실제 fixture 파일로 테스트 (순수 XML 병합) ──
+// HWPX 수합은 tests/merge-hwpx.test.ts (순수 XML 병합)
 
 // ─── DOCX 테스트 헬퍼 ──────────────────────────────────
 
@@ -267,44 +251,6 @@ async function createStyledDocx(opts: {
 }
 
 // ─── 테스트 ────────────────────────────────────────────
-
-describe('HWPX COM 자동화 수합', () => {
-  const canRun = hasHwpCom && hasHwpxFixtures;
-
-  it.skipIf(!canRun)('재활용센터 + 제물포터널 병합 → 성공 + 출력 파일 생성', async () => {
-    const file1 = join(hwpxFixturesDir, '재활용센터현황.hwpx');
-    const file2 = join(hwpxFixturesDir, '제물포터널협약서.hwpx');
-    const out = join(tmpDir, 'merged_com.hwpx');
-
-    const result = await concatHwpx({ files: [file1, file2], output_path: out, mode: 'native' }, signal);
-    expect(result.success).toBe(true);
-    expect(result.failed_files).toHaveLength(0);
-    expect(result.file_count).toBe(2);
-    expect(result.total_length).toBeGreaterThan(0);
-    expect(existsSync(out)).toBe(true);
-  }, 60_000);
-
-  it.skipIf(!canRun)('5개 HWPX 일괄 병합 — 오류 없이 완료', async () => {
-    const files = [
-      '재활용센터현황.hwpx', '재활용센터현황2.hwpx', '제물포터널협약서.hwpx',
-      '지역아동센터계획.hwpx', '특별구급대실적.hwpx',
-    ].map(f => join(hwpxFixturesDir, f));
-    const out = join(tmpDir, 'merged_5_com.hwpx');
-
-    const result = await concatHwpx({ files, output_path: out, mode: 'native' }, signal);
-    expect(result.success).toBe(true);
-    expect(result.failed_files).toHaveLength(0);
-    expect(result.file_count).toBe(5);
-    expect(result.total_length).toBeGreaterThan(0);
-  }, 120_000);
-
-  it.skipIf(hasHwpCom)('한컴오피스 미설치 시 에러 메시지 포함', async () => {
-    const out = join(tmpDir, 'fail.hwpx');
-    await expect(
-      concatHwpx({ files: ['nonexistent.hwpx', 'also.hwpx'], output_path: out, mode: 'native' }, signal),
-    ).rejects.toThrow('한컴오피스');
-  });
-});
 
 describe('DOCX 서식 유지 수합', () => {
   it('2개 DOCX 병합 → body 요소 합산 + page break 삽입', async () => {

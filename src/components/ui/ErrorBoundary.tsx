@@ -77,13 +77,13 @@ export class ErrorBoundary extends Component<Props, State> {
             className="ts-sm mb-2 text-center max-w-md"
             style={{ color: "var(--color-text-muted)" }}
           >
-            예상치 못한 오류가 발생했습니다. 아래 버튼을 클릭하여 다시 시도하세요.
+            예상치 못한 오류가 발생했습니다. 아래 단추를 눌러 다시 시도하세요.
           </p>
           <p
             className="ts-2xs mb-4 text-center max-w-md"
             style={{ color: "var(--color-text-muted)", opacity: 0.7 }}
           >
-            문제가 반복되면 오류 내용을 복사하여 관리자에게 전달해 주세요.
+            문제가 반복되면 오류 내용을 복사해 관리자에게 전달하세요.
           </p>
           {this.state.error && (
             <div className="relative max-w-lg w-full mb-4">

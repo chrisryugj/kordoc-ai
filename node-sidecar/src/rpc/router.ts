@@ -2,38 +2,35 @@
 
 import { RPC_ERRORS, type RpcHandler } from './protocol.js';
 import { logger } from '../infra/logger.js';
+import { requestContext } from '../infra/progress.js';
+import { recordUsage } from '../infra/usage.js';
 
-/** 파일 I/O + AI API를 동반하는 무거운 메서드 (동시성 제한 대상) */
-const HEAVY_METHODS = new Set([
-  'convert', 'convert_batch', 'ocr', 'summarize',
-  'diff', 'form_extract', 'form_extract_candidates', 'form_extract_batch',
-  'extract_tables', 'generate_hwpx',
-  'merge_files', 'pdf_extract_pages', 'inspect_document',
-  // KorDoc Studio — render_preview는 의도적 제외 (미리보기 반응성)
-  'form_schema', 'form_fill', 'patch_blocks',
-  // Phase C — edit_open만 HEAVY (전체 파싱 1회). patch/undo/redo는 에디터
-  // 상호작용 경로라 배치 변환 큐에 막히면 안 되고, 세션 내부에서 직렬화됨.
-  'edit_open',
-]);
+/** 무거운 메서드 — 등록할 때 { heavy: true } 로 표시한다 (파싱·AI 를 동반해 동시 실행 상한을 거침) */
+const HEAVY_METHODS = new Set<string>();
 
-/** 최대 동시 실행 수 (Python 이전 구현의 max_workers=2와 동일) */
-const MAX_CONCURRENT = 2;
-/** 세마포어 큐 최대 대기 수 — 초과 시 즉시 에러 반환 */
+/** 차선별 동시 실행 상한 — AI 답변이 길게 돌아도 문서 처리가 막히지 않게 차선을 나눈다 */
+const LANES = { doc: 2, ai: 2 } as const;
+type Lane = keyof typeof LANES;
+const laneOf = (method: string): Lane => (method.startsWith('ai_') || method === 'llm_download' ? 'ai' : 'doc');
+/** 차선마다 대기 상한 — 넘으면 즉시 오류 */
 const MAX_QUEUE_SIZE = 10;
 
 export class RpcRouter {
   private methods = new Map<string, RpcHandler>();
   /** 활성 요청의 AbortController (cancel용) */
   private active = new Map<number | string, AbortController>();
+  /** 프론트 호출 표지(__stream) → AbortController — 프론트는 Rust 가 매긴 id 를 모르므로 이걸로 취소 */
+  private streams = new Map<string, AbortController>();
   /** id 없는 요청에 고유 키 부�� */
   private nextAnonymousId = 0;
-  /** 무거운 메서드 동시 실행 세마포어 */
-  private heavyRunning = 0;
-  private heavyQueue: Array<() => void> = [];
+  /** 차선별 동시 실행 세마포어 */
+  private running: Record<Lane, number> = { doc: 0, ai: 0 };
+  private queues: Record<Lane, Array<() => void>> = { doc: [], ai: [] };
 
-  /** 메서드 등록 */
-  register(name: string, handler: RpcHandler): void {
+  /** 메서드 등록 — heavy: 파싱·AI 를 동반해 동시 실행 상한(세마포어)을 거칠 메서드 */
+  register(name: string, handler: RpcHandler, opts?: { heavy?: boolean }): void {
     this.methods.set(name, handler);
+    if (opts?.heavy) HEAVY_METHODS.add(name);
   }
 
   /** 등록된 메서드 목록 */
@@ -41,24 +38,23 @@ export class RpcRouter {
     return [...this.methods.keys()];
   }
 
-  /** 세마포어 acquire: 동시 실행 수 제한 + 큐 크기 제한 + abort 연동 */
-  private acquireSlot(signal?: AbortSignal): Promise<void> {
-    if (this.heavyRunning < MAX_CONCURRENT) {
-      this.heavyRunning++;
+  /** 세마포어 acquire: 차선별 동시 실행 수 제한 + 큐 크기 제한 + abort 연동 */
+  private acquireSlot(lane: Lane, signal?: AbortSignal): Promise<void> {
+    if (this.running[lane] < LANES[lane]) {
+      this.running[lane]++;
       return Promise.resolve();
     }
-    if (this.heavyQueue.length >= MAX_QUEUE_SIZE) {
+    const queue = this.queues[lane];
+    if (queue.length >= MAX_QUEUE_SIZE) {
       return Promise.reject(new Error(`처리 대기열이 가득 찼습니다 (최대 ${MAX_QUEUE_SIZE}). 잠시 후 다시 시도하세요.`));
     }
     return new Promise<void>((resolve, reject) => {
       const entry = () => resolve();
-      this.heavyQueue.push(entry);
-
-      // abort 시 큐에서 제거 + reject로 데드락 방지
+      queue.push(entry);
       if (signal) {
         const onAbort = () => {
-          const idx = this.heavyQueue.indexOf(entry);
-          if (idx !== -1) this.heavyQueue.splice(idx, 1);
+          const idx = queue.indexOf(entry);
+          if (idx !== -1) queue.splice(idx, 1);
           reject(new DOMException('Request cancelled while queued', 'AbortError'));
         };
         if (signal.aborted) { onAbort(); return; }
@@ -67,14 +63,11 @@ export class RpcRouter {
     });
   }
 
-  /** 세마포어 release */
-  private releaseSlot(): void {
-    if (this.heavyQueue.length > 0) {
-      const next = this.heavyQueue.shift()!;
-      next();
-    } else {
-      this.heavyRunning--;
-    }
+  /** 세마포어 release — 기다리는 요청에 자리를 그대로 넘긴다 */
+  private releaseSlot(lane: Lane): void {
+    const next = this.queues[lane].shift();
+    if (next) next();
+    else this.running[lane]--;
   }
 
   /** 메서드 디스패치 */
@@ -96,12 +89,20 @@ export class RpcRouter {
     const ac = new AbortController();
     const reqId = id ?? `__anon_${this.nextAnonymousId++}__`;
     this.active.set(reqId, ac);
+    const stream = typeof params.__stream === 'string' ? params.__stream : undefined;
+    if (stream) this.streams.set(stream, ac);
+    delete params.__stream;
 
-    const isHeavy = HEAVY_METHODS.has(method);
-    if (isHeavy) await this.acquireSlot(ac.signal);
+    // 작성실 실시간 미리보기는 대기열을 건너뛴다 (입력할 때마다 부른다)
+    const isHeavy = HEAVY_METHODS.has(method) && !(method === 'generate_hwpx' && params.preview_only === true);
+    const lane = laneOf(method);
+    let acquired = false;
 
     try {
-      const result = await handler(params, ac.signal);
+      // 대기열이 찼거나 기다리다 취소돼도 응답은 나가야 한다 (try 밖이면 응답 없이 끝나 앱이 시간 초과까지 기다렸다)
+      if (isHeavy) { await this.acquireSlot(lane, ac.signal); acquired = true; }
+      const result = await requestContext.run({ id: id ?? null, stream }, () => handler(params, ac.signal));
+      try { recordUsage(method, params, result); } catch { /* 집계 실패가 작업 결과를 막지 않는다 */ }
       return { result };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -112,12 +113,18 @@ export class RpcRouter {
       return { error: { code: RPC_ERRORS.INTERNAL_ERROR, message } };
     } finally {
       this.active.delete(reqId);
-      if (isHeavy) this.releaseSlot();
+      if (stream) this.streams.delete(stream);
+      if (acquired) this.releaseSlot(lane);
     }
   }
 
   /** 활성 요청 취소 */
   private handleCancel(params: Record<string, unknown>): { result: unknown } {
+    if (typeof params.stream === 'string') {
+      const ac = this.streams.get(params.stream);
+      ac?.abort();
+      return { result: { cancelled: ac ? params.stream : null } };
+    }
     const targetId = params.id;
     if (targetId != null) {
       const ac = this.active.get(targetId as string | number);

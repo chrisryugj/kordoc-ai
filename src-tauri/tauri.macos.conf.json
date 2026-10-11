@@ -1,0 +1,57 @@
+{
+  "bundle": {
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "signingIdentity": "-"
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "hwp"
+        ],
+        "name": "한글 문서",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "hwpx"
+        ],
+        "name": "한글 문서(HWPX)",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "hwpml"
+        ],
+        "name": "한글 문서(HWPML)",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "pdf"
+        ],
+        "name": "PDF 문서",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "docx",
+          "xlsx",
+          "xls",
+          "pptx"
+        ],
+        "name": "오피스 문서",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

@@ -1,12 +1,12 @@
 {
   "name": "kordoc-sidecar",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "KorDoc AI Node.js sidecar — JSON-RPC 2.0 over stdin/stdout",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "build:bundle": "node esbuild.config.mjs",
+    "build:bundle": "node esbuild.config.mjs && node scripts/stage-natives.mjs",
     "smoke": "node scripts/smoke-bundle.mjs",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
@@ -15,15 +15,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.0",
-    "@rhwp/core": "0.7.15",
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@hyzyla/pdfium": "2.1.13",
+    "@pdf-lib/fontkit": "1.1.1",
+    "@rhwp/core": "0.8.6",
     "@xmldom/xmldom": "^0.9.8",
     "cfb": "^1.2.2",
+    "iconv-lite": "^0.7.3",
     "jszip": "^3.10.1",
-    "kordoc": "link:../../kordoc",
+    "kordoc": "4.21.18",
+    "node-llama-cpp": "3.22.1",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.6.205",
     "puppeteer-core": "^24.0.0",
+    "sharp": "0.35.5",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

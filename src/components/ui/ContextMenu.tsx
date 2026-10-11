@@ -82,7 +82,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
       className="kd-context-menu animate-scale-in"
       style={{ left: position.x, top: position.y }}
       role="menu"
-      aria-label="컨텍스트 메뉴"
+      aria-label="우클릭 메뉴"
     >
       {items.map((item, i) =>
         isSeparator(item) ? (

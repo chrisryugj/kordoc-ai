@@ -19,7 +19,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
       </span>
       <span className="flex-1 line-clamp-3">{toast.message}</span>
       {toast.type !== "loading" && (
-        <button onClick={handleDismiss} className="p-1 rounded hover-bg-tertiary" aria-label="닫기">
+        <button type="button" onClick={handleDismiss} className="grid place-items-center w-8 h-8 -my-1.5 -mr-2 rounded hover-bg-tertiary" aria-label="닫기">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>

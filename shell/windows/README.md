@@ -1,4 +1,6 @@
-# kordoc-shell
+# kordoc-shell (선택: Win11 상단 우클릭 메뉴)
+
+> 기본 우클릭 메뉴는 KorDoc AI 앱이 설정 화면에서 직접 등록한다(HKCU, 관리자 권한·인증서 불필요). 이 MSIX 패키지는 Windows 11 의 새 우클릭 메뉴 맨 위에 띄우고 싶을 때만 쓴다(서명 인증서 필요).
 
 > KorDoc Suite — Windows Shell Extension (MSIX Sparse Package)
 >
@@ -51,14 +53,15 @@ Add-AppxPackage build\KorDocShell.msix -ExternalLocation .
 
 ## 컨텍스트 메뉴 동작
 
-탐색기에서 지원 확장자 우클릭 → **KorDoc** 서브메뉴:
+탐색기에서 지원 확장자 우클릭 → **KorDoc AI** 서브메뉴:
 
-| 메뉴 | 동작 | 호출 URL |
-|------|------|----------|
-| 마크다운으로 변환 | `convert` action, `md` subaction | `kordoc://convert?path=<file>&action=md` |
-| PDF로 변환 | `convert` action, `pdf` subaction | `kordoc://convert?path=<file>&action=pdf` |
-| AI 요약 | `summarize` | `kordoc://summarize?path=<file>` |
-| KorDoc 앱 열기... | `open` | `kordoc://open?path=<file>` |
+| 메뉴 | 호출 URL |
+|------|----------|
+| 앱에서 열기 | `kordoc://open?path=<file>` |
+| 글(마크다운)로 바꾸기 | `kordoc://convert?path=<file>` |
+| PDF로 내보내기 | `kordoc://pdf?path=<file>` |
+| 개인정보 가리기 | `kordoc://redact?path=<file>` |
+| AI로 요약하기 | `kordoc://summarize?path=<file>` |
 
 다중 선택 시 `%TEMP%\kordoc-batch-<ts>.json` manifest 파일 생성 후 `kordoc://batch?manifest=<path>` 호출.
 

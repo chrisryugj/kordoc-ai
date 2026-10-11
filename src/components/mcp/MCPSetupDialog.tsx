@@ -2,29 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Download, Check, X, AlertTriangle, Copy,
-  Terminal, Settings2, Zap, RefreshCw, ChevronRight,
+  Download, Check, X, FolderOpen,
+  Settings2, Zap, RefreshCw, ChevronRight,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import type { McpEnv } from "../../lib/contract";
+import { rpc, errorText } from "../../lib/rpc";
+import { pickFolder } from "../../lib/native";
 
 // ── Types ────────────────────────────────────────────────────────
-
-interface McpClient {
-  id: string;
-  name: string;
-  configPath: string;
-  format: string;
-  detected: boolean;
-  installed: boolean;
-}
-
-interface McpEnvInfo {
-  nodeInstalled: boolean;
-  nodeVersion: string | null;
-  npxAvailable: boolean;
-  clients: McpClient[];
-}
 
 interface InstallResult {
   clientId: string;
@@ -33,75 +20,48 @@ interface InstallResult {
   error?: string;
 }
 
-type Tab = "auto" | "cli" | "manual";
+type Tab = "auto" | "manual";
 
 interface MCPSetupDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   showToast: (msg: string, type: "success" | "error" | "info" | "loading") => void;
 }
 
 // ── Constants ────────────────────────────────────────────────────
 
+// npx·npm 안내는 두지 않는다: 폐쇄망·Node 없는 PC 에서 안 되고, 앱과 다른 판의 kordoc 을 받아 온다.
+// 등록은 늘 앱에 든 Node 와 kordoc 경로로 (install_mcp_config)
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "auto", label: "자동 설치", icon: <Zap size={13} /> },
-  { id: "cli", label: "CLI", icon: <Terminal size={13} /> },
-  { id: "manual", label: "수동 설정", icon: <Settings2 size={13} /> },
+  { id: "manual", label: "설정 파일 위치", icon: <Settings2 size={13} /> },
 ];
-
-const MCP_CONFIG_SNIPPET = `{
-  "mcpServers": {
-    "kordoc": {
-      "command": "npx",
-      "args": ["-y", "kordoc@latest"]
-    }
-  }
-}`;
-
-const ZED_CONFIG_SNIPPET = `{
-  "context_servers": {
-    "kordoc": {
-      "command": {
-        "path": "npx",
-        "args": ["-y", "kordoc@latest"]
-      }
-    }
-  }
-}`;
 
 // ── Component ────────────────────────────────────────────────────
 
-export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPSetupDialogProps) {
+export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogProps) {
   const [tab, setTab] = useState<Tab>("auto");
-  const [env, setEnv] = useState<McpEnvInfo | null>(null);
+  const [env, setEnv] = useState<McpEnv | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [installing, setInstalling] = useState(false);
   const [installResults, setInstallResults] = useState<InstallResult[] | null>(null);
-  const [nodeInstalling, setNodeInstalling] = useState(false);
+  const [rootDir, setRootDir] = useState("");
 
-  // 환경 감지
+  // 환경 감지 — 앱이 깔린 AI 도구 중 아직 연결 안 된 것을 미리 고른다
   const detect = useCallback(async () => {
     setLoading(true);
     setInstallResults(null);
     try {
-      const result = await sidecarCall("detect_mcp_env") as McpEnvInfo;
+      const result = await rpc("detect_mcp_env", {});
       setEnv(result);
-      // 감지된 클라이언트 중 미설치인 것 자동 선택
-      const autoSelect = new Set(
-        result.clients
-          .filter((c) => c.detected && !c.installed)
-          .map((c) => c.id),
-      );
-      setSelected(autoSelect);
-    } catch (err) {
-      // detect_mcp_env failed — env remains null, UI shows error state
+      setSelected(new Set(result.clients.filter((c) => c.installed && !c.configured).map((c) => c.id)));
+    } catch {
       setEnv(null);
     } finally {
       setLoading(false);
     }
-  }, [sidecarCall]);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -121,56 +81,30 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
     });
   };
 
-  // MCP 설치
+  // MCP 설치 (앱에 든 Node 와 kordoc 으로 등록 — npx 불필요)
   const handleInstall = async () => {
-    if (selected.size === 0) return;
+    if (selected.size === 0 || !env) return;
     setInstalling(true);
     setInstallResults(null);
     try {
-      const result = await sidecarCall("install_mcp_config", {
-        client_ids: [...selected],
-      }) as { success: boolean; results: InstallResult[] };
-      setInstallResults(result.results);
-      const okCount = result.results.filter((r) => r.ok).length;
-      if (okCount > 0) {
-        showToast(`${okCount}개 AI 도구에 kordoc MCP 등록 완료`, "success");
-        // 환경 재감지
+      const result = await rpc("install_mcp_config", { clients: [...selected], ...(rootDir ? { root_dir: rootDir } : {}) });
+      const name = (id: string) => env.clients.find((c) => c.id === id)?.name ?? id;
+      setInstallResults([
+        ...result.installed.map((id) => ({ clientId: id, clientName: name(id), ok: true })),
+        ...result.failed.map((f) => ({ clientId: f.client, clientName: name(f.client), ok: false, error: f.error })),
+      ]);
+      if (result.installed.length > 0) {
+        showToast(`AI 도구 ${result.installed.length}개에 kordoc MCP를 등록했습니다`, "success");
         detect();
       }
-      if (!result.success) {
-        const fails = result.results.filter((r) => !r.ok);
-        showToast(`${fails.length}개 실패: ${fails.map((f) => f.clientName).join(", ")}`, "error");
+      if (result.failed.length > 0) {
+        showToast(`${result.failed.length}개 실패: ${result.failed.map((f) => name(f.client)).join(", ")}`, "error");
       }
     } catch (e) {
-      showToast(`설치 실패: ${e}`, "error");
+      showToast(`설치 실패: ${errorText(e)}`, "error");
     } finally {
       setInstalling(false);
     }
-  };
-
-  // Node.js 설치
-  const handleInstallNode = async () => {
-    setNodeInstalling(true);
-    try {
-      const result = await sidecarCall("install_node") as { started: boolean; method: string; error?: string };
-      if (result.started) {
-        if (result.method === "winget") {
-          showToast("winget으로 Node.js 설치 시작됨. 완료 후 새로고침하세요.", "info");
-        } else {
-          showToast("Node.js 다운로드 페이지가 열렸습니다.", "info");
-        }
-      } else {
-        showToast(result.error ?? "수동 설치: nodejs.org", "info");
-      }
-    } catch (e) {
-      showToast(`Node.js 설치 실패: ${e}`, "error");
-    } finally {
-      setNodeInstalling(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => showToast("클립보드에 복사됨", "success"));
   };
 
   // ── Render ─────────────────────────────────────────────────────
@@ -183,42 +117,6 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
           kordoc MCP를 설치하면 <strong>Claude, Cursor, VS Code</strong> 등에서
           HWP · HWPX · PDF · XLSX · DOCX를 직접 읽고 분석할 수 있습니다.
         </p>
-
-        {/* Node.js 상태 */}
-        {!loading && env && (
-          <div
-            className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3 ts-2xs"
-            style={{
-              backgroundColor: env.npxAvailable ? "var(--color-success-subtle)" : "var(--color-warning-subtle)",
-              color: env.npxAvailable ? "var(--color-success)" : "var(--color-warning)",
-            }}
-          >
-            {env.npxAvailable ? (
-              <>
-                <Check size={13} />
-                <span>Node.js {env.nodeVersion} 감지됨</span>
-              </>
-            ) : (
-              <>
-                <AlertTriangle size={13} />
-                <span className="flex-1">Node.js 미설치 — MCP 서버 실행에 필요합니다</span>
-                <button
-                  onClick={handleInstallNode}
-                  disabled={nodeInstalling}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded font-semibold transition-colors"
-                  style={{
-                    backgroundColor: "var(--color-warning)",
-                    color: "white",
-                    opacity: nodeInstalling ? 0.6 : 1,
-                  }}
-                >
-                  {nodeInstalling ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
-                  설치하기
-                </button>
-              </>
-            )}
-          </div>
-        )}
 
         {/* Tabs */}
         <div className="flex gap-0 mb-3" style={{ borderBottom: "1px solid var(--color-border)" }}>
@@ -260,27 +158,26 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
                           style={{
                             backgroundColor: isSelected ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
                             border: `1px solid ${isSelected ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
-                            opacity: client.installed ? 0.6 : 1,
+                            opacity: client.installed ? 1 : 0.6,
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleClient(client.id)}
-                            disabled={client.installed}
                             className="accent-[var(--color-accent)] w-3.5 h-3.5"
                           />
                           <span className="ts-xs font-medium flex-1" style={{ color: "var(--color-text-primary)" }}>
                             {client.name}
                           </span>
-                          {client.installed ? (
+                          {client.configured ? (
                             <span className="flex items-center gap-1 ts-2xs font-medium" style={{ color: "var(--color-success)" }}>
-                              <Check size={11} /> 설치됨
+                              <Check size={11} /> 연결됨
                             </span>
-                          ) : client.detected ? (
-                            <span className="ts-2xs" style={{ color: "var(--color-accent)" }}>감지됨</span>
+                          ) : client.installed ? (
+                            <span className="ts-2xs" style={{ color: "var(--color-accent)" }}>깔려 있음</span>
                           ) : (
-                            <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>미감지</span>
+                            <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>이 PC에 없음</span>
                           )}
                         </label>
                       );
@@ -307,11 +204,20 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
                     </div>
                   )}
 
+                  <div className="flex items-center gap-2 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                    <FolderOpen size={12} />
+                    <span className="flex-1" style={{ wordBreak: "break-all" }}>
+                      {rootDir ? `읽을 수 있는 폴더: ${rootDir}` : "읽을 수 있는 폴더: 제한 없음"}
+                    </span>
+                    <button type="button" className="kd-link" onClick={() => void pickFolder().then((d) => d && setRootDir(d))}>폴더 제한</button>
+                    {rootDir && <button type="button" className="kd-link" onClick={() => setRootDir("")}>제한 풀기</button>}
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
                       onClick={handleInstall}
-                      disabled={installing || selected.size === 0 || !env.npxAvailable}
+                      disabled={installing || selected.size === 0}
                     >
                       {installing ? (
                         <span className="flex items-center gap-1.5"><RefreshCw size={13} className="animate-spin" /> 설치 중...</span>
@@ -328,81 +234,38 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
                     </button>
                   </div>
 
-                  {!env.npxAvailable && (
-                    <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
-                      Node.js를 먼저 설치해야 자동 설치를 사용할 수 있습니다.
-                    </p>
-                  )}
-
                   <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-                    설치 후 해당 AI 도구를 <strong>재시작</strong>하면 kordoc MCP가 활성화됩니다.
+                    설치 후 그 AI 도구를 <strong>재시작</strong>하면 kordoc MCP가 켜집니다.
                   </p>
                 </>
               ) : (
                 <div className="py-8 text-center ts-xs" style={{ color: "var(--color-error)" }}>
-                  환경 감지 실패. 다시 시도해주세요.
+                  환경 감지에 실패했습니다. 다시 시도하세요.
                 </div>
               )}
             </div>
           )}
 
-          {/* ── CLI ── */}
-          {tab === "cli" && (
-            <div className="space-y-3">
-              <p className="ts-xs" style={{ color: "var(--color-text-secondary)" }}>
-                터미널에서 직접 kordoc MCP를 실행하거나 설치할 수 있습니다.
-              </p>
-
-              <div className="space-y-2">
-                <CliBlock
-                  label="MCP 서버 실행 (1회성)"
-                  command="npx -y kordoc@latest"
-                  desc="Claude Desktop 등에서 자동 실행됩니다. 수동 실행은 테스트용."
-                  onCopy={copyToClipboard}
-                />
-                <CliBlock
-                  label="전역 설치"
-                  command="npm install -g kordoc"
-                  desc="설치 후 kordoc-mcp 명령으로 서버를 실행할 수 있습니다."
-                  onCopy={copyToClipboard}
-                />
-                <CliBlock
-                  label="CLI 파서 사용"
-                  command="kordoc parse document.hwp"
-                  desc="터미널에서 직접 문서를 마크다운으로 변환합니다."
-                  onCopy={copyToClipboard}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* ── 수동 설정 ── */}
+          {/* ── 설정 파일 위치 ── */}
           {tab === "manual" && (
             <div className="space-y-3">
-              <p className="ts-xs" style={{ color: "var(--color-text-secondary)" }}>
-                AI 도구의 설정 파일에 아래 JSON을 추가하세요.
+              <p className="ts-xs" style={{ color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
+                자동 설치는 이 앱에 든 문서 엔진 경로를 아래 설정 파일의 kordoc 항목에 써 넣습니다.
+                인터넷이나 따로 깐 Node 없이 돌아갑니다.
+              </p>
+              <p className="ts-xs" style={{ color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
+                손으로 고칠 때도 kordoc 항목(command·args·env)은 바꾸지 마세요.
+                목록에 없는 AI 도구는 한 도구에 자동 설치한 뒤 그 kordoc 항목과 같은 값을 넣으면 됩니다.
               </p>
 
-              <ConfigBlock
-                label="Claude Desktop / Cursor / Windsurf / Gemini CLI"
-                config={MCP_CONFIG_SNIPPET}
-                onCopy={copyToClipboard}
-              />
-
-              <ConfigBlock
-                label="Zed"
-                config={ZED_CONFIG_SNIPPET}
-                onCopy={copyToClipboard}
-              />
-
-              <div className="space-y-1.5 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-                <p className="font-semibold" style={{ color: "var(--color-text-secondary)" }}>설정 파일 위치:</p>
-                <PathRow label="Claude Desktop" path="~/AppData/Roaming/Claude/claude_desktop_config.json" />
-                <PathRow label="Cursor" path="~/.cursor/mcp.json" />
-                <PathRow label="Windsurf" path="~/.codeium/windsurf/mcp_config.json" />
-                <PathRow label="Gemini CLI" path="~/.gemini/settings.json" />
-                <PathRow label="Zed" path="~/.zed/settings.json" />
-              </div>
+              {env ? (
+                <div className="space-y-1.5 ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                  <p className="font-semibold" style={{ color: "var(--color-text-secondary)" }}>이 PC의 설정 파일:</p>
+                  {env.clients.map((c) => <PathRow key={c.id} label={c.name} path={c.config_path} />)}
+                </div>
+              ) : !loading && (
+                <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>설정 파일 위치를 찾지 못했습니다. 자동 설치 탭에서 새로고침을 눌러 보세요.</p>
+              )}
             </div>
           )}
         </div>
@@ -413,62 +276,12 @@ export function MCPSetupDialog({ isOpen, onClose, sidecarCall, showToast }: MCPS
 
 // ── Sub-components ────────────────────────────────────────────────
 
-function CliBlock({ label, command, desc, onCopy }: {
-  label: string; command: string; desc: string; onCopy: (t: string) => void;
-}) {
-  return (
-    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--color-border)" }}>
-      <div className="flex items-center justify-between px-3 py-1.5" style={{ backgroundColor: "var(--color-bg-tertiary)" }}>
-        <span className="ts-2xs font-semibold" style={{ color: "var(--color-text-secondary)" }}>{label}</span>
-      </div>
-      <div className="flex items-center gap-2 px-3 py-2" style={{ backgroundColor: "var(--color-bg-primary)" }}>
-        <code className="ts-xs flex-1 font-mono" style={{ color: "var(--color-accent)" }}>{command}</code>
-        <button
-          onClick={() => onCopy(command)}
-          className="p-1 rounded hover-bg-tertiary shrink-0"
-          title="복사"
-        >
-          <Copy size={13} style={{ color: "var(--color-text-muted)" }} />
-        </button>
-      </div>
-      <div className="px-3 py-1.5 ts-2xs" style={{ color: "var(--color-text-muted)", borderTop: "1px solid var(--color-border-subtle)" }}>
-        {desc}
-      </div>
-    </div>
-  );
-}
-
-function ConfigBlock({ label, config, onCopy }: {
-  label: string; config: string; onCopy: (t: string) => void;
-}) {
-  return (
-    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--color-border)" }}>
-      <div className="flex items-center justify-between px-3 py-1.5" style={{ backgroundColor: "var(--color-bg-tertiary)" }}>
-        <span className="ts-2xs font-semibold" style={{ color: "var(--color-text-secondary)" }}>{label}</span>
-        <button
-          onClick={() => onCopy(config)}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded ts-2xs font-medium hover-bg-tertiary"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          <Copy size={11} /> 복사
-        </button>
-      </div>
-      <pre
-        className="px-3 py-2 ts-2xs font-mono overflow-x-auto"
-        style={{ backgroundColor: "var(--color-bg-primary)", color: "var(--color-text-primary)", margin: 0 }}
-      >
-        {config}
-      </pre>
-    </div>
-  );
-}
-
 function PathRow({ label, path }: { label: string; path: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <ChevronRight size={10} style={{ color: "var(--color-text-muted)" }} />
-      <span className="font-medium" style={{ color: "var(--color-text-secondary)", minWidth: 90 }}>{label}</span>
-      <code className="font-mono" style={{ color: "var(--color-text-muted)" }}>{path}</code>
+    <div className="flex items-start gap-2">
+      <ChevronRight size={10} className="mt-1 flex-none" style={{ color: "var(--color-text-muted)" }} />
+      <span className="font-medium flex-none" style={{ color: "var(--color-text-secondary)", minWidth: 90 }}>{label}</span>
+      <code className="font-mono min-w-0" style={{ color: "var(--color-text-muted)", wordBreak: "break-all" }}>{path}</code>
     </div>
   );
 }

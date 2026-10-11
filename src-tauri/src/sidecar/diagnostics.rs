@@ -30,9 +30,11 @@ pub fn summarize_value(value: Option<&serde_json::Value>) -> String {
                         break;
                     }
                     let lowered = key.to_ascii_lowercase();
+                    // oc: 법제처 인증키(사용자 아이디)는 로그에 남기지 않는다
                     let summarized = if lowered.contains("api_key")
                         || lowered.contains("token")
                         || lowered.contains("authorization")
+                        || lowered == "oc"
                     {
                         Value::String("***redacted***".into())
                     } else if lowered == "files" {

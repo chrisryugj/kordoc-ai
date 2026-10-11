@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "notice": "가온시 정보통신과 배포 설정 (문의 031-000-0000)",
+  "defaults": {
+    "ai": {
+      "provider": "openai",
+      "openai": { "model": "gemma4" }
+    },
+    "org": {
+      "name": "가온시",
+      "address": "가온시 시청로 1",
+      "homepage": "www.gaon.example",
+      "approval_line": ["담당", "팀장", "과장"]
+    }
+  },
+  "locked": {
+    "privacy": { "offline": true },
+    "ai": {
+      "openai": { "base_url": "http://10.10.1.20:8000/v1" },
+      "redact_before_cloud": true
+    }
+  }
+}

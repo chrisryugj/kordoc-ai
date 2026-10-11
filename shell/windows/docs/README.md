@@ -1,12 +1,12 @@
 # kordoc-shell 문서
 
-상세 기획·로드맵·기술 명세는 `kordoc-ai` 레포의 `docs/` 디렉토리에 통합 관리.
+v1 기획·로드맵·기술 명세는 레포의 `docs/archive/` 에 보관(현행 아님). 지금 문서 목록은 [docs/README.md](../../../docs/README.md).
 
 | 문서 | 위치 |
 |------|------|
-| 제품 요구사항 (PRD) | [kordoc-ai/docs/PRD.md](../../kordoc-ai/docs/PRD.md) |
-| 구현 로드맵 | [kordoc-ai/docs/ROADMAP.md](../../kordoc-ai/docs/ROADMAP.md) |
-| 기술 명세 (SPEC) | [kordoc-ai/docs/SPEC.md](../../kordoc-ai/docs/SPEC.md) |
+| 제품 요구사항 (PRD, v1) | [docs/archive/PRD.md](../../../docs/archive/PRD.md) |
+| 구현 로드맵 (v1) | [docs/archive/ROADMAP.md](../../../docs/archive/ROADMAP.md) |
+| 기술 명세 (SPEC, v1) | [docs/archive/SPEC.md](../../../docs/archive/SPEC.md) |
 
 ## kordoc-shell 자체 문서
 

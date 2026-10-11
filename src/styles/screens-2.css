@@ -1,0 +1,156 @@
+/* ============================================
+   공문서 만들기 · 설정 · 효과 · 첫 실행
+   ============================================ */
+
+/* ── 단계 표시 (작성 → 편집 → 출력) ── */
+.kd-create-head { flex-wrap: wrap; row-gap: 8px; }
+.kd-steps { display: flex; align-items: center; flex: none; }
+.kd-step { display: flex; align-items: center; }
+.kd-step + .kd-step::before { content: ""; width: 26px; height: 1px; background: var(--color-border-hover); margin: 0 4px; }
+.kd-step[data-state="done"] + .kd-step::before, .kd-step[data-state="done"] + .kd-step[data-state="now"]::before { background: var(--color-accent); }
+.kd-step button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); background: none; border: 0; cursor: pointer; text-align: left; color: var(--color-text-primary); }
+.kd-step button:disabled { cursor: default; opacity: 0.5; }
+.kd-step button:hover:not(:disabled) { background: var(--color-bg-tertiary); }
+.kd-step-n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; border: 1.5px solid var(--color-border-hover); color: var(--color-text-muted); flex: none; }
+.kd-step[data-state="now"] .kd-step-n { background: var(--color-text-primary); border-color: var(--color-text-primary); color: var(--color-bg-secondary); }
+.kd-step[data-state="done"] .kd-step-n { border-color: var(--color-accent); color: var(--color-accent); }
+.kd-step-text { display: flex; flex-direction: column; }
+.kd-step-label { font-size: 13.5px; font-weight: 700; line-height: 1.3; white-space: nowrap; }
+.kd-step-desc { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.3; white-space: nowrap; }
+@media (max-width: 1260px) { .kd-step-desc { display: none; } }
+
+.kd-create-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 바닥 고정 줄(.kd-actionbar) 높이 + 8px 만큼 스크롤 여백 — Tab 으로 옮긴 칸이 그 줄 밑에 숨지 않게.
+   높이는 ComposeStep 이 재서 --kd-actionbar-h 로 넣는다(상태 글이 두 줄이면 줄이 높아진다). 기본 63px */
+.kd-create-pane { flex: 1; min-height: 0; overflow: auto; scroll-padding-bottom: calc(var(--kd-actionbar-h, 63px) + 8px); }
+
+/* ── 1. 작성 ── */
+.kd-compose { display: flex; flex-direction: column; min-height: 100%; }
+.kd-routes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--color-border); padding: 0 16px; }
+.kd-route { display: flex; gap: 12px; align-items: flex-start; padding: 14px 12px 12px; text-align: left; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; color: var(--color-text-primary); min-width: 0; }
+.kd-route:hover { background: var(--color-bg-primary); }
+.kd-route[aria-selected="true"] { border-bottom-color: var(--color-text-primary); }
+.kd-route-icon { color: var(--color-text-muted); margin-top: 1px; flex: none; }
+.kd-route[aria-selected="true"] .kd-route-icon { color: var(--color-accent); }
+.kd-route-body { flex: 1; min-height: 0; padding: 20px 24px 28px; }
+.kd-route-panel { max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
+.kd-preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.kd-preset { text-align: left; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); }
+.kd-preset:hover { border-color: var(--color-border-hover); }
+.kd-preset[aria-checked="true"] { border-color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-text-primary); }
+
+.kd-library { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; align-items: start; }
+.kd-library-list { position: sticky; top: 0; padding: 10px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-primary); transition: border-color var(--transition-fast), background-color var(--transition-fast); }
+.kd-library-list[data-over="true"] { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+.kd-library-detail { min-width: 0; }
+.kd-tpl { display: flex; align-items: center; border-radius: var(--radius-md); }
+.kd-tpl:hover { background: var(--color-bg-secondary); }
+.kd-tpl[aria-current="true"] { background: var(--color-bg-secondary); box-shadow: 0 0 0 1px var(--color-border-hover); }
+.kd-tpl-main { flex: 1; min-width: 0; text-align: left; padding: 7px 8px; background: none; border: 0; cursor: pointer; color: var(--color-text-primary); }
+.kd-tpl-add { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 6px; }
+
+.kd-draft { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px; }
+.kd-draft-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.kd-draft-ai { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.kd-draft-editor { display: flex; flex-direction: column; gap: 6px; }
+.kd-mdeditor { min-height: 300px; height: 42vh; font-size: 14px; line-height: 23px; resize: vertical; }
+.kd-draft-right { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; min-width: 0; height: calc(100vh - 270px); min-height: 360px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.kd-draft-right-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
+.kd-draft-pages { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.kd-draft-pages .kd-pagestack { padding: 16px 16px 4px; }
+.kd-draft-lint { max-height: 38%; overflow: auto; padding: 10px 12px 14px; border-top: 1px solid var(--color-border); }
+.kd-fold { border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
+.kd-fold-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: none; border: 0; cursor: pointer; color: var(--color-text-primary); }
+.kd-fold-chev { color: var(--color-text-muted); transition: transform var(--transition-fast); flex: none; }
+.kd-fold[data-open="true"] .kd-fold-chev { transform: rotate(180deg); }
+.kd-fold-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--color-border-subtle); }
+.kd-checkrow { display: flex; flex-wrap: wrap; gap: 0 22px; }
+
+/* ── 2. 편집 ── */
+.kd-edit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.kd-edit-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--color-border); }
+.kd-edit-main { flex: 1; min-height: 0; display: flex; }
+.kd-editor-frame { position: relative; flex: 1; min-width: 0; background: #e9ebee; }
+.kd-editor-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.kd-editor-cover { position: absolute; inset: 0; display: grid; place-items: center; background: var(--color-desk); }
+.kd-editor-placeholder { max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px; text-align: center; color: var(--color-text-muted); font-size: 13.5px; line-height: 1.55; text-wrap: pretty; }
+.kd-editor-busy { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12.5px; border-radius: var(--radius-md); background: var(--color-bg-secondary); box-shadow: var(--shadow-lg); }
+.kd-assist { width: 340px; flex: none; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--color-border); }
+.kd-assist-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 24px; }
+@media (max-width: 1180px) { .kd-assist { width: 300px; } }
+
+/* ── 3. 출력 ── */
+.kd-output { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 28px; padding: 20px 24px 36px; max-width: 1180px; }
+.kd-output-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kd-out-row { display: flex; gap: 12px; padding: 16px 0; border-top: 1px solid var(--color-border-subtle); }
+.kd-output-side { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kd-output-thumb { margin-top: 8px; padding: 14px; border-radius: var(--radius-lg); display: grid; place-items: center; min-height: 180px; }
+.kd-output-thumb img { width: 100%; height: auto; }
+
+/* ── 설정 ── */
+.kd-settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
+.kd-settings-index { padding: 18px 10px; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
+.kd-index-item { display: flex; align-items: baseline; gap: 6px; text-align: left; padding: 8px 10px; border-radius: var(--radius-md); font-size: 14px; font-weight: 600; color: var(--color-text-secondary); background: none; border: 0; cursor: pointer; }
+.kd-index-item:hover { background: var(--color-bg-primary); }
+.kd-index-item[aria-current="true"] { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+.kd-index-item .kd-section-mark { font-size: 13px; }
+.kd-settings-scroll { position: relative; overflow: auto; min-height: 0; }
+.kd-settings-body { max-width: 840px; padding: 22px 28px 80px; }
+/* 마지막 구획도 목차로 누르면 맨 위에 오게 (화면 높이에서 머리·위아래 여백을 뺀 만큼) */
+.kd-settings-body > .kd-section:last-child { min-height: calc(100vh - 160px); }
+@media (max-width: 1100px) { .kd-settings { grid-template-columns: 164px minmax(0, 1fr); } .kd-settings-body { padding: 20px 22px 80px; } }
+.kd-ai-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.kd-ai-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 14px; text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); min-width: 0; }
+.kd-ai-tile:hover:not(:disabled) { border-color: var(--color-border-hover); }
+.kd-ai-tile[aria-checked="true"] { border-color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-text-primary); }
+.kd-ai-tile:disabled { cursor: not-allowed; background: var(--color-bg-primary); }
+.kd-ai-tile-icon { color: var(--color-accent); margin-bottom: 6px; }
+.kd-ai-tile:disabled .kd-ai-tile-icon { color: var(--color-text-muted); }
+.kd-sec-hero { display: flex; gap: 14px; align-items: center; padding: 16px 18px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); }
+.kd-sec-hero[data-ok="true"] { background: var(--color-success-subtle); border-color: transparent; }
+.kd-sec-hero > svg { flex: none; }
+.kd-sec-hero[data-ok="true"] > svg { color: var(--color-success); }
+.kd-sec-hero[data-ok="false"] > svg { color: var(--color-warning); }
+.kd-sec-big { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.kd-sec-big b { font-weight: 700; }
+.kd-approval { display: flex; flex-direction: column; gap: 4px; }
+.kd-approval-item { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 2px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); }
+.kd-seal-preview { width: 64px; height: 64px; display: grid; place-items: center; border: 1px dashed var(--color-border-hover); border-radius: var(--radius-md); background: var(--color-paper); flex: none; }
+.kd-seal-preview img { max-width: 56px; max-height: 56px; image-rendering: auto; }
+.kd-seal-preview .kd-muted { color: #5F625B; } /* 종이 면은 어두운 화면에서도 흰색이라 밝은 화면의 흐린 글자색 그대로 */
+
+/* ── 효과 ── */
+.kd-impact { max-width: 920px; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 16px; }
+.kd-impact-total { font-size: 17px; color: var(--color-text-secondary); }
+.kd-impact-total b { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
+
+/* ── 첫 실행 ── */
+.kd-wizard-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: var(--color-backdrop); }
+.kd-wizard { width: min(740px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.kd-wizard-head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 24px 14px; border-bottom: 1px solid var(--color-border); }
+.kd-wizard-head img { flex: none; margin-top: 2px; }
+.kd-wizard-steps { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; font-size: 13px; color: var(--color-text-muted); }
+.kd-wizard-steps li[data-state="now"] { color: var(--color-text-primary); font-weight: 700; }
+.kd-wizard-steps li[data-state="done"] { color: var(--color-accent); }
+.kd-wizard-body { padding: 18px 24px; overflow: auto; }
+.kd-wizard-foot { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--color-border); }
+
+/* ── 공문서 만들기: 작성 단계 고정 줄 · 글 접기 · 한 줄 맞춤 · 단계 되돌아가기 (UX 감사 반영) ── */
+.kd-actionbar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 10px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-secondary); }
+.kd-actionbar:empty { display: none; }
+.kd-actionbar-inline { position: static; padding: 10px 0 0; background: none; }
+.kd-actionbar-status { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.45; color: var(--color-text-secondary); text-wrap: pretty; }
+.kd-actionbar-status b { font-weight: 700; color: var(--color-text-primary); }
+.kd-actionbar-act { flex: none; display: flex; align-items: center; gap: 8px; }
+.kd-actionbar-act > .flex-col { width: 280px; }
+.kd-draft-stream { overflow: auto; padding: 18px 20px; }
+.kd-draft-stream p { max-width: 62ch; margin: 0 auto; white-space: pre-wrap; font-size: 13.5px; line-height: 1.7; color: var(--color-text-secondary); }
+.kd-docchip { display: inline-flex; align-items: center; gap: 4px; max-width: 260px; }
+.kd-docchip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kd-fit { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
+.kd-fit-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 0 2px; border-top: 1px solid var(--color-border-subtle); font-size: 13px; line-height: 1.5; }
+.kd-fit-list li { display: flex; flex-direction: column; gap: 1px; }
+.kd-fit-list del { color: var(--color-text-muted); text-decoration-color: var(--color-error); }
+.kd-fit-list ins { text-decoration: none; color: var(--color-text-primary); }
+.kd-step[data-state="done"] button:hover .kd-step-label { text-decoration: underline; text-underline-offset: 3px; }
+.kd-preset .kd-row-desc { word-break: keep-all; text-wrap: pretty; }

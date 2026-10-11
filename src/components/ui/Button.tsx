@@ -12,13 +12,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const getVariantStyles = (variant: ButtonVariant): CSSProperties => {
   switch (variant) {
     case "primary":
-      return { backgroundColor: "var(--color-accent)", color: "white", border: "1px solid var(--color-accent)" };
+      return { backgroundColor: "var(--color-accent)", color: "var(--color-accent-ink)", border: "1px solid var(--color-accent)" };
     case "secondary":
       return { backgroundColor: "var(--color-bg-secondary)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" };
     case "ghost":
       return { backgroundColor: "transparent", color: "var(--color-text-muted)", border: "1px solid transparent" };
     case "danger":
-      return { backgroundColor: "var(--color-error)", color: "white", border: "1px solid var(--color-error)" };
+      return { backgroundColor: "var(--color-error)", color: "var(--color-text-inverse)", border: "1px solid var(--color-error)" };
   }
 };
 
@@ -30,7 +30,7 @@ const variantHoverClasses: Record<ButtonVariant, string> = {
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: "px-2.5 py-1 text-xs",
+  sm: "min-h-8 px-2.5 py-1 text-xs",
   md: "px-3.5 py-1.5 text-sm",
   lg: "px-5 py-2.5 text-sm",
 };
