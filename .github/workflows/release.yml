@@ -56,7 +56,9 @@ jobs:
         run: node scripts/smoke-bundle.mjs
 
       - name: 설치 파일 만들기
-        # beforeBuildCommand(build:all) 가 위 단계를 다시 돌지 않게 프론트만 빌드
+        # beforeBuildCommand(build:all) 가 위 단계를 다시 돌지 않게 프론트만 빌드.
+        # Windows 기본 셸(PowerShell)은 인라인 JSON 의 따옴표를 벗겨 버려서 bash 로
+        shell: bash
         run: pnpm tauri build --config '{"build":{"beforeBuildCommand":"pnpm build"}}'
 
       - uses: actions/upload-artifact@v4
