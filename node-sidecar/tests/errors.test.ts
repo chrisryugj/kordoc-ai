@@ -42,3 +42,17 @@ describe('파일 오류·이름·글자 코드', () => {
     expect(decodeText(le)).toBe('성명\t부서\n김가온\t총무과');
   });
 });
+
+describe('빠진 부품 (kordoc MISSING_DEPENDENCY)', () => {
+  it('"npm install …" 대신 할 일을 적은 한국어, npm 은 보이지 않는다', async () => {
+    const { toUserError, parseFailure, MISSING_PART } = await import('../src/core/errors.js');
+    const a = text(toUserError(new Error('PDF 파싱에 pdfjs-dist가 필요합니다. 설치: npm install pdfjs-dist')));
+    const b = text(parseFailure({ code: 'MISSING_DEPENDENCY', error: 'PDF 파싱에 pdfjs-dist가 필요합니다. 설치: npm install pdfjs-dist' }));
+    const c = text(parseFailure({ error: 'PNG 래스터에는 sharp가 필요합니다 (npm install sharp)' }));
+    for (const m of [a, b, c]) {
+      expect(m).toBe(MISSING_PART);
+      expect(m).not.toMatch(/npm/i);
+    }
+    expect(MISSING_PART).toMatch(/설정 › 엔진 점검/);
+  });
+});

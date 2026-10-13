@@ -12,6 +12,7 @@ import { sendProgress } from '../../infra/progress.js';
 import { buildXlsx } from '../excel/xlsx.js';
 import { tableGrid } from '../excel/index.js';
 import { outputFile, stemOf } from '../output/index.js';
+import { parseFailure } from '../errors.js';
 
 type Row = CompareResult['rows'][number];
 interface Seg { text: string; changed: boolean }
@@ -132,11 +133,20 @@ function mdReport(title: string, sub: string, rows: Row[]): string {
   return `# ${title}\n\n${sub}\n\n| 구분 | 현 행 | 개 정 안 |\n| --- | --- | --- |\n${lines.join('\n')}\n`;
 }
 
+/** kordoc compare 의 "문서A 파싱 실패: …" → 어느 쪽 문서를 못 읽었는지와 할 일 (A 가 옛 문서, B 가 새 문서) */
+export function compareError(err: unknown): unknown {
+  const m = /^문서([AB]) 파싱 실패:\s*([\s\S]*)$/.exec(err instanceof Error ? err.message : String(err));
+  if (!m) return err;
+  const which = m[1] === 'A' ? '옛 문서' : '새 문서';
+  const why = m[2].trim() ? parseFailure({ error: m[2] }).message : '파일이 손상됐거나 비교할 수 없는 형식입니다.';
+  return new Error(`${which}를 읽지 못했습니다. ${why}`);
+}
+
 async function diffFiles(oldPath: string, newPath: string, signal?: AbortSignal) {
   sendProgress({ current: 0, total: 2, message: '두 문서 읽는 중' });
   const [a, b] = await Promise.all([readFile(oldPath), readFile(newPath)]);
   signal?.throwIfAborted();
-  const diff = await compare(toAB(a), toAB(b));
+  const diff = await compare(toAB(a), toAB(b)).catch((err) => { throw compareError(err); });
   signal?.throwIfAborted();
   sendProgress({ current: 1, total: 2, message: '비교 결과 정리 중' });
   return diff;

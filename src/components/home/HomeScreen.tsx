@@ -1,7 +1,7 @@
-/** 홈 — 첫 화면에 끌어다 놓는 자리 + 최근 문서(처음 쓰는 날은 예제), 그 아래 "무엇을 할까요?" 일 단위 목차 */
+/** 오늘(홈) — 기한이 다가온 공문, 끌어다 놓는 자리 + 최근 문서(처음 쓰는 날은 예제), 그 아래 "무엇을 할까요?" 업무별 목차 */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History } from "lucide-react";
+import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History, CalendarClock } from "lucide-react";
 import { useApp, type ToolId } from "../../state/app";
 import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
@@ -9,8 +9,12 @@ import { HomeIndex } from "./HomeIndex";
 import { HomeSamples } from "./HomeSamples";
 import { rpc } from "../../lib/rpc";
 import { pickFiles, pickFolder } from "../../lib/native";
-import { baseName, dirName, num, timeAgo } from "../../lib/format";
+import { baseName, dirName, num, stem, timeAgo } from "../../lib/format";
 import type { UsageReport } from "../../lib/contract";
+import { daysLeft, dueBadge, dueText, sortItems, type InboxItem } from "../inbox/dday";
+
+/** 기한 임박: 할 일 가운데 기한이 지났거나 7일 안인 것 */
+const SOON_DAYS = 7;
 
 function ImpactLine() {
   const { ready, go } = useApp();
@@ -19,15 +23,52 @@ function ImpactLine() {
     if (!ready) return;
     rpc("usage_report", { range: "month" }).then(setR).catch(() => setR(null));
   }, [ready]);
-  if (!r) return null;
+  // 처음 쓰는 달(처리 0건)에는 "0건 · 0시간" 을 보이지 않는다
+  if (!r || !r.total_count) return null;
   const hours = Math.round(r.total_saved_min / 60);
   return (
     <button type="button" className="kd-impact-line" onClick={() => go("impact")}>
       <span>이번 달 처리 문서 <b className="kd-num">{num(r.total_count)}</b>건</span>
-      <span aria-hidden="true" className="kd-dot" />
-      <span>아낀 시간 약 <b className="kd-num">{num(hours)}</b>시간</span>
+      {hours > 0 && <>
+        <span aria-hidden="true" className="kd-dot" />
+        <span>아낀 시간 약 <b className="kd-num">{num(hours)}</b>시간</span>
+      </>}
       <ChevronRight size={14} />
     </button>
+  );
+}
+
+/** 접수함에서 기한이 다가온 공문 셋까지 (없으면 자리도 없다) */
+function DueSoon({ active }: { active: boolean }) {
+  const { ready, go, openDocs } = useApp();
+  const [items, setItems] = useState<InboxItem[]>([]);
+  useEffect(() => {
+    if (!ready || !active) return;
+    rpc("inbox_list", {}).then((r) => setItems(sortItems(r.items))).catch(() => setItems([]));
+  }, [ready, active]);
+  const soon = items.filter((it) => it.status === "todo" && it.due && daysLeft(it.due) <= SOON_DAYS).slice(0, 3);
+  if (!soon.length) return null;
+  return (
+    <section className="kd-home-block" aria-labelledby="due-t">
+      <div className="kd-block-head">
+        <h2 id="due-t" className="kd-h2 flex items-center gap-2"><CalendarClock size={16} className="kd-muted" /> 기한이 다가온 공문</h2>
+        <button type="button" className="kd-link kd-small" onClick={() => go("inbox")}>접수함 전체 보기</button>
+      </div>
+      <div className="kd-rows">
+        {soon.map((it) => {
+          const b = dueBadge(it.due!);
+          return (
+            <button key={it.id} type="button" className="kd-row" onClick={() => openDocs([it.path])}>
+              <span className="kd-badge kd-num" data-tone={b.tone}>{b.label}</span>
+              <span className="kd-row-main">
+                <span className="kd-row-title block">{it.title || stem(it.name)}</span>
+                <span className="kd-row-desc block">{[it.sender, `${dueText(it.due!)}까지`].filter(Boolean).join(" · ")}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -54,8 +95,8 @@ function DropArea() {
           <p className="kd-drop-title">{many.length === 1 ? "폴더를 받았습니다" : `파일 ${num(many.length)}개를 받았습니다`}. 어떻게 할까요?</p>
           <p className="kd-drop-sub kd-drop-names">{many.slice(0, 3).map(baseName).join(", ")}{many.length > 3 ? ` 외 ${num(many.length - 3)}개` : ""}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="lg" onClick={() => { openDocs(many); setMany(null); }}><BookOpenText size={15} /> 작업대에서 하나씩 보기</Button>
-            <Button size="lg" variant="secondary" onClick={() => { startBatch({ paths: many }); setMany(null); }}><Layers size={15} /> 한꺼번에 처리하기</Button>
+            <Button size="lg" onClick={() => { openDocs(many); setMany(null); }}><BookOpenText size={15} /> 문서 화면에서 하나씩 보기</Button>
+            <Button size="lg" variant="secondary" onClick={() => { startBatch({ paths: many }); setMany(null); }}><Layers size={15} /> 서무 도구로 한 번에 처리</Button>
             {many.length === 2 && <Button size="lg" variant="secondary" onClick={() => { startCompare(many[0], many[1]); setMany(null); }}><Columns2 size={15} /> 두 문서 비교하기</Button>}
             <Button size="lg" variant="secondary" onClick={() => { askAbout({ paths: many }); setMany(null); }}><MessageSquareText size={15} /> AI에게 묻기</Button>
             <Button size="lg" variant="ghost" onClick={() => setMany(null)}><X size={15} /> 취소</Button>
@@ -89,7 +130,8 @@ function RecentDocs() {
             <FormatBadge format={d.format} />
             <span className="kd-row-main">
               <span className="kd-row-title block">{d.name}</span>
-              <span className="kd-path block">{dirName(d.path)}</span>
+              {/* 긴 경로는 폴더 이름만, 전체 경로는 마우스를 올리면 */}
+              <span className="kd-path block" title={d.path}>{baseName(dirName(d.path))}</span>
             </span>
             <span className="kd-row-aside kd-small kd-muted">{timeAgo(d.at)}</span>
           </button>
@@ -116,6 +158,7 @@ export function HomeScreen({ active }: { active: boolean }) {
             <p className="kd-head-sub">문서를 끌어다 놓거나 아래에서 하려는 일을 고르세요.</p>
           </div>
           <ImpactLine />
+          <DueSoon active={active} />
           <div className="kd-home-hero">
             <DropArea />
             {recent.length > 0 ? <RecentDocs /> : <HomeSamples />}

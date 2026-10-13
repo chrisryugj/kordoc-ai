@@ -1,9 +1,9 @@
 /** 1. 작성 — 시작점 고르기: 서식함 · 빈 문서 · AI 초안 · 기존 문서를 한글로 */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FileStack, FilePlus2, Sparkles, FileInput, FileUp } from "lucide-react";
+import { FileStack, FilePlus2, Sparkles, FileInput, FileUp, Paintbrush } from "lucide-react";
 import { useApp, type DraftKind } from "../../state/app";
-import { useCreate } from "./session";
+import { useCreate, workingFile } from "./session";
 import { rpc } from "../../lib/rpc";
 import { pickFiles } from "../../lib/native";
 import { baseName, stem } from "../../lib/format";
@@ -17,14 +17,16 @@ import { TemplateLibrary } from "./TemplateLibrary";
 import { DraftComposer, type DraftSeed } from "./DraftComposer";
 import { formatOf } from "../../lib/format";
 import { ActionBar, ActionBarSlot } from "./ActionBar";
+import { StyleCopy } from "./StyleCopy";
 
-type Route = "library" | "blank" | "ai" | "convert";
+type Route = "library" | "blank" | "ai" | "convert" | "style";
 
 const ROUTES: Array<{ id: Route; title: string; desc: string; icon: ReactNode }> = [
   { id: "library", title: "서식함에서 고르기", desc: "표준 기안문, 기관 시작 서식, 내가 등록한 서식", icon: <FileStack size={20} /> },
-  { id: "blank", title: "빈 문서로 시작", desc: "문서 갈래와 기관 서식만 골라 바로 쓰기", icon: <FilePlus2 size={20} /> },
+  { id: "blank", title: "빈 문서로 시작", desc: "AI 없이 한글 편집기에서 직접 쓰기", icon: <FilePlus2 size={20} /> },
   { id: "ai", title: "AI 초안", desc: "회신, 민원 답변, 회의록, 한 장 보고, 보도자료", icon: <Sparkles size={20} /> },
   { id: "convert", title: "기존 문서를 한글로", desc: "PDF·워드·스캔본·엑셀을 고칠 수 있는 한글로", icon: <FileInput size={20} /> },
+  { id: "style", title: "우리 서식으로 맞추기", desc: "다른 문서의 내용을 우리 기관 서식으로", icon: <Paintbrush size={20} /> },
 ];
 
 /** 갈래 설명이 "·" 뒤나 괄호 안에서 줄이 갈리지 않게 */
@@ -56,8 +58,8 @@ function BlankStart() {
       </div>
       <ActionBar status={`${label} · ${agency || "공통 서식"}`} error={task.error} busy={task.busy && <Working label="서식을 준비하는 중" />}>
         <Button size="lg" onClick={() => void task.run(async () => {
-          const r = await rpc("template_starter", { preset, ...(agency ? { agency } : {}) });
-          await openInEditor(r.output_path, { title: label });
+          const r = await rpc("template_starter", { preset, ...(agency ? { agency } : {}), output_path: await workingFile(`${label}.hwpx`) });
+          await openInEditor(r.output_path, { title: label, working: true });
           return r.output_path;
         })}><FilePlus2 size={15} /> 이 서식으로 시작</Button>
       </ActionBar>
@@ -91,12 +93,12 @@ function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) =>
       <ActionBar status={file ? baseName(file) : "바꿀 파일을 먼저 고르세요"} error={task.error}
         busy={task.busy && <Working label="한글 문서로 다시 짜는 중" progress={task.progress} onCancel={task.cancel} />}>
         <Button size="lg" disabled={!file} onClick={() => void task.run(async ({ signal, onProgress }) => {
-          const r = await rpc("to_hwpx", { path: file, preset, ocr }, { signal, onProgress });
-          await openInEditor(r.output_path, { title: stem(file) });
+          const r = await rpc("to_hwpx", { path: file, preset, ocr, output_path: await workingFile(`${stem(file)}.hwpx`) }, { signal, onProgress });
+          await openInEditor(r.output_path, { title: stem(file), working: true });
           return r.output_path;
         })}><FileInput size={15} /> 한글로 바꿔 편집하기</Button>
       </ActionBar>
-      {formatOf(file) === "hwp" && <Note tone="info">HWP 문서는 바꾸지 않아도 됩니다. 작업대에서 한글 편집기로 바로 여세요.</Note>}
+      {formatOf(file) === "hwp" && <Note tone="info">HWP 문서는 바꾸지 않아도 됩니다. 문서 화면에서 한글 편집기로 바로 여세요.</Note>}
     </div>
   );
 }
@@ -127,7 +129,7 @@ export function ComposeStep({ active }: { active: boolean }) {
     const offScreen = registerDrop("create", (paths) => {
       const p = paths[0];
       if (!p) return;
-      if (["hwp", "hwpx", "hwpml"].includes(formatOf(p))) void openInEditor(p);
+      if (["hwp", "hwpx", "hwpml"].includes(formatOf(p))) void openInEditor(p, { existing: true });
       else { setConvertFile(p); go("convert"); }
     });
     const offConvert = registerDrop("create-convert", (paths) => paths[0] && setConvertFile(paths[0]));
@@ -160,8 +162,9 @@ export function ComposeStep({ active }: { active: boolean }) {
         {/* 다음 동작은 바닥 고정 줄로 — 보이는 시작점만 그 자리에 그린다 */}
         {visited.has("library") && <ActionBarSlot.Provider value={route === "library" ? barEl : null}><div hidden={route !== "library"} className="h-full"><TemplateLibrary onStyleSample={(p) => { go("ai"); setSeed({ levelsFrom: p, nonce: Date.now() }); }} /></div></ActionBarSlot.Provider>}
         {visited.has("blank") && <ActionBarSlot.Provider value={route === "blank" ? barEl : null}><div hidden={route !== "blank"}><BlankStart /></div></ActionBarSlot.Provider>}
-        {visited.has("ai") && <ActionBarSlot.Provider value={route === "ai" ? barEl : null}><div hidden={route !== "ai"} className="h-full"><DraftComposer seed={seed} /></div></ActionBarSlot.Provider>}
+        {visited.has("ai") && <ActionBarSlot.Provider value={route === "ai" ? barEl : null}><div hidden={route !== "ai"} className="h-full"><DraftComposer seed={seed} onRoute={go} /></div></ActionBarSlot.Provider>}
         {visited.has("convert") && <ActionBarSlot.Provider value={route === "convert" ? barEl : null}><div hidden={route !== "convert"}><ConvertStart file={convertFile} setFile={setConvertFile} /></div></ActionBarSlot.Provider>}
+        {visited.has("style") && <ActionBarSlot.Provider value={route === "style" ? barEl : null}><div hidden={route !== "style"}><StyleCopy active={active && route === "style"} /></div></ActionBarSlot.Provider>}
       </div>
       <div ref={setBarEl} className="kd-actionbar" role="region" aria-label="다음 단계" />
     </div>

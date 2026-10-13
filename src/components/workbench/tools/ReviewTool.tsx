@@ -1,14 +1,15 @@
-/** 검토 — 공문서 표기법 검사(lint) + K팀장 검토(AI 논리·숫자·날짜) + 법령 근거 확인(법제처 대조) */
+/** 검토 — 결재 전 한 번에 점검: 엔진의 빠른 검사(표기법·날짜와 요일·표 합계·끝. 표시·빈칸·개인정보)를 먼저 보이고,
+ *  K팀장(AI)·법령 근거는 뒤에서 이어 붙인다. 고칠 수 있는 것은 서식 그대로 사본으로 고치고 그 사본을 다시 점검한다. */
 
-import { ClipboardCheck, Copy, Scale, SpellCheck, Wand2 } from "lucide-react";
+import { ClipboardCheck, Copy, Eye, Wand2 } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import type { LintFinding, ReviewIssue, RpcResult } from "../../../lib/contract";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/app";
 import { rpc } from "../../../lib/rpc";
 import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
-import { ErrorLine, Note, SavedFile, Working } from "../../common/Status";
+import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../../common/Status";
 import { Check } from "../../common/Field";
 import { isHangul } from "../../../lib/format";
 
@@ -17,6 +18,30 @@ const SEV: Record<string, { label: string; tone: string }> = {
   warning: { label: "살필 것", tone: "warn" },
   info: { label: "참고", tone: "info" },
 };
+const ORDER = { error: 0, warning: 1, info: 2 } as const;
+
+/** 지적 한 건의 몸 — 갈래·쪽·설명·걸린 곳(낱말 단위)·바르게 고친 모양. 규칙 코드는 보이지 않는다 */
+type Shown = Pick<LintFinding, "severity" | "message"> & Partial<Pick<LintFinding, "category" | "page" | "context" | "excerpt" | "fix" | "suggestion">>;
+
+export function FindingBody({ f }: { f: Shown }) {
+  const context = f.context ?? (f.excerpt && f.excerpt !== f.fix?.from ? f.excerpt : undefined);
+  return (
+    <>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="kd-badge" data-tone={SEV[f.severity].tone}>{SEV[f.severity].label}</span>
+        <span className="kd-small font-semibold">{f.category ?? "표기"}</span>
+        {f.page != null && <span className="kd-small kd-muted kd-num">{f.page}쪽</span>}
+      </span>
+      <span className="kd-text block mt-1">{f.message}</span>
+      {context && <span className="kd-small kd-muted block mt-1 text-balance">{context}</span>}
+      {f.fix ? (
+        <span className="kd-small block mt-1 text-balance"><span className="kd-strike">{f.fix.from}</span> → 바르게: <b>{f.fix.to}</b></span>
+      ) : f.suggestion && (
+        <span className="kd-small block mt-1 text-pretty">{/^예:/.test(f.suggestion) ? f.suggestion : <>바르게: <b>{f.suggestion}</b></>}</span>
+      )}
+    </>
+  );
+}
 
 export function LintList({ findings, onPick, picked, onToggle }: {
   findings: LintFinding[]; onPick?: (f: LintFinding) => void;
@@ -27,22 +52,7 @@ export function LintList({ findings, onPick, picked, onToggle }: {
   return (
     <ul className="kd-findings">
       {findings.map((f, i) => {
-        const body = (
-          <>
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="kd-badge" data-tone={SEV[f.severity].tone}>{SEV[f.severity].label}</span>
-              <span className="kd-small font-semibold">{f.rule}</span>
-              {f.line != null && <span className="kd-small kd-muted kd-num">{f.line}줄</span>}
-            </span>
-            <span className="kd-text block mt-1">{f.message}</span>
-            {(f.excerpt || f.suggestion) && (
-              <span className="kd-small block mt-1">
-                {f.excerpt && <span className="kd-strike">{f.excerpt}</span>}
-                {(f.fix || f.suggestion) && <> 바르게: <b>{f.fix ? f.fix.to : f.suggestion}</b></>}
-              </span>
-            )}
-          </>
-        );
+        const body = <FindingBody f={f} />;
         return (
           <li key={i} className={picked && f.fix ? "flex items-start gap-2" : undefined}>
             {picked && f.fix && (
@@ -85,7 +95,7 @@ const LAW_STATUS: Record<LawCitation["status"], { label: string; tone?: string }
   renamed: { label: "이름 바뀜", tone: "warn" },
   unchecked: { label: "확인 안 함" },
 };
-const ORDER: LawCitation["status"][] = ["ok", "article_missing", "not_found", "renamed", "unchecked"];
+const LAW_ORDER: LawCitation["status"][] = ["ok", "article_missing", "not_found", "renamed", "unchecked"];
 const squash = (s: string) => s.replace(/[\s·ㆍ]/g, "");
 
 function LawDetail({ c }: { c: LawCitation }) {
@@ -108,7 +118,7 @@ function LawDetail({ c }: { c: LawCitation }) {
 /** 법령 근거 확인 결과 — 인용 글·상태 배지·조문 앞부분·법제처 주소(열기 대신 주소 표시와 복사) */
 export function LawResults({ result, onPick }: { result: LawResult; onPick?: (c: LawCitation) => void }) {
   const { go, settings, toast } = useApp();
-  const counts = ORDER.map((s) => [s, result.citations.filter((c) => c.status === s).length] as const).filter(([, n]) => n > 0);
+  const counts = LAW_ORDER.map((s) => [s, result.citations.filter((c) => c.status === s).length] as const).filter(([, n]) => n > 0);
   const copy = (url: string) => void navigator.clipboard.writeText(url).then(() => toast("주소를 복사했습니다", "success")).catch(() => toast("주소를 복사하지 못했습니다. 주소를 직접 골라 복사하세요.", "error"));
   const needOc = !result.checked && !settings?.privacy.offline && !settings?.law?.oc;
   return (
@@ -144,90 +154,189 @@ export function LawResults({ result, onPick }: { result: LawResult; onPick?: (c:
   );
 }
 
-export function ReviewTool({ doc, info }: ToolProps) {
-  const { ai, go } = useApp();
+// ── 결재 전 한 번에 점검 ──
+
+type Item = Shown & {
+  key: string;
+  /** 쪽을 모를 때 쪽을 찾아볼 글 */
+  find?: string;
+};
+
+/** K팀장 지적 → 목록 한 줄. location 은 "3쪽 표 2 합계 행 \"원문\"" 꼴 */
+function issueItem(it: ReviewIssue, i: number): Item {
+  const loc = it.location ?? "";
+  const quoted = /"([^"]+)"/.exec(loc)?.[1];
+  const where = loc.replace(/"[^"]*"/, "").replace(/[〔〕]/g, "").trim();
+  const page = /(\d+)\s*쪽/.exec(where)?.[1];
+  return {
+    key: `ai-${i}`, severity: it.severity, category: `K팀장 · ${it.category}`,
+    message: where && !/^\d+\s*쪽$/.test(where) ? `${it.message} (${where.replace(/^\d+\s*쪽\s*/, "")})` : it.message,
+    ...(quoted ? { context: quoted, find: quoted } : {}),
+    ...(page ? { page: Number(page) } : {}),
+    ...(it.suggestion ? { suggestion: it.suggestion } : {}),
+  };
+}
+
+/** 법령 대조에서 문제 있는 인용만 */
+function lawItem(c: LawCitation, i: number): Item | null {
+  if (c.status === "ok" || c.status === "unchecked") return null;
+  const message = c.status === "renamed" ? `이름이 바뀐 법령입니다. 현행 이름은 「${c.current_name}」입니다. 조 번호도 다시 확인하세요.`
+    : c.status === "not_found" ? `현행 법령에서 이 이름을 찾지 못했습니다.${c.current_name ? ` 비슷한 법령: 「${c.current_name}」.` : " 폐지됐거나 이름이 틀렸는지 확인하세요."}`
+    : c.article_text ? "현행 법령에서 삭제된 조문입니다. 조 번호를 확인하세요." : "현행 법령에 없는 조문입니다. 조 번호를 확인하세요.";
+  return { key: `law-${i}`, severity: c.status === "renamed" ? "warning" : "error", category: "법령 근거", message, context: c.text, find: c.text };
+}
+
+/** 설정의 기관 대표번호·팩스·내 이름 — 개인정보로 짚지 않고 가리지도 않는다 */
+export function keepFromSettings(org?: { phone?: string; fax?: string; person?: string } | null): string[] {
+  return [org?.phone, org?.fax, org?.person].map((v) => v?.trim() ?? "").filter((v) => v.length >= 2);
+}
+
+export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (page: number) => void }) {
+  const { ai, go, settings, openDocs } = useApp();
   const hangul = isHangul(info.format);
-  const lint = useTask<{ findings: LintFinding[]; counts: { error: number; warning: number; info: number } }>();
-  const [styles, setStyles] = useState(true);
   const [munche, setMunche] = useState(false);
-  const [picked, setPicked] = useState<Set<number>>(new Set());
-  const fix = useTask<RpcResult<"lint_fix">>();
-  const toggle = (i: number) => setPicked((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; });
-  const fixable = lint.result?.findings.filter((f) => f.fix).length ?? 0;
-  const runFix = () => void fix.run(() => rpc("lint_fix", {
-    path: doc.path,
-    // 같은 말이 여러 번 걸려도 한 번만 보낸다 (엔진이 문서 안의 같은 말을 모두 바꾼다)
-    fixes: [...new Map([...picked].map((i) => lint.result!.findings[i].fix!).map((f) => [`${f.from}\u0000${f.to}`, f])).values()],
-  }));
-  const review = useTask<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }>();
+  /** 지금 점검한 문서 (고친 뒤엔 고친 사본) */
+  const [target, setTarget] = useState(doc.path);
+  const pre = useTask<RpcResult<"precheck">>();
+  const review = useTask<RpcResult<"ai_review">>();
   const law = useTask<LawResult>();
+  const fix = useTask<RpcResult<"lint_fix">>();
+  const [found, setFound] = useState<Record<string, number>>({});
+  const run = useRef(0);
+  const keep = keepFromSettings(settings?.org);
 
+  const runAll = (path: string) => {
+    const n = ++run.current;
+    setTarget(path);
+    setFound({});
+    review.reset();
+    law.reset();
+    // 빠른 검사 먼저, 다 보인 뒤 AI·법령을 뒤에서
+    void pre.run(({ signal }) => rpc("precheck", { path, munche, keep }, { signal })).then((r) => {
+      if (!r || n !== run.current) return;
+      if (ai?.configured) void review.run(({ signal }) => rpc("ai_review", { path }, { signal }));
+      void law.run(({ signal, onProgress }) => rpc("law_check", { path }, { signal, onProgress }));
+    });
+  };
+
+  const items = useMemo<Item[]>(() => {
+    const list: Item[] = [
+      ...(pre.result?.items ?? []).map((f, i) => ({ ...f, key: `e-${i}` })),
+      ...(review.result?.issues ?? []).map(issueItem),
+      ...(law.result?.citations ?? []).map(lawItem).filter((x): x is Item => !!x),
+    ];
+    return list
+      .map((x) => (x.page == null && x.find && found[x.find] ? { ...x, page: found[x.find] } : x))
+      .map((x, i) => ({ x, i }))
+      .sort((a, b) => ORDER[a.x.severity] - ORDER[b.x.severity] || a.i - b.i)
+      .map(({ x }) => x);
+  }, [pre.result, review.result, law.result, found]);
+
+  // K팀장·법령 지적의 쪽은 엔진에 찾아 달라고 한다 (한글은 미리보기와 같은 조판으로)
+  const askFor = items.filter((x) => x.page == null && x.find && !(x.find in found)).map((x) => x.find!);
+  const askKey = askFor.join("\u0000");
+  useEffect(() => {
+    if (!askFor.length) return;
+    const n = run.current;
+    rpc("find_pages", { path: target, texts: askFor })
+      .then((r) => { if (n === run.current) setFound((prev) => ({ ...prev, ...Object.fromEntries(askFor.map((t, i) => [t, r.pages[i] ?? 0])) })); })
+      .catch(() => undefined);
+    // askKey 가 바뀔 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askKey, target]);
+
+  const counts = { error: 0, warning: 0, info: 0 };
+  for (const x of items) counts[x.severity]++;
+  const fixes = [...new Map(items.filter((x) => x.fix && x.key.startsWith("e-")).map((x) => [`${x.fix!.from}\u0000${x.fix!.to}`, x.fix!])).values()];
+  const canFix = hangul && fixes.length > 0;
+  const fixedCopy = target !== doc.path;
+
+  const jump = (x: Item) => {
+    if (x.page == null) return;
+    if (!fixedCopy && onGoPage) onGoPage(x.page);
+    else openDocs([target], { page: x.page });
+  };
+  const runFix = () => void fix.run(() => rpc("lint_fix", { path: target, fixes })).then((r) => { if (r) runAll(r.output_path); });
+
+  const done = !!pre.result && !pre.busy;
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-3" aria-labelledby="lint-t">
-        <h3 id="lint-t" className="kd-h2">공문서 표기법 검사</h3>
-        <p className="kd-small kd-muted">날짜·시각·숫자·띄어쓰기·끝맺음 같은 공문서 표기 규칙을 봅니다. 인터넷 없이 이 PC에서 돌아갑니다.</p>
-        {hangul && <Check label="같은 단계 항목끼리 글꼴·크기·굵기가 다른 곳도 보기" checked={styles} onChange={setStyles} />}
-        <Check label="보고서·계획서의 개조식 끝맺음(함·임)도 보기" checked={munche} onChange={setMunche} />
-        {lint.busy ? <Working label="검사하는 중" /> : (
-          <Button onClick={() => { setPicked(new Set()); fix.reset(); void lint.run(() => rpc("lint", { path: doc.path, numbers: true, styles: hangul && styles, munche }).then((r) => {
-            // 바꿀 말이 정해진 지적은 처음부터 골라 둔다 (한글 문서만 서식 그대로 고칠 수 있다)
-            if (hangul) setPicked(new Set(r.findings.flatMap((f, i) => (f.fix ? [i] : []))));
-            return r;
-          })); }}><SpellCheck size={14} /> 검사하기</Button>
-        )}
-        <ErrorLine message={lint.error} />
-        {lint.result && (
-          <>
-            <p className="kd-small kd-num">고칠 것 {lint.result.counts.error} · 살필 것 {lint.result.counts.warning} · 참고 {lint.result.counts.info}</p>
-            {hangul && fixable > 0 && (
-              <div className="kd-inset flex flex-col gap-2 p-3">
-                <p className="kd-small">바꿀 말이 정해진 {fixable}곳은 고를 수 있습니다. 고른 것만 바꿔 서식 그대로 사본(_수정)으로 저장합니다. 원본은 그대로 둡니다.</p>
-                {fix.busy ? <Working label="고치는 중" /> : (
-                  <div><Button variant="secondary" disabled={!picked.size} onClick={runFix}><Wand2 size={14} /> 고른 {picked.size}곳 고쳐 저장</Button></div>
-                )}
-                <ErrorLine message={fix.error} />
-                {fix.result && (
-                  <>
-                    <SavedFile path={fix.result.output_path} />
-                    <p className="kd-small kd-muted kd-num">{fix.result.replaced}곳을 바꿨습니다{fix.result.skipped.length ? `. 서식을 지키려고 ${fix.result.skipped.length}곳은 건너뛰었습니다(그 부분은 한글 편집기에서 고치세요).` : "."}</p>
-                  </>
-                )}
-              </div>
-            )}
-            <LintList findings={lint.result.findings} picked={hangul ? picked : undefined} onToggle={toggle} />
-          </>
-        )}
-      </section>
+    <div className="flex flex-col gap-4">
+      <p className="kd-small kd-muted text-pretty">
+        표기법, 날짜와 요일, 표 합계, 끝. 표시, 빈칸 안내 글자, 남은 개인정보를 한 번에 봅니다.
+        AI가 연결되어 있으면 K팀장 검토와 법령 근거 확인도 이어서 합니다.
+      </p>
+      <Check label="보고서·계획서라면 개조식 끝맺음(함·임)도 보기" checked={munche} onChange={setMunche} />
+      {pre.busy ? <Working label="빠른 검사를 하는 중" onCancel={pre.cancel} /> : (
+        <div><Button onClick={() => { fix.reset(); runAll(doc.path); }}><ClipboardCheck size={14} /> 결재 전 한 번에 점검</Button></div>
+      )}
+      <ErrorLine message={pre.error} />
 
-      <section className="flex flex-col gap-3" aria-labelledby="kteam-t">
-        <h3 id="kteam-t" className="kd-h2">K팀장 검토(AI)</h3>
-        <p className="kd-small kd-muted">팀장이 결재 전에 보듯 앞뒤 논리, 숫자 합계, 날짜와 요일을 짚어 줍니다.</p>
-        {!ai?.configured ? (
-          <Note tone="info">
-            AI 연결이 필요합니다. <button type="button" className="kd-link" onClick={() => go("settings")}>설정에서 AI 연결하기</button>
-          </Note>
-        ) : review.busy ? <Working label="검토하는 중" onCancel={review.cancel} /> : (
-          <Button variant="secondary" onClick={() => void review.run(({ signal }) => rpc("ai_review", { path: doc.path }, { signal }))}><ClipboardCheck size={14} /> 검토 받기</Button>
-        )}
-        <ErrorLine message={review.error} />
-        {review.result && (
-          <>
-            <div className="kd-inset p-3"><p className="kd-text">{review.result.summary}</p></div>
-            <IssueList issues={review.result.issues} />
-          </>
-        )}
-      </section>
+      {done && (
+        <div className="flex flex-col gap-3" aria-live="polite">
+          {fixedCopy && fix.result && (
+            <>
+              <SavedFile path={fix.result.output_path} label={`${fix.result.replaced}곳을 고친 사본을 저장하고 다시 점검했습니다`} />
+              <div><Button variant="secondary" size="sm" onClick={() => openDocs([fix.result!.output_path])}><Eye size={13} /> 고친 사본을 작업대에서 보기</Button></div>
+            </>
+          )}
+          {fixedCopy && fix.result && fix.result.skipped.length > 0 && (
+            <p className="kd-small kd-muted kd-num">서식을 지키려고 {fix.result.skipped.length}곳은 고치지 않았습니다. 그 부분은 한글 편집기에서 고치세요.</p>
+          )}
+          {counts.error === 0 ? (
+            <Note tone="ok">
+              <span className="block font-semibold">점검 결과: 고칠 것 0</span>
+              {(counts.warning > 0 || counts.info > 0) && <span className="block mt-0.5 kd-num">살필 것 {counts.warning} · 참고 {counts.info}. 아래에서 한 번 더 확인하세요.</span>}
+            </Note>
+          ) : (
+            <p className="kd-text font-semibold kd-num" role="status">점검 결과: 고칠 것 {counts.error} · 살필 것 {counts.warning} · 참고 {counts.info}</p>
+          )}
 
-      <section className="flex flex-col gap-3" aria-labelledby="law-t">
-        <h3 id="law-t" className="kd-h2">법령 근거 확인</h3>
-        <p className="kd-small kd-muted">문서 속 「법령명」 제N조 인용을 법제처 현행 법령과 대조해 없는 조문, 폐지되거나 이름이 바뀐 법령을 짚어 줍니다.</p>
-        {law.busy ? <Working label="법령 인용을 찾는 중" progress={law.progress} onCancel={law.cancel} /> : (
-          <Button variant="secondary" onClick={() => void law.run(({ signal, onProgress }) => rpc("law_check", { path: doc.path }, { signal, onProgress }))}><Scale size={14} /> 법령 근거 확인</Button>
-        )}
-        <ErrorLine message={law.error} />
-        {law.result && <LawResults result={law.result} />}
-      </section>
+          {canFix && (
+            <div className="kd-inset flex flex-col gap-2 p-3">
+              <p className="kd-small text-pretty">바르게 고칠 값이 정해진 {fixes.length}곳을 서식 그대로 고친 사본을 만들고, 그 사본을 다시 점검합니다. 원본은 그대로 둡니다.</p>
+              {fix.busy ? <Working label="고치는 중" /> : (
+                <div><Button variant="secondary" onClick={runFix}><Wand2 size={14} /> 고칠 수 있는 것 모두 고치기</Button></div>
+              )}
+              <ErrorLine message={fix.error} />
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1">
+            {!ai?.configured ? (
+              <StatusLine tone="muted">
+                K팀장 검토(AI)는 AI 연결 시 함께 봅니다. <button type="button" className="kd-link" onClick={() => go("settings")}>AI 연결하기</button>
+              </StatusLine>
+            ) : review.busy ? <Working label="K팀장이 논리·숫자·날짜를 읽는 중" onCancel={review.cancel} />
+              : review.result ? <StatusLine tone="ok">K팀장 검토: {review.result.issues.length ? `${review.result.issues.length}건을 목록에 더했습니다` : "더 짚을 곳이 없습니다"}</StatusLine>
+              : null}
+            <ErrorLine message={review.error} />
+            {law.busy ? <Working label="법령 인용을 찾는 중" progress={law.progress} onCancel={law.cancel} />
+              : law.result ? (
+                <StatusLine tone={law.result.checked ? "ok" : "muted"}>
+                  법령 근거: {law.result.note ?? `인용 ${law.result.citations.length}건을 현행 법령과 대조했습니다`}
+                  {!law.result.checked && law.result.citations.length > 0 && !settings?.privacy.offline && !settings?.law?.oc && <> <button type="button" className="kd-link" onClick={() => go("settings")}>설정 열기</button></>}
+                </StatusLine>
+              ) : null}
+            <ErrorLine message={law.error} />
+          </div>
+
+          {items.length > 0 && (
+            <ul className="kd-findings" aria-label="점검 결과 목록">
+              {items.map((x) => (
+                <li key={x.key}>
+                  {x.page != null
+                    ? <button type="button" className="kd-finding" onClick={() => jump(x)} title={`${x.page}쪽으로 가기`}><FindingBody f={x} /></button>
+                    : <div className="kd-finding"><FindingBody f={x} /></div>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="kd-small kd-muted text-balance">
+            본 것: {[...pre.result!.checked, ...(review.result ? ["K팀장"] : []), ...(law.result?.checked ? ["법령 근거"] : [])].join(" · ")}
+          </p>
+          {pre.result!.skipped.map((s) => <p key={s} className="kd-small kd-muted text-pretty">못 본 것: {s}</p>)}
+        </div>
+      )}
     </div>
   );
 }

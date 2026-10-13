@@ -1,7 +1,7 @@
 /** 문서 읽기·변환 — 문서 기능 공용 parseDoc + convert·convert_batch
  *
  * parseDoc: 파일 → kordoc ParseSuccess (실패는 사람이 읽을 오류로 throw). md·txt·csv 는 글 그대로.
- * convert: 형식 md·html·json·chunks·txt, save=false 면 저장 없이 content 만.
+ * convert: 형식 md·html·json·chunks·txt(마크다운 표시를 걷은 글, 표는 탭), save=false 면 저장 없이 content 만.
  * 그림은 CLI 와 같은 자리(`images/<문서 이름>/`)에 저장하고 본문 참조를 그 경로로 고친다.
  */
 
@@ -17,6 +17,7 @@ import { cleanMessage, errorText, parseFailure } from '../errors.js';
 import { parseCsv } from '../excel/csv.js';
 import { formatOf, TEXT_FORMATS } from '../files/format.js';
 import { outputDir, outputFile, stemOf } from '../output/index.js';
+import { markdownToPlain } from './plain.js';
 
 export type OcrMode = 'auto' | 'force' | 'off';
 
@@ -162,7 +163,8 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
       pages: r.pages,
       images: images.map((i) => ({ filename: i.filename, mimeType: i.mimeType, path: link + i.filename })),
     }, (_k, v) => (v instanceof Uint8Array ? undefined : v), 2);
-  } else content = markdown;
+  } else if (format === 'txt' && !TEXT_FORMATS.has(formatOf(p.path))) content = markdownToPlain(markdown);
+  else content = markdown;
 
   if (outPath) {
     await writeFile(outPath, content, 'utf-8');

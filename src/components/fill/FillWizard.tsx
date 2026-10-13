@@ -5,12 +5,13 @@
  * 우: rhwp WASM SVG 미리보기 (프론트 WASM 실패 시 사이드카 render_preview 폴백)
  *
  * 채움은 사이드카 form_fill(kordoc fillHwpx — 원본 바이트 보존) 경유.
- * "미리보기 반영"은 dry_run으로 미저장 채움 바이트를 받아 즉시 재렌더.
+ * 값을 고치면 잠시 뒤(0.7초) dry_run 으로 미저장 채움 바이트를 받아 미리보기를 다시 그린다.
+ * 값이 들어간 곳(filled[].target 표 칸)을 칸 목록에 적고, 칸을 고르면 미리보기에서 그 값을 짚는다.
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  X, ClipboardList, Save, Eye, FolderOpen, ShieldCheck, AlertTriangle,
+  X, ClipboardList, Save, FolderOpen, ShieldCheck, AlertTriangle,
   Table2, CalendarDays, Phone, Mail, Banknote, CheckSquare, Type, IdCard,
   ChevronLeft, ChevronRight, Loader2,
 } from "lucide-react";
@@ -19,9 +20,11 @@ import { Button } from "../ui/Button";
 import { useDialogKeys } from "../ui/useDialogKeys";
 import { b64ToBytes } from "../../lib/rhwp";
 import { RhwpPreview } from "../../lib/rhwp-preview";
-import { annotateLabels } from "../../lib/svg-annotate";
+import { annotateLabels, annotateValues } from "../../lib/svg-annotate";
 import type { ImportedFile } from "../../types/pipeline";
-import { joinPath } from "../../lib/format";
+import { dirName, joinPath } from "../../lib/format";
+import { pickSavePath } from "../../lib/native";
+import { errorText } from "../../lib/rpc";
 
 // ── 사이드카 응답 타입 (node-sidecar/src/core/fill과 동기) ──
 
@@ -47,8 +50,11 @@ interface FormSchemaRes {
 
 interface FormFillRes {
   success: boolean;
-  filled: Array<{ label: string; value: string }>;
+  /** target: 값을 쓴 표 칸(0부터) · source clickhere: 누름틀 */
+  filled: Array<{ label: string; value: string; target?: { table: number; row: number; col: number }; source?: "clickhere" }>;
   unmatched: string[];
+  /** 같은 이름 칸이 여러 곳이라 넣지 않은 이름 */
+  rejected?: string[];
   output_path: string;
   verification: { reparse_ok: boolean; changed_blocks: number };
   doc_b64?: string;
@@ -103,16 +109,24 @@ function findFirstTable(node: unknown): RosterTable | null {
   return null;
 }
 
+/** 값이 들어간 곳을 사람 말로 — 표 칸은 1부터 */
+function placeText(f: FormFillRes["filled"][number]): string {
+  if (f.target) return `${f.target.table + 1}번 표 ${f.target.row + 1}행 ${f.target.col + 1}열 칸`;
+  return f.source === "clickhere" ? "누름틀 칸" : "본문 줄";
+}
+
 interface FillWizardProps {
   file: ImportedFile;
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   outputDir: string;
+  /** 저장 창이 처음 열릴 폴더 (서식함 서식처럼 원본 옆이 앱 폴더일 때 넘긴다). 없으면 출력 폴더 → 원본 옆 */
+  saveDir?: string;
   showToast: (msg: string, type: "success" | "error" | "info" | "loading") => void;
   onClose: () => void;
   onOpenFolder: (path: string) => void;
 }
 
-export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, onOpenFolder }: FillWizardProps) {
+export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, onClose, onOpenFolder }: FillWizardProps) {
   // ── 스키마/값 상태 ──
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -124,6 +138,8 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
 
   // ── 미리보기 상태 ──
   const docB64Ref = useRef<string | null>(null);          // 사이드카 폴백용
+  const originalB64 = useRef<string | null>(null);         // 값을 모두 지우면 원본으로 되돌린다
+  const previewSeq = useRef(0);                            // 늦게 온 앞 미리보기가 새 것을 덮지 않게
   // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
   const rhwpRef = useRef<RhwpPreview | null>(null);
   const rhwpReady = useRef(false);                         // 지금 문서가 일꾼에 열려 있다
@@ -136,6 +152,9 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
   const [focusedLabel, setFocusedLabel] = useState("");
 
   const labels = useMemo(() => fields.map((f) => f.label), [fields]);
+  /** 미리보기에 그려진 값 (칸을 고르면 그 값을 짚는다) */
+  const shown = useRef<Array<{ label: string; value: string }>>([]);
+  const annotate = useCallback((raw: string) => annotateValues(annotateLabels(raw, labels), shown.current), [labels]);
 
   // ── 렌더 (프론트 WASM 우선, 실패 시 사이드카 RPC) ──
   const renderPage = useCallback(async (pageNum: number) => {
@@ -143,7 +162,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
     try {
       if (rhwpReady.current && rhwpRef.current) {
         const raw = await (await rhwpRef.current.render(pageNum)).text();
-        setSvg(annotateLabels(raw, labels));
+        setSvg(annotate(raw));
         return;
       }
       // 사이드카 폴백
@@ -153,12 +172,12 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
       }) as { success: boolean; page_count: number; pages: Array<{ page: number; svg: string }> };
       if (res.success && res.pages[0]) {
         setPageCount(res.page_count);
-        setSvg(annotateLabels(res.pages[0].svg, labels));
+        setSvg(annotate(res.pages[0].svg));
       }
     } catch (e) {
-      setRenderError(`미리보기 표시 실패: ${e}`);
+      setRenderError(`미리보기를 그리지 못했습니다(${errorText(e)}). 값 넣기와 저장은 그대로 됩니다.`);
     }
-  }, [labels, sidecarCall, file.path]);
+  }, [annotate, sidecarCall, file.path]);
 
   /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신). 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
@@ -199,6 +218,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         }
         setValues(init);
         setSources(src);
+        originalB64.current = res.doc_b64 ?? null;
         if (res.doc_b64) await loadPreviewDoc(res.doc_b64);
       } catch (e) {
         if (!cancelled) setLoadError(String(e));
@@ -220,21 +240,39 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
     if (!loading && (rhwpReady.current || docB64Ref.current || file.path)) void renderPage(page);
   }, [page, loading, renderPage]);
 
-  // ── 필드 포커스 → 미리보기 하이라이트 + 스크롤 ──
+  // ── 필드 포커스 → 미리보기 하이라이트 + 스크롤. 값이 들어간 칸이 보이면 그 자리를 상자로 짚는다 ──
   useEffect(() => {
     const root = previewRef.current;
     if (!root) return;
+    root.querySelectorAll("[data-kd-hl]").forEach((e) => e.remove());
+    const valueEls = [...root.querySelectorAll<SVGTextElement>("text[data-kd-value]")].filter((el) => el.getAttribute("data-kd-value") === focusedLabel);
     const els = root.querySelectorAll<SVGTextElement>("text[data-kd-label]");
     let scrolled = false;
     els.forEach((el) => {
       const hit = el.getAttribute("data-kd-label") === focusedLabel;
       el.style.fill = hit ? "var(--color-accent)" : "";
       el.style.fontWeight = hit ? "700" : "";
-      if (hit && !scrolled) {
+      if (hit && !scrolled && !valueEls.length) {
         el.scrollIntoView({ block: "center", behavior: "smooth" });
         scrolled = true;
       }
     });
+    const svgEl = valueEls[0]?.ownerSVGElement;
+    if (!svgEl) return;
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const el of valueEls) {
+      const b = el.getBBox();
+      x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+    }
+    if (!Number.isFinite(x1)) return;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("data-kd-hl", "1");
+    rect.setAttribute("x", String(x1 - 3)); rect.setAttribute("y", String(y1 - 3));
+    rect.setAttribute("width", String(x2 - x1 + 6)); rect.setAttribute("height", String(y2 - y1 + 6));
+    rect.setAttribute("rx", "2");
+    rect.setAttribute("style", "fill: var(--color-accent); fill-opacity: 0.16; stroke: var(--color-accent); stroke-width: 1.5; pointer-events: none");
+    svgEl.appendChild(rect);
+    rect.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [focusedLabel, svg]);
 
   // ── 역방향 점프: 미리보기 라벨 클릭 → 폼 필드 포커스 ──
@@ -307,35 +345,76 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
     }
   }, [fields, setValue, sidecarCall, showToast]);
 
-  // ── 미리보기 반영 (dry_run) / 저장 ──
-  const doFill = useCallback(async (dryRun: boolean) => {
+  // ── 미리보기 반영 (dry_run, 값을 고치면 저절로) / 저장 ──
+  const preview = useCallback(async () => {
+    const seq = ++previewSeq.current;
+    if (Object.keys(fillValues).length === 0) {
+      // 값을 모두 지우면 원본 그대로 보인다
+      setFillResult(null);
+      shown.current = [];
+      if (originalB64.current && docB64Ref.current !== originalB64.current) {
+        await loadPreviewDoc(originalB64.current);
+        if (seq === previewSeq.current) await renderPage(page);
+      }
+      return;
+    }
+    setBusy((b) => b || "preview");
+    try {
+      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, dry_run: true }) as FormFillRes;
+      if (seq !== previewSeq.current) return;
+      setFillResult(res);
+      shown.current = res.filled.map((f) => ({ label: f.label, value: f.value }));
+      if (res.doc_b64) {
+        await loadPreviewDoc(res.doc_b64);
+        if (seq === previewSeq.current) await renderPage(page);
+      }
+    } catch (e) {
+      if (seq === previewSeq.current) setRenderError(`미리보기에 반영하지 못했습니다: ${errorText(e)}`);
+    } finally {
+      setBusy((b) => (b === "preview" ? "" : b));
+    }
+  }, [fillValues, file.path, sidecarCall, loadPreviewDoc, renderPage, page]);
+
+  // 값을 고치고 0.7초 쉬면 미리보기에 반영
+  const firstValues = useRef(true);
+  useEffect(() => {
+    if (loading || loadError) return;
+    if (firstValues.current) { firstValues.current = false; return; }
+    const t = setTimeout(() => void preview(), 700);
+    return () => clearTimeout(t);
+    // 값이 바뀔 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillValues, loading]);
+
+  const save = useCallback(async () => {
     if (Object.keys(fillValues).length === 0) {
       showToast("채울 값을 입력하세요", "info");
       return;
     }
-    setBusy(dryRun ? "preview" : "save");
+    const name = `${file.name.replace(/\.[^.]+$/, "")}_채움.hwpx`;
+    const dir = saveDir ?? (outputDir || dirName(file.path));
+    const target = await pickSavePath(dir ? joinPath(dir, name) : name, [{ name: "HWPX 문서", extensions: ["hwpx"] }]);
+    if (!target) return;
+    setBusy("save");
+    previewSeq.current++; // 저장 결과가 미리보기의 주인
     try {
-      const stem = file.name.replace(/\.[^.]+$/, "");
-      const res = await sidecarCall("form_fill", {
-        input_path: file.path,
-        values: fillValues,
-        dry_run: dryRun,
-        ...(dryRun ? {} : outputDir ? { output_path: joinPath(outputDir, `${stem}_채움.hwpx`) } : {}),
-      }) as FormFillRes;
+      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target }) as FormFillRes;
       setFillResult(res);
+      shown.current = res.filled.map((f) => ({ label: f.label, value: f.value }));
       if (res.doc_b64) {
         await loadPreviewDoc(res.doc_b64);
         await renderPage(page);
       }
-      if (!dryRun && res.success) {
-        showToast(`저장 완료: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
-      }
+      if (res.success) showToast(`저장했습니다: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
     } catch (e) {
-      showToast(`채우기 실패: ${e}`, "error");
+      showToast(`저장하지 못했습니다: ${errorText(e)}`, "error");
     } finally {
       setBusy("");
     }
-  }, [fillValues, file, outputDir, sidecarCall, showToast, loadPreviewDoc, renderPage, page]);
+  }, [fillValues, file, outputDir, saveDir, sidecarCall, showToast, loadPreviewDoc, renderPage, page]);
+
+  /** 칸 이름 → 값이 들어간 곳 */
+  const placeOf = useMemo(() => new Map((fillResult?.filled ?? []).map((f) => [norm(f.label), f])), [fillResult]);
 
   const filledSet = useMemo(() => new Set(fillResult?.filled.map((f) => norm(f.label)) ?? []), [fillResult]);
 
@@ -361,8 +440,8 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
         <div className="flex-1 min-w-0">
           <h2 id={titleId} className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>양식 채우기: {file.name}</h2>
           <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-            원본 서식 1바이트도 변경 없이 값만 채웁니다
-            {wasmOk === false && " · 미리보기: 문서 엔진으로 표시(WASM 대신)"}
+            원본 모양은 그대로 두고 값만 넣습니다
+            {wasmOk === false && " · 미리보기는 간단한 그림으로 보입니다"}
           </p>
         </div>
         <button onClick={onClose} type="button" className="kd-icon-btn" aria-label="닫기">
@@ -372,7 +451,7 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center gap-2" style={{ color: "var(--color-text-muted)" }}>
-          <Loader2 size={18} className="animate-spin" /> <span className="ts-sm">양식 분석 중...</span>
+          <Loader2 size={18} className="animate-spin" /> <span className="ts-sm">양식의 칸을 찾는 중</span>
         </div>
       ) : loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
@@ -450,12 +529,18 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
                       />
                     )}
 
-                    {/* 출처 배지 — "성명=홍길동 ← 명부.xlsx B2" */}
+                    {/* 출처 배지 — "성명=홍길동 ← 명부.xlsx B2" · 값이 들어간 곳 */}
                     {src && values[f.label]?.trim() && (
                       <p className="ts-2xs mt-1" style={{ color: "var(--color-text-muted)" }}>
                         {src.kind === "roster" && `← ${src.detail}`}
                         {src.kind === "existing" && "← 양식 기존 값"}
                         {src.kind === "manual" && "← 직접 입력"}
+                        {placeOf.get(norm(f.label)) && src.kind !== "existing" && (
+                          <button type="button" className="ml-2" style={{ color: focusedLabel === f.label ? "var(--color-accent)" : "inherit", textDecoration: "underline", textUnderlineOffset: 2 }}
+                            onClick={() => setFocusedLabel(f.label)}>
+                            넣은 곳: {placeText(placeOf.get(norm(f.label))!)}
+                          </button>
+                        )}
                       </p>
                     )}
                   </div>
@@ -473,7 +558,12 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
                   </div>
                   {fillResult.unmatched.length > 0 && (
                     <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
-                      못 채움: {fillResult.unmatched.join(", ")}
+                      들어갈 칸을 못 찾음: {fillResult.unmatched.join(", ")}
+                    </p>
+                  )}
+                  {(fillResult.rejected?.length ?? 0) > 0 && (
+                    <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
+                      같은 이름 칸이 여러 곳에 있어 넣지 않았습니다: {fillResult.rejected!.join(", ")}. 다른 칸을 덮지 않으려는 것이니 편집기에서 직접 넣으세요.
                     </p>
                   )}
                   {fillResult.output_path && (
@@ -486,13 +576,11 @@ export function FillWizard({ file, sidecarCall, outputDir, showToast, onClose, o
             </div>
 
             {/* 푸터 버튼 */}
-            <div className="flex gap-2 px-4 py-3 shrink-0" style={{ borderTop: "1px solid var(--color-border)" }}>
-              <Button variant="secondary" size="sm" onClick={() => doFill(true)} disabled={busy !== ""}>
-                <span className="flex items-center gap-1.5">
-                  {busy === "preview" ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />} 미리보기 반영
-                </span>
-              </Button>
-              <Button size="sm" onClick={() => doFill(false)} disabled={busy !== ""} className="flex-1">
+            <div className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <span className="ts-2xs flex-1" style={{ color: "var(--color-text-muted)" }} aria-live="polite">
+                {busy === "preview" ? "미리보기에 넣는 중" : "고치면 미리보기에 바로 보입니다"}
+              </span>
+              <Button size="sm" onClick={() => void save()} disabled={busy === "save"}>
                 <span className="flex items-center justify-center gap-1.5">
                   {busy === "save" ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} HWPX 저장
                 </span>

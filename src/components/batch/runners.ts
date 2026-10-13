@@ -1,4 +1,4 @@
-/** 한꺼번에 — 할 일별 실행 (일괄 메서드가 있으면 한 번에, 없으면 파일마다 차례로) */
+/** 서무 도구 — 할 일별 실행 (일괄 메서드가 있으면 한 번에, 없으면 파일마다 차례로) */
 
 import type { BatchItemResult, FileEntry, RpcResult } from "../../lib/contract";
 import type { BatchTaskId } from "../../state/app";
@@ -18,12 +18,18 @@ export type Outcome =
   | { kind: "files"; message: string; dir?: string }
   | { kind: "single"; message: string; path: string; folder?: boolean }
   | { kind: "extract"; message: string; path: string; columns: string[]; rows: Array<Record<string, string>> }
-  | { kind: "search"; message: string; query: string; results: RpcResult<"search_files">["results"] };
+  | { kind: "search"; message: string; query: string; results: RpcResult<"search_files">["results"] }
+  | { kind: "gather"; message: string; result: RpcResult<"collect_gather"> }
+  | { kind: "mailmerge"; message: string; result: RpcResult<"mail_merge"> };
 
 export interface RunEnv extends TaskCtx {
   files: FileEntry[];
   opts: BatchOpts;
   setRow: (path: string, s: RowState) => void;
+  /** 문서 수합: AI 연결 여부, 다시 만들 때 앞서 만든 엑셀 경로와 바꾸기 여부 */
+  gather?: { ai: boolean; previous?: string; overwrite?: boolean };
+  /** 정보공개 공개본: 가리지 않고 남길 것 (설정의 대표번호·팩스·담당자) */
+  keep?: string[];
 }
 
 const outDirOf = (o: BatchOpts) => (o.outDir ? { output_dir: o.outDir } : {});
@@ -76,9 +82,15 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
       const r = await rpc("to_hwpx_batch", { paths, preset: "auto", ...outDirOf(opts) }, o);
       return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
     }
+    case "stylecopy": {
+      if (!opts.styleId) throw new Error("맞출 서식을 먼저 고르세요. 새로 쓰기 › 우리 서식으로 맞추기에서 서식을 저장할 수 있습니다.");
+      paths.forEach((p) => env.setRow(p, { status: "run" }));
+      const r = await rpc("style_apply", { source_paths: paths, style_id: opts.styleId, ...outDirOf(opts) }, o);
+      return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
+    }
     case "redact": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("redact_batch", { paths, rules: opts.rules, ...outDirOf(opts) }, o);
+      const r = await rpc("redact_batch", { paths, rules: opts.rules, keep: env.keep ?? [], ...outDirOf(opts) }, o);
       for (const it of r.results) {
         env.setRow(it.path, it.ok
           ? { status: "ok", output: it.output_path, note: `${it.total ?? 0}건 가림${it.residual ? `, 남은 의심 ${it.residual}곳 확인 필요` : ""}` }
@@ -112,10 +124,30 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
       return { kind: "single", message: `${r.page_count}쪽짜리 합본을 만들었습니다${r.failed.length ? ` (${r.failed.length}개는 넣지 못함)` : ""}`, path: r.output_path };
     }
     case "collect": {
-      const r = await rpc("collect_run", { paths, fields: opts.collectFields, ...(opts.outDir ? { output_path: joinPath(opts.outDir, "취합.xlsx") } : {}) }, o);
-      r.failed.forEach((x) => env.setRow(x.path, { status: "fail", error: x.error }));
-      files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok" }));
-      return { kind: "single", message: `${r.rows}줄을 엑셀로 취합했습니다`, path: r.output_path };
+      paths.forEach((p) => env.setRow(p, { status: "run" }));
+      const g = env.gather;
+      const roster = opts.roster.split("\n").map((x) => x.trim()).filter(Boolean);
+      const r = await rpc("collect_gather", {
+        paths, roster, use_ai: !!g?.ai && opts.gatherAi,
+        ...(opts.deadline.trim() ? { deadline: opts.deadline.trim() } : {}),
+        ...(g?.previous ? { output_path: g.previous, overwrite: !!g.overwrite } : opts.outDir ? { output_dir: opts.outDir } : {}),
+      }, o);
+      const dept = new Map(r.status.flatMap((s) => s.files.map((f) => [f, s.dept] as const)));
+      for (const f of files) {
+        const bad = r.failed.find((x) => x.path === f.path);
+        const sep = r.separate.find((x) => x.path === f.path);
+        env.setRow(f.path, bad ? { status: "fail", error: bad.error } : { status: "ok", note: sep ? "따로 확인" : dept.get(f.name) || "모음" });
+      }
+      return { kind: "gather", message: `${r.rows}줄을 엑셀 한 장으로 모았습니다`, result: r };
+    }
+    case "print": {
+      paths.forEach((p) => env.setRow(p, { status: "run" }));
+      const r = await rpc("print_files", { files: paths, ...(opts.printer ? { printer: opts.printer } : {}) }, o);
+      for (const f of files) {
+        const bad = r.failed.find((x) => x.file === f.path);
+        env.setRow(f.path, bad ? { status: "fail", error: bad.reason } : { status: "ok", note: "보냄" });
+      }
+      return { kind: "files", message: `${r.queued}개를 프린터로 보냈습니다${r.failed.length ? `, ${r.failed.length}개는 보내지 못함` : ""}` };
     }
     case "extract": {
       const columns = opts.columns.split(",").map((s) => s.trim()).filter(Boolean);
@@ -134,7 +166,10 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
     }
     case "mailmerge": {
       const r = await rpc("mail_merge", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }), ...(opts.nameColumn.trim() ? { name_column: opts.nameColumn.trim() } : {}), ...outDirOf(opts) }, o);
-      return { kind: "single", message: `${r.outputs.length}장을 만들었습니다${r.failed.length ? `, ${r.failed.length}줄 실패(${r.failed.map((f) => `${f.row}행`).join(", ")})` : ""}`, path: r.output_dir, folder: true };
+      const message = r.outputs.length
+        ? `${r.outputs.length}장을 만들었습니다${r.failed.length ? `. ${r.failed.length}줄은 만들지 못했습니다` : ""}`
+        : "한 장도 만들지 못했습니다. 아래 줄마다 이유를 보고 명부를 고친 뒤 다시 하세요.";
+      return { kind: "mailmerge", message, result: r };
     }
     default:
       return null;

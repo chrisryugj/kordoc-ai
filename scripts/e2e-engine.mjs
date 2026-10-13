@@ -286,8 +286,10 @@ function defineChecks(f, sc) {
     }
     // 칸 이름이 하나도 안 맞는 명부는 친절한 오류로 실패해야 한다
     writeFileSync(join(FIX, 'bad-roster.csv'), '이름,부서\n홍길동,총무과\n');
-    const bad = await sc.call('mail_merge', { template: 'gian', data_path: join(FIX, 'bad-roster.csv'), output_dir: join(OUT, 'merge-bad') });
-    assert(bad.outputs.length === 0 && /칸 이름/.test(bad.failed[0]?.error ?? ''), '안 맞는 명부를 거르지 않음');
+    // 한 장도 못 만들면 고칠 것을 알리고 빈 폴더를 남기지 않는다
+    const bad = await sc.call('mail_merge', { template: 'gian', data_path: join(FIX, 'bad-roster.csv'), output_dir: join(OUT, 'merge-bad') }).then(() => null, (e) => String(e?.message ?? e));
+    assert(bad && /열 이름|칸 이름/.test(bad), `안 맞는 명부를 거르지 않음: ${bad}`);
+    assert(!existsSync(join(OUT, 'merge-bad')) || readdirSync(join(OUT, 'merge-bad')).length === 0, '실패했는데 출력 폴더에 파일이 생김');
     return r.outputs.map((p) => basename(p)).join(', ');
   });
   check('create', 'template_library·add·analyze·starter·remove', async () => {

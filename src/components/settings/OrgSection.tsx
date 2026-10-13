@@ -11,6 +11,7 @@ import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { Button } from "../ui/Button";
 import { Field, Section, SelectField, TextField } from "../common/Field";
 import { lockProps, useLocked } from "./PolicyLock";
+import { UnsavedBadge, useDirtyMark } from "./dirty";
 
 type Org = Settings["org"];
 
@@ -64,13 +65,16 @@ export function OrgSection() {
 
   const save = async () => {
     setSaving(true);
-    if (await saveSettings({ org })) toast("내 기관 정보를 저장했습니다", "success");
+    const ok = !!(await saveSettings({ org }));
+    if (ok) toast("내 기관 정보를 저장했습니다", "success");
     setSaving(false);
+    return ok;
   };
+  useDirtyMark("set-org", "내 기관 정보", dirty, save, () => setOrg(JSON.parse(savedOrg) as Org));
 
   return (
     <Section id="set-org" mark="가." title="내 기관 정보" sub="서식의 기관명·부서·담당자·전화 칸과 공문 머리·끝, 결재란, 도장에 자동으로 들어갑니다. 이 PC에만 저장됩니다."
-      aside={<Button onClick={() => void save()} disabled={!dirty || saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>}>
+      aside={<>{dirty && <UnsavedBadge />}<Button onClick={() => void save()} disabled={!dirty || saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button></>}>
       <div className="kd-fieldgrid">
         <TextField {...lp("기관명", "name")} value={org.name} onChange={(v) => set("name", v)} placeholder="예: 가온시" />
         <TextField {...lp("부서", "dept")} value={org.dept} onChange={(v) => set("dept", v)} placeholder="예: 총무과" />

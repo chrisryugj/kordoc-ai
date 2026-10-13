@@ -6,13 +6,13 @@ import { Empty } from "./Status";
 
 /** AI 가 연결돼 있지 않으면 안내만 보여 준다 */
 export function AiGate({ children }: { children: ReactNode }) {
-  const { ai, go } = useApp();
+  const { ai, openSettings } = useApp();
   if (ai?.configured) return <>{children}</>;
   return (
     <Empty
       icon={<Sparkles size={28} />}
       title="AI가 아직 연결되지 않았습니다"
-      action={<Button onClick={() => go("settings")}>AI 연결하러 가기</Button>}
+      action={<Button onClick={() => openSettings("set-ai")}>AI 연결하러 가기</Button>}
     >
       설정의 AI 연결에서 이 PC 안 모델이나 기관 AI 서버를 고르세요.
     </Empty>

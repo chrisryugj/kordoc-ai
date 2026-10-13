@@ -63,7 +63,7 @@ function Ask() {
         )}
         <div className="flex flex-col gap-1.5">
           <Button variant="secondary" size="sm" onClick={() => void pickFiles().then((p) => setPaths((cur) => [...new Set([...cur, ...p])]))}><FileUp size={13} /> 문서 붙이기</Button>
-          {docs.length > 0 && <Button variant="ghost" size="sm" onClick={() => setPaths((cur) => [...new Set([...cur, ...docs.map((d) => d.path)])])}><BookOpenText size={13} /> 작업대 문서 {docs.length}개 가져오기</Button>}
+          {docs.length > 0 && <Button variant="ghost" size="sm" onClick={() => setPaths((cur) => [...new Set([...cur, ...docs.map((d) => d.path)])])}><BookOpenText size={13} /> 연 문서 {docs.length}개 가져오기</Button>}
         </div>
       </aside>
 
@@ -72,7 +72,7 @@ function Ask() {
           <div className="kd-chat-inner">
             <ChatThread items={chat.items} onCite={onCite} empty={(
               <Empty icon={<MessageSquareText size={30} />} title={paths.length ? "붙인 문서에 물어보세요" : "먼저 문서를 붙이세요"}>
-                <span className="block">답에 붙은 번호를 누르면 근거가 있는 쪽을 작업대에서 엽니다.</span>
+                <span className="block">답에 붙은 번호를 누르면 근거가 있는 쪽을 문서 화면에서 엽니다.</span>
                 {paths.length > 0 && (
                   <span className="mt-3 flex flex-wrap justify-center gap-1.5">
                     {SUGGEST.map((s) => <button key={s} type="button" className="kd-chip" onClick={() => send(s)}>{s}</button>)}
@@ -144,7 +144,7 @@ function Rewrite() {
         {result && !task.busy && (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(result).then(() => toast("복사했습니다", "success"))}><Copy size={14} /> 복사</Button>
-            <Button variant="secondary" onClick={() => startCreate({ route: "ai", markdown: result })}><FilePen size={14} /> 공문서 만들기로 보내기</Button>
+            <Button variant="secondary" onClick={() => startCreate({ route: "ai", markdown: result })}><FilePen size={14} /> 새로 쓰기로 보내기</Button>
             {!!task.result?.redacted && <span className="kd-small kd-muted self-center">개인정보 {task.result.redacted}건을 가리고 보냈습니다</span>}
           </div>
         )}
@@ -160,8 +160,8 @@ export function AssistantScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="AI 비서" sub="문서를 붙여 놓고 묻거나, 쓴 글을 공문서답게 다듬습니다.">
-        <div className="kd-tabs kd-head-tabs" role="tablist" aria-label="AI 비서">
+      <ScreenHeader title="물어보기" sub="문서를 붙여 놓고 묻거나, 쓴 글을 공문서답게 다듬습니다.">
+        <div className="kd-tabs kd-head-tabs" role="tablist" aria-label="물어보기">
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "ask"} onClick={() => setTab("ask")}>묻기</button>
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "rewrite"} onClick={() => setTab("rewrite")}>다듬기</button>
         </div>

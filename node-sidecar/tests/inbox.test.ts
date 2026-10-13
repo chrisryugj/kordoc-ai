@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { call, corpus, hasCorpus, sample, setupEnv } from './doc-helpers.js';
 import { extractInbox } from '../src/core/inbox/extract.js';
 import { inboxId } from '../src/core/inbox/index.js';
+import { ocrModelsReady } from '../src/core/system/index.js';
+import { markdownToHwpx, parse } from 'kordoc';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -207,4 +209,43 @@ describe('실문서 (kordoc 코퍼스, 읽기만)', () => {
     expect(kickoff.due).toBeUndefined();
     expect(existsSync(corpus(MOLIT))).toBe(true);
   }, 30_000);
+});
+
+describe('접수대장 엑셀 (inbox_export)', () => {
+  it('열 10개, 할 일 먼저 기한 순, 상태·메모·요청 기한', async () => {
+    const a = join(env.work, '대장_가.txt');
+    const b = join(env.work, '대장_나.txt');
+    writeFileSync(a, letter('2. 결과를 2026. 10. 30.까지 제출하여 주시기 바랍니다.'));
+    writeFileSync(b, letter('2. 명단을 2026. 10. 15.까지 회신하여 주시기 바랍니다.'));
+    const r = await call('inbox_add', { paths: [a, b] });
+    await call('inbox_update', { id: r.items[0].id, note: '팀장 확인' });
+    const x = await call('inbox_export', {});
+    expect(x.count).toBeGreaterThanOrEqual(2);
+    const back = await parse(readFileSync(x.output_path));
+    if (!back.success) throw new Error(back.error);
+    const table = back.blocks.find((bl) => bl.type === 'table')!.table!;
+    const grid = table.cells.map((row) => row.map((c) => c.text));
+    expect(grid[0]).toEqual(['접수일', '보낸 곳', '문서번호', '시행일', '제목', '요청 사항', '기한', '상태', '메모', '파일']);
+    const ia = grid.findIndex((row) => row[9] === '대장_가.txt');
+    const ib = grid.findIndex((row) => row[9] === '대장_나.txt');
+    expect(ib).toBeLessThan(ia);
+    expect(grid[ia].slice(1, 9)).toEqual(['가온도', '가온도 총무과-100', '2026-10-02', '시험 공문', '결과를 제출 (2026-10-30까지)', '2026-10-30', '할 일', '팀장 확인']);
+    expect(grid[ia][0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    for (const it of r.items) await call('inbox_remove', { id: it.id });
+  }, 30_000);
+});
+
+describe('한글 공문 속 그림 글자 (OCR 모델이 있을 때)', () => {
+  it.skipIf(!ocrModelsReady())('그림으로 넣은 기한 안내까지 읽는다, 그림 없는 공문은 그대로', async () => {
+    const sharp = (await import('sharp')).default;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="160"><rect width="100%" height="100%" fill="#fff"/><text x="20" y="100" font-size="44" font-family="Apple SD Gothic Neo, Malgun Gothic, NanumGothic, sans-serif">회신 기한 2026. 10. 30.까지 제출</text></svg>';
+    const png = await sharp(Buffer.from(svg)).png().toBuffer();
+    const md = ['가온도', '수신 가온시장(총무과장)', '제목 그림 속 기한 시험', '1. 붙임 안내를 참고하여 주시기 바랍니다.', `![안내](data:image/png;base64,${png.toString('base64')})`, '가온도지사', '시행 총무과-100 (2026. 10. 2.)'].join('\n\n');
+    const p = join(env.work, '그림 공문.hwpx');
+    writeFileSync(p, Buffer.from(await markdownToHwpx(md)));
+    const r = await call('inbox_add', { paths: [p] });
+    expect(r.failed).toEqual([]);
+    expect(r.items[0].due).toBe('2026-10-30');
+    await call('inbox_remove', { id: r.items[0].id });
+  }, 60_000);
 });

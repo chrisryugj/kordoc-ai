@@ -49,6 +49,15 @@ describe('compare', () => {
     expect(r.output_path).toBeUndefined();
   });
 
+  it('못 읽는 쪽을 한국어로 짚는다 ("문서B 파싱 실패" 대신 새 문서)', async () => {
+    const broken = join(env.work, '깨진_개정안.hwpx');
+    writeFileSync(broken, 'not a zip');
+    const err = await call('compare', { old_path: oldPath, new_path: broken }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/^새 문서를 읽지 못했습니다\./);
+    expect((err as Error).message).not.toMatch(/문서B|파싱/);
+  });
+
   it('HTML·MD·XLSX 내보내기', async () => {
     const html = await call('compare', { old_path: oldPath, new_path: newPath, export: 'html' });
     const h = readFileSync(html.output_path, 'utf-8');

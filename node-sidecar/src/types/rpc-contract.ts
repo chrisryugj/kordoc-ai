@@ -47,6 +47,12 @@ export interface LintFinding {
   suggestion?: string;
   /** 바꿀 말이 정해진 지적(쉬운 말·순화어·날짜 띄어쓰기) — lint_fix 로 서식 그대로 고칠 수 있다 */
   fix?: { from: string; to: string };
+  /** 화면에 보일 갈래 이름 (규칙 코드 대신, 예: 날짜 표기·금액 표기) */
+  category?: string;
+  /** 걸린 곳을 감싼 낱말들 (마크다운 표지를 걷어 낸 화면용 발췌) */
+  context?: string;
+  /** 걸린 곳이 있는 쪽 (알 때만, 1부터) */
+  page?: number;
 }
 
 export type RedactRule = 'rrn' | 'phone' | 'email' | 'card' | 'account' | 'passport' | 'driver' | 'brn' | 'crn' | 'ip' | 'name' | 'address';
@@ -122,12 +128,19 @@ export interface RpcMethods {
   template_fields: [{ template?: string; path?: string }, { fields: Array<{ name: string; label?: string; multiline?: boolean }> }];
   template_fill: [{ template?: string; path?: string; values: Record<string, string>; output_path?: string }, { output_path: string; filled: string[]; unmatched: string[] }];
   /** 명부(xlsx·csv) 한 줄 = 문서 한 장 */
-  mail_merge: [{ template_path?: string; template?: string; data_path: string; name_column?: string; output_dir?: string }, { outputs: string[]; failed: Array<{ row: number; error: string }>; output_dir: string }];
+  /** org(기본 true): 명부에 없는 칸은 내 기관 정보로. 날짜·전화 열은 같은 모양으로. output_dir 는 한 장이라도 만들었을 때만(아니면 ''). 파일 번호는 1부터.
+   *  rejected: 같은 이름 칸이 양식 여러 곳에 있어 넣지 않은 열 */
+  mail_merge: [{ template_path?: string; template?: string; data_path: string; name_column?: string; output_dir?: string; org?: boolean }, { outputs: string[]; failed: Array<{ row: number; error: string }>; output_dir: string; rejected?: string[] }];
+  /** 명부를 돌리기 전에 짝 보기 — 명부 열마다 들어갈 양식 칸, 양식 칸마다 채울 열(없으면 내 기관 정보 값) */
+  mail_merge_plan: [{ template_path?: string; template?: string; data_path: string; org?: boolean }, MailMergePlan];
+  /** 새로 쓰기 작업 사본 경로 — 앱 데이터 폴더의 '작업 사본'(문서 폴더에 초안이 쌓이지 않게). 같은 이름이 있으면 (2) */
+  working_path: [{ name: string }, { path: string; dir: string }];
   /** 공문서 표기법 검사 (kordoc 표기 규칙) — text 또는 path */
   lint: [{ text?: string; path?: string; numbers?: boolean; styles?: boolean; munche?: boolean }, { findings: LintFinding[]; counts: { error: number; warning: number; info: number } }];
   /** 개인정보 마스킹 — HWPX·HWP 는 서식 그대로(+잔존 재검사), 그 밖은 가린 .md */
-  redact: [{ path: string; rules?: RedactRule[]; mask_char?: string; dry_run?: boolean; output_path?: string }, RedactResult];
-  redact_batch: [{ paths: string[]; rules?: RedactRule[]; mask_char?: string; output_dir?: string }, { results: Array<BatchItemResult & { total?: number; residual?: number }>; output_dir: string }];
+  /** keep: 가리지 않고 남길 글(기관 대표번호·담당 공무원 이름 등). PDF·스캔·그림은 검은 상자를 칠한 쪽 그림 PDF(글자층 없음). also_pdf: 한글 문서를 가린 뒤 PDF 로도 */
+  redact: [{ path: string; rules?: RedactRule[]; mask_char?: string; dry_run?: boolean; output_path?: string; keep?: string[]; also_pdf?: boolean }, RedactResult];
+  redact_batch: [{ paths: string[]; rules?: RedactRule[]; mask_char?: string; output_dir?: string; keep?: string[] }, { results: Array<BatchItemResult & { total?: number; residual?: number }>; output_dir: string }];
   seal: [{ path: string; image_path: string; anchor: string; output_path?: string }, { output_path: string; placed: number }];
   /** 고친 글(md)을 원본 HWPX·HWP 에 서식 그대로 반영. 글은 convert(keep_layout:true) 로 뽑은 것 */
   /** 고른 표기 지적(fix)만 문서에 반영한 사본 — 서식 그대로(kordoc 패치·무결성 검사). HWPX·HWP */
@@ -155,12 +168,20 @@ export interface RpcMethods {
   /** 사람이 고친 기한·상태·메모 (due null 이면 뽑은 기한으로 되돌림) */
   inbox_update: [{ id: string; status?: 'todo' | 'done'; due?: string | null; note?: string }, InboxItem];
   inbox_remove: [{ id: string }, boolean];
+  /** 접수대장 엑셀 — 접수일·보낸 곳·문서번호·시행일·제목·요청 사항·기한·상태·메모·파일 (할 일 먼저 기한 순) */
+  inbox_export: [{ output_path?: string }, { output_path: string; count: number }];
 
   // ── 법령 근거 확인 (methods/law.ts) ──
   /** 글·문서 속 「법령명」 제N조 인용을 찾아 법제처 현행 법령과 대조 (인터넷·OC 필요, 폐쇄망이면 찾기만) */
   law_check: [{ text?: string; path?: string }, LawCheckResult];
   /** 설정의 OC 로 법제처에 한 번 물어 연결 확인 */
   law_test: [Record<string, never>, { ok: boolean; error?: string }];
+
+  // ── 결재 전 점검 (methods/review.ts) ──
+  /** AI 없이 빠른 검사를 한 목록으로 — 표기법·날짜와 요일·표 합계·끝. 표시·빈칸 안내 글자·남은 개인정보(정보공개 기준, keep 제외). 쪽은 알 때만 */
+  precheck: [{ path: string; munche?: boolean; keep?: string[] }, PrecheckResult];
+  /** 글이 처음 나오는 쪽 (한글은 rhwp 조판, PDF 는 쪽 글. 못 찾거나 쪽이 없는 형식은 null) */
+  find_pages: [{ path: string; texts: string[] }, { pages: Array<number | null> }];
 
   // ── AI (methods/ai.ts) ──
   ai_status: [Record<string, never>, AiStatus];
@@ -212,6 +233,12 @@ export interface RpcMethods {
   collect_fields: [{ paths: string[] }, { fields: Array<{ label: string; count: number }> }];
   /** 취합 — 고른 칸들을 문서마다 한 줄로 엑셀 */
   collect_run: [{ paths: string[]; fields: string[]; output_path?: string }, { output_path: string; rows: number; failed: BatchItemResult[] }];
+  /** 문서 수합 — 부서 명단 읽기: 붙여 넣은 글(줄·쉼표마다 하나) 또는 명단 파일(엑셀·CSV 의 부서 열, 한글·워드·PDF 의 첫 표나 줄) */
+  collect_roster: [{ text?: string; path?: string }, { names: string[] }];
+  /** 문서 수합 — 부서 제출물(HWPX·HWP·엑셀·CSV·PDF·워드 섞임) → 엑셀 한 장(제출물마다 한 줄·합계 행·빈 필수 칸 노란 표시 + "제출 현황" 시트)
+   *  + 미제출 부서·독촉 글. 같은 서식은 칸(누름틀·라벨 표)으로, 엑셀은 열 이름을 맞춰 행으로 잇고, 다른 서식은 use_ai 면 AI 로 뽑고 아니면 separate 로.
+   *  overwrite: 늦게 온 파일을 더 넣어 같은 파일을 다시 만들 때(사용자가 바꾸기를 확인함) */
+  collect_gather: [CollectGatherParams, CollectGatherResult];
   /** 사용자가 고른 경로에 바이트 저장 (편집기 내보내기 등). 허용 확장자: hwp·hwpx·hml·pdf·md·txt·html·csv·xlsx·png */
   write_file: [{ path: string; data_b64: string; overwrite?: boolean }, { path: string }];
   /** preview: HWPX 의 빈 누름틀 안내문을 글로 넣은 미리보기 사본 (rhwp 가 안내문 폭을 0으로 잡아 뒤 글자가 겹치는 것 우회) */
@@ -244,6 +271,18 @@ export interface RpcMethods {
   // ── 한글 편집기(rhwp) (methods/editor.ts — 리드) ──
   /** 내장 rhwp-studio 를 127.0.0.1 임시 포트로 띄움. 프론트는 host_url 을 iframe 으로 (프로토콜: types/editor-bridge.ts) */
   editor_server: [Record<string, never>, { host_url: string; studio_version: string }];
+
+  // ── 우리 서식으로 맞추기 (methods/style.ts — E) ──
+  /** 견본 HWPX·HWP 에서 서식(용지·여백·본문 글꼴·줄 간격·항목 기호·단계별 글꼴·제목 모양·쪽 번호·표 모양) 읽기 */
+  style_extract: [{ path: string }, { format: StyleFormat; warnings: string[] }];
+  /** 서식 미리보기 — 가상의 짧은 글을 그 서식으로 만든 HWPX (rhwp 로 그린다) */
+  style_preview: [{ style_id?: string; format?: StyleFormat }, { preview_hwpx_b64: string }];
+  /** 읽은 서식을 이름 붙여 저장 (앱 데이터 폴더 styles/index.json) */
+  style_save: [{ name: string; format: StyleFormat }, StyleEntry];
+  style_list: [Record<string, never>, { styles: StyleEntry[] }];
+  style_delete: [{ id: string }, boolean];
+  /** 내용 문서(HWPX·HWP·PDF·워드·마크다운·글)를 그 서식으로 새 HWPX. "<원래 이름>_우리서식.hwpx" (덮어쓰지 않음) */
+  style_apply: [{ source_paths: string[]; style_id?: string; sample_path?: string; output_dir?: string }, { results: BatchItemResult[]; output_dir: string; summary: string }];
 }
 
 export type RpcMethod = keyof RpcMethods;
@@ -339,6 +378,44 @@ export interface InboxItem {
   note?: string;
 }
 
+export interface CollectGatherParams {
+  paths: string[];
+  /** 부서 명단 (collect_roster 로 읽은 이름). 없으면 부서 칸·파일 이름에서 짐작하고 미제출은 모른다 */
+  roster?: string[];
+  /** 같은 서식에서 쓸 칸 (없으면 문서 절반 이상에 있는 칸) */
+  fields?: string[];
+  /** 독촉 글에 넣을 제출 기한 (글 그대로, 예: "10. 20.(화)") */
+  deadline?: string;
+  /** 서식이 다른 문서를 AI 로 뽑기 (AI 연결이 없으면 무시하고 separate 로) */
+  use_ai?: boolean;
+  output_path?: string;
+  /** output_path 가 없을 때 저장할 폴더 (이름은 "<제목>_수합.xlsx") */
+  output_dir?: string;
+  overwrite?: boolean;
+}
+
+export interface CollectGatherResult {
+  output_path: string;
+  /** 첫 시트 자료 행 수 (합계 행 빼고) */
+  rows: number;
+  /** 엑셀 열 (제출 파일·부서 빼고). required 는 빈칸을 세는 열 */
+  columns: Array<{ label: string; required: boolean; total?: number }>;
+  /** 같은 서식 문서·엑셀·AI 로 뽑은 문서 수 */
+  by_kind: { form: number; excel: number; ai: number };
+  /** 서식이 달라 따로 봐야 할 문서 */
+  separate: Array<{ path: string; dept: string; reason: string }>;
+  failed: BatchItemResult[];
+  /** 빈 필수 칸 수 */
+  blanks: number;
+  /** 제출 현황 — 명단 순서, 그 뒤 명단에 없는 부서·부서를 모르는 파일(dept '') */
+  status: Array<{ dept: string; in_roster: boolean; submitted: boolean; files: string[]; blanks: number }>;
+  missing: string[];
+  /** 미제출 부서에 보낼 독촉 글 (미제출이 없으면 '') */
+  reminder: string;
+  /** 제출물 제목 (가장 많은 서식의 첫 제목, 독촉 글에 씀) */
+  title: string;
+}
+
 /** 글 속 법령 인용 한 건과 법제처 대조 결과 (law_check) */
 export interface LawCitation {
   /** 원문 인용 그대로 (예: 「개인정보 보호법」 제17조제1항) */
@@ -407,6 +484,29 @@ export interface RedactResult {
   residual: number;
   /** 서식 보존(HWPX·HWP) 여부 — false 면 .md 로 냈다 */
   preserved: boolean;
+  /** also_pdf 로 함께 저장한 PDF */
+  pdf_path?: string;
+  /** residual 중 글자를 읽지 못한 부분(그림·스캔 쪽) 수 */
+  unscanned?: number;
+  /** 글자를 읽지 못한 쪽 번호 (PDF·스캔) */
+  unscanned_pages?: number[];
+  /** 이번에 보지 않은 개인정보 항목 — "남은 곳 없음"과 함께 밝힌다 */
+  unchecked_rules?: RedactRule[];
+  /** 남길 것(keep)이라 가리지 않은 곳 수 */
+  kept?: number;
+}
+
+export interface PrecheckResult {
+  /** 심각한 것부터 (같은 심각도는 문서 순서). rule 이 PRIVACY_* 면 개인정보, EMPTY_FIELD 는 빈 누름틀, SUM_MISMATCH 는 표 합계 */
+  items: LintFinding[];
+  counts: { error: number; warning: number; info: number };
+  /** 바꿀 값이 정해져 lint_fix 로 서식 그대로 고칠 수 있는 지적 수 (한글 문서만) */
+  fixable: number;
+  /** 본 것 (화면의 "본 것" 줄) */
+  checked: string[];
+  /** 보지 못한 것과 까닭 */
+  skipped: string[];
+  page_count?: number;
 }
 
 export interface AiStatus {
@@ -441,6 +541,13 @@ export interface ReviewIssue {
   location?: string;
   message: string;
   suggestion?: string;
+}
+
+export interface MailMergePlan {
+  rows: number;
+  columns: Array<{ name: string; fields: string[]; sample?: string }>;
+  fields: Array<{ name: string; column?: string; org?: string }>;
+  rejected: string[];
 }
 
 export interface TemplateEntry {
@@ -495,4 +602,58 @@ export interface SecurityStatus {
   data_dir: string;
   /** 사용 통계 전송 — 없음 */
   telemetry: false;
+}
+
+/** 견본에서 읽은 서식 (우리 서식으로 맞추기). 길이는 mm, 글자 크기는 pt */
+export interface StyleFormat {
+  version: 1;
+  /** 문서 갈래 (kordoc 공문서 프리셋 id) */
+  preset: string;
+  paper: { size: 'A4' | 'A3' | 'B4' | 'B5' | 'Letter' | 'custom'; width_mm: number; height_mm: number; landscape: boolean };
+  /** header·footer 는 머리말·꼬리말 영역 */
+  margins: { top: number; bottom: number; left: number; right: number; header: number; footer: number };
+  body: { font: string; pt: number; line_spacing: number; gothic: boolean };
+  /** standard = 1. 가. 1) / report = □ ○ - ㆍ / none = 항목 기호 없음. markers 는 단계 차례의 실제 기호 */
+  numbering: { scheme: 'standard' | 'report' | 'none'; markers: string[]; bullet2?: string };
+  levels: Array<{ depth: number; marker: string; font: string; pt: number; bold: boolean; count: number }>;
+  /** box = 맨 위 제목 상자, center·left = 제목 줄, head = 기안문 두문(수신·제목 표) */
+  title: { kind: 'box' | 'center' | 'left' | 'head' | 'none'; font?: string; pt?: number; bold?: boolean };
+  /** ※ 참고 줄 */
+  ref?: { glyph: string; font: string; pt: number };
+  page_numbers: boolean;
+  /** 표지·목차 쪽 (org = 표지의 기관 이름) */
+  front?: { cover: boolean; toc: boolean; org?: string };
+  /** 장(Ⅰ. Ⅱ.) — band = 장 띠 표, roman = 글 줄. 없으면 내용 문서의 장 제목을 첫 단계 항목으로 */
+  chapters?: { count: number; style: 'band' | 'roman' };
+  /** 표 모양 — 머리 줄·본문 칸의 글꼴·크기·굵기·음영·선 */
+  table?: StyleTable;
+  /** 기안문 두문의 기관 이름·표어 */
+  head?: { org?: string; slogan?: string };
+  /** 사람이 읽는 한 줄 요약 */
+  summary: string;
+  /** plain_chars = 기호 없는 서술 문단 글자 수 */
+  stats: { paragraphs: number; chars: number; plain_chars?: number };
+}
+
+export interface StyleTableCell {
+  font?: string;
+  pt?: number;
+  bold?: boolean;
+  fill?: string;
+  border?: { type: string; width: string; color: string };
+}
+
+export interface StyleTable {
+  header: StyleTableCell;
+  body: StyleTableCell;
+  /** 표 바깥 선 */
+  outer?: StyleTableCell['border'];
+}
+
+export interface StyleEntry {
+  id: string;
+  name: string;
+  summary: string;
+  created_at: string;
+  format: StyleFormat;
 }

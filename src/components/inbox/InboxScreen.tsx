@@ -1,7 +1,7 @@
 /** 받은 공문 — 받은 공문의 보낸 곳·제목·요청 사항·기한을 한 표로, 기한 배지와 회신 초안으로 잇는다 */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FilePlus2, FlaskConical, Inbox } from "lucide-react";
+import { FilePlus2, FlaskConical, Inbox, Sheet } from "lucide-react";
 import { useApp } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
 import { pickFiles } from "../../lib/native";
@@ -11,7 +11,7 @@ import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { Seg } from "../common/Field";
-import { Empty, ErrorLine, Note, Working } from "../common/Status";
+import { Empty, ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { daysLeft, sortItems, todayIso, urgentCount, type InboxItem } from "./dday";
 import { InboxRow, type InboxPatch } from "./InboxRow";
 import "./inbox.css";
@@ -29,6 +29,7 @@ export function InboxScreen({ active }: { active: boolean }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [failed, setFailed] = useState<Failed>([]);
   const adding = useTask<number>();
+  const ledger = useTask<{ output_path: string; count: number }>();
   const today = todayIso();
 
   const setFilter = (f: Filter) => { setFilterState(f); writePref("kordoc-inbox-filter", f); };
@@ -72,6 +73,7 @@ export function InboxScreen({ active }: { active: boolean }) {
   useEffect(() => registerDrop("inbox", (p) => void add(p)), [registerDrop, add]);
 
   const pick = () => void pickFiles({ filters: LETTER_FILTER }).then((p) => add(p));
+  const exportLedger = () => void ledger.run(() => rpc("inbox_export", {}));
 
   const trySample = async () => {
     try {
@@ -120,12 +122,18 @@ export function InboxScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="받은 공문" sub="받은 공문의 요청 사항과 제출 기한을 한눈에 보고, 바로 회신을 씁니다."
-        actions={<Button variant="secondary" onClick={pick} disabled={adding.busy}><FilePlus2 size={15} /> 공문 추가</Button>} />
+      <ScreenHeader title="접수함" sub="받은 공문의 요청 사항과 제출 기한을 한눈에 보고, 바로 회신을 씁니다."
+        actions={(
+          <>
+            {!!items?.length && <Button variant="secondary" onClick={exportLedger} disabled={ledger.busy}><Sheet size={15} /> 접수대장 엑셀</Button>}
+            <Button variant="secondary" onClick={pick} disabled={adding.busy}><FilePlus2 size={15} /> 공문 추가</Button>
+          </>
+        )} />
       <div className="kd-body kd-inbox-drop" data-drop="inbox" data-over={dragTarget === "inbox" && !!items?.length}>
         <div className="kd-inbox">
           {adding.busy && <Working label="공문을 읽는 중" progress={adding.progress} onCancel={adding.cancel} />}
-          <ErrorLine message={adding.error || loadError} />
+          <ErrorLine message={adding.error || loadError || ledger.error} />
+          {ledger.result && !ledger.busy && <SavedFile path={ledger.result.output_path} label={`접수대장을 엑셀로 저장했습니다 (${num(ledger.result.count)}건)`} />}
           {failed.length > 0 && (
             <Note tone="warn">
               <div className="flex items-start justify-between gap-3">

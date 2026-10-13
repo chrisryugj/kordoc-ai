@@ -13,7 +13,6 @@ import { Field, Seg } from "../../common/Field";
 import { AiGate, AiWhere } from "../../common/AiGate";
 import { ChatThread } from "../../common/ChatThread";
 import { ErrorLine } from "../../common/Status";
-import { FollowUp } from "./FollowUp";
 
 type Style = "standard" | "briefing" | "review" | "action";
 type Length = "short" | "medium" | "long";
@@ -86,8 +85,6 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
             </div>
           )}
         </section>
-
-        <FollowUp doc={doc} />
 
         <section className="flex flex-col gap-3" aria-labelledby="ask-t">
           <h3 id="ask-t" className="kd-h2">이 문서에 묻기</h3>

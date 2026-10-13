@@ -26,17 +26,6 @@ export async function openPdf(bytes: Uint8Array, password?: string): Promise<PDF
   }
 }
 
-/** PDFium 의 BGRA → RGBA (sharp raw 입력) */
-export function bgraToRgba(data: Uint8Array): Buffer {
-  const out = Buffer.from(data);
-  for (let i = 0; i < out.length; i += 4) {
-    const b = out[i];
-    out[i] = out[i + 2];
-    out[i + 2] = b;
-  }
-  return out;
-}
-
 /** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배). width·height 는 pt 원본 크기 */
 export async function rasterPdfPage(
   doc: PDFiumDocument,
@@ -50,7 +39,8 @@ export async function rasterPdfPage(
   // @hyzyla/pdfium 은 원본 폭을 내림한 뒤 배율을 곱하고 다시 내림한다 → 내림한 폭 기준 + 아주 조금 키워 정확히 maxWidth
   const scale = Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), 4);
   const r = await page.render({ scale, render: async ({ data }) => data });
-  const img = sharp(bgraToRgba(r.data), { raw: { width: r.width, height: r.height, channels: 4 } });
+  // @hyzyla/pdfium 의 bitmap 은 이미 RGBA 다 (BGRA 로 보고 바꾸면 빨강이 파랑이 됨: 실측)
+  const img = sharp(Buffer.from(r.data), { raw: { width: r.width, height: r.height, channels: 4 } });
   const data = as === 'png' ? await img.png({ compressionLevel: 6 }).toBuffer() : await img.flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer();
   return { data, width: originalWidth, height: originalHeight, pxWidth: r.width, pxHeight: r.height };
 }

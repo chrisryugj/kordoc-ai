@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, basename } from 'node:path';
 import {
-  parse, extractFormSchema, fillHwpx, patchHwpxBlocks, compare,
+  parse, extractFormSchema, fillHwpx, fillWithUniqueGuard, patchHwpxBlocks, compare,
   type FormFieldSchema, type BlockEdit, type DiffResult,
 } from 'kordoc';
 import { outputFile, stemOf } from '../output/index.js';
@@ -29,6 +29,20 @@ function toArrayBuffer(buf: Buffer): ArrayBuffer {
 
 /** 미리보기/편집용 문서 바이트 동봉 상한 — IPC JSON 직렬화 비용 가드 */
 const MAX_INLINE_DOC_BYTES = 30 * 1024 * 1024;
+
+// ── 표 머리 행 ──
+
+/** 표 머리 칸에 흔히 쓰는 말 — "항목 | 내용", "구분 | 내용" 같은 머리 행은 채울 칸이 아니다 */
+const HEADER_WORDS = new Set(['항목', '항목명', '내용', '세부내용', '구분', '분류', '비고', '값', '사항', '기재사항', '기재내용', '기재란', '작성란', '입력란']);
+const headerWord = (s: string) => HEADER_WORDS.has(s.replace(/[\s:：()（）·*※★]/g, ''));
+
+/** 라벨과 값이 모두 머리 말이면 표 머리 행 (예: 항목 | 내용) */
+export function isHeaderField(label: string, value: string): boolean {
+  return headerWord(label) && headerWord(value);
+}
+
+/** 값을 넣은 곳 — 표 칸 좌표(0부터). 누름틀·표 밖 본문은 target 없음 */
+export interface FillTarget { table: number; row: number; col: number }
 
 // ── form_schema ──
 
@@ -65,7 +79,8 @@ export async function formSchema(params: FormSchemaParams, signal?: AbortSignal)
     return { success: false, fields: [], confidence: 0, fillable: false, error: result.error };
   }
 
-  const schema = extractFormSchema(result.blocks);
+  const raw = extractFormSchema(result.blocks);
+  const schema = { ...raw, fields: raw.fields.filter((f) => !isHeaderField(f.label, f.value)) };
   const hwpx = isZip(buffer) && result.fileType === 'hwpx';
   const out: FormSchemaRpcResult = {
     success: true,
@@ -97,8 +112,11 @@ export interface FormFillParams {
 
 export interface FormFillRpcResult {
   success: boolean;
-  filled: Array<{ label: string; value: string }>;
+  /** target: 값을 쓴 표 칸 (kordoc fillHwpx filled[].target). source 'clickhere' 는 누름틀 */
+  filled: Array<{ label: string; value: string; target?: FillTarget; source?: 'clickhere' }>;
   unmatched: string[];
+  /** 같은 이름 칸이 여러 곳이라 남의 칸을 덮지 않으려고 넣지 않은 이름 (fillWithUniqueGuard) */
+  rejected: string[];
   output_path: string;
   /** 재파싱 검증: 채움 전→후 diff에서 modified 수 (changes ≥ filled 수 미만이면 정상 범위) */
   verification: { reparse_ok: boolean; changed_blocks: number };
@@ -122,7 +140,9 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   signal?.throwIfAborted();
 
   sendProgress({ current: 1, total: 3, message: '원본 서식 그대로 값을 채우는 중...' });
-  const fill = await fillHwpx(toArrayBuffer(buffer), values);
+  // 같은 이름이 여러 곳에 있는 칸은 넣지 않고 알린다 (대표자 칸에 다른 사람 값이 들어가는 일을 막는다)
+  const src = toArrayBuffer(buffer);
+  const fill = await fillWithUniqueGuard(values, (v, blocked) => fillHwpx(src, v, blocked));
   const filledBuf = Buffer.from(fill.buffer);
 
   // 재파싱 검증 — 채움 결과가 파싱 가능하고 변경이 채움 범위 안인지 기계 증명
@@ -149,8 +169,9 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
 
   return {
     success: true,
-    filled: fill.filled.map((f) => ({ label: f.label, value: f.value })),
+    filled: fill.filled.map((f) => ({ label: f.label, value: f.value, ...(f.target ? { target: f.target } : {}), ...(f.source ? { source: f.source } : {}) })),
     unmatched: fill.unmatched,
+    rejected: fill.rejected,
     output_path: outPath,
     verification,
     ...(include_doc && filledBuf.length <= MAX_INLINE_DOC_BYTES ? { doc_b64: filledBuf.toString('base64') } : {}),

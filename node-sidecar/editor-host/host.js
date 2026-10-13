@@ -308,6 +308,27 @@ function forwardSaveKey(win) {
   }, true);
 }
 
+// 스튜디오 상태 줄의 개발자용 시간 표시 "(138.6ms)" 를 지운다 — 스튜디오 파일은 그대로 두고 같은 출처 iframe 의 글만 다듬는다
+function hideTimings(win) {
+  const doc = win.document;
+  const clean = (el) => {
+    const t = el.textContent || '';
+    const c = t.replace(/\s*\(\d+(?:\.\d+)?\s*ms\)/g, '');
+    if (c !== t) el.textContent = c;
+  };
+  const attach = () => {
+    const el = doc.getElementById('sb-message');
+    if (!el) return false;
+    clean(el);
+    new win.MutationObserver(() => clean(el)).observe(el, { childList: true, characterData: true, subtree: true });
+    return true;
+  };
+  if (!attach()) {
+    const mo = new win.MutationObserver(() => { if (attach()) mo.disconnect(); });
+    mo.observe(doc.documentElement, { childList: true, subtree: true });
+  }
+}
+
 (async () => {
   if (!parentOk) {
     document.getElementById('boot').textContent = '허용되지 않은 위치에서 열렸습니다.';
@@ -317,6 +338,7 @@ function forwardSaveKey(win) {
     const version = await fetch('./version.json').then((r) => r.json()).catch(() => ({ studio: 'unknown' }));
     studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'] });
     forwardSaveKey(studio.element.contentWindow);
+    try { hideTimings(studio.element.contentWindow); } catch { /* 상태 줄 다듬기는 덤 */ }
     document.getElementById('boot').remove();
     send({ kd: 'event', type: 'ready', studioVersion: version.studio });
   } catch (err) {

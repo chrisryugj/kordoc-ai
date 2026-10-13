@@ -181,19 +181,16 @@ function RewriteTab() {
 
 function ReviewTab() {
   const { ai } = useApp();
-  const { session, ensureSaved, syncDirty, call } = useCreate();
+  const { outputFile, call } = useCreate();
   const review = useTask<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }>();
-  const run = () => void review.run(async ({ signal }) => {
-    const path = (await syncDirty()) ? await ensureSaved() : session?.path;
-    if (!path) throw new Error("검토하려면 먼저 파일을 저장하세요.");
-    return rpc("ai_review", { path }, { signal });
-  });
+  // 지금 편집기 내용으로 검토한다 (저장 창 없이, 고친 게 있으면 작업 사본으로)
+  const run = () => void review.run(async ({ signal }) => rpc("ai_review", { path: await outputFile() }, { signal }));
   if (!ai?.configured) return <Note tone="info">AI 연결이 필요합니다. 설정의 AI 연결에서 고르세요.</Note>;
   return (
     <div className="flex flex-col gap-3">
-      <p className="kd-small kd-muted">결재 올리기 전 팀장 눈으로 앞뒤 논리, 숫자, 날짜와 요일을 봅니다.{session?.dirty ? " 고친 내용을 먼저 저장한 뒤 검토합니다." : ""}</p>
+      <p className="kd-small kd-muted">결재 올리기 전 팀장 눈으로 앞뒤 논리, 숫자, 날짜와 요일을 봅니다. 지금 편집기 내용 그대로 봅니다.</p>
       {review.busy ? <Working label="검토하는 중" onCancel={review.cancel} /> : (
-        <Button onClick={run}><ClipboardCheck size={14} /> {session?.dirty ? "저장하고 검토 받기" : "검토 받기"}</Button>
+        <Button onClick={run}><ClipboardCheck size={14} /> 검토 받기</Button>
       )}
       <ErrorLine message={review.error} />
       {review.result && (

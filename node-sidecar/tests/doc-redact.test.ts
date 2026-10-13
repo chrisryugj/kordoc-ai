@@ -32,7 +32,7 @@ describe('redact', () => {
     expect(r.hits.map((h: { rule: string }) => h.rule)).toEqual(expect.arrayContaining(['rrn', 'phone']));
     const json = JSON.stringify(r);
     for (const v of raw) expect(json).not.toContain(v);
-    expect(r.output_path).toMatch(/_마스킹\.hwpx$/);
+    expect(r.output_path).toMatch(/_가림\.hwpx$/);
     const back = await parse(readFileSync(r.output_path));
     if (!back.success) throw new Error(back.error);
     for (const v of raw) expect(back.markdown).not.toContain(v);
@@ -45,11 +45,65 @@ describe('redact', () => {
     expect(r.hits.flatMap((h: { samples: string[] }) => h.samples).join('')).toContain('*');
   });
 
-  it('PDF — 원본은 두고 가린 .md', async () => {
-    const r = await call('redact', { path: LETTER_PDF });
+  it('PDF — 검은 상자를 칠한 쪽 그림 PDF, 글자층이 없어 원문을 뽑을 수 없다', async () => {
+    const src = await parse(readFileSync(LETTER_PDF));
+    if (!src.success) throw new Error(src.error);
+    const rules = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'name', 'address'];
+    const originals = redactMarkdown(src.markdown, { rules: rules as never }).hits.map((h) => src.markdown.slice(h.index, h.index + h.length));
+    expect(originals.length).toBeGreaterThanOrEqual(2); // 전자우편·이름
+    const r = await call('redact', { path: LETTER_PDF, rules });
     expect(r.preserved).toBe(false);
-    expect(r.output_path).toMatch(/_마스킹\.md$/);
+    expect(r.output_path).toMatch(/_가림\.pdf$/);
     expect(r.residual).toBe(0);
+    expect(r.total).toBe(originals.length);
+    const out = readFileSync(r.output_path);
+    expect(out.subarray(0, 4).toString()).toBe('%PDF');
+    // 쪽 수는 같고, 어느 쪽에서도 글을 뽑을 수 없다 (PDFium 글자층·kordoc 파싱 모두)
+    const { openPdf } = await import('../src/core/render/pdfium.js');
+    const doc = await openPdf(new Uint8Array(out));
+    try {
+      expect(doc.getPageCount()).toBe(src.pageCount ?? 1);
+      for (let i = 0; i < doc.getPageCount(); i++) expect(doc.getPage(i).getText().trim()).toBe('');
+    } finally {
+      doc.destroy();
+    }
+    const back = await parse(out, { ocr: false });
+    const text = back.success ? back.markdown : '';
+    for (const v of [...originals, '가온도민 한마음']) expect(text).not.toContain(v);
+    expect(out.toString('latin1')).not.toMatch(/gaon\.example/);
+  });
+
+  it('그림 — 한 쪽짜리 가림 PDF (스캔은 글자 읽기로 자리를 찾는다)', async () => {
+    const png = join(env.work, '스캔.png');
+    writeFileSync(png, await makePng(1200, 300, 'mail hong@gaon.example'));
+    const r = await call('redact', { path: png, rules: ['email'] });
+    if (r.unscanned) {
+      // 글자 읽기 모델이 없는 PC: 가리지 못한 쪽을 숨기지 않고 알린다
+      expect(r.residual).toBeGreaterThanOrEqual(r.unscanned);
+    } else {
+      expect(r.total).toBe(1);
+      expect(r.output_path).toMatch(/스캔_가림\.pdf$/);
+    }
+  });
+
+  it('남길 것 — 기관 대표번호·담당 공무원 이름은 가리지 않고, 나머지는 가린다', async () => {
+    const doc = join(env.work, '안내문.hwpx');
+    writeFileSync(doc, Buffer.from(await markdownToHwpx('# 안내\n\n문의: 주무관 김가온(031-000-1234), 신청인 연락처 010-2345-6789\n')));
+    const r = await call('redact', { path: doc, rules: ['phone', 'name'], keep: ['031-000-1234', '김가온'] });
+    expect(r.kept).toBe(2);
+    expect(JSON.stringify(r.hits)).not.toContain('031-');
+    const back = await parse(readFileSync(r.output_path));
+    if (!back.success) throw new Error(back.error);
+    expect(back.markdown).toContain('031-000-1234');
+    expect(back.markdown).toContain('김가온');
+    expect(back.markdown).not.toContain('010-2345-6789');
+  });
+
+  it('보지 않은 항목을 밝힌다 — 이름·주소를 고르지 않으면 unchecked_rules', async () => {
+    const r = await call('redact', { path: CLAIM, dry_run: true });
+    expect(r.unchecked_rules).toEqual(expect.arrayContaining(['name', 'address']));
+    const all = await call('redact', { path: CLAIM, dry_run: true, rules: ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'name', 'address'] });
+    expect(all.unchecked_rules).toEqual([]);
   });
 
   it('잘못된 마스크 문자는 안내', async () => {

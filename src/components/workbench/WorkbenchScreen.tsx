@@ -1,4 +1,4 @@
-/** 작업대 — 연 문서 목록 · 쪽 미리보기 · 도구 패널 */
+/** 문서(작업대) — 연 문서 목록 · 쪽 미리보기 · 도구 패널(읽기·고치기·검토·내보내기) */
 
 import { useEffect, useState } from "react";
 import { FileUp, FilePen, PanelLeftClose, PanelLeftOpen, X, BookOpenText, Reply } from "lucide-react";
@@ -8,6 +8,7 @@ import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
 import { Empty } from "../common/Status";
 import { DocWorkspace } from "./DocWorkspace";
+import { useLooksReceived } from "./docText";
 import { pickFiles } from "../../lib/native";
 import { FORMAT_KIND, fileSize, isHangul, num, stem } from "../../lib/format";
 
@@ -25,19 +26,24 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
 
   const open = () => void pickFiles().then((p) => p.length && openDocs(p));
   const info = current?.info;
+  // 받은 공문으로 보이면 회신 쓰기를 주 단추로, 아니면 보통 단추로 (도구 칸에는 두지 않아 한 번만 보인다)
+  const received = useLooksReceived(current);
+  const reply = () => current && startCreate({ route: "ai", kind: "reply", references: [current.path] });
   const sub = current
     ? [FORMAT_KIND[current.format], info?.page_count ? `${num(info.page_count)}쪽` : "", info?.size ? fileSize(info.size) : ""].filter(Boolean).join(" · ")
-    : "문서를 열어 보고 바꾸고 검토하고 고칩니다.";
+    : "문서를 열어 읽고, 고치고, 검토하고, 내보냅니다.";
 
   return (
     <div className="kd-screen" hidden={!active}>
       <ScreenHeader
-        title={current ? current.name : "작업대"}
+        title={current ? current.name : "문서"}
         sub={sub}
         actions={(
           <>
             {/* 암호 문서는 회신 초안·편집기가 아직 암호를 받지 못해 숨긴다 (정보 탭에 안내) */}
-            {current && !info?.encrypted && <Button variant="secondary" onClick={() => startCreate({ route: "ai", kind: "reply", references: [current.path] })}><Reply size={15} /> 이 공문에 회신 쓰기</Button>}
+            {current && !info?.encrypted && (received
+              ? <Button onClick={reply}><Reply size={15} /> 이 공문에 회신 쓰기</Button>
+              : <Button variant="secondary" onClick={reply}><Reply size={15} /> 회신 쓰기</Button>)}
             {current && isHangul(current.format) && !info?.encrypted && <Button variant="secondary" onClick={() => startCreate({ path: current.path })}><FilePen size={15} /> 한글 편집기로 열기</Button>}
             <Button variant="secondary" onClick={open}><FileUp size={15} /> 문서 열기</Button>
           </>

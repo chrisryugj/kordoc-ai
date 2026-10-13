@@ -22,7 +22,9 @@ import { Empty, ErrorLine, Note, Working } from "../common/Status";
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** live: 지금 문서·바로 전 문서만 쪽 그림 일꾼과 쪽 그림을 들고 있는다. 아니면 놓았다가 다시 보일 때 처음처럼 연다 */
-export function DocViewer({ doc, info, scrollTo, live }: { doc: OpenDoc; info: DocInfo; scrollTo: { page: number; nonce: number } | null; live: boolean }) {
+export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
+  doc: OpenDoc; info: DocInfo; scrollTo: { page: number; nonce: number } | null; live: boolean; onPageCount: (n: number) => void;
+}) {
   const [mode, setMode] = useState<"pages" | "text">(info.has_layout ? "pages" : "text");
   const [pages, setPages] = useState<Record<number, PagePreview>>({});
   const [pageCount, setPageCount] = useState(info.page_count ?? 1);
@@ -96,6 +98,14 @@ export function DocViewer({ doc, info, scrollTo, live }: { doc: OpenDoc; info: D
   // 쪽 그리기가 도중에 실패하면 엔진 렌더로
   useEffect(() => { if (rh.error) setEngine("kordoc"); }, [rh.error]);
 
+  // 미리보기가 센 쪽수(rhwp 가 그리면 그 조판, 아니면 엔진 렌더)를 문서 정보에 맞춘다 (쪽수 정본 하나)
+  const shownPages = engine === "rhwp" ? rh.pageCount : engine === "kordoc" && Object.keys(pages).length ? pageCount : 0;
+  useEffect(() => {
+    if (shownPages > 0) onPageCount(shownPages);
+    // 센 값이 바뀔 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownPages]);
+
   // 글 보기는 처음 고를 때 한 번 읽는다
   useEffect(() => {
     if (mode !== "text" || text.result != null || text.busy || text.error || ocr.result) return;
@@ -161,7 +171,8 @@ export function DocViewer({ doc, info, scrollTo, live }: { doc: OpenDoc; info: D
           {pagesOff && <Note tone="info">암호가 걸린 문서라 쪽 모양은 아직 보여 드리지 못합니다. 글 보기로 내용을 확인하세요.</Note>}
           {text.busy && <Empty title="글을 뽑는 중" />}
           <ErrorLine message={text.error} />
-          {markdown != null && (markdown.trim() ? <MarkdownViewer markdown={markdown} fillHeight /> : <Empty title="뽑을 글이 없습니다">그림만 있는 문서라면 글자 읽기(OCR)를 돌려 보세요.</Empty>)}
+          {/* 글자 수는 정보 탭 하나로 (여기서는 세지 않는다). 글 파일(.txt·.csv)은 마크다운으로 해석하지 않고 그대로 */}
+          {markdown != null && (markdown.trim() ? <MarkdownViewer markdown={markdown} fillHeight plain={!ocr.result && (info.format === "txt" || info.format === "csv")} /> : <Empty title="뽑을 글이 없습니다">그림만 있는 문서라면 글자 읽기(OCR)를 돌려 보세요.</Empty>)}
         </div>
       )}
     </section>

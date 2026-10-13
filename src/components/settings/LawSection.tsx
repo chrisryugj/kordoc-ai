@@ -9,6 +9,7 @@ import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
 import { Section, TextField } from "../common/Field";
 import { ErrorLine, Note, Working } from "../common/Status";
+import { Advanced, UnsavedBadge, useDirtyMark } from "./dirty";
 
 export function LawSection() {
   const { settings, saveSettings, toast } = useApp();
@@ -28,17 +29,19 @@ export function LawSection() {
     if (next) toast("법령 확인 아이디를 저장했습니다", "success");
     return !!next;
   };
+  useDirtyMark("set-law", "법령 확인", changed, save, () => setOc(saved));
   const runTest = () => void test.run(async () => {
     if (changed && !(await save())) throw new Error("저장하지 못해 연결을 확인하지 않았습니다. 다시 저장해 보세요.");
     return rpc("law_test", {});
   });
 
   return (
-    <Section id="set-law" mark="사." title="법령 확인" sub="문서 속 「법령명」 제N조 인용을 법제처 현행 법령과 대조합니다.">
+    <Section id="set-law" mark="사." title="법령 확인" sub="문서 속 「법령명」 제N조 인용을 법제처 현행 법령과 대조합니다."
+      aside={changed ? <UnsavedBadge /> : undefined}>
       <div className="flex flex-col gap-4">
         {offline && <Note tone="info">폐쇄망 모드라 법제처에 묻지 않습니다. 문서 속 법령 인용을 찾는 것까지만 합니다.</Note>}
         <div className="kd-fieldgrid">
-          <TextField label="법제처 Open API 아이디(OC)" value={oc} onChange={setOc} placeholder="예: hong" />
+          <TextField label="법제처 아이디" hint="법제처 공동활용 누리집에 가입한 이메일의 @ 앞부분" value={oc} onChange={setOc} placeholder="예: hong" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => void save()} disabled={saving || !changed}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>
@@ -59,6 +62,9 @@ export function LawSection() {
           </ol>
           <p className="kd-small kd-muted">인터넷이 되는 PC에서만 대조합니다. 폐쇄망 모드를 켜면 법제처에 묻지 않습니다.</p>
         </div>
+        <Advanced>
+          <p className="kd-small kd-muted">이 아이디를 법제처 누리집에서는 Open API 인증값(OC)이라고 부릅니다.</p>
+        </Advanced>
       </div>
     </Section>
   );

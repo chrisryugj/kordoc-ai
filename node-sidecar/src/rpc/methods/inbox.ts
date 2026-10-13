@@ -2,7 +2,8 @@
 
 import type { RpcRouter } from '../router.js';
 import { inboxAdd, inboxList, inboxRemove, inboxUpdate } from '../../core/inbox/index.js';
-import { oneOf, registrar, reqPaths } from './params.js';
+import { inboxExport } from '../../core/inbox/ledger.js';
+import { oneOf, optPath, registrar, reqPaths } from './params.js';
 
 export function registerInbox(router: RpcRouter): void {
   const reg = registrar(router);
@@ -15,4 +16,5 @@ export function registerInbox(router: RpcRouter): void {
     note: typeof p.note === 'string' ? p.note : undefined,
   }));
   reg('inbox_remove', (p) => inboxRemove(String(p.id ?? '')));
+  reg('inbox_export', (p) => inboxExport({ output_path: optPath(p.output_path) }));
 }

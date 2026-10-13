@@ -1,4 +1,5 @@
-/** 정보 — 형식·쪽수·만든 사람 + 글자 수 통계(공백 포함·제외, 원고지 200자 매수) */
+/** 정보 — 형식·쪽수·만든 사람 + 글자 수 통계(공백 포함·제외, 원고지 200자 매수). 받은 공문이면 접수함에 넣기.
+ *  쪽수는 미리보기가 센 값(rhwp, DocWorkspace 가 info 에 맞춰 둔다) 하나만 쓴다 */
 
 import { useEffect } from "react";
 import { Calculator } from "lucide-react";
@@ -9,6 +10,7 @@ import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { ErrorLine, Note, Working } from "../../common/Status";
 import { FollowUp } from "./FollowUp";
+import { docText, useLooksReceived } from "../docText";
 
 /** 이만큼 작은 문서만 열자마자 센다. 큰 문서는 글을 다 뽑느라 엔진을 오래 붙잡아(800쪽 PDF 약 45초) 다른 작업이 밀리므로 단추로 */
 const AUTO_PAGES = 30;
@@ -26,8 +28,11 @@ export function InfoTool({ doc, info }: ToolProps) {
   // 스캔한 쪽이 있으면 세면서 글자 읽기(OCR)까지 돌아 오래 걸리니 단추로
   const auto = !info.needs_ocr && (info.page_count ? info.page_count <= AUTO_PAGES : info.size <= AUTO_BYTES);
 
-  // 글자만 센다: 파일로 저장하지 않는다 (저장하면 문서를 열 때마다 원본 옆에 사본이 생긴다)
+  const received = useLooksReceived(doc);
+  // 글자만 센다: 파일로 저장하지 않는다 (저장하면 문서를 열 때마다 원본 옆에 사본이 생긴다).
+  // 작은 문서는 받은 공문 알아보기와 같은 글을 나눠 쓰고, 큰 문서는 누를 때만 (멈추기 되게 따로)
   const count = () => void stats.run(async ({ signal }) => {
+    if (auto) return charStats(await docText(doc, info));
     const r = await rpc("convert", { path: doc.path, format: "txt", save: false, ...(doc.password ? { password: doc.password } : {}) }, { signal });
     return charStats(r.content);
   });
@@ -43,14 +48,15 @@ export function InfoTool({ doc, info }: ToolProps) {
     ["쪽수", info.page_count ? `${num(info.page_count)}쪽` : "쪽 구분 없음"],
     ["크기", fileSize(info.size)],
     ["제목", info.title ?? ""],
-    ["작성자", info.author ?? ""],
+    // 한글 편집기(rhwp)로 저장한 문서는 작성자 자리에 편집기 이름이 들어간다
+    ["작성자", info.author && !/^rhwp/i.test(info.author.trim()) ? info.author.trim() : ""],
     ["만든 날", when(info.created)],
     ["고친 날", when(info.modified)],
   ];
 
   return (
     <div className="flex flex-col gap-5">
-      {!info.encrypted && <FollowUp doc={doc} />}
+      {received && <FollowUp doc={doc} />}
       <dl className="kd-dl">
         {rows.filter(([, v]) => v).map(([k, v]) => (
           <div key={k}><dt>{k}</dt><dd>{v}</dd></div>

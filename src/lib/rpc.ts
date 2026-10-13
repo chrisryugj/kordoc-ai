@@ -88,6 +88,8 @@ const ENGINE_HINTS: Array<[RegExp, string]> = [
   [/Failed to spawn sidecar/i, "문서 엔진을 켜지 못했습니다. 앱을 다시 켜 보고, 계속되면 앱을 다시 설치하세요."],
   [/Timeout after \d+s/i, "작업이 너무 오래 걸려 멈췄습니다. 잠시 뒤 다시 하거나 쪽 범위·파일 수를 줄여 보세요."],
   [/Sidecar not started|Sidecar process closed|Write failed|Flush failed/i, "문서 엔진이 멈췄습니다. 잠시 뒤 다시 하고, 계속되면 앱을 다시 켜세요."],
+  // 옛 엔진·kordoc 이 내는 개발자용 안내 ("… 설치: npm install pdfjs-dist"). 화면에 npm 을 보이지 않는다 (엔진 core/errors.ts MISSING_PART 와 같은 문장)
+  [/MISSING_DEPENDENCY|\bnpm (install|i)\b|Cannot find (module|package)|ERR_MODULE_NOT_FOUND/i, "문서를 읽는 데 필요한 부품이 없습니다. 설정 › 엔진 점검을 눌러 보고, 계속되면 앱을 다시 설치하세요."],
 ];
 
 /** Rust·사이드카 오류 문자열에서 사람이 읽을 문장만 */

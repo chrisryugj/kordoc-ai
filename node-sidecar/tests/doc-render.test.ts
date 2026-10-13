@@ -130,6 +130,23 @@ describe.skipIf(!hasBrowser)('export_pdf·bundle_pdf (Chromium 필요)', () => {
   }, 60_000);
 });
 
+describe('PDF 쪽 그림 색', () => {
+  it('빨강은 빨강으로 (PDFium bitmap 은 RGBA, BGRA 로 보고 바꾸면 파랑이 됨)', async () => {
+    const { rgb } = await import('pdf-lib');
+    const sharp = (await import('sharp')).default;
+    const { rasterPdfPage } = await import('../src/core/render/pdfium.js');
+    const d = await PDFDocument.create();
+    d.addPage([100, 100]).drawRectangle({ x: 0, y: 0, width: 100, height: 100, color: rgb(1, 0, 0) });
+    const doc = await openPdf(await d.save());
+    try {
+      const { data } = await sharp((await rasterPdfPage(doc, 1, 100, 'png')).data).raw().toBuffer({ resolveWithObject: true });
+      expect([data[0], data[1], data[2]]).toEqual([255, 0, 0]);
+    } finally {
+      doc.destroy();
+    }
+  });
+});
+
 describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
   it('워터마크(영문)·쪽번호', async () => {
     const r = await call('pdf_stamp', { path: LETTER_PDF, watermark: 'COPY', page_numbers: true });

@@ -13,6 +13,7 @@ import { Button } from "../ui/Button";
 import { Check, Field, Section, Seg } from "../common/Field";
 import { ErrorLine, Note, StatusLine, Working } from "../common/Status";
 import { MCPSetupDialog } from "../mcp/MCPSetupDialog";
+import { Advanced } from "./dirty";
 
 /** 엔진 점검 단계 이름 (엔진은 기록·CI 용 영어 식별자를 준다) */
 const STEP_LABEL: Record<string, string> = {
@@ -36,8 +37,9 @@ export function EngineSection() {
   const loadModels = useCallback(() => { rpc("models_status", {}).then(setModels).catch(() => setModels(null)); }, []);
   useEffect(loadModels, [loadModels]);
 
-  const rows: Array<[string, string]> = system ? [
-    ["앱", `KorDoc AI ${system.app_version}`],
+  // 관리자에게 전할 버전·환경은 고급에 (평소엔 앱 버전만)
+  const rows: Array<[string, string]> = system ? [["앱", `KorDoc AI ${system.app_version}`]] : [];
+  const techRows: Array<[string, string]> = system ? [
     ["문서 엔진", `kordoc ${system.kordoc_version}`],
     ["실행 환경", `Node ${system.node_version} (앱에 들어 있음)`],
     ["운영체제", system.platform],
@@ -78,7 +80,7 @@ export function EngineSection() {
           <div><dt>수식 읽기</dt><dd>{models.formula.ready ? <StatusLine tone="ok">준비됨</StatusLine> : <span className="kd-small kd-muted">없음 (필요할 때 가져오기)</span>}</dd></div>
         </dl>
       )}
-      <p className="kd-small kd-muted mt-2">인터넷이 없는 PC는 모델 파일(det.onnx, rec_korean.onnx, rec_korean.yml)이 든 폴더를 USB로 옮겨 가져오세요.</p>
+      <p className="kd-small kd-muted mt-2">인터넷이 없는 PC는 글자 읽기 모델 파일이 든 폴더를 USB로 옮겨 가져오세요.</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button variant="secondary" disabled={imp.busy} onClick={() => void imp.run(async () => {
           const dir = await pickFolder();
@@ -90,6 +92,12 @@ export function EngineSection() {
       </div>
       <ErrorLine message={imp.error} />
       {imp.result && imp.result.length > 0 && <Note tone="ok">{imp.result.join(", ")} 파일을 가져왔습니다.</Note>}
+      <Advanced title="고급: 버전과 모델 파일">
+        <dl className="kd-dl kd-dl-wide">
+          {techRows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        </dl>
+        <p className="kd-small kd-muted">글자 읽기 모델 폴더에는 det.onnx, rec_korean.onnx, rec_korean.yml 세 파일이 있어야 합니다.</p>
+      </Advanced>
     </Section>
   );
 }
@@ -157,14 +165,16 @@ export function StorageSection() {
           </span>
         )}
       </div>
-      <div className="kd-row items-start">
-        <Plug size={18} className="kd-muted mt-0.5 flex-none" />
-        <span className="kd-row-main">
-          <span className="kd-row-title block">AI 도구 연결(MCP)</span>
-          <span className="kd-row-desc block">Claude Desktop·Cursor 같은 AI 도구가 이 앱의 문서 엔진으로 한글 문서를 읽게 합니다.</span>
-        </span>
-        <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => setMcp(true)}>연결 설정</Button></span>
-      </div>
+      <Advanced>
+        <div className="kd-row items-start">
+          <Plug size={18} className="kd-muted mt-0.5 flex-none" />
+          <span className="kd-row-main">
+            <span className="kd-row-title block">다른 AI 프로그램과 연결 (MCP)</span>
+            <span className="kd-row-desc block">Claude Desktop·Cursor 같은 AI 프로그램이 이 앱의 문서 엔진으로 한글 문서를 읽게 합니다.</span>
+          </span>
+          <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => setMcp(true)}>연결 설정</Button></span>
+        </div>
+      </Advanced>
       <MCPSetupDialog isOpen={mcp} onClose={() => setMcp(false)} showToast={toast} />
     </Section>
   );
@@ -219,21 +229,26 @@ export function AboutSection() {
       </div>
       <dl className="kd-dl kd-dl-wide mt-4">
         <div><dt>버전</dt><dd>KorDoc AI {system?.app_version ?? ""}</dd></div>
-        <div><dt>라이선스</dt><dd>MIT</dd></div>
-        <div><dt>문서 엔진</dt><dd>kordoc {system?.kordoc_version ?? ""} (MIT)</dd></div>
-        <div><dt>한글 편집기</dt><dd>rhwp (MIT)</dd></div>
-        <div><dt>글꼴</dt><dd>Pretendard (SIL Open Font License 1.1)</dd></div>
-        <div><dt>편집기 글꼴</dt><dd>글꼴마다 다릅니다 (대부분 SIL Open Font License 1.1, 아래 오픈소스 고지)</dd></div>
-        <div><dt>내장 AI 모델</dt><dd>받은 모델마다 그 모델의 라이선스를 따릅니다</dd></div>
       </dl>
       <div className="kd-row mt-4">
         <FileText size={18} className="kd-muted flex-none" />
         <span className="kd-row-main">
           <span className="kd-row-title block">오픈소스 고지</span>
-          <span className="kd-row-desc block">앱에 들어 있는 오픈소스의 이름·버전·라이선스 전문입니다. 설치 폴더의 THIRD_PARTY_NOTICES.txt 이고, 요약은 같은 폴더의 NOTICE 에 있습니다.</span>
+          <span className="kd-row-desc block">앱에 들어 있는 오픈소스의 이름·버전·라이선스 전문입니다.</span>
         </span>
         <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => void openNotices()}><FileText size={13} /> 열기</Button></span>
       </div>
+      <Advanced title="고급: 라이선스">
+      <dl className="kd-dl kd-dl-wide">
+        <div><dt>라이선스</dt><dd>MIT</dd></div>
+        <div><dt>문서 엔진</dt><dd>kordoc {system?.kordoc_version ?? ""} (MIT)</dd></div>
+        <div><dt>한글 편집기</dt><dd>rhwp (MIT)</dd></div>
+        <div><dt>글꼴</dt><dd>Pretendard (SIL Open Font License 1.1)</dd></div>
+        <div><dt>편집기 글꼴</dt><dd>글꼴마다 다릅니다 (대부분 SIL Open Font License 1.1, 자세한 것은 오픈소스 고지)</dd></div>
+        <div><dt>내장 AI 모델</dt><dd>받은 모델마다 그 모델의 라이선스를 따릅니다</dd></div>
+      </dl>
+      <p className="kd-small kd-muted">오픈소스 고지는 설치 폴더의 THIRD_PARTY_NOTICES.txt 이고, 요약은 같은 폴더의 NOTICE 에 있습니다.</p>
+      </Advanced>
     </Section>
   );
 }

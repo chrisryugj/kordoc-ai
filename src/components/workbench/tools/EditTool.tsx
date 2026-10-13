@@ -26,7 +26,7 @@ export function EditTool({ doc, info }: ToolProps) {
         <FilePen size={20} />
         <span className="min-w-0">
           <span className="kd-row-title block">한글 편집기로 열기</span>
-          <span className="kd-row-desc block">한글과 같은 편집기로 글·표·서식을 직접 고칩니다. 공문서 만들기의 편집 단계로 엽니다.</span>
+          <span className="kd-row-desc block">한글과 같은 편집기로 글·표·서식을 직접 고칩니다. 새로 쓰기의 편집 단계로 엽니다.</span>
         </span>
       </button>
       <button type="button" className="kd-bigaction" disabled={!hwpx} onClick={() => setOpen("fill")}>

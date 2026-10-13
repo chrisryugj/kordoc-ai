@@ -1,4 +1,4 @@
-/** 최소 XLSX 작성기 (jszip) — 시트 여러 장·칸 병합·머리 행·줄바꿈·숫자 칸
+/** 최소 XLSX 작성기 (jszip) — 시트 여러 장·칸 병합·머리 행·줄바꿈·숫자 칸·노란 표시 칸·굵은 행
  *
  * 공유 문자열 없이 inlineStr 로 쓴다. 숫자는 앞자리 0 이 없는 것만 숫자 칸으로
  * (전화번호·우편번호·문서번호가 숫자로 바뀌어 0 이 사라지는 것을 막는다).
@@ -13,6 +13,10 @@ export interface Sheet {
   merges?: Array<{ r: number; c: number; rs: number; cs: number }>;
   /** 첫 행을 머리로 (굵게·음영·틀 고정) */
   header?: boolean;
+  /** 노란 바탕으로 표시할 칸 (0-based 행·열, 예: 문서 수합의 빈 필수 칸) */
+  marks?: Array<{ r: number; c: number }>;
+  /** 굵게 쓸 행 (0-based, 예: 합계 행) */
+  bold?: number[];
 }
 
 const BAD_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g;
@@ -52,14 +56,18 @@ function sheetXml(s: Sheet): string {
   const view = s.header && s.rows.length > 1
     ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
     : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+  const marked = new Set((s.marks ?? []).map((m) => `${m.r},${m.c}`));
+  const bold = new Set(s.bold ?? []);
   const rowsXml = s.rows.map((row, r) => {
     const cells = Array.from({ length: cols }, (_, c) => {
       const v = row[c] ?? '';
       const ref = `${colName(c)}${r + 1}`;
       if (s.header && r === 0) return `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
       const t = v.trim();
-      if (NUMBER.test(t)) return `<c r="${ref}" s="${t.includes(',') ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
-      return v ? `<c r="${ref}" t="inlineStr" s="2"><is><t xml:space="preserve">${esc(v)}</t></is></c>` : `<c r="${ref}" s="2"/>`;
+      const b = bold.has(r);
+      if (NUMBER.test(t)) return `<c r="${ref}" s="${b ? 7 : t.includes(',') ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
+      const st = marked.has(`${r},${c}`) ? 5 : b ? 6 : 2;
+      return v ? `<c r="${ref}" t="inlineStr" s="${st}"><is><t xml:space="preserve">${esc(v)}</t></is></c>` : `<c r="${ref}" s="${st}"/>`;
     }).join('');
     return `<row r="${r + 1}">${cells}</row>`;
   }).join('');
@@ -82,10 +90,10 @@ function sheetXml(s: Sheet): string {
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font></fonts>
-<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills>
+<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFEB9C"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/></cellXfs>
+<cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyNumberFormat="1" applyBorder="1"/></cellXfs>
 <cellStyles count="1"><cellStyle name="표준" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 

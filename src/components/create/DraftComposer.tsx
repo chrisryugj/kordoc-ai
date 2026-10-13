@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, FileUp, Plus, Sparkles, Square, Undo2, X, FilePen } from "lucide-react";
 import type { LintFinding, PagePreview } from "../../lib/contract";
 import { useApp, type DraftKind } from "../../state/app";
-import { useCreate } from "./session";
+import { useCreate, workingFile } from "./session";
 import { rpc, errorText, isAbort } from "../../lib/rpc";
 import { pickFiles } from "../../lib/native";
 import { baseName, gongmunDate } from "../../lib/format";
@@ -20,7 +20,7 @@ import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { Field, Seg, SelectField } from "../common/Field";
 import { AiWhere } from "../common/AiGate";
-import { ErrorLine, Note, StatusLine, Working } from "../common/Status";
+import { ErrorLine, StatusLine, Working } from "../common/Status";
 import { PageStack } from "../common/PageStack";
 import { useRhwpPages } from "../common/useRhwpPages";
 import { b64ToBytes } from "../../lib/rhwp";
@@ -50,7 +50,7 @@ const plainDraft = (md: string) => md
 
 const firstTitle = (md: string) => /^#\s+(.+)$/m.exec(md)?.[1]?.trim() ?? "새 공문서";
 
-export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
+export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRoute?: (r: "library" | "blank") => void }) {
   const { ai, settings, go, docs } = useApp();
   const { openInEditor } = useCreate();
   const meta = useGongmunMeta();
@@ -62,8 +62,8 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
   const [preset, setPreset] = useState("official");
   const [length, setLength] = useState<"short" | "medium" | "long">("medium");
   const [markdown, setMarkdown] = useState("");
-  /** 글(마크다운) 직접 고치기 — 초안이 있으면 미리보기가 주인공이라 접어 둔다. AI 가 없으면 처음부터 펼침 */
-  const [textOpen, setTextOpen] = useState(!ai?.configured);
+  /** 글 직접 고치기 — 초안이 있으면 미리보기가 주인공이라 접어 둔다. AI 없이 직접 쓰기는 '빈 문서로 시작' 한 곳으로 모았다 */
+  const [textOpen, setTextOpen] = useState(false);
   /** 한 줄 맞춤 결과 — before 로 되돌린다 */
   const [fit, setFit] = useState<Fit | null>(null);
   const [fitOpen, setFitOpen] = useState(false);
@@ -198,10 +198,15 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
     ta.scrollTop = Math.max(0, (line - 3) * 23);
   };
 
+  /** 초안(받는 중 포함)이 있다 */
+  const writing = !!markdown.trim() || draft.busy;
+  /** AI 없이 쓸 글도 견본도 없다 — 안내만 보이고 미리보기·만들기 줄은 숨긴다 */
+  const deadEnd = !ai?.configured && !writing && !opts.levelsFrom;
+
   const pagesMap = useMemo(() => Object.fromEntries((preview?.pages ?? []).map((p) => [p.page, p])), [preview]);
 
   return (
-    <div className="kd-draft">
+    <div className="kd-draft" data-solo={deadEnd || undefined}>
       <div className="kd-draft-left">
         <section className="kd-panel kd-draft-ai" aria-labelledby="draft-ai-t">
           <div className="flex items-center justify-between gap-2">
@@ -209,7 +214,15 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
             <AiWhere />
           </div>
           {!ai?.configured ? (
-            <Note tone="info">AI가 연결돼 있지 않습니다. <button type="button" className="kd-link" onClick={() => go("settings")}>설정에서 연결</button>하거나 아래에 직접 쓰세요.</Note>
+            <div className="flex flex-col gap-3">
+              <p className="kd-text">AI가 연결되어 있지 않아 초안을 대신 써 드릴 수 없습니다.</p>
+              <p className="kd-small kd-muted">서식함에서 서식을 골라 칸을 채우거나, 빈 문서로 시작해 한글 편집기에서 직접 쓰세요. AI는 설정에서 연결합니다.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => onRoute?.("library")}>서식함에서 고르기</Button>
+                <Button variant="secondary" onClick={() => onRoute?.("blank")}>빈 문서로 시작</Button>
+                <Button variant="ghost" onClick={() => go("settings")}>설정에서 AI 연결</Button>
+              </div>
+            </div>
           ) : (
             <>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="초안 갈래">
@@ -276,22 +289,25 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
           </div>
         )}
 
+        {/* 초안이 있을 때(또는 견본 모양으로 쓸 때)만 글을 고친다. 빈 글에서 직접 쓰기는 '빈 문서로 시작'으로 */}
+        {(writing || opts.levelsFrom) && (
         <section className="kd-fold" data-open={textOpen} aria-label="글로 직접 고치기">
           <button type="button" className="kd-fold-head" aria-expanded={textOpen} onClick={() => setTextOpen((o) => !o)}>
-            <span className="kd-h3">{markdown.trim() ? "글로 직접 고치기" : "직접 쓰기"}</span>
-            <span className="kd-small kd-muted flex-1 text-left">{markdown.trim() ? "미리보기의 글을 한 줄씩 고칠 때" : "AI 없이 제목과 항목을 직접 쓸 때"}</span>
+            <span className="kd-h3">{writing ? "글로 직접 고치기" : "견본 모양으로 직접 쓰기"}</span>
+            <span className="kd-small kd-muted flex-1 text-left">{writing ? "미리보기의 글을 한 줄씩 고칠 때" : "쓴 글을 견본의 글꼴과 항목 기호로 짭니다"}</span>
             <ChevronDown size={16} className="kd-fold-chev" />
           </button>
           <div className="kd-fold-body" hidden={!textOpen}>
-            <span className="kd-small kd-muted">{draft.busy ? "AI가 초안을 다 쓰면 고칠 수 있습니다. 바로 고치려면 위에서 멈추기를 누르세요." : "# 제목, 1. 가. 같은 항목 기호를 그대로 쓰면 됩니다"}</span>
+            <span className="kd-small kd-muted">{draft.busy ? "AI가 초안을 다 쓰면 고칠 수 있습니다. 바로 고치려면 위에서 멈추기를 누르세요." : "# 표시가 붙은 맨 위 줄이 제목입니다. 항목은 1. 가. 처럼 번호를 붙여 한 줄씩 쓰세요."}</span>
             <textarea ref={editorRef} className="kd-textarea kd-mdeditor" value={markdown} readOnly={draft.busy} onChange={(e) => { setMarkdown(e.target.value); setFit(null); }}
               placeholder={"# 직원 안전교육 실시 계획\n\n1. 목적\n  가. 재난 상황에서 직원이 스스로 대피하고 민원인을 안내하도록 교육한다."} aria-label="공문서 글" spellCheck={false} />
           </div>
         </section>
+        )}
 
-        <FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)} />
+        {!deadEnd && <FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)} />}
 
-        <ActionBar error={make.error} busy={make.busy && <Working label="한글 문서로 만드는 중" />}
+        {!deadEnd && <ActionBar error={make.error} busy={make.busy && <Working label="한글 문서로 만드는 중" />}
           status={draft.busy ? <StatusLine tone="busy">AI가 초안을 쓰는 중</StatusLine>
             : refit.busy ? <StatusLine tone="busy">넘친 줄을 맞추는 중 (기다리지 않고 만들어도 됩니다)</StatusLine>
             : !markdown.trim() ? (ai?.configured ? "초안을 쓰면 미리보기를 보고 한글 문서로 만듭니다" : "글을 쓰면 미리보기를 보고 한글 문서로 만듭니다")
@@ -300,15 +316,15 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
           {refit.busy && <Button variant="secondary" onClick={refit.cancel}><Square size={13} /> 맞추기 멈추기</Button>}
           <Button size="lg" disabled={!markdown.trim() || draft.busy} onClick={() => void make.run(async () => {
             refit.cancel(); // 맞추는 중이면 멈추고 지금 글로 만든다
-            const r = await rpc("generate_hwpx", genParams);
+            const r = await rpc("generate_hwpx", { ...genParams, output_path: await workingFile(`${firstTitle(markdown)}.hwpx`) });
             if (!r.output_path) throw new Error("한글 문서를 만들지 못했습니다. 글을 확인하고 다시 누르세요.");
             made.current = markdown;
-            await openInEditor(r.output_path, { title: firstTitle(markdown) });
+            await openInEditor(r.output_path, { title: firstTitle(markdown), working: true });
           })}><FilePen size={15} /> 한글 문서로 만들어 편집하기</Button>
-        </ActionBar>
+        </ActionBar>}
       </div>
 
-      <aside className="kd-draft-right" aria-label="실시간 미리보기">
+      {!deadEnd && <aside className="kd-draft-right" aria-label="실시간 미리보기">
         <div className="kd-draft-right-head">
           <h2 className="kd-h3">미리보기</h2>
           {draft.busy ? <StatusLine tone="busy">AI가 초안을 쓰는 중</StatusLine>
@@ -330,7 +346,7 @@ export function DraftComposer({ seed }: { seed: DraftSeed | null }) {
             <LintList findings={preview.lint} onPick={gotoLine} />
           </div>
         )}
-      </aside>
+      </aside>}
 
       <Modal isOpen={!!seedAsk} title="쓰던 초안이 있습니다" closable={false} size="sm" onClose={() => setSeedAsk(null)}
         footer={(

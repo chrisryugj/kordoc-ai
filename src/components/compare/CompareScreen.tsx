@@ -7,6 +7,7 @@ import { useApp } from "../../state/app";
 import { rpc } from "../../lib/rpc";
 import { pickFiles } from "../../lib/native";
 import { baseName, dirName, formatOf, joinPath, num, stem } from "../../lib/format";
+import type { DocFormat } from "../../lib/contract";
 import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
@@ -41,24 +42,31 @@ function wordDiff(a: string, b: string): { old: Array<[string, boolean]>; next: 
   return { old, next };
 }
 
+/** 비교는 쪽 구조가 있는 문서만 (글 파일·그림은 엔진 비교가 읽지 못한다) */
+const COMPARE_FORMATS: DocFormat[] = ["hwp", "hwpx", "hwpml", "pdf", "docx", "xlsx", "xls", "pptx"];
+const COMPARE_FILTER = [{ name: "비교할 문서 (한글·PDF·워드·엑셀·파워포인트)", extensions: ["hwp", "hwpx", "hml", "pdf", "docx", "xlsx", "xls", "pptx"] }];
+const UNSUPPORTED = "비교할 수 없는 형식입니다. 한글(HWP·HWPX), PDF, 워드, 엑셀, 파워포인트 문서를 넣으세요.";
+const comparable = (p: string) => COMPARE_FORMATS.includes(formatOf(p));
+
 function Slot({ id, label, path, onPick }: { id: string; label: string; path: string; onPick: (p: string) => void }) {
   const { dragTarget } = useApp();
+  const pick = () => void pickFiles({ multiple: false, filters: COMPARE_FILTER }).then((p) => p[0] && onPick(p[0]));
   return (
     <div className="kd-dropzone kd-slot" data-drop={id} data-over={dragTarget === id}>
       <span className="kd-label">{label}</span>
       {path ? (
         <div className="flex items-start gap-2.5 mt-2">
           <FormatBadge format={formatOf(path)} />
-          <span className="min-w-0 flex-1">
+          {/* 파일 이름만, 전체 경로는 마우스를 올리면 */}
+          <span className="min-w-0 flex-1" title={path}>
             <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{baseName(path)}</span>
-            <span className="kd-path block">{dirName(path)}</span>
           </span>
-          <button type="button" className="kd-link kd-small flex-none" onClick={() => void pickFiles({ multiple: false }).then((p) => p[0] && onPick(p[0]))}>바꾸기</button>
+          <button type="button" className="kd-link kd-small flex-none" onClick={pick}>바꾸기</button>
         </div>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <span className="kd-small kd-muted">끌어다 놓거나</span>
-          <Button variant="secondary" size="sm" onClick={() => void pickFiles({ multiple: false }).then((p) => p[0] && onPick(p[0]))}><FileUp size={13} /> 파일 고르기</Button>
+          <Button variant="secondary" size="sm" onClick={pick}><FileUp size={13} /> 파일 고르기</Button>
         </div>
       )}
     </div>
@@ -70,6 +78,10 @@ export function CompareScreen({ active }: { active: boolean }) {
   const [oldPath, setOldPath] = useState("");
   const [newPath, setNewPath] = useState("");
   const [onlyChanged, setOnlyChanged] = useState(true);
+  const [formatError, setFormatError] = useState("");
+  // 끌어다 놓기·고르기 모두 여기서 형식을 본다
+  const putOld = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setOldPath(p); }, []);
+  const putNew = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setNewPath(p); }, []);
   const cmp = useTask<CompareResult>();
   const exp = useTask<string>();
   const handled = useRef(0);
@@ -83,17 +95,17 @@ export function CompareScreen({ active }: { active: boolean }) {
     if (!compareIntent || compareIntent.nonce === handled.current) return;
     handled.current = compareIntent.nonce;
     const { old, new: n } = compareIntent.value;
-    if (old) setOldPath(old);
-    if (n) setNewPath(n);
-    if (old && n) runCompare(old, n);
-  }, [compareIntent, runCompare]);
+    if (old) putOld(old);
+    if (n) putNew(n);
+    if (old && n && comparable(old) && comparable(n)) runCompare(old, n);
+  }, [compareIntent, runCompare, putOld, putNew]);
 
   useEffect(() => {
-    const a = registerDrop("compare-old", (p) => p[0] && setOldPath(p[0]));
-    const b = registerDrop("compare-new", (p) => p[0] && setNewPath(p[0]));
-    const c = registerDrop("compare", (p) => { if (p[1]) { setOldPath(p[0]); setNewPath(p[1]); } else if (p[0]) (oldPath ? setNewPath : setOldPath)(p[0]); });
+    const a = registerDrop("compare-old", (p) => p[0] && putOld(p[0]));
+    const b = registerDrop("compare-new", (p) => p[0] && putNew(p[0]));
+    const c = registerDrop("compare", (p) => { if (p[1]) { putOld(p[0]); putNew(p[1]); } else if (p[0]) (oldPath ? putNew : putOld)(p[0]); });
     return () => { a(); b(); c(); };
-  }, [registerDrop, oldPath]);
+  }, [registerDrop, oldPath, putOld, putNew]);
 
   const outDir = settings?.convert.output_dir || dirName(newPath);
   const title = `${stem(newPath || oldPath)} 신구대조표`;
@@ -112,11 +124,11 @@ export function CompareScreen({ active }: { active: boolean }) {
       <div className="kd-body">
         <div className="kd-compare">
           <div className="kd-slots">
-            <Slot id="compare-old" label="옛 문서 (현행)" path={oldPath} onPick={setOldPath} />
+            <Slot id="compare-old" label="옛 문서 (현행)" path={oldPath} onPick={putOld} />
             <button type="button" className="kd-icon-btn kd-swap" onClick={() => { setOldPath(newPath); setNewPath(oldPath); }} aria-label="옛 문서와 새 문서 바꾸기" disabled={!oldPath && !newPath}>
               <ArrowLeftRight size={16} />
             </button>
-            <Slot id="compare-new" label="새 문서 (개정안)" path={newPath} onPick={setNewPath} />
+            <Slot id="compare-new" label="새 문서 (개정안)" path={newPath} onPick={putNew} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {cmp.busy ? <Working label="비교하는 중" /> : (
@@ -124,6 +136,7 @@ export function CompareScreen({ active }: { active: boolean }) {
             )}
             <span className="kd-small kd-muted">형식이 달라도 됩니다. 예: 옛 HWP와 새 PDF</span>
           </div>
+          <ErrorLine message={formatError} />
           <ErrorLine message={cmp.error} />
 
           {!cmp.result && !cmp.busy && (

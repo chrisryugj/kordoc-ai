@@ -34,6 +34,20 @@ interface Emit {
   notify: (method: string, params: Record<string, unknown>) => void;
 }
 
+/** 우리 서식으로 맞추기 목 — 가온시 기안문 서식 */
+function mockStyle(name: string): RpcResult<"style_extract">["format"] {
+  return {
+    version: 1, preset: "official", paper: { size: "A4", width_mm: 210, height_mm: 297, landscape: false },
+    margins: { top: 20, bottom: 15, left: 20, right: 15, header: 0, footer: 0 }, body: { font: "굴림체", pt: 12, line_spacing: 160, gothic: true },
+    numbering: { scheme: "standard", markers: ["1.", "가."] },
+    levels: [{ depth: 0, marker: "1.", font: "굴림체", pt: 12, bold: false, count: 3 }, { depth: 1, marker: "가.", font: "굴림체", pt: 12, bold: false, count: 4 }],
+    title: { kind: "head" }, page_numbers: false, head: { org: "가온시" },
+    summary: `기안문 서식 · A4 · 여백 위 20 아래 15 왼쪽 20 오른쪽 15 mm · 본문 굴림체 12pt · 줄 간격 160% · 항목 1. 가. · 수신·제목 머리 표 · 쪽 번호 없음 (${name})`,
+    stats: { paragraphs: 8, chars: 400 },
+  };
+}
+const savedStyles: RpcResult<"style_list">["styles"] = [];
+
 type Handlers = { [M in RpcMethod]?: (p: RpcParams<M>, emit: Emit) => RpcResult<M> | Promise<RpcResult<M>> };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -198,6 +212,7 @@ const handlers: Handlers = {
     return { ...it };
   },
   inbox_remove: (p) => { const i = mockInbox.findIndex((x) => x.id === p.id); if (i >= 0) mockInbox.splice(i, 1); return i >= 0; },
+  inbox_export: async () => { await wait(300); return { output_path: joinPath(DOCS_DIR, "접수대장.xlsx"), count: mockInbox.length }; },
   law_check: async () => {
     await wait(400);
     return {
@@ -287,15 +302,41 @@ const handlers: Handlers = {
   ] }),
   template_fill: async (p) => { await wait(400); return { output_path: p.output_path ?? joinPath(DOCS_DIR, "기안문.hwpx"), filled: Object.keys(p.values), unmatched: [] }; },
   mail_merge: async (p) => { await wait(600); return { outputs: ["김민지", "이서준", "박하은"].map((n) => joinPath(p.output_dir ?? DOCS_DIR, `${n}.hwpx`)), failed: [], output_dir: p.output_dir ?? DOCS_DIR }; },
+  mail_merge_plan: async () => {
+    await wait(300);
+    return {
+      rows: 3,
+      columns: [{ name: "제목", fields: ["제목"], sample: "체육대회 참가 안내" }, { name: "성명", fields: [], sample: "김민지" }],
+      fields: [{ name: "행정기관명", org: settings.org.name || "가온시" }, { name: "수신자" }, { name: "제목", column: "제목" }, { name: "본문" }],
+      rejected: [],
+    };
+  },
+  working_path: async (p) => ({ path: joinPath("/Users/kim/Library/Application Support/com.kordoc-ai.app/작업 사본", p.name || "새 문서.hwpx"), dir: "/Users/kim/Library/Application Support/com.kordoc-ai.app/작업 사본" }),
   lint: async (p) => {
     await wait(200);
     const findings = fakeLint(p.text ?? "2026.10.10 점검을 실시하였음\n14시 30분 회의 및 및 보고");
     return { findings, counts: { error: findings.filter((f) => f.severity === "error").length, warning: findings.filter((f) => f.severity === "warning").length, info: findings.filter((f) => f.severity === "info").length } };
   },
+  precheck: async (p) => {
+    await wait(400);
+    const items: RpcResult<"precheck">["items"] = [
+      { rule: "WEEKDAY_MISMATCH", severity: "error", category: "날짜와 요일", message: "11월 6일은 금요일입니다.", page: 1, context: "일시: 2026. 11. 6.(목) 10:00∼12:00", excerpt: "2026. 11. 6.(목)", fix: { from: "2026. 11. 6.(목)", to: "2026. 11. 6.(금)" } },
+      { rule: "SUM_MISMATCH", severity: "error", category: "표 합계", message: "표 1의 합계 행(금액(원))이 1,500,000인데, 위 칸을 더하면 1,450,000입니다.", page: 1, context: "합계 1,500,000", excerpt: "1,500,000", fix: { from: "1,500,000", to: "1,450,000" } },
+      { rule: "PRIVACY_PHONE", severity: "warning", category: "개인정보", message: "전화번호로 보이는 글이 있습니다: 010-●●●●-6789. 밖으로 보내거나 공개할 문서라면 가리세요.", page: 1, context: "주무관(010-●●●●-6789)" },
+      { rule: "EMPTY_FIELD", severity: "warning", category: "빈칸 안내 글자", message: "'시행일' 칸을 채우지 않았습니다. 그대로 PDF로 저장하거나 인쇄하면 안내 글자 '시행일'이 찍힐 수 있습니다." },
+    ];
+    const fixed = p.path.includes("_수정");
+    const list = fixed ? items.filter((f) => !f.fix) : items;
+    const c = (s: string) => list.filter((f) => f.severity === s).length;
+    return { items: list, counts: { error: c("error"), warning: c("warning"), info: c("info") }, fixable: list.filter((f) => f.fix).length, checked: ["표기법", "날짜와 요일", "표 합계", "끝. 표시", "빈칸 안내 글자", "개인정보"], skipped: [], page_count: 2 };
+  },
+  find_pages: async (p) => ({ pages: p.texts.map(() => 1) }),
   redact: async (p) => {
     await wait(350);
     const hits = [{ rule: "rrn" as const, count: 3, samples: ["900101-1******"] }, { rule: "phone" as const, count: 5, samples: ["010-****-5678"] }, { rule: "email" as const, count: 2, samples: ["m****@gwangjin.go.kr"] }];
-    return { hits, total: 10, residual: p.dry_run ? 0 : 1, preserved: formatOf(p.path) === "hwpx" || formatOf(p.path) === "hwp", ...(p.dry_run ? {} : { output_path: out(p.path, formatOf(p.path) === "hwpx" ? "hwpx" : "md", "_가림") }) };
+    const fmt = formatOf(p.path);
+    const ext = fmt === "hwpx" || fmt === "hwp" ? fmt : fmt === "pdf" || fmt === "image" ? "pdf" : "md";
+    return { hits, total: 10, residual: p.dry_run ? 0 : 1, preserved: fmt === "hwpx" || fmt === "hwp", unchecked_rules: (["name", "address"] as const).filter((r) => !p.rules?.includes(r)), ...(p.dry_run ? {} : { output_path: out(p.path, ext, "_가림") }) };
   },
   redact_batch: async (p, emit) => {
     for (let i = 0; i < p.paths.length; i++) { emit.progress(i + 1, p.paths.length, `${baseName(p.paths[i])} 가리는 중`); await wait(300); }
@@ -388,6 +429,20 @@ const handlers: Handlers = {
   },
   collect_fields: async () => { await wait(400); return { fields: [{ label: "성명", count: 5 }, { label: "소속", count: 5 }, { label: "연락처", count: 4 }, { label: "참가 종목", count: 3 }] }; },
   collect_run: async (p) => { await wait(600); return { output_path: p.output_path ?? joinPath(DOCS_DIR, "취합.xlsx"), rows: p.paths.length, failed: [] }; },
+  collect_roster: (p) => ({ names: (p.text ?? "총무과\n기획예산과\n민원봉사과\n복지정책과\n도시계획과\n세무과\n환경위생과\n문화체육과").split(/\n|,/).map((x) => x.trim()).filter(Boolean) }),
+  collect_gather: async (p) => {
+    await wait(700);
+    const roster = (p.roster ?? []).map((x) => x.trim()).filter(Boolean);
+    const depts = p.paths.map((x) => roster.find((d) => baseName(x).includes(d)) ?? "");
+    const status = roster.map((d) => ({ dept: d, in_roster: true, submitted: depts.includes(d), files: p.paths.filter((_, i) => depts[i] === d).map(baseName), blanks: 0 }));
+    const missing = status.filter((s) => !s.submitted).map((s) => s.dept);
+    return {
+      output_path: p.output_path ?? joinPath(p.output_dir ?? DOCS_DIR, "교육수요조사서_수합.xlsx"), rows: p.paths.length,
+      columns: [{ label: "부서명", required: true }, { label: "담당자", required: true }, { label: "희망 인원", required: true, total: 31 }],
+      by_kind: { form: p.paths.length, excel: 0, ai: 0 }, separate: [], failed: [], blanks: 1, status, missing, title: "교육수요조사서",
+      reminder: missing.length ? `「교육수요조사서」 제출을 다시 부탁드립니다.\n\n아직 받지 못한 부서: ${missing.join(", ")}\n제출 기한: ${p.deadline || "○○. ○○.(○)"}까지` : "",
+    };
+  },
   write_file: (p) => ({ path: p.path }),
   read_file_b64: async (p) => {
     const editor = new URLSearchParams(location.search).get("editor");
@@ -414,6 +469,28 @@ const handlers: Handlers = {
     return { format: "hwpx", fields: [{ name: "기관명" }, { name: "수신" }, { name: "제목", guide: "무엇을 요청하는지 한 줄로" }, { name: "본문", guide: "요청 내용과 기한", multiline: true }, { name: "담당자" }, { name: "전화" }], label_fields: [], has_levels: true, page_count: 1, strategy: "fill_fields" };
   },
   template_starter: async (p) => { await wait(400); return { output_path: joinPath(DOCS_DIR, `${p.preset} 시작 서식.hwpx`) }; },
+  style_extract: async (p) => { await wait(500); return { format: mockStyle(stem(p.path)), warnings: [] }; },
+  style_preview: async () => {
+    // ?editor= 가 있으면 편집기 서버의 견본 HWPX 로 (서식과 무관한 견본), 없으면 빈 값 → 화면은 "그리지 못했습니다"
+    const editor = new URLSearchParams(location.search).get("editor");
+    if (!editor) return { preview_hwpx_b64: "" };
+    const buf = new Uint8Array(await (await fetch(new URL("sample.hwpx", editor))).arrayBuffer());
+    let bin = "";
+    buf.forEach((x) => { bin += String.fromCharCode(x); });
+    return { preview_hwpx_b64: btoa(bin) };
+  },
+  style_save: (p) => { const e = { id: `s${savedStyles.length + 1}`, name: p.name, summary: p.format.summary, created_at: "2026-10-13T09:00:00Z", format: p.format }; savedStyles.unshift(e); return e; },
+  style_list: () => ({ styles: savedStyles }),
+  style_delete: (p) => { const i = savedStyles.findIndex((s) => s.id === p.id); if (i >= 0) savedStyles.splice(i, 1); return i >= 0; },
+  style_apply: async (p, emit) => {
+    const results = [];
+    for (const [i, path] of p.source_paths.entries()) {
+      emit.progress(i + 1, p.source_paths.length, `${baseName(path)} 서식 맞추는 중 (${i + 1}/${p.source_paths.length})`);
+      await wait(400);
+      results.push({ path, ok: true, output_path: joinPath(p.output_dir ?? dirName(path), `${stem(path)}_우리서식.hwpx`) });
+    }
+    return { results, output_dir: p.output_dir ?? dirName(p.source_paths[0]), summary: "기안문 서식" };
+  },
   org_autofill: (p) => {
     const o = settings.org;
     const map: Record<string, string> = {

@@ -1,10 +1,12 @@
-/** 한꺼번에 — 결과 (폴더·파일 하나·항목 뽑기 표·찾기 결과) */
+/** 서무 도구 — 결과 (폴더·파일 하나·항목 뽑기 표·찾기 결과·문서 수합) */
 
 import { FileText } from "lucide-react";
 import { useApp } from "../../state/app";
 import { baseName } from "../../lib/format";
 import { Note, SavedFile } from "../common/Status";
 import type { Outcome } from "./runners";
+import { GatherResult } from "./GatherResult";
+import { MailMergeResult } from "./MailMerge";
 
 function mark(excerpt: string, query: string) {
   if (!query) return excerpt;
@@ -12,8 +14,10 @@ function mark(excerpt: string, query: string) {
   return parts.flatMap((p, i) => (i === 0 ? [p] : [<mark key={i} className="kd-mark">{query}</mark>, p]));
 }
 
-export function BatchResults({ outcome }: { outcome: Outcome }) {
+export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLate: () => void }) {
   const { openDocs } = useApp();
+  if (outcome.kind === "gather") return <GatherResult result={outcome.result} message={outcome.message} onAddLate={onAddLate} />;
+  if (outcome.kind === "mailmerge") return <MailMergeResult result={outcome.result} message={outcome.message} />;
   if (outcome.kind === "files") {
     return outcome.dir ? <SavedFile path={outcome.dir} folder label={outcome.message} /> : <Note tone="ok">{outcome.message}</Note>;
   }

@@ -1,4 +1,4 @@
-/** 내보내기 — 글(마크다운)·HTML·글만·PDF·한글(HWPX) */
+/** 내보내기 — 글(마크다운)·HTML·글만(표시 없는 글, 표는 탭)·PDF·한글(HWPX) */
 
 import { useState } from "react";
 import { Download, FolderOpen, FilePen } from "lucide-react";
@@ -6,7 +6,7 @@ import type { ToolProps } from "../ToolPanel";
 import { useApp } from "../../../state/app";
 import { rpc } from "../../../lib/rpc";
 import { pickFolder } from "../../../lib/native";
-import { dirName, isHangul, joinPath, stem } from "../../../lib/format";
+import { baseName, dirName, isHangul, joinPath, stem } from "../../../lib/format";
 import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { Check, Field, Seg } from "../../common/Field";
@@ -17,7 +17,7 @@ type Target = "md" | "html" | "txt" | "pdf" | "hwpx";
 const TARGETS: Array<{ value: Target; label: string; desc: string }> = [
   { value: "md", label: "글(마크다운)", desc: "제목·표를 살린 글 파일. AI·누리집에 붙이기 좋습니다." },
   { value: "html", label: "HTML", desc: "웹 브라우저로 여는 문서" },
-  { value: "txt", label: "글만", desc: "꾸밈 없이 글자만" },
+  { value: "txt", label: "글만", desc: "꾸밈 없이 글자만. 표는 칸마다 탭으로 나눕니다." },
   { value: "pdf", label: "PDF", desc: "인쇄 모양 그대로 보낼 때" },
   { value: "hwpx", label: "한글(HWPX)", desc: "글과 표를 한글 문서로 다시 짭니다. 서식은 문서 모양을 보고 맞춥니다" },
 ];
@@ -61,7 +61,7 @@ export function ExportTool({ doc, info }: ToolProps) {
   return (
     <div className="flex flex-col gap-4">
       <Field label="무엇으로 저장할까요?" hint={info.encrypted ? `${desc} 암호가 걸린 문서는 아직 PDF·한글(HWPX)로 저장할 수 없습니다.` : desc}>
-        <Seg label="저장 형식" value={target} onChange={(v) => { setTarget(v); task.reset(); }} options={options} />
+        <Seg label="저장 형식" value={target} onChange={(v) => { setTarget(v); task.reset(); }} options={options} cols={options.length <= 3 ? options.length : Math.ceil(options.length / 2)} />
       </Field>
 
       {target === "hwpx" && hangulSource && (
@@ -91,7 +91,8 @@ export function ExportTool({ doc, info }: ToolProps) {
       <Field label="저장할 곳">
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <FolderOpen size={14} className="kd-muted flex-none" />
-          <span className="kd-path flex-1">{outDir || "원본 파일 옆"}{!dir && !settings?.convert.output_dir ? " (원본 옆)" : ""}</span>
+          {/* 긴 경로는 폴더 이름만, 전체 경로는 마우스를 올리면 */}
+          <span className="kd-path flex-1" title={outDir || undefined}>{outDir ? baseName(outDir) || outDir : "원본 파일 옆"}{!dir && !settings?.convert.output_dir ? " (원본 옆)" : ""}</span>
           <button type="button" className="kd-link kd-small flex-none" onClick={() => void pickFolder().then((d) => d && setDir(d))}>바꾸기</button>
         </div>
       </Field>

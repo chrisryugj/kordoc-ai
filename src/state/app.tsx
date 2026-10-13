@@ -15,7 +15,7 @@ export type Screen = "home" | "inbox" | "workbench" | "create" | "batch" | "comp
 export type ToolId = "info" | "export" | "ai" | "review" | "redact" | "edit" | "tables" | "seal";
 export type BatchTaskId =
   | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "bundle" | "pdftools" | "collect" | "extract"
-  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch";
+  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy";
 export type ThemePref = "light" | "dark" | "system";
 
 export interface OpenDoc {
@@ -75,6 +75,11 @@ interface AppValue {
   setBadge: (s: Screen, v: string | undefined) => void;
   firstRun: boolean;
   setFirstRun: (open: boolean) => void;
+  /** 설정의 한 구획으로 바로 (예: "set-ai") */
+  settingsIntent: Intent<string> | null;
+  openSettings: (section: string) => void;
+  /** 화면을 떠나기 전에 묻는 문지기 (설정의 저장 안 한 변경). false 를 돌려주면 go 가 멈춘다 */
+  setLeaveGuard: (guard: ((next: Screen) => boolean) | null) => void;
 }
 
 const AppContext = createContext<AppValue | null>(null);
@@ -107,7 +112,14 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [badges, setBadges] = useState<Partial<Record<Screen, string>>>({});
   const [firstRun, setFirstRun] = useState(false);
+  const [settingsIntent, setSettingsIntent] = useState<Intent<string> | null>(null);
   const drops = useRef(new Map<string, (paths: string[]) => void>());
+  const leaveGuard = useRef<((next: Screen) => boolean) | null>(null);
+  const go = useCallback((next: Screen) => {
+    if (leaveGuard.current && !leaveGuard.current(next)) return;
+    setScreen(next);
+  }, []);
+  const setLeaveGuard = useCallback((g: ((next: Screen) => boolean) | null) => { leaveGuard.current = g; }, []);
 
   // 화면 테마
   useEffect(() => {
@@ -199,7 +211,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   }, []);
 
   const value = useMemo<AppValue>(() => ({
-    screen, go: setScreen,
+    screen, go,
     engine: { status: engine.status, error: engine.errorMessage, restart: engine.restart },
     ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, setActive: setActivePath, openDocs, closeDoc, updateDoc, focus,
@@ -211,9 +223,10 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     theme, setTheme: (t) => { setThemeState(t); writePref("kordoc-theme", t); },
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),
     badges, setBadge, firstRun, setFirstRun,
-  }), [screen, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
+    settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard,
+  }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, createIntent, recent,
-    theme, dragTarget, registerDrop, badges, setBadge, firstRun]);
+    theme, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

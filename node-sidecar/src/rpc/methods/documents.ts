@@ -85,8 +85,10 @@ export function registerDocuments(router: RpcRouter): void {
     mask_char: str(p.mask_char),
     dry_run: bool(p.dry_run),
     output_path: optPath(p.output_path),
+    keep: strList(p.keep),
+    also_pdf: bool(p.also_pdf),
   }, signal), { heavy: true });
-  reg('redact_batch', (p, signal) => redactBatch({ paths: reqPaths(p.paths), rules: rules(p.rules), mask_char: str(p.mask_char), output_dir: optPath(p.output_dir) }, signal), { heavy: true });
+  reg('redact_batch', (p, signal) => redactBatch({ paths: reqPaths(p.paths), rules: rules(p.rules), mask_char: str(p.mask_char), output_dir: optPath(p.output_dir), keep: strList(p.keep) }, signal), { heavy: true });
 
   // ── 한글 문서 손질 ──
   reg('seal', (p) => seal({ path: reqPath(p.path), image_path: reqPath(p.image_path), anchor: str(p.anchor) ?? '(인)', output_path: optPath(p.output_path) }), { heavy: true });

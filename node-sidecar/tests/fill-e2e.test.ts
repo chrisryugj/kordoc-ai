@@ -158,6 +158,39 @@ describe('patch_blocks', () => {
 /** 레포 예제 서식 (가상의 가온시) — rhwp 0.8.6 렌더가 맥·CI 에서도 늘 돈다 */
 const SAMPLE_FORM = join(dirname(fileURLToPath(import.meta.url)), '..', 'samples', '취합', '교육수요조사서_총무과.hwpx');
 
+describe('표 머리 행·넣은 곳·같은 이름 칸 (예제 서식)', () => {
+  it('"항목 | 내용" 머리 행은 칸이 아니다', async () => {
+    const r = await formSchema({ input_path: SAMPLE_FORM });
+    const labels = r.fields.map((f) => f.label);
+    expect(labels).not.toContain('항목');
+    expect(labels).toContain('담당자');
+  });
+
+  it('값을 넣은 표 칸 좌표(target)를 돌려준다', async () => {
+    const r = await formFill({ input_path: SAMPLE_FORM, values: { 담당자: '홍길동' }, dry_run: true, include_doc: false });
+    const f = r.filled.find((x) => x.label === '담당자');
+    expect(f?.target).toEqual({ table: 0, row: 2, col: 1 });
+    expect(r.rejected).toEqual([]);
+  });
+
+  it('같은 이름 칸이 여러 곳이면 남의 칸을 덮지 않고 rejected 로 알린다', async () => {
+    const section = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>대표자 성명:</hp:t></hp:run></hp:p>
+  <hp:p id="1" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>참여자 성명:</hp:t></hp:run></hp:p>
+  <hp:p id="2" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>작성일자:</hp:t></hp:run></hp:p>
+</hs:sec>`;
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/hwp+zip');
+    zip.file('Contents/section0.xml', section);
+    const p = join(tmpDir, 'dup-form.hwpx');
+    await writeFile(p, Buffer.from(await zip.generateAsync({ type: 'arraybuffer' })));
+    const r = await formFill({ input_path: p, values: { 성명: '홍길동', 작성일자: '2026. 10. 13.' }, dry_run: true });
+    expect(r.rejected).toEqual(['성명']);
+    expect(r.filled.map((f) => f.label)).toEqual(['작성일자']);
+  });
+});
+
 describe('render_preview (rhwp 0.8.6, 예제 서식)', () => {
   it('SVG 쪽 렌더', async () => {
     const r = await renderPreview({ input_path: SAMPLE_FORM, max_pages: 1 });

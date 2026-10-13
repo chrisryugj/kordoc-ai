@@ -16,7 +16,7 @@ import { lockProps, useLocked } from "../settings/PolicyLock";
 type Route = "embedded" | "openai" | "cloud" | "none";
 
 export function FirstRunWizard() {
-  const { settings, saveSettings, setFirstRun, go } = useApp();
+  const { settings, saveSettings, setFirstRun, openSettings } = useApp();
   const meta = useGongmunMeta();
   const [step, setStep] = useState(0);
   const [org, setOrg] = useState<Settings["org"]>(settings!.org);
@@ -68,7 +68,8 @@ export function FirstRunWizard() {
   const finish = async () => {
     if (!(await save(true))) return;
     done();
-    if (route === "embedded" && !settings!.ai.embedded.model_path) go("settings");
+    // AI 를 나중에 정하기로 했거나 아직 덜 됐으면(모델·주소·키 없음) 설정의 AI 연결 구획으로 바로
+    if (!aiReady) openSettings("set-ai");
   };
 
   // 중간에 닫아도(Esc 포함) 넣은 것은 저장한다. 저장에 실패하면 안내를 띄우고, 그다음 Esc 는 저장하지 않고 닫는다
@@ -90,9 +91,9 @@ export function FirstRunWizard() {
     : route === "cloud" ? !!(key || settings!.ai[cloud].api_key) : false;
   const aiWhere = route === "embedded" ? "이 PC 안 내장 모델" : route === "openai" ? `기관 서버 ${baseUrl} · 모델 ${model}` : cloud === "gemini" ? "Google Gemini" : "Anthropic Claude";
   const aiTodo = route === "embedded" ? "설정 › AI 연결에서 내장 모델을 받거나 가져오세요. 저장하면 그 화면으로 갑니다."
-    : route === "openai" ? "설정 › AI 연결에서 서버 주소와 모델 이름을 넣으세요."
-    : route === "cloud" ? "설정 › AI 연결에서 API 키를 넣으세요."
-    : "설정 › AI 연결에서 정하세요. 문서 읽기·바꾸기·검사는 AI 없이도 됩니다.";
+    : route === "openai" ? "설정 › AI 연결에서 서버 주소와 모델 이름을 넣으세요. 저장하면 그 화면으로 갑니다."
+    : route === "cloud" ? "설정 › AI 연결에서 API 키를 넣으세요. 저장하면 그 화면으로 갑니다."
+    : "저장하면 설정 › AI 연결로 갑니다. 문서 읽기·바꾸기·검사는 AI 없이도 됩니다.";
 
   const steps = ["내 기관 정보", "AI 연결", "준비 끝"];
 

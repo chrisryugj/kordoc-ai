@@ -32,6 +32,11 @@ const key = (s: string) => s.replace(/\s+/g, '');
 
 /** 한 문서의 칸 이름·값 (누름틀 먼저, 그다음 표 칸) */
 async function docFields(path: string, signal?: AbortSignal): Promise<Array<{ label: string; value: string }>> {
+  return (await readFormDoc(path, signal)).fields;
+}
+
+/** 칸 이름·값 + 본문 글 (문서 수합이 부서 이름을 본문에서도 찾는다) */
+export async function readFormDoc(path: string, signal?: AbortSignal): Promise<{ fields: Array<{ label: string; value: string }>; markdown: string }> {
   const out: Array<{ label: string; value: string }> = [];
   if (formatOf(path) === 'hwpx') {
     const buf = await readFile(path);
@@ -41,7 +46,7 @@ async function docFields(path: string, signal?: AbortSignal): Promise<Array<{ la
   }
   const r = await parseDoc(path, { images: false, ocr: 'off', keepLayout: true, signal });
   for (const f of extractFormFields(r.blocks).fields) out.push({ label: label(f.label), value: f.value.trim() });
-  return out.filter((f) => f.label && f.label.length <= 40);
+  return { fields: out.filter((f) => f.label && f.label.length <= 40), markdown: r.markdown };
 }
 
 export async function collectFields(p: { paths: string[] }, signal: AbortSignal): Promise<{ fields: Array<{ label: string; count: number }> }> {

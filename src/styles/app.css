@@ -50,8 +50,9 @@
 .kd-nav[data-collapsed="true"] .kd-nav-foot { padding: 10px 0; align-items: center; }
 .kd-nav-foot > .kd-status { min-height: 32px; }
 /* 접힌 탐색: 엔진·AI 상태 단추 둘 + 폐쇄망 표시 (눌러야 할 크기 32px) */
-.kd-nav-stats { display: flex; gap: 4px; }
-.kd-nav-stat { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-md); color: var(--color-text-secondary); background: transparent; border: 0; }
+.kd-nav-stats { display: flex; flex-direction: column; gap: 2px; }
+.kd-nav-stat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 56px; min-height: 40px; padding: 4px 4px 3px; border-radius: var(--radius-md); color: var(--color-text-secondary); background: transparent; border: 0; }
+.kd-nav-stat span { font-size: 11.5px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
 .kd-nav-stat:hover { background: color-mix(in srgb, var(--color-bg-secondary) 55%, transparent); }
 .kd-nav-stat svg { width: 16px; height: 16px; }
 .kd-nav-offline { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px 6px; font-size: 12.5px; font-weight: 600; line-height: 1.2; color: var(--color-text-secondary); white-space: nowrap; }
@@ -123,6 +124,11 @@
 .kd-seg button:hover { background: var(--color-bg-tertiary); }
 .kd-seg button[aria-pressed="true"] { background: var(--color-text-primary); color: var(--color-bg-secondary); }
 .kd-seg button:disabled { color: var(--color-text-disabled); cursor: default; }
+/* 줄 수를 정한 갈래 고르기: 칸을 꽉 채우고 칸 사이는 1px 괘선 (data-cols, --seg-basis) */
+.kd-seg[data-cols] { display: flex; gap: 1px; background: var(--color-border); }
+.kd-seg[data-cols] button { flex: 1 1 var(--seg-basis); border-left: 0; background: var(--color-bg-primary); padding: 0 8px; }
+.kd-seg[data-cols] button:hover { background: var(--color-bg-tertiary); }
+.kd-seg[data-cols] button[aria-pressed="true"] { background: var(--color-text-primary); }
 
 /* 체크·스위치 */
 .kd-check { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; cursor: pointer; font-size: 14px; line-height: 1.45; }

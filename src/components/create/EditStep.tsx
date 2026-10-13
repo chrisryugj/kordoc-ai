@@ -23,13 +23,13 @@ export function EditStep({ visible }: { visible: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="kd-h3" style={{ overflowWrap: "anywhere" }}>{session?.name ?? "열린 문서 없음"}</div>
           <div className="kd-small kd-muted">
-            {!session ? "작성 단계에서 시작점을 고르세요" : saveBlock ? saveBlock : session.dirty ? "고친 내용이 아직 저장되지 않았습니다" : session.savedAt ? `${new Date(session.savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}에 저장함` : "불러온 그대로입니다"}
+            {!session ? "작성 단계에서 시작점을 고르세요" : saveBlock ? saveBlock : session.dirty ? "고친 내용이 아직 저장되지 않았습니다" : session.savedAt ? `${new Date(session.savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}에 저장함` : session.working ? "만든 초안입니다. 한글 파일로는 아직 저장하지 않았습니다" : "불러온 그대로입니다"}
           </div>
         </div>
         <Tooltip content="실행 취소 (Ctrl+Z)"><button type="button" className="kd-icon-btn" disabled={!ready} onClick={() => history("undo")} aria-label="실행 취소"><Undo2 size={16} /></button></Tooltip>
         <Tooltip content="다시 실행 (Ctrl+Y)"><button type="button" className="kd-icon-btn" disabled={!ready} onClick={() => history("redo")} aria-label="다시 실행"><Redo2 size={16} /></button></Tooltip>
         <Button variant="secondary" onClick={() => void saveCurrent()} disabled={!canSave || saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>
-        <Button onClick={() => setStep("output")} disabled={!canSave}>출력으로 <ArrowRight size={14} /></Button>
+        <Button onClick={() => setStep("output")} disabled={!canSave}>{session?.existing ? "내보내기로" : "출력으로"} <ArrowRight size={14} /></Button>
         <Tooltip content={assistOpen ? "보조 패널 접기" : "보조 패널 펼치기"}>
           <button type="button" className="kd-icon-btn" onClick={() => setAssistOpen((o) => !o)} aria-label={assistOpen ? "보조 패널 접기" : "보조 패널 펼치기"} aria-pressed={assistOpen}>
             {assistOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}

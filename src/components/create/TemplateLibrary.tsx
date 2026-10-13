@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FilePlus2, Trash2, FileStack } from "lucide-react";
 import type { TemplateAnalysis, TemplateEntry } from "../../lib/contract";
 import { useApp } from "../../state/app";
-import { useCreate, visibleField } from "./session";
+import { useCreate, visibleField, workingFile } from "./session";
 import { rpc, errorText, callRaw } from "../../lib/rpc";
 import { FILTERS, pickFiles } from "../../lib/native";
 import { useTask } from "../../hooks/useTask";
@@ -51,15 +51,15 @@ function Detail({ entry, onStyleSample }: { entry: TemplateEntry; onStyleSample:
   }, [entry.id]);
 
   const finishBuiltin = (values: Record<string, string>) => void start.run(async () => {
-    const r = await rpc("template_fill", { template: entry.template ?? entry.id, values });
-    await openInEditor(r.output_path, { title: values["제목"] || entry.name });
+    const r = await rpc("template_fill", { template: entry.template ?? entry.id, values, output_path: await workingFile(`${values["제목"] || entry.name}.hwpx`) });
+    await openInEditor(r.output_path, { title: values["제목"] || entry.name, working: true });
   });
   const finishUser = (values: Record<string, string>) => void start.run(async () => {
     await openInEditor(entry.path!, { title: values["제목"] || entry.name, fields: values });
   });
   const startStarter = () => void start.run(async () => {
-    const r = await rpc("template_starter", { preset: entry.template ?? entry.id, ...(settings?.org.agency ? { agency: settings.org.agency } : {}) });
-    await openInEditor(r.output_path, { title: entry.name });
+    const r = await rpc("template_starter", { preset: entry.template ?? entry.id, ...(settings?.org.agency ? { agency: settings.org.agency } : {}), output_path: await workingFile(`${entry.name}.hwpx`) });
+    await openInEditor(r.output_path, { title: entry.name, working: true });
   });
 
   return (
@@ -113,7 +113,7 @@ function Detail({ entry, onStyleSample }: { entry: TemplateEntry; onStyleSample:
 
       {wizard && entry.path && (
         <FillWizard file={{ path: entry.path, name: baseName(entry.path), size: 0, type: detectFileType(entry.path) }} sidecarCall={callRaw}
-          outputDir={settings?.convert.output_dir ?? ""} showToast={toast} onClose={() => setWizard(false)}
+          outputDir={settings?.convert.output_dir ?? ""} saveDir={settings?.convert.output_dir ?? ""} showToast={toast} onClose={() => setWizard(false)}
           onOpenFolder={(p) => void rpc("reveal_file", { path: p }).catch(() => undefined)} />
       )}
     </div>

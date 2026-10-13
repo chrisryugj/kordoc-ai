@@ -96,7 +96,9 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
     <div className="kd-docws" hidden={hidden}>
       {body ?? (
         <>
-          <DocViewer doc={doc} info={doc.info!} scrollTo={scrollTo} live={live} />
+          {/* 쪽수는 미리보기가 센 값(rhwp 조판)을 정본으로: 머리·연 문서 목록·정보 탭이 모두 doc.info 를 본다 */}
+          <DocViewer doc={doc} info={doc.info!} scrollTo={scrollTo} live={live}
+            onPageCount={(n) => { if (doc.info && doc.info.page_count !== n) updateDoc(doc.path, { info: { ...doc.info, page_count: n } }); }} />
           <ToolPanel doc={doc} info={doc.info!} tool={tool} onTool={setTool} autoRun={autoRun}
             onGoPage={(page) => setScrollTo({ page, nonce: Date.now() })} />
         </>

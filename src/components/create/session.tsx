@@ -29,11 +29,18 @@ export interface DocSession {
   savedAt?: number;
   /** 칸 값을 편집기에서 넣기로 하고 열었는데 아직 못 넣었다 — 디스크 파일엔 그 값이 없다 */
   withFields?: boolean;
+  /** path 가 앱의 작업 사본 폴더에 있다 (새로 쓰기에서 만든 초안). 한글 파일로 저장하기 전까지는 거기에만 있다 */
+  working?: boolean;
+  /** 사용자가 연 기존 문서 (작업대·끌어 놓기) — 단계는 편집·내보내기만 */
+  existing?: boolean;
 }
+
+/** 새로 쓰기 초안을 둘 작업 사본 경로 (앱 데이터 폴더, 문서 폴더에 쌓이지 않게) */
+export const workingFile = async (name: string) => (await rpc("working_path", { name })).path;
 
 const NOT_READY = "한글 편집기가 아직 열리지 않았습니다. 잠시 뒤 다시 시도하세요.";
 const FIELDS_LOST = "한글 편집기가 열리지 않아 채운 칸 값을 저장할 수 없습니다. 앱을 다시 켠 뒤 서식을 다시 채우세요.";
-const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 작업대에서 내용을 보세요.";
+const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 문서 화면에서 내용을 보세요.";
 
 interface Ask { title: string; body: ReactNode; choices: Array<{ id: string; label: string; variant?: "secondary" | "ghost" }>; resolve: (id: string) => void }
 
@@ -49,12 +56,17 @@ interface CreateValue {
   frameRef: React.RefObject<HTMLIFrameElement | null>;
   frameSrc: string;
   /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다) */
-  openInEditor: (path: string, opts?: { title?: string; fields?: Record<string, string> }) => Promise<void>;
+  openInEditor: (path: string, opts?: { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean }) => Promise<void>;
   call: HwpEditorClient["call"];
   focusEditor: () => void;
   saveTo: (path: string, format?: "hwp" | "hwpx") => Promise<string>;
   /** 저장된 최신 파일 경로 — 고친 게 있으면 저장 대화상자부터 */
   ensureSaved: () => Promise<string | null>;
+  /** 출력(PDF·인쇄 등)에 쓸 지금 문서 파일 — 사용자 파일을 덮지 않고 저장 창도 띄우지 않는다.
+   *  고친 게 없으면 디스크 파일 그대로, 작업 사본이면 거기에 쓰고, 그 밖엔 작업 사본 폴더에 새 사본 */
+  outputFile: () => Promise<string>;
+  /** 저장 창이 처음 열릴 폴더 — 사용자 파일이면 그 옆, 초안·서식함 서식이면 설정 출력 폴더(없으면 비움) */
+  saveDir: string;
   /** 편집기에 직접 물어 고친 게 있는지 (주기 알림을 기다리지 않는다) */
   syncDirty: () => Promise<boolean>;
   /** 지금 저장·출력할 수 있나 — 편집기가 열리는 중이거나, 못 열려서 디스크 파일이 문서와 다르면 아니다 */
@@ -183,7 +195,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 내보낸 뒤에 고친 게 있으면(저장하는 사이 입력) 그건 아직 저장 안 된 것으로 둔다
       const after = before ? await ed.call("state", {}).catch(() => null) : null;
       const editedMeanwhile = !!before && !!after && after.changeSeq !== before.changeSeq;
-      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, savedAt: Date.now() } : s));
+      // 작업 사본에 쓴 것은 사용자가 저장한 게 아니다 (작업 사본 표시·저장 창 위치를 그대로 둔다)
+      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, ...(s.working && r.path === s.path ? {} : { working: false, savedAt: Date.now() }) } : s));
       return r.path;
     }
     // 편집기가 없거나 못 열렸으면 고칠 수도 없었으니 디스크의 지금 파일이 곧 문서다: 그대로 복사해 쓴다
@@ -191,7 +204,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const src = extOf(session.path);
       if (src !== fmt) throw new Error(`한글 편집기가 열리지 않아 ${fmt.toUpperCase()}로 바꿔 저장할 수 없습니다. ${src.toUpperCase()}로 저장하세요.`);
       const r = path === session.path ? { path } : await rpc("write_file", { path, data_b64: (await rpc("read_file_b64", { path: session.path })).data_b64, overwrite: true });
-      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), dirty: false, savedAt: Date.now() } : s));
+      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), dirty: false, ...(s.working && r.path === s.path ? {} : { working: false, savedAt: Date.now() }) } : s));
       return r.path;
     }
     throw new Error(editorState === "unavailable" || editorState === "error" ? FIELDS_LOST : NOT_READY);
@@ -202,13 +215,28 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     [session, settings?.org.dept],
   );
 
+  const saveDir = !session ? "" : session.existing || session.savedAt ? dirName(session.path) : settings?.convert.output_dir ?? "";
+
   const ensureSaved = useCallback(async () => {
     if (!session) return null;
     if (!(await syncDirty()) && session.savedAt) return session.path;
-    const target = await pickSavePath(joinPath(dirName(session.path), `${suggestedName || stem(session.name)}.${session.format}`), [{ name: "한글 문서", extensions: [session.format] }]);
+    const name = `${suggestedName || stem(session.name)}.${session.format}`;
+    const target = await pickSavePath(saveDir ? joinPath(saveDir, name) : name, [{ name: "한글 문서", extensions: [session.format] }]);
     if (!target) return null;
     return saveTo(target);
-  }, [session, suggestedName, saveTo, syncDirty]);
+  }, [session, suggestedName, saveTo, syncDirty, saveDir]);
+
+  const outputFile = useCallback(async () => {
+    if (!session) throw new Error("내보낼 문서가 없습니다. 작성 단계에서 시작점을 고르세요.");
+    if (!(await syncDirty())) return session.path;
+    if (session.working) return saveTo(session.path);
+    // 사용자 파일·서식함 서식은 덮지 않는다: 지금 편집기 내용을 작업 사본으로
+    const ed = client.current;
+    if (editorState !== "ready" || !ed || opening.current) throw new Error(NOT_READY);
+    const target = await workingFile(session.name);
+    const r = await rpc("write_file", { path: target, data_b64: bytesToB64((await ed.save(session.format)).buffer as ArrayBuffer), overwrite: true });
+    return r.path;
+  }, [session, syncDirty, saveTo, editorState]);
 
   const editorUsable = editorState === "ready" || ((editorState === "unavailable" || editorState === "error") && !session?.withFields);
   const canSave = !!session && !busyText && editorUsable;
@@ -255,19 +283,19 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     }
   }, [session, syncDirty, askUser, saveTo, ensureSaved, toast]);
 
-  const openInEditor = useCallback(async (path: string, opts?: { title?: string; fields?: Record<string, string> }) => {
+  const openInEditor = useCallback(async (path: string, opts?: { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean }) => {
     // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
     const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
     if (pages > RHWP_MAX_PAGES && (await askUser({
       title: "쪽이 아주 많은 문서",
-      body: <p className="kd-text">이 문서는 {pages.toLocaleString("ko-KR")}쪽입니다. 한글 편집기로 열면 오래 걸릴 수 있고, 2분 안에 열리지 않으면 멈춥니다. 내용만 보려면 작업대에서 여세요.</p>,
+      body: <p className="kd-text">이 문서는 {pages.toLocaleString("ko-KR")}쪽입니다. 한글 편집기로 열면 오래 걸릴 수 있고, 2분 안에 열리지 않으면 멈춥니다. 내용만 보려면 문서 화면에서 여세요.</p>,
       choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: "그래도 열기" }],
     })) !== "open") return;
     if (!(await settleCurrent())) return;
     const format: "hwp" | "hwpx" = extOf(path) === "hwp" ? "hwp" : "hwpx";
     const fields = opts?.fields && Object.keys(opts.fields).length ? opts.fields : null;
     opening.current = true;
-    setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}) });
+    setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
     setBusyText("한글 편집기를 여는 중");
     try {
@@ -298,8 +326,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<CreateValue>(() => ({
     step, setStep, session, editorState, editorError, docState, docSeq, frameRef, frameSrc,
-    openInEditor, call, focusEditor, saveTo, ensureSaved, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText,
-  }), [step, session, editorState, editorError, docState, docSeq, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
+    openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText,
+  }), [step, session, editorState, editorError, docState, docSeq, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
 
   return (
     <Ctx.Provider value={value}>

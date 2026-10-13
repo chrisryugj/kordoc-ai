@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import type { IRBlock } from 'kordoc';
 import type { InboxItem } from '../../types/rpc-contract.js';
 import { dataDir } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
@@ -15,6 +16,7 @@ import { sendProgress } from '../../infra/progress.js';
 import { parseDoc } from '../converter/index.js';
 import { errorText } from '../errors.js';
 import { formatOf } from '../files/format.js';
+import { ocrModelsReady } from '../system/index.js';
 import { isIsoDate, todayIso } from './dates.js';
 import { extractInbox } from './extract.js';
 
@@ -80,15 +82,32 @@ function order(a: Stored, b: Stored): number {
   return b.added_at.localeCompare(a.added_at);
 }
 
+function hasImage(blocks: IRBlock[] | undefined, depth = 0): boolean {
+  if (!blocks || depth > 32) return false;
+  return blocks.some((b) => b.type === 'image' || hasImage(b.children, depth + 1)
+    || (b.table?.cells.some((row) => row.some((c) => hasImage(c.blocks, depth + 1))) ?? false));
+}
+
 async function readOne(path: string, signal?: AbortSignal) {
   const format = formatOf(path);
   if (!READABLE.has(format)) throw new Error('받은 공문으로 읽을 수 없는 형식입니다. HWP·HWPX·PDF(스캔본 포함) 파일을 넣으세요.');
   // PDF 는 붙임까지 합친 긴 파일이 있어 앞 10쪽만 (공문 본문·시행 줄은 앞에 있다)
   const r = await parseDoc(path, { images: false, plain: true, pages: format === 'pdf' ? '1-10' : undefined, signal });
-  if (r.markdown.replace(/\s/g, '').length < 20) {
+  const hangulPictures = (format === 'hwp' || format === 'hwpx') && hasImage(r.blocks) && ocrModelsReady();
+  if (r.markdown.replace(/\s/g, '').length < 20 && !hangulPictures) {
     throw new Error('글자를 읽지 못했습니다. 스캔한 공문이면 설정 > 저장과 연결에서 스캔한 쪽 글자 읽기를 켜고 다시 넣으세요.');
   }
-  return extractInbox(r.markdown, todayIso());
+  const ex = extractInbox(r.markdown, todayIso());
+  if (!hangulPictures) return ex;
+  // 한글 공문 속 그림(기한 안내·붙임 표를 그림으로 넣은 것)은 OCR 모델이 있을 때만 다시 읽어 요청·기한을 보탠다.
+  // 보낸 곳·문서번호·제목은 글로 읽은 값을 그대로 쓴다 (기관 상징·캠페인 그림 글자가 끼어들어 발신명의를 흐린다).
+  // 그림 없는 공문은 한 번만 읽는다. 그림이 있으면 그림 수만큼 시간이 든다(예제 그림 1장 0.1~0.4초, 실공문 그림 여러 장 1초 안팎).
+  const o = await parseDoc(path, { images: false, plain: true, ocr: 'force', signal });
+  const more = extractInbox(o.markdown, todayIso());
+  const have = new Set(ex.requests.map((q) => q.text));
+  const requests = [...ex.requests, ...more.requests.filter((q) => !have.has(q.text) && (q.due || !ex.requests.length))];
+  if (!requests.length && r.markdown.replace(/\s/g, '').length < 20) return more;
+  return { ...ex, requests };
 }
 
 /** 공문을 읽어 목록에 넣는다 — 같은 경로는 뽑은 값만 갱신 */

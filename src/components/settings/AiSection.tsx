@@ -11,6 +11,7 @@ import { Field, Section, Seg, Switch, TextField } from "../common/Field";
 import { ErrorLine, Note, Working } from "../common/Status";
 import { EmbeddedModels } from "./EmbeddedModels";
 import { lockProps, PolicyLock, useLocked } from "./PolicyLock";
+import { Advanced, UnsavedBadge, useDirtyMark } from "./dirty";
 
 type Route = "embedded" | "openai" | "cloud" | "none";
 const routeOf = (p: AiProviderId): Route => (p === "gemini" || p === "anthropic" ? "cloud" : p);
@@ -83,11 +84,21 @@ export function AiSection() {
 
   const masked = (k: string) => (k ? `저장됨 (${k})` : "");
 
+  // 고친 채 저장하지 않았나 (갈래·주소·모델·새로 넣은 키)
+  const dirty = JSON.stringify({ ...draft, provider }) !== savedAi || !!(keys.openai || keys.gemini || keys.anthropic);
+  useDirtyMark("set-ai", "AI 연결", dirty, save, () => {
+    const a = JSON.parse(savedAi) as Settings["ai"];
+    setDraft(a);
+    setRoute(routeOf(a.provider));
+    setKeys({ openai: "", gemini: "", anthropic: "" });
+  });
+
   return (
-    <Section id="set-ai" mark="나." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 어디서 돌릴지 고르세요. 문서 내용이 어디까지 가는지가 달라집니다.">
+    <Section id="set-ai" mark="나." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 어디서 돌릴지 고르세요. 문서 내용이 어디까지 가는지가 달라집니다."
+      aside={dirty ? <UnsavedBadge /> : undefined}>
       <div className="kd-ai-tiles" role="radiogroup" aria-label="AI를 돌릴 곳">
         <RouteTile id="embedded" route={route} onPick={setRoute} icon={<Cpu size={20} />} title="이 PC 안에서" desc="인터넷 없이 내장 모델로. 문서가 PC 밖으로 나가지 않습니다." badge="폐쇄망에서 됨" locked={tileLock("embedded")} />
-        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버나 Ollama" desc="기관 안 서버, Ollama, LM Studio처럼 OpenAI 방식 주소" locked={tileLock("openai")} />
+        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버나 Ollama" desc={"기관 안 AI 서버나 이 PC의 Ollama·LM\u00a0Studio에 연결합니다."} locked={tileLock("openai")} />
         <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 서비스" desc="Gemini나 Claude. 문서 내용이 그 회사 서버로 갑니다."
           locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : tileLock("cloud")} />
       </div>
@@ -121,8 +132,13 @@ export function AiSection() {
                   <Button variant="secondary" onClick={loadModels} disabled={list.busy || !draft.openai.base_url || lk("ai.openai.model")}><RefreshCw size={13} /> 불러오기</Button>
                 </div>
               </Field>
-              <TextField {...lp("그림 읽기 모델(선택)", "ai.openai.vision_model")} hint="스캔 글자 읽기를 이 서버에 맡길 때" value={draft.openai.vision_model} onChange={(v) => setDraft((d) => ({ ...d, openai: { ...d.openai, vision_model: v } }))} />
             </div>
+            <Advanced>
+              <div className="kd-fieldgrid">
+                <TextField {...lp("그림 읽기 모델(선택)", "ai.openai.vision_model")} hint="스캔 글자 읽기를 이 서버에 맡길 때만 넣습니다" value={draft.openai.vision_model} onChange={(v) => setDraft((d) => ({ ...d, openai: { ...d.openai, vision_model: v } }))} />
+              </div>
+              <p className="kd-small kd-muted">이 서버는 OpenAI 방식(주소 끝이 보통 /v1)으로 묻고 답합니다.</p>
+            </Advanced>
             <ErrorLine message={list.error} />
             {offline && <Note tone="info">폐쇄망 모드에서는 기관 안 주소(사설 IP)와 이 PC(127.0.0.1)만 연결됩니다.</Note>}
           </>

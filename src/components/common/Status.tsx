@@ -66,7 +66,7 @@ export function SavedFile({ path, label = "저장했습니다", folder }: { path
       <CheckCircle2 size={15} />
       <div className="min-w-0 flex-1">
         <div className="font-semibold">{label}</div>
-        <div className="kd-path mt-0.5">{folder ? path : baseName(path)}</div>
+        <div className="kd-path mt-0.5" title={path}>{folder ? path : baseName(path)}</div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {!folder && (
             <Button variant="secondary" size="sm" onClick={() => void rpc("open_file", { path }).catch(() => undefined)}>

@@ -1,6 +1,6 @@
 /** 입력 부품 — 이름표 달린 칸, 스위치, 갈래 고르기, 체크, 구획 */
 
-import { useId, type ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 
 export function Field({ label, hint, children, htmlFor }: { label: ReactNode; hint?: ReactNode; children: ReactNode; htmlFor?: string }) {
   return (
@@ -52,11 +52,13 @@ export function Switch({ label, desc, checked, onChange, disabled }: {
   );
 }
 
-export function Seg<T extends string>({ value, onChange, options, label, disabled }: {
-  value: T; onChange: (v: T) => void; options: Array<{ value: T; label: string; disabled?: boolean }>; label: string; disabled?: boolean;
+/** cols: 좁은 칸에서 한 줄에 몇 개씩 (예: 5개를 3 + 2). 주면 칸을 꽉 채워 마지막 줄에 하나만 떨어지지 않게 한다 */
+export function Seg<T extends string>({ value, onChange, options, label, disabled, cols }: {
+  value: T; onChange: (v: T) => void; options: Array<{ value: T; label: string; disabled?: boolean }>; label: string; disabled?: boolean; cols?: number;
 }) {
   return (
-    <div className="kd-seg" role="group" aria-label={label}>
+    <div className="kd-seg" role="group" aria-label={label} data-cols={cols || undefined}
+      style={cols ? ({ "--seg-basis": `calc(${100 / cols}% - 1px)` } as CSSProperties) : undefined}>
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={value === o.value} disabled={disabled || o.disabled} onClick={() => onChange(o.value)}>
           {o.label}

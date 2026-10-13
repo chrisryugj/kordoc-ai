@@ -24,6 +24,10 @@ export function cleanMessage(msg: string): string {
   return msg.replace(/\s*[—–]\s*/g, ': ').replace(/\s+\n/g, '\n').trim();
 }
 
+/** kordoc 이 선택 부품(pdfjs-dist·sharp·puppeteer-core 등)을 못 찾았을 때 — 개발자용 "npm install …" 안내 대신 */
+export const MISSING_PART = '문서를 읽는 데 필요한 부품이 없습니다. 설정 › 엔진 점검을 눌러 보고, 계속되면 앱을 다시 설치하세요.';
+const MISSING_DEP = /MISSING_DEPENDENCY|\bnpm (install|i)\b|Cannot find (module|package)|ERR_MODULE_NOT_FOUND/i;
+
 const CHROMIUM_MISSING = /Chromium 실행 파일을 찾을 수 없습니다|Could not find (Chrome|browser)|Failed to launch the browser/i;
 
 export function toUserError(err: unknown): unknown {
@@ -35,6 +39,9 @@ export function toUserError(err: unknown): unknown {
   const msg = err instanceof Error ? err.message : String(err);
   if (CHROMIUM_MISSING.test(msg)) {
     return new Error(NO_BROWSER);
+  }
+  if (MISSING_DEP.test(msg) || (err as { code?: unknown })?.code === 'MISSING_DEPENDENCY') {
+    return new Error(MISSING_PART);
   }
   if (/Password required or incorrect password|PDFDocument\.load` is encrypted|is encrypted/i.test(msg)) {
     return new Error('암호가 걸린 PDF입니다. 암호를 넣고 다시 시도하세요.');
@@ -90,7 +97,9 @@ export function parseFailure(r: { code?: string; error: string }, hadPassword = 
       return new Error('파일을 찾을 수 없습니다. 경로가 맞는지 확인하세요.');
     case 'EMPTY_INPUT':
       return new Error('빈 파일입니다.');
+    case 'MISSING_DEPENDENCY':
+      return new Error(MISSING_PART);
     default:
-      return new Error(cleanMessage(r.error || '문서를 읽지 못했습니다.'));
+      return new Error(MISSING_DEP.test(r.error ?? '') ? MISSING_PART : cleanMessage(r.error || '문서를 읽지 못했습니다.'));
   }
 }

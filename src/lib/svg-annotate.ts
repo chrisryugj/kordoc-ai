@@ -54,12 +54,22 @@ function injectAttrs(svg: string, chars: CharEl[], tagged: Map<number, string>):
 
 /** 라벨 문자 시퀀스를 찾아 data-kd-label 부착한 SVG 반환 */
 export function annotateLabels(svg: string, labels: string[]): string {
+  return annotateSequences(svg, labels.map((l) => ({ text: l, key: l })), "data-kd-label");
+}
+
+/** 채운 값의 문자 시퀀스에 data-kd-value="라벨" 부착 — 값이 들어간 칸을 미리보기에서 짚을 때 */
+export function annotateValues(svg: string, items: Array<{ label: string; value: string }>): string {
+  return annotateSequences(svg, items.map((i) => ({ text: i.value, key: i.label })), "data-kd-value");
+}
+
+/** 같은 줄(y±1)에서 x 가 늘어나는 글자 시퀀스를 찾아 attr="key" 부착 (문서에 여러 번 나오면 모두) */
+function annotateSequences(svg: string, items: Array<{ text: string; key: string }>, attr: string): string {
   const chars = collectChars(svg);
 
-  // 라벨별 매칭 — 문서 순서상 인접 + 같은 y + x 증가
-  const tagged = new Map<number, string>(); // char index → label
-  for (const label of labels) {
-    const seq = [...label.replace(/\s/g, "")];
+  // 항목별 매칭 — 문서 순서상 인접 + 같은 y + x 증가
+  const tagged = new Map<number, string>(); // char index → 속성
+  for (const item of items) {
+    const seq = [...item.text.replace(/\s/g, "")];
     if (seq.length === 0) continue;
     for (let i = 0; i < chars.length; i++) {
       if (chars[i].ch !== seq[0]) continue;
@@ -77,9 +87,9 @@ export function annotateLabels(svg: string, labels: string[]): string {
       }
       if (ok) {
         for (const idx of hit) {
-          if (!tagged.has(idx)) tagged.set(idx, `data-kd-label="${escapeAttr(label)}"`);
+          if (!tagged.has(idx)) tagged.set(idx, `${attr}="${escapeAttr(item.key)}"`);
         }
-        // 같은 라벨이 문서에 여러 번 나올 수 있으므로 계속 스캔
+        // 같은 글이 문서에 여러 번 나올 수 있으므로 계속 스캔
         i += seq.length - 1;
       }
     }

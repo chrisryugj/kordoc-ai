@@ -11,6 +11,7 @@ import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
 import { Field, Seg, SelectField } from "../common/Field";
 import { ErrorLine, Note, StatusLine } from "../common/Status";
+import { Advanced } from "./dirty";
 
 interface Props {
   modelPath: string;
@@ -112,23 +113,26 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
           </div>
         ))}
       </div>
-      {offline && <Note tone="info">폐쇄망 모드라 인터넷에서 받지 않습니다. 인터넷이 되는 PC에서 받은 .gguf 파일을 USB로 옮겨 가져오세요.</Note>}
-      <div><Button variant="secondary" onClick={() => void importFile()}><FileUp size={14} /> 가진 모델 파일 가져오기 (.gguf)</Button></div>
+      {offline && <Note tone="info">폐쇄망 모드라 인터넷에서 받지 않습니다. 인터넷이 되는 PC에서 받은 모델 파일을 USB로 옮겨 가져오세요.</Note>}
+      <div><Button variant="secondary" onClick={() => void importFile()}><FileUp size={14} /> 가진 모델 파일 가져오기</Button></div>
       {modelPath && <p className="kd-small kd-muted">고른 모델: {baseName(modelPath)}</p>}
       <ErrorLine message={error} />
 
-      <div className="flex flex-wrap items-start gap-4">
-        <div style={{ width: 200 }}>
-          <SelectField label="한 번에 읽는 길이" hint="길수록 긴 문서를 한 번에 보지만 메모리를 더 씁니다" value={String(contextSize)} onChange={(v) => onChange({ context_size: Number(v) })}
-            options={[4096, 8192, 16384, 32768].map((n) => ({ value: String(n), label: `${num(n)} 토큰` }))} />
+      <Advanced>
+        <div className="flex flex-wrap items-start gap-4">
+          <div style={{ width: 220 }}>
+            <SelectField label="한 번에 읽는 글 양" hint="길게 할수록 긴 문서를 한 번에 보지만 메모리를 더 씁니다." value={String(contextSize)} onChange={(v) => onChange({ context_size: Number(v) })}
+              options={([[4096, "보통"], [8192, "길게"], [16384, "더 길게"], [32768, "아주 길게"]] as const).map(([n, l]) => ({ value: String(n), label: `${l} (${num(n)})` }))} />
+          </div>
+          <Field label="그래픽 칩"><Seg label="그래픽 칩" value={gpu} onChange={(v) => onChange({ gpu: v })} options={[{ value: "auto", label: "있으면 쓰기" }, { value: "off", label: "쓰지 않기" }]} /></Field>
         </div>
-        <Field label="그래픽 칩(GPU)"><Seg label="GPU" value={gpu} onChange={(v) => onChange({ gpu: v })} options={[{ value: "auto", label: "있으면 쓰기" }, { value: "off", label: "쓰지 않기" }]} /></Field>
-      </div>
+        <p className="kd-small kd-muted">괄호 안 숫자는 AI가 글을 나눠 세는 조각(토큰) 수입니다. 그래픽 칩(GPU)이 없으면 저절로 CPU로 돌립니다. 가져올 모델 파일은 .gguf 형식입니다.</p>
+      </Advanced>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" disabled={warm.busy || !modelPath} onClick={() => void warm.run(() => rpc("ai_warmup", {}))}><Flame size={14} /> {warm.busy ? "올리는 중" : "미리 올려 두기"}</Button>
         <span className="kd-small kd-muted">처음 쓸 때 기다리지 않도록 모델을 메모리에 올립니다</span>
       </div>
-      {warm.result && <Note tone="ok">준비됐습니다. {warm.result.gpu ? `그래픽 칩: ${warm.result.gpu}` : "그래픽 칩 없이 CPU로"} · 한 번에 {num(warm.result.context_size)} 토큰</Note>}
+      {warm.result && <Note tone="ok">준비됐습니다. {warm.result.gpu ? "그래픽 칩으로 돌립니다." : "그래픽 칩 없이 돌립니다."}</Note>}
       <ErrorLine message={warm.error} />
     </div>
   );

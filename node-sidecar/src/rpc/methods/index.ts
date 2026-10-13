@@ -8,6 +8,8 @@ import { registerEditor } from './editor.js';
 import { registerInsight } from './insight.js';
 import { registerInbox } from './inbox.js';
 import { registerLaw } from './law.js';
+import { registerReview } from './review.js';
+import { registerStyle } from './style.js';
 
 export function registerAllMethods(router: RpcRouter): void {
   registerSystem(router);
@@ -17,4 +19,6 @@ export function registerAllMethods(router: RpcRouter): void {
   registerInsight(router);
   registerInbox(router);
   registerLaw(router);
+  registerReview(router);
+  registerStyle(router);
 }

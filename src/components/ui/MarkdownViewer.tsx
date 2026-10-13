@@ -3,11 +3,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { Copy, Check, Eye, Code, Sparkles } from "lucide-react";
+import { Copy, Check, Eye, Code, Sparkles, MessageSquareText } from "lucide-react";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
 import { ContextMenu } from "./ContextMenu";
 import { openExternal } from "../../lib/native";
+// "글만" 저장과 같은 변환 (엔진 정본, 의존 없는 순수 함수): 표시를 걷고 표는 탭으로 이은 줄
+import { markdownToPlain } from "../../../node-sidecar/src/core/converter/plain";
 
 interface MarkdownViewerProps {
   markdown: string;
@@ -16,6 +18,21 @@ interface MarkdownViewerProps {
   maxHeight?: number;
   /** true이면 maxHeight 무시, 부모 flex 컨테이너 높이를 채움 */
   fillHeight?: boolean;
+  /** 글 파일(.txt 등): 마크다운으로 해석하지 않고 그대로 보인다 */
+  plain?: boolean;
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
 }
 
 const sanitizeSchema = {
@@ -31,25 +48,17 @@ const sanitizeSchema = {
   },
 };
 
-export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500, fillHeight }: MarkdownViewerProps) {
+export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500, fillHeight, plain }: MarkdownViewerProps) {
   const [view, setView] = useState<"rendered" | "source">("rendered");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"" | "md" | "plain">("");
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(markdown);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = markdown;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [markdown]);
+  const handleCopy = useCallback(async (kind: "md" | "plain") => {
+    // 메신저용: 마크다운 표시(#·|·**·\~)를 걷고 표는 칸을 탭으로 이은 줄로. 글 파일은 이미 꾸밈이 없다
+    await copyText(kind === "plain" && !plain ? markdownToPlain(markdown) : markdown);
+    setCopied(kind);
+    setTimeout(() => setCopied(""), 2000);
+  }, [markdown, plain]);
 
   if (!markdown) return null;
 
@@ -61,6 +70,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
         style={{ borderBottom: "1px solid var(--color-border)" }}
       >
         <div className="flex items-center gap-1">
+          {plain ? <span className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>글 파일 그대로</span> : <>
           <button
             type="button"
             onClick={() => setView("rendered")}
@@ -83,19 +93,26 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           >
             <Code size={13} /> 소스
           </button>
+          </>}
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-            {markdown.length.toLocaleString()}자
-          </span>
-          <Tooltip content="마크다운 원본을 클립보드에 복사">
-          <Button variant="ghost" size="sm" onClick={handleCopy}>
+          <Tooltip content="메신저·메일에 붙이기 좋게 표시 없이 복사합니다. 표는 칸마다 탭으로 나눕니다">
+          <Button variant="ghost" size="sm" onClick={() => void handleCopy("plain")}>
             <span className="flex items-center gap-1">
-              {copied ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 복사</>}
+              {copied === "plain" ? <><Check size={13} /> 복사됨</> : <><MessageSquareText size={13} /> 메신저용 복사</>}
             </span>
           </Button>
           </Tooltip>
+          {!plain && (
+          <Tooltip content="마크다운 원본을 클립보드에 복사">
+          <Button variant="ghost" size="sm" onClick={() => void handleCopy("md")}>
+            <span className="flex items-center gap-1">
+              {copied === "md" ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 마크다운 복사</>}
+            </span>
+          </Button>
+          </Tooltip>
+          )}
           {onSummarize && (
             <Tooltip content="Gemini AI로 핵심 내용 요약 (온라인 모드 필요)">
             <Button variant="secondary" size="sm" onClick={onSummarize} disabled={isSummarizing}>
@@ -125,7 +142,9 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           }
         }}
       >
-        {view === "rendered" ? (
+        {plain ? (
+          <pre className="p-5 ts-sm whitespace-pre-wrap" style={{ color: "var(--color-text-secondary)", fontFamily: "inherit", lineHeight: 1.7, overflowWrap: "anywhere" }}>{markdown}</pre>
+        ) : view === "rendered" ? (
           <div className="markdown-body p-5 ts-sm">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -134,10 +153,10 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
                 h1: (props) => <h1 style={{ fontSize: "1.5em", fontWeight: "bold", marginTop: "0.8em", marginBottom: "0.4em", color: "var(--color-text-primary)" }} {...props} />,
                 h2: (props) => <h2 style={{ fontSize: "1.3em", fontWeight: "bold", marginTop: "0.7em", marginBottom: "0.3em", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "0.2em" }} {...props} />,
                 h3: (props) => <h3 style={{ fontSize: "1.1em", fontWeight: "bold", marginTop: "0.6em", marginBottom: "0.2em", color: "var(--color-text-primary)" }} {...props} />,
-                p: (props) => <p style={{ marginBottom: "0.75em", lineHeight: "1.7", color: "var(--color-text-secondary)" }} {...props} />,
+                p: (props) => <p style={{ marginBottom: "0.75em", lineHeight: "1.7", color: "var(--color-text-secondary)", whiteSpace: "pre-line" }} {...props} />,
                 ul: (props) => <ul style={{ marginLeft: "1.5em", marginBottom: "0.75em", listStyleType: "disc", color: "var(--color-text-secondary)" }} {...props} />,
                 ol: (props) => <ol style={{ marginLeft: "1.5em", marginBottom: "0.75em", listStyleType: "decimal", color: "var(--color-text-secondary)" }} {...props} />,
-                li: (props) => <li style={{ marginBottom: "0.25em", lineHeight: "1.6" }} {...props} />,
+                li: (props) => <li style={{ marginBottom: "0.25em", lineHeight: "1.6", whiteSpace: "pre-line" }} {...props} />,
                 table: (props) => (
                   <div style={{ overflowX: "auto", marginBottom: "1em" }}>
                     <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.875em" }} {...props} />

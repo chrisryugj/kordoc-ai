@@ -34,7 +34,7 @@ export function useInboxReminder(): void {
       // 창을 보고 있으면 배지로 충분하다. 가려져 있을 때 하루 한 번만 알린다
       if (!n || document.hasFocus() || notifiedOn() === today) return;
       markNotified(today);
-      void notifySystem("KorDoc AI: 받은 공문", `기한이 가까운 공문 ${n}건`);
+      void notifySystem("KorDoc AI: 접수함", `기한이 가까운 공문 ${n}건`);
     };
     void check();
     const timer = window.setInterval(() => void check(), CHECK_EVERY);

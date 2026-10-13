@@ -1,7 +1,7 @@
 /** 작성실·서식 — gongmun_meta·generate_hwpx·lint·template_fields/fill·mail_merge·org_autofill·서식함 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { markdownToHwpx, parse } from 'kordoc';
 import { call, sample, setupEnv } from './doc-helpers.js';
@@ -197,11 +197,74 @@ describe('mail_merge', () => {
     writeFileSync(xlsx, await buildXlsx([{ name: '명부', header: true, rows: [['제목', '시행일'], ['첫 공문', '2026. 10. 1.'], ['둘째 공문', '2026. 10. 2.']] }]));
     const r = await call('mail_merge', { template: 'gian', data_path: xlsx });
     expect(r.outputs).toHaveLength(2);
+    // 파일 번호는 1부터 (엑셀 줄 번호가 아니라)
+    expect(r.outputs.map((p: string) => p.split(/[\\/]/).pop()!.replace(/^.*_(\d+)\.hwpx$/, '$1'))).toEqual(['1', '2']);
+  });
+
+  it('맞는 열이 하나도 없으면 무엇을 고칠지 알리고 빈 폴더를 만들지 않는다', async () => {
     const bad = join(env.work, '안맞음.csv');
     writeFileSync(bad, '없는칸\n값\n');
-    const r2 = await call('mail_merge', { template: 'gian', data_path: bad });
-    expect(r2.failed[0]).toMatchObject({ row: 2 });
-    expect(r2.failed[0].error).toMatch(/칸 이름/);
+    const before = readdirSync(env.out).length;
+    await expect(call('mail_merge', { template: 'gian', data_path: bad })).rejects.toThrow(/하나도 맞지 않습니다.*제목/);
+    expect(readdirSync(env.out).length).toBe(before);
+  });
+
+  it('줄마다 실패 이유 · 0장이면 output_dir 비움', async () => {
+    const csv = join(env.work, '빈값.csv');
+    writeFileSync(csv, '제목,비고\n,메모만 있음\n');
+    const r = await call('mail_merge', { template: 'gian', data_path: csv });
+    expect(r.outputs).toEqual([]);
+    expect(r.output_dir).toBe('');
+    expect(r.failed[0]).toMatchObject({ row: 2 });
+    expect(r.failed[0].error).toMatch(/'제목' 열에 값을 넣으세요/);
+  });
+
+  it('파일 이름 열이 없으면 명부 열 이름을 알려 준다', async () => {
+    const csv = join(env.work, '이름열.csv');
+    writeFileSync(csv, '제목\n공문\n');
+    await expect(call('mail_merge', { template: 'gian', data_path: csv, name_column: '성명' })).rejects.toThrow(/명부에 '성명' 열이 없습니다.*제목/);
+  });
+
+  it('명부에 없는 칸은 내 기관 정보로 · 날짜·전화는 같은 모양으로', async () => {
+    const csv = join(env.work, '기관.csv');
+    writeFileSync(csv, '제목,시행일,전화번호\n체육대회 안내,2026-10-01,01012345678\n');
+    const r = await call('mail_merge', { template: 'gian', data_path: csv });
+    expect(r.failed).toEqual([]);
+    const back = await parse(readFileSync(r.outputs[0]));
+    const md = back.success ? back.markdown : '';
+    expect(md).toContain('가온시'); // 행정기관명 (내 기관 정보)
+    expect(md).toContain('2026. 10. 1.');
+    expect(md).toContain('010-1234-5678');
+    // org:false 면 기관 정보를 넣지 않는다
+    const r2 = await call('mail_merge', { template: 'gian', data_path: csv, org: false });
+    const md2 = (await parse(readFileSync(r2.outputs[0]))).markdown ?? '';
+    expect(md2).not.toContain('주무관 김가온');
+  });
+});
+
+describe('mail_merge_plan', () => {
+  it('명부 열 ↔ 양식 칸 짝, 양식에 없는 열, 기관 정보로 채울 칸', async () => {
+    const csv = join(env.work, '짝.csv');
+    writeFileSync(csv, '제목,본문,없는열\n체육대회,본문입니다,x\n');
+    const plan = await call('mail_merge_plan', { template: 'gian', data_path: csv });
+    expect(plan.rows).toBe(1);
+    expect(plan.columns.find((c: { name: string }) => c.name === '제목').fields).toEqual(['제목']);
+    expect(plan.columns.find((c: { name: string }) => c.name === '없는열').fields).toEqual([]);
+    const f = (n: string) => plan.fields.find((x: { name: string }) => x.name === n);
+    expect(f('제목')).toMatchObject({ column: '제목' });
+    expect(f('행정기관명')).toMatchObject({ org: '가온시' });
+    expect(f('경유').column).toBeUndefined();
+  });
+});
+
+describe('working_path', () => {
+  it('앱 데이터 폴더의 작업 사본 · 이름 다듬기 · 같은 이름은 (2)', async () => {
+    const a = await call('working_path', { name: '안전/교육: 계획.hwpx' });
+    expect(a.dir).toBe(join(env.data, '작업 사본'));
+    expect(a.path).toBe(join(env.data, '작업 사본', '안전 교육 계획.hwpx'));
+    writeFileSync(a.path, 'x');
+    const b = await call('working_path', { name: '안전/교육: 계획.hwpx' });
+    expect(b.path).toBe(join(env.data, '작업 사본', '안전 교육 계획 (2).hwpx'));
   });
 });
 

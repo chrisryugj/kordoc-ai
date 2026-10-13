@@ -10,6 +10,8 @@ import { Button } from "../ui/Button";
 import { Field, Seg } from "../common/Field";
 import { ErrorLine, Note, StatusLine } from "../common/Status";
 
+const FORMAT_LABEL: Record<string, string> = { md: "제목·표 살린 글", html: "웹 페이지", txt: "글자만" };
+
 type Watch = { id: string; dir: string; out_dir: string; format: string; processed: number; started_at: string };
 type Event = { id: string; path: string; ok: boolean; output_path?: string; error?: string; at: number };
 
@@ -53,15 +55,15 @@ export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: 
         <Field label="지켜볼 폴더">
           <div className="kd-inset flex items-center gap-2 px-3 py-2">
             <FolderOpen size={14} className="kd-muted flex-none" />
-            <span className="kd-path flex-1">{dir || "아직 고르지 않았습니다"}</span>
+            <span className="kd-path flex-1" title={dir || undefined}>{dir ? baseName(dir) : "아직 고르지 않았습니다"}</span>
             <button type="button" className="kd-link kd-small flex-none" onClick={() => void pickFolder().then((d) => d && setDir(d))}>고르기</button>
           </div>
         </Field>
         <div className="flex flex-wrap items-end gap-4">
-          <Field label="바꿀 형식"><Seg label="바꿀 형식" value={format} onChange={setFormat} options={[{ value: "md", label: "글(마크다운)" }, { value: "html", label: "HTML" }, { value: "txt", label: "글만" }]} /></Field>
+          <Field label="바꿀 형식"><Seg label="바꿀 형식" value={format} onChange={setFormat} options={[{ value: "md", label: "제목·표 살린 글" }, { value: "html", label: "웹 페이지" }, { value: "txt", label: "글자만" }]} /></Field>
           <Field label="담을 폴더">
             <div className="flex items-center gap-2">
-              <span className="kd-path">{outDir || "지켜볼 폴더 안 “변환 결과”"}</span>
+              <span className="kd-path" title={outDir || undefined}>{outDir ? baseName(outDir) : "지켜볼 폴더 안 “변환 결과”"}</span>
               <button type="button" className="kd-link kd-small" onClick={() => void pickFolder().then((d) => d && setOutDir(d))}>바꾸기</button>
             </div>
           </Field>
@@ -77,9 +79,8 @@ export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: 
             {list.map((w) => (
               <div key={w.id} className="kd-row">
                 <span className="kd-row-main">
-                  <span className="kd-row-title block">{baseName(w.dir)}</span>
-                  <span className="kd-path block">{w.dir}</span>
-                  <span className="kd-row-desc block kd-num">{w.format.toUpperCase()}로 바꿈 · 지금까지 {num(w.processed)}개</span>
+                  <span className="kd-row-title block" title={w.dir}>{baseName(w.dir)}</span>
+                  <span className="kd-row-desc block kd-num">{FORMAT_LABEL[w.format] ?? w.format}로 바꿈 · 지금까지 {num(w.processed)}개</span>
                 </span>
                 <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => void stop(w.id)}><Square size={12} /> 그만 보기</Button></span>
               </div>

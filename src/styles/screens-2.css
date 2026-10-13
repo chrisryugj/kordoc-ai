@@ -26,7 +26,7 @@
 
 /* ── 1. 작성 ── */
 .kd-compose { display: flex; flex-direction: column; min-height: 100%; }
-.kd-routes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--color-border); padding: 0 16px; }
+.kd-routes { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border-bottom: 1px solid var(--color-border); padding: 0 16px; }
 .kd-route { display: flex; gap: 12px; align-items: flex-start; padding: 14px 12px 12px; text-align: left; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; color: var(--color-text-primary); min-width: 0; }
 .kd-route:hover { background: var(--color-bg-primary); }
 .kd-route[aria-selected="true"] { border-bottom-color: var(--color-text-primary); }
@@ -50,6 +50,7 @@
 .kd-tpl-add { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 6px; }
 
 .kd-draft { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px; }
+.kd-draft[data-solo] { grid-template-columns: minmax(0, 720px); }
 .kd-draft-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .kd-draft-ai { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .kd-draft-editor { display: flex; flex-direction: column; gap: 6px; }
@@ -94,6 +95,16 @@
 .kd-index-item:hover { background: var(--color-bg-primary); }
 .kd-index-item[aria-current="true"] { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
 .kd-index-item .kd-section-mark { font-size: 13px; }
+/* 저장 안 한 구획: 목차 끝의 점 (색만이 아니라 글자로도 알리는 것은 구획 제목 옆 배지) */
+.kd-index-dirty { margin-left: auto; align-self: center; width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); flex: none; }
+/* 고급 접기 */
+.kd-advanced { margin-top: 16px; border-top: 1px solid var(--color-border-subtle); }
+.kd-advanced > summary { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--color-text-muted); cursor: pointer; list-style: none; }
+.kd-advanced > summary::-webkit-details-marker { display: none; }
+.kd-advanced > summary svg { transition: transform var(--transition-fast); }
+.kd-advanced[open] > summary svg { transform: rotate(90deg); }
+.kd-advanced > summary:hover { color: var(--color-text-primary); }
+.kd-advanced-body { display: flex; flex-direction: column; gap: 14px; padding: 8px 0 4px; }
 .kd-settings-scroll { position: relative; overflow: auto; min-height: 0; }
 .kd-settings-body { max-width: 840px; padding: 22px 28px 80px; }
 /* 마지막 구획도 목차로 누르면 맨 위에 오게 (화면 높이에서 머리·위아래 여백을 뺀 만큼) */
@@ -152,5 +163,5 @@
 .kd-fit-list li { display: flex; flex-direction: column; gap: 1px; }
 .kd-fit-list del { color: var(--color-text-muted); text-decoration-color: var(--color-error); }
 .kd-fit-list ins { text-decoration: none; color: var(--color-text-primary); }
-.kd-step[data-state="done"] button:hover .kd-step-label { text-decoration: underline; text-underline-offset: 3px; }
+.kd-step button:hover:not(:disabled) .kd-step-label { text-decoration: underline; text-underline-offset: 3px; }
 .kd-preset .kd-row-desc { word-break: keep-all; text-wrap: pretty; }

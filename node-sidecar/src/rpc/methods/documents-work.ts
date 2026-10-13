@@ -5,13 +5,15 @@
 
 import type { RpcRouter } from '../router.js';
 import { generateHwpx, gongmunMeta } from '../../core/gongmun/index.js';
-import { mailMerge, templateFields, templateFill } from '../../core/template/index.js';
+import { mailMerge, mailMergePlan, templateFields, templateFill } from '../../core/template/index.js';
+import { workingPath } from '../../core/output/working.js';
 import { templateAdd, templateAnalyze, templateLibrary, templateRemove, templateStarter } from '../../core/template/library.js';
 import { orgAutofill } from '../../core/template/org.js';
 import { toHwpx, toHwpxBatch } from '../../core/to-hwpx/index.js';
 import { compareHwpx } from '../../core/comparator/index.js';
 import { bundlePdf, pdfStamp } from '../../core/export/index.js';
 import { collectFields, collectRun, extractImages } from '../../core/extract/index.js';
+import { collectGather, collectRoster } from '../../core/collect/gather.js';
 import { searchFiles } from '../../core/search/index.js';
 import { previewBytes, readFileB64, writeFileB64 } from '../../core/files/io.js';
 import { bool, num, oneOf, optPath, registrar, reqPath, reqPaths, str, strList } from './params.js';
@@ -53,7 +55,15 @@ export function registerDocumentWork(router: RpcRouter): void {
     data_path: reqPath(p.data_path),
     name_column: str(p.name_column),
     output_dir: optPath(p.output_dir),
+    org: bool(p.org),
   }, signal), { heavy: true });
+  reg('mail_merge_plan', (p) => mailMergePlan({
+    template_path: optPath(p.template_path),
+    template: str(p.template),
+    data_path: reqPath(p.data_path),
+    org: bool(p.org),
+  }), { heavy: true });
+  reg('working_path', (p) => workingPath(String(p.name ?? '')));
 
   // ── 직장인 문서 작업 묶음 ──
   reg('to_hwpx', (p, signal) => toHwpx({ path: reqPath(p.path), preset: str(p.preset), ocr: oneOf(p.ocr, ['auto', 'force', 'off'] as const), output_path: optPath(p.output_path) }, signal), { heavy: true });
@@ -65,6 +75,17 @@ export function registerDocumentWork(router: RpcRouter): void {
   reg('search_files', (p, signal) => searchFiles({ paths: reqPaths(p.paths), query: String(p.query ?? ''), max_hits: num(p.max_hits) }, signal), { heavy: true });
   reg('collect_fields', (p, signal) => collectFields({ paths: reqPaths(p.paths) }, signal), { heavy: true });
   reg('collect_run', (p, signal) => collectRun({ paths: reqPaths(p.paths), fields: strList(p.fields) ?? [], output_path: optPath(p.output_path) }, signal), { heavy: true });
+  reg('collect_roster', (p, signal) => collectRoster({ text: typeof p.text === 'string' ? p.text : undefined, path: optPath(p.path) }, signal), { heavy: true });
+  reg('collect_gather', (p, signal) => collectGather({
+    paths: reqPaths(p.paths),
+    roster: strList(p.roster),
+    fields: strList(p.fields),
+    deadline: str(p.deadline),
+    use_ai: bool(p.use_ai),
+    output_path: optPath(p.output_path),
+    output_dir: optPath(p.output_dir),
+    overwrite: bool(p.overwrite),
+  }, signal), { heavy: true });
   reg('write_file', (p) => writeFileB64({ path: reqPath(p.path), data_b64: String(p.data_b64 ?? ''), overwrite: bool(p.overwrite) }));
   reg('read_file_b64', (p) => readFileB64(reqPath(p.path), bool(p.preview)));
   reg('preview_bytes', (p) => previewBytes({ data_b64: String(p.data_b64 ?? '') }));
