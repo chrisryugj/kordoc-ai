@@ -71,15 +71,21 @@ export interface ReceivedRef {
   recipient?: string;
 }
 
+/** 결문 "시행 부서-번호 (시행일)" — 시행일 괄호는 없거나 비어 있을 수 있고("시행 감사관-8697 접수"), 옛 서식은 "시 행"·"시행:",
+ *  처리과명은 "119대응과"·"경상북도교육청 의성안전체험관"·"신비전·신사업 추진 TF" 처럼 숫자로 시작하거나 띄어 쓴 것도 있고,
+ *  번호는 "부서-2026-5648" 처럼 여러 마디일 수 있다. 시행일이 괄호 없이 "2026.09.30." 로만 적힌 것도 있다. 본문에도 "시행" 이 나오므로 마지막 것을 쓴다 */
+const SIHAENG = /시\s?행(?:\s*[:：]\s*|\s+)(\d*[가-힣][가-힣A-Za-z0-9·]*(?:[ \t][가-힣A-Za-z][가-힣A-Za-z0-9·]*){0,3}(?:\s?-\s?\d+)+)(?:\s*\(\s*([^)]*?)\s*\)|[ \t]+(\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?))?/g;
+
 /** 받은 공문 자기 번호 — 끝부분 "시행 부서-번호 (시행일)" 줄(없으면 "| 문서번호 | … |" 칸) + 기관명·발신명의.
  *  공문 본문의 "1. 관련:" 은 그 공문이 근거로 든 이전 문서, "수신"은 우리 기관이라 회신에 옮기면 틀린다(소형 모델이 자주 베낀다). */
 export function receivedDocRef(text: string): ReceivedRef | undefined {
-  const m = text.match(/시행\s+([가-힣A-Za-z0-9·]+-\d+)\s*\(\s*([^)]*?)\s*\)/) ?? text.match(/\|\s*문서번호\s*\|\s*([가-힣A-Za-z0-9·]+-\d+)\s*\|/);
+  const m = [...text.matchAll(SIHAENG)].pop() ?? text.match(/\|\s*문서번호\s*\|\s*([가-힣A-Za-z0-9·]+-\d+)\s*\|/);
   if (!m) return undefined;
   const s = senderOf(text);
-  const date = (m[2] ?? '').trim();
-  const dept = m[1].replace(/-\d+$/, '');
-  return { number: m[1], ref: `${s ? `${s.agency} ` : ''}${m[1]}${date ? `(${date})` : ''}`, dept, ...(s ? { recipient: `${s.sender}(${dept}장)` } : {}) };
+  const number = m[1].replace(/\s*-\s*/g, '-');
+  const date = (m[2] ?? m[3] ?? '').trim();
+  const dept = number.replace(/(?:-\d+)+$/, '');
+  return { number, ref: `${s ? `${s.agency} ` : ''}${number}${date ? `(${date})` : ''}`, dept, ...(s ? { recipient: `${s.sender}(${dept}장)` } : {}) };
 }
 
 /** "1. 관련:" 줄이 받은 공문이 아닌 번호를 가리키면 받은 공문 번호로 바로잡는다 */

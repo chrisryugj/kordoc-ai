@@ -1,10 +1,15 @@
 /** 받은 공문 한 줄 + 펼친 자세히 보기 (요청 전체·문서 정보·기한 고치기·메모·열기·회신·빼기) */
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, ExternalLink, Reply, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, Reply, Scale, Trash2 } from "lucide-react";
 import { useApp } from "../../state/app";
 import { stem } from "../../lib/format";
+import { rpc } from "../../lib/rpc";
+import type { RpcResult } from "../../lib/contract";
+import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
+import { ErrorLine, Working } from "../common/Status";
+import { LawResults } from "../workbench/tools/LawResults";
 import { autoDue, dueBadge, dueText, type InboxItem } from "./dday";
 
 export type InboxPatch = { status?: "todo" | "done"; due?: string | null; note?: string };
@@ -87,6 +92,9 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply }: {
   const [due, setDue] = useState(item.due ?? "");
   const [note, setNote] = useState(item.note ?? "");
   const timer = useRef<number | undefined>(undefined);
+  // 인용 법령 확인은 누를 때만 (넣을 때마다 법제처에 묻지 않는다). 기준 날짜는 이 공문의 시행일
+  const law = useTask<RpcResult<"law_check">>();
+  const checkLaw = () => void law.run(({ signal, onProgress }) => rpc("law_check", { path: item.path, ...(item.sent_date ? { as_of: item.sent_date } : {}) }, { signal, onProgress }));
 
   useEffect(() => setDue(item.due ?? ""), [item.due]);
   useEffect(() => setNote(item.note ?? ""), [item.note]);
@@ -143,9 +151,22 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply }: {
         <Button variant="secondary" size="sm" onClick={() => openDocs([item.path])}><ExternalLink size={13} /> 열기</Button>
         <Button size="sm" onClick={onReply}><Reply size={13} /> 회신 쓰기</Button>
         <Button variant="secondary" size="sm" onClick={() => onUpdate({ status: done ? "todo" : "done" })}>{done ? "할 일로 되돌리기" : "끝냄으로 표시"}</Button>
+        <Button variant="secondary" size="sm" onClick={checkLaw} disabled={law.busy}><Scale size={13} /> 인용 법령 확인</Button>
         <span className="flex-1" />
         <Button variant="ghost" size="sm" onClick={onRemove}><Trash2 size={13} /> 목록에서 빼기</Button>
       </div>
+
+      {(law.busy || law.result || law.error) && (
+        <section className="kd-inbox-law" aria-label="인용 법령 확인">
+          <h3 className="kd-label">인용 법령 확인</h3>
+          {(!law.result || law.result.checked) && <p className="kd-small kd-muted text-pretty">
+            이 공문이 인용한 법령을 법제처 원문과 맞춰 봅니다.{item.sent_date ? ` 공문 시행일(${dueText(item.sent_date, today)}) 당시 조문과 지금 조문도 견줍니다.` : ""}
+          </p>}
+          {law.busy && <Working label="법령 인용을 확인하는 중" progress={law.progress} onCancel={law.cancel} />}
+          <ErrorLine message={law.error} />
+          {law.result && <LawResults result={law.result} compact />}
+        </section>
+      )}
     </div>
   );
 }

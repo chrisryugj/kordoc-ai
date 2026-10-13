@@ -10,6 +10,7 @@ import { basename } from 'node:path';
 import { markdownToHwpx, type BorderFillDef, type FormatProfile, type GongmunOptions, type GongmunPreset } from 'kordoc';
 import type { BatchItemResult, StyleFormat, StyleTableCell } from '../../types/rpc-contract.js';
 import { getSettings } from '../../infra/config.js';
+import { orgDocFoot } from '../template/org.js';
 import { sendProgress } from '../../infra/progress.js';
 import { cleanMessage, errorText } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
@@ -91,15 +92,13 @@ export function gongmunOptions(f: StyleFormat, content: { title?: string; to?: s
     g.bodyTitleBox = f.title.kind === 'box';
   }
   if (preset === 'official') {
-    if (f.title.kind === 'head') g.docHead = compact({ org: f.head?.org, slogan: f.head?.slogan, to: content.to ?? '내부결재', title: content.title });
+    // 두문 행정기관명은 내 기관 이름이 먼저 (견본 기관 이름·표어는 기관 정보가 없을 때만 — 남의 기관 이름으로 시행하지 않게)
+    const org = getSettings().org;
+    const own = org.name?.trim();
+    if (f.title.kind === 'head') g.docHead = compact({ org: own || f.head?.org, slogan: own ? undefined : f.head?.slogan, to: content.to ?? '내부결재', title: content.title });
     // 끝 표시는 글 정리 단계에서 마지막 줄 끝에 둔다 (생성기 자동 끝 표시는 늘 따로 한 줄)
     if (content.keptEndMark) g.endMark = false;
-    const org = getSettings().org;
-    const foot = compact({
-      sender: org.name, drafter: [org.position, org.person].filter(Boolean).join(' '), approvers: org.approval_line,
-      docNum: org.doc_number_prefix, address: org.address, site: org.homepage, phone: org.phone, fax: org.fax, email: org.email,
-    });
-    if (f.title.kind === 'head') g.docFoot = foot ?? {};
+    if (f.title.kind === 'head') g.docFoot = orgDocFoot(org) ?? {};
   }
   return g;
 }
@@ -203,7 +202,7 @@ export async function generateStyled(
   opts: { titleHint?: string; textSource?: boolean; images?: Record<string, Uint8Array> } = {},
 ): Promise<{ bytes: Uint8Array; content: NormalizedContent; warnings: string[] }> {
   const keepEndMark = renderPreset(f) === 'official';
-  const content = normalizeContent(markdown, { titleHint: opts.titleHint, textSource: opts.textSource, headingsAsItems: !f.chapters, depthOffset: depthOffset(f), keepEndMark });
+  const content = normalizeContent(markdown, { titleHint: opts.titleHint, textSource: opts.textSource, headingsAsItems: !f.chapters, depthOffset: keepEndMark ? 0 : depthOffset(f), keepEndMark, legalDepth: keepEndMark });
   const gongmun = gongmunOptions(f, { ...content, keptEndMark: keepEndMark });
   // 기안문 두문에 제목을 넣으면 본문 제목 줄은 뺀다
   let md = content.markdown;

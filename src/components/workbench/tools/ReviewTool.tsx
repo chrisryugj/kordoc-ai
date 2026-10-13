@@ -1,7 +1,7 @@
 /** 검토 — 결재 전 한 번에 점검: 엔진의 빠른 검사(표기법·날짜와 요일·표 합계·끝. 표시·빈칸·개인정보)를 먼저 보이고,
  *  K팀장(AI)·법령 근거는 뒤에서 이어 붙인다. 고칠 수 있는 것은 서식 그대로 사본으로 고치고 그 사본을 다시 점검한다. */
 
-import { ClipboardCheck, Copy, Eye, Wand2 } from "lucide-react";
+import { ChevronRight, ClipboardCheck, Eye, Wand2 } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import type { LintFinding, ReviewIssue, RpcResult } from "../../../lib/contract";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { Button } from "../../ui/Button";
 import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../../common/Status";
 import { Check } from "../../common/Field";
 import { isHangul } from "../../../lib/format";
+import { LawResults, lawReason, type LawCitation } from "./LawResults";
 
 const SEV: Record<string, { label: string; tone: string }> = {
   error: { label: "고칠 것", tone: "err" },
@@ -85,74 +86,7 @@ export function IssueList({ issues }: { issues: ReviewIssue[] }) {
   );
 }
 
-type LawResult = RpcResult<"law_check">;
-type LawCitation = LawResult["citations"][number];
-
-const LAW_STATUS: Record<LawCitation["status"], { label: string; tone?: string }> = {
-  ok: { label: "맞음", tone: "ok" },
-  article_missing: { label: "조문 없음", tone: "err" },
-  not_found: { label: "법령 없음", tone: "err" },
-  renamed: { label: "이름 바뀜", tone: "warn" },
-  unchecked: { label: "확인 안 함" },
-};
-const LAW_ORDER: LawCitation["status"][] = ["ok", "article_missing", "not_found", "renamed", "unchecked"];
-const squash = (s: string) => s.replace(/[\s·ㆍ]/g, "");
-
-function LawDetail({ c }: { c: LawCitation }) {
-  if (c.status === "renamed") return <span className="kd-small block mt-1">이름이 바뀐 법령입니다. 현행 이름: <b>{c.current_name}</b>. 조 번호도 현행 법령에서 다시 확인하세요.</span>;
-  if (c.status === "not_found") return (
-    <span className="kd-small block mt-1">
-      현행 법령에서 이 이름을 찾지 못했습니다. {c.current_name ? <>비슷한 법령: <b>{c.current_name}</b></> : "폐지됐거나 이름이 틀렸는지, 행정규칙·자치법규인지 확인하세요."}
-    </span>
-  );
-  if (c.status === "article_missing") return <span className="kd-small block mt-1">{c.article_text ? `현행 법령에서 삭제된 조문입니다(${c.article_text}).` : "현행 법령에 없는 조문입니다. 조 번호를 확인하세요."}</span>;
-  if (c.status === "ok" && (c.article_title || c.article_text)) return (
-    <span className="block mt-1">
-      {c.article_title && <span className="kd-text block font-semibold">{c.article_title}</span>}
-      {c.article_text && <span className="kd-small kd-muted block">{c.article_text}</span>}
-    </span>
-  );
-  return null;
-}
-
-/** 법령 근거 확인 결과 — 인용 글·상태 배지·조문 앞부분·법제처 주소(열기 대신 주소 표시와 복사) */
-export function LawResults({ result, onPick }: { result: LawResult; onPick?: (c: LawCitation) => void }) {
-  const { go, settings, toast } = useApp();
-  const counts = LAW_ORDER.map((s) => [s, result.citations.filter((c) => c.status === s).length] as const).filter(([, n]) => n > 0);
-  const copy = (url: string) => void navigator.clipboard.writeText(url).then(() => toast("주소를 복사했습니다", "success")).catch(() => toast("주소를 복사하지 못했습니다. 주소를 직접 골라 복사하세요.", "error"));
-  const needOc = !result.checked && !settings?.privacy.offline && !settings?.law?.oc;
-  return (
-    <>
-      {counts.length > 0 && <p className="kd-small kd-num">{counts.map(([s, n]) => `${LAW_STATUS[s].label} ${n}`).join(" · ")}</p>}
-      {result.note && (
-        <Note tone={result.checked ? "info" : "warn"}>
-          {result.note}
-          {needOc && <> <button type="button" className="kd-link" onClick={() => go("settings")}>설정 열기</button></>}
-        </Note>
-      )}
-      {result.citations.length > 0 && (
-        <ul className="kd-findings">
-          {result.citations.map((c, i) => (
-            <li key={i} className="kd-finding">
-              <span className="flex flex-wrap items-center gap-1.5">
-                <span className="kd-badge" data-tone={LAW_STATUS[c.status].tone}>{LAW_STATUS[c.status].label}</span>
-                {onPick ? <button type="button" className="kd-link kd-small" onClick={() => onPick(c)}>{c.text}</button> : <span className="kd-small font-semibold">{c.text}</span>}
-              </span>
-              {!squash(c.text).includes(squash(c.law)) && <span className="kd-small kd-muted block mt-1">법령: {c.law}</span>}
-              <LawDetail c={c} />
-              {c.url && (
-                <span className="mt-1.5 flex items-start gap-1.5">
-                  <span className="kd-path min-w-0 flex-1">법제처에서 보기: {c.url}</span>
-                  <button type="button" className="kd-link kd-small shrink-0" onClick={() => copy(c.url!)}><Copy size={12} className="inline -mt-0.5" /> 복사</button>
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
-}
+export { LawResults } from "./LawResults";
 
 // ── 결재 전 한 번에 점검 ──
 
@@ -177,13 +111,20 @@ function issueItem(it: ReviewIssue, i: number): Item {
   };
 }
 
-/** 법령 대조에서 문제 있는 인용만 */
-function lawItem(c: LawCitation, i: number): Item | null {
-  if (c.status === "ok" || c.status === "unchecked") return null;
-  const message = c.status === "renamed" ? `이름이 바뀐 법령입니다. 현행 이름은 「${c.current_name}」입니다. 조 번호도 다시 확인하세요.`
-    : c.status === "not_found" ? `현행 법령에서 이 이름을 찾지 못했습니다.${c.current_name ? ` 비슷한 법령: 「${c.current_name}」.` : " 폐지됐거나 이름이 틀렸는지 확인하세요."}`
-    : c.article_text ? "현행 법령에서 삭제된 조문입니다. 조 번호를 확인하세요." : "현행 법령에 없는 조문입니다. 조 번호를 확인하세요.";
-  return { key: `law-${i}`, severity: c.status === "renamed" ? "warning" : "error", category: "법령 근거", message, context: c.text, find: c.text };
+/** 법령 대조에서 살필 인용만 — 법령·조·항·호·목 없음, 이름 바뀜, 조문 내용과 안 맞음·확인 필요, 그 당시와 달라짐 */
+function lawItems(c: LawCitation, i: number): Item[] {
+  const out: Item[] = [];
+  const at = { category: "법령 근거", context: c.sentence ?? c.text, find: c.text };
+  if (c.status === "renamed" || c.status === "not_found" || c.status === "article_missing") {
+    out.push({ key: `law-${i}`, severity: c.status === "renamed" ? "warning" : "error", message: lawReason(c) ?? "법령 인용을 확인하세요.", ...at });
+  } else if (c.status === "ok" && c.match && c.match.verdict !== "match") {
+    out.push({
+      key: `law-${i}-m`, severity: c.match.verdict === "mismatch" ? "error" : "warning", ...at,
+      message: `${c.text}: ${c.match.reason}`,
+    });
+  }
+  if (c.changed_since) out.push({ key: `law-${i}-c`, severity: c.changed_since.kind === "deleted_since" && c.status !== "ok" ? "info" : "warning", ...at, message: `${c.text}: ${c.changed_since.reason}` });
+  return out;
 }
 
 /** 설정의 기관 대표번호·팩스·내 이름 — 개인정보로 짚지 않고 가리지도 않는다 */
@@ -199,7 +140,7 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
   const [target, setTarget] = useState(doc.path);
   const pre = useTask<RpcResult<"precheck">>();
   const review = useTask<RpcResult<"ai_review">>();
-  const law = useTask<LawResult>();
+  const law = useTask<RpcResult<"law_check">>();
   const fix = useTask<RpcResult<"lint_fix">>();
   const [found, setFound] = useState<Record<string, number>>({});
   const run = useRef(0);
@@ -223,7 +164,7 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
     const list: Item[] = [
       ...(pre.result?.items ?? []).map((f, i) => ({ ...f, key: `e-${i}` })),
       ...(review.result?.issues ?? []).map(issueItem),
-      ...(law.result?.citations ?? []).map(lawItem).filter((x): x is Item => !!x),
+      ...(law.result?.citations ?? []).flatMap(lawItems),
     ];
     return list
       .map((x) => (x.page == null && x.find && found[x.find] ? { ...x, page: found[x.find] } : x))
@@ -330,6 +271,12 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
                 </li>
               ))}
             </ul>
+          )}
+          {law.result && law.result.citations.length > 0 && (
+            <details className="kd-advanced" data-testid="law-detail">
+              <summary><ChevronRight size={14} aria-hidden="true" /> 인용한 법령 {law.result.citations.length}건 자세히 (공문 문장과 법제처 원문)</summary>
+              <div className="kd-advanced-body"><LawResults result={law.result} /></div>
+            </details>
           )}
           <p className="kd-small kd-muted text-balance">
             본 것: {[...pre.result!.checked, ...(review.result ? ["K팀장"] : []), ...(law.result?.checked ? ["법령 근거"] : [])].join(" · ")}

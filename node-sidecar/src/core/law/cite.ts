@@ -1,4 +1,4 @@
-/** 글 속 법령 인용 찾기 — 「법령명」 제N조(의N)(제N항)(제N호), 따옴표 없는 ○○법 제N조, 같은 법·동법·같은 영
+/** 글 속 법령 인용 찾기 — 「법령명」 제N조(의N)(제N항)(제N호(의N))(가목), 따옴표 없는 ○○법 제N조, 같은 법·동법·같은 영
  *
  * 인터넷 없이 돈다(폐쇄망에서도 인용 찾기는 된다).
  * 따옴표 없는 법령명은 앞 어절 경계가 불확실해 앞 어절을 하나씩 뗀 후보를 함께 둔다 → 대조 단계가 이름이 정확히 같은 후보를 고른다.
@@ -15,6 +15,14 @@ export interface FoundCitation {
   /** 조 번호·가지 번호 (제17조의2 → 17, 2) */
   jo?: number;
   branch?: number;
+  /** 항 번호 (제1항 → 1) */
+  paragraph?: number;
+  /** 호 번호 (제2호 → "2", 제2호의3 → "2의3") */
+  item?: string;
+  /** 목 (가목 → "가") */
+  subitem?: string;
+  /** 인용이 시작하는 곳 (normalizeText 한 글 기준, 인용 문장 찾기용) */
+  start: number;
   /** 다음 인용과의 경계 판정용 (원문 위치) */
   end: number;
 }
@@ -39,7 +47,7 @@ const LEAD_DROP = new Set([
   '에', '의', '에서', '으로', '로', '에게', '와', '과', '은', '는', '을', '를', '이를', '이는', '이에따라',
 ]);
 
-const TOKEN = /[「『]([^」』\n]{1,80})[」』]|“([^”\n]{1,80})”|제\s?(\d{1,4})\s?조(?:\s?의\s?(\d{1,3}))?(?:\s?제\s?(\d{1,3})\s?항)?(?:\s?제\s?(\d{1,3})\s?호)?/g;
+const TOKEN = /[「『]([^」』\n]{1,80})[」』]|“([^”\n]{1,80})”|제\s?(\d{1,4})\s?조(?:\s?의\s?(\d{1,3}))?(?:\s?제\s?(\d{1,3})\s?항)?(?:\s?제\s?(\d{1,3})\s?호(?:\s?의\s?(\d{1,2}))?(?:\s?([가나다라마바사아자차카타파하])\s?목)?)?/g;
 const BOUNDARY = /[.,;:!?()[\]{}<>「」『』"'“”‘’|\n…]/;
 const ANAPHORA = /(?:^|[^가-힣])(같은|동)\s?(법률|법|영|령|시행령|규칙|시행규칙|규정|조례)(?:\s?(시행령|시행규칙))?\s*$/;
 const CONNECTOR_GAP = /^(?:\s|[,·ㆍ~∼]|및|또는|와|과|부터|까지|내지|그리고)*$/;
@@ -83,8 +91,8 @@ function unquotedNames(text: string, from: number, to: number): { names: string[
   return names.length ? { names, starts } : null;
 }
 
-const articleLabel = (jo: number, branch: number, hang?: number, ho?: number) =>
-  `제${jo}조${branch ? `의${branch}` : ''}${hang ? `제${hang}항` : ''}${ho ? `제${ho}호` : ''}`;
+const articleLabel = (jo: number, branch: number, hang?: number, ho?: string, mok?: string) =>
+  `제${jo}조${branch ? `의${branch}` : ''}${hang ? `제${hang}항` : ''}${ho ? `제${ho.replace('의', '호의')}${ho.includes('의') ? '' : '호'}` : ''}${mok ? `${mok}목` : ''}`;
 
 /** HTML 꼬리표는 칸으로, 가로 공백은 한 칸으로 (줄바꿈은 문장 경계라 남긴다) */
 export function normalizeText(raw: string): string {
@@ -133,7 +141,7 @@ export function findCitations(raw: string, max = 200): FoundCitation[] {
       const sub = /^ ?(시행령|시행규칙)(?![가-힣])/.exec(text.slice(end));
       if (sub && !/(?:시행령|시행규칙)$/.test(name)) { name = `${name} ${sub[1]}`; end += sub[0].length; }
       if (!isLawName(name)) { prevEnd = end; continue; }
-      out.push({ names: [name], texts: [oneLine(text.slice(start, end))], end });
+      out.push({ names: [name], texts: [oneLine(text.slice(start, end))], start, end });
       quoted = { index: out.length - 1, end };
       remember(ctx, [name]);
       prevEnd = end;
@@ -142,14 +150,17 @@ export function findCitations(raw: string, max = 200): FoundCitation[] {
 
     const jo = Number(m[3]);
     const branch = m[4] ? Number(m[4]) : 0;
-    const article = articleLabel(jo, branch, m[5] ? Number(m[5]) : undefined, m[6] ? Number(m[6]) : undefined);
+    const paragraph = m[5] ? Number(m[5]) : undefined;
+    const item = m[6] ? (m[7] ? `${Number(m[6])}의${Number(m[7])}` : String(Number(m[6]))) : undefined;
+    const subitem = item ? m[8] : undefined;
+    const article = articleLabel(jo, branch, paragraph, item, subitem);
     const end = start + m[0].length;
-    const cite = { article, jo, branch, end };
+    const cite = { article, jo, branch, ...(paragraph ? { paragraph } : {}), ...(item ? { item } : {}), ...(subitem ? { subitem } : {}), start, end };
 
     // 1) 「법령명」 바로 뒤(사이에 괄호 하나는 허용: (이하 "법"이라 한다)) — 법령만 인용으로 넣어 둔 것을 조문 인용으로
     if (quoted && text.slice(quoted.end, start).replace(PAREN, '').trim() === '') {
       const q = out[quoted.index];
-      out[quoted.index] = { ...q, ...cite, texts: [oneLine(`${q.texts[0]} ${text.slice(quoted.end, end)}`)] };
+      out[quoted.index] = { ...q, ...cite, start: q.start, texts: [oneLine(`${q.texts[0]} ${text.slice(quoted.end, end)}`)] };
       quoted = null;
       prevEnd = end;
       continue;
@@ -165,7 +176,7 @@ export function findCitations(raw: string, max = 200): FoundCitation[] {
       if (names) {
         const at = from + ana.index + ana[0].indexOf(ana[1]);
         const t = oneLine(text.slice(at, end));
-        out.push({ names, texts: names.map(() => t), ...cite });
+        out.push({ names, texts: names.map(() => t), ...cite, start: at });
         remember(ctx, names);
       }
       prevEnd = end;
@@ -174,7 +185,7 @@ export function findCitations(raw: string, max = 200): FoundCitation[] {
     // 3) 따옴표 없는 ○○법 제N조
     const un = unquotedNames(text, from, start);
     if (un) {
-      out.push({ names: un.names, texts: un.starts.map((s) => oneLine(text.slice(s, end))), ...cite });
+      out.push({ names: un.names, texts: un.starts.map((s) => oneLine(text.slice(s, end))), ...cite, start: un.starts[un.starts.length - 1] });
       remember(ctx, un.names);
       prevEnd = end;
       continue;

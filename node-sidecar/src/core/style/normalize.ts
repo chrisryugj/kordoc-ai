@@ -1,12 +1,12 @@
 /** 내용 문서의 글(kordoc 마크다운) → 서식을 입힐 수 있는 공문서 마크다운
  *
- * - 기안문 두문(기관 표어·기관명·수신·경유·제목)은 빼고 수신·제목만 건진다. 결문(시행·접수·우편번호·전화)은 버린다.
+ * - 기안문 두문(기관 표어·기관명·수신·경유·제목)은 빼고 수신·제목만 건진다. 결문(발신명의·서명 줄·협조자·시행·접수·우편번호·전화)은 버린다.
  * - 항목 기호(□ ○ - · / 1. 가. 1) …)는 떼고 단계(깊이)만 남겨 마크다운 목록으로 → 생성기가 대상 서식의 기호로 다시 붙인다.
  * - 법정 번호는 목록 사이 서술 문단이 있으면 생성기가 1부터 다시 센다 → 목록 중간의 짧은 서술 문단은 앞 항목에 잇는다.
  * - 표·그림은 그대로 둔다.
  */
 
-import { DepthStack, readMarker } from './markers.js';
+import { DepthStack, LEGAL_ORDER, readMarker } from './markers.js';
 
 export interface NormalizedContent {
   title?: string;
@@ -21,15 +21,21 @@ export interface NormalizedContent {
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
-  | { kind: 'item'; depth: number; text: string }
+  | { kind: 'item'; depth: number; text: string; glyph?: string }
   | { kind: 'ref'; text: string }
   /** 붙임 — 줄마다 (붙임  1. … / 2. …) */
   | { kind: 'attach'; lines: string[] }
   | { kind: 'para'; text: string }
   | { kind: 'raw'; text: string };
 
-const FOOT_RE = /^(시\s*행\b|접\s*수\b|협\s*조\s*자|우\s*\d{3}|전\s*화\s|전\s*송\s|공개\s*구분|\/\s*(비|부분)?공개|(비|부분)공개\s*\(|공개$)/;
+// 한글 뒤 \b 는 낱말 경계로 안 잡혀서("시행 " 의 행·공백 사이) 공백·줄끝으로 본다
+const FOOT_RE = /^(시\s*행(?=\s|$)|접\s*수(?=\s|[(]|$)|협\s*조\s*자|우\s*\d{3}|전\s*화\s|전\s*송\s|공개\s*구분|\/\s*(비|부분)?공개|(비|부분)공개\s*\(|공개$)/;
 const HEAD_RE = /^(수\s*신(자)?|\(?\s*경\s*유\s*\)?|제\s*목)/;
+/** 결문이 시작됐다는 표시 — 시행 번호 줄·협조자·기안자 줄 */
+const FOOT_ANCHOR = /^(시\s*행\s+\S+\s?-\s?\d|협\s*조\s*자(?:\s|$)|기\s*안\s*자\s)/;
+/** 결문 서명 줄·발신명의 — 문장으로 끝나지 않는 짧은 줄("지도관 홍길동 팀장 전결 06/09" · 결재일 "2026. 6. 26." · "가온시장" · 서명 이름), 수신자 목록 */
+const isSignLine = (t: string) => /^수\s*신\s*자(?:\s|$)/.test(t)
+  || (visible(t) <= 60 && !/(?:[다요오음함임]\.?|[.?!。])$/.test(t.replace(/\s*\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?$/, '')) && !readMarker(unescapeLead(t)) && !/^(#|붙\s*임|<table|\||!\[)/.test(t));
 const END_RE = /(?:^|\s|(?<=\.))끝\s*\.?\s*$/;
 const isRaw = (t: string) => /^(<table|\||!\[|```|<img)/i.test(t);
 const visible = (s: string) => s.replace(/\s/g, '').length;
@@ -72,6 +78,19 @@ function unescapeLead(line: string): string {
   return line.replace(/^(\s*)\\([-*+#>※])/, '$1$2').replace(/^(\s*\d{1,2})\\([.)])/, '$1$2');
 }
 
+const HANGUL_ORDER = '가나다라마바사아자차카타파하';
+/** 법정 기호의 다음 번호 (가. → 나., 2) → 3), ① → ②). 모르면 undefined */
+export function nextGlyph(glyph?: string): string | undefined {
+  if (!glyph) return undefined;
+  const m = /^(\(?)(\d{1,2}|[가-하])([.)]?)$/.exec(glyph);
+  if (m) {
+    const at = HANGUL_ORDER.indexOf(m[2]);
+    const next = /\d/.test(m[2]) ? String(Number(m[2]) + 1) : at >= 0 && at < HANGUL_ORDER.length - 1 ? HANGUL_ORDER[at + 1] : undefined;
+    return next ? `${m[1]}${next}${m[3]}` : undefined;
+  }
+  return /^[①-⑲㉮-㉺]$/.test(glyph) ? String.fromCharCode(glyph.charCodeAt(0) + 1) : undefined;
+}
+
 export interface NormalizeOptions {
   /** 견본 쪽 글자 크기로 찾은 제목 줄 */
   titleHint?: string;
@@ -84,6 +103,9 @@ export interface NormalizeOptions {
   /** 기안문 서식: 끝 표시를 마지막 줄 끝에 "  끝." 으로 둔다(원문에 없으면 붙인다, 표로 끝나면 다음 줄).
    *  생성기의 자동 끝 표시는 늘 따로 한 줄이라 쓰지 않는다 */
   keepEndMark?: boolean;
+  /** 기안문 서식: 법정 기호(1. 가. 1) …)는 나온 차례가 아니라 기호 그대로의 단계로 (본문이 "가." 로 시작해도 "1." 로 바꾸지 않는다).
+   *  문장으로 끝난 서술 문단은 앞 항목에 잇지 않는다 (가. 나. 사이 문단 뒤에서 가. 부터 다시) */
+  legalDepth?: boolean;
 }
 
 export function normalizeContent(md: string, opts: NormalizeOptions = {}): NormalizedContent {
@@ -119,6 +141,13 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
     paras[endAt] = paras[endAt].replace(END_RE, '').replace(/\s+$/, '');
     if (!paras[endAt].trim()) paras.splice(endAt, 1);
   }
+  // 결문: 끝 표시가 없는 원문도 시행 번호·협조자·기안자 줄부터 끝까지, 그 바로 앞 서명 줄·발신명의는 버린다 (생성기가 결문을 새로 그린다)
+  const anchor = paras.findIndex((p, i) => i > 0 && FOOT_ANCHOR.test(p.trim()) && !/다\.?$/.test(p.trim()));
+  if (anchor > 0) {
+    let from = anchor;
+    while (from > 1 && !END_RE.test(paras[from - 1]) && isSignLine(paras[from - 1].trim())) from--;
+    paras = paras.slice(0, from);
+  }
   while (paras.length && FOOT_RE.test(paras[paras.length - 1].trim())) paras.pop();
 
   // 제목: 첫 # 줄 → 견본 쪽에서 찾은 제목 줄 → 맨 앞 짧은 줄
@@ -148,6 +177,8 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
 
   // 항목 단계
   const stack = new DepthStack();
+  /** legalDepth: 법정 기호의 제 단계와 쌓기 단계의 차이 — 그 아래 다른 기호(○ -)도 같이 민다 */
+  let legalShift = 0;
   const sourceMarkers: string[] = [];
   const out: Block[] = [];
   for (const b of blocks) {
@@ -186,9 +217,14 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
     if (m.family === 'ref') { out.push({ kind: 'ref', text: m.rest.trim() }); continue; }
     // 마크다운 원문의 "-" 목록은 들여쓰기마다 다른 단계
     const key = m.key === '-' && opts.textSource ? `-@${Math.floor((/^\s*/.exec(b.text)?.[0].length ?? 0) / 2)}` : m.key;
-    const depth = stack.depthOf(key);
-    if (!sourceMarkers.includes(m.key) && depth === sourceMarkers.length) sourceMarkers.push(m.key);
-    out.push({ kind: 'item', depth, text: m.rest.trim() });
+    const sd = stack.depthOf(key);
+    let depth = sd + legalShift;
+    if (opts.legalDepth && m.family === 'legal') {
+      depth = LEGAL_ORDER.indexOf(m.key);
+      legalShift = depth - sd;
+    }
+    if (!sourceMarkers.includes(m.key) && sd === sourceMarkers.length) sourceMarkers.push(m.key);
+    out.push({ kind: 'item', depth, text: m.rest.trim(), glyph: m.glyph });
   }
 
   // 목록 중간의 짧은 서술 문단(줄을 손으로 끊은 꼬리)은 앞 항목에 잇는다 — 법정 번호가 1부터 다시 세지 않게
@@ -197,7 +233,14 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
     const b = out[i];
     const prev = merged[merged.length - 1];
     const nextItem = out.slice(i + 1).find((x) => x.kind !== 'para');
-    if (b.kind === 'para' && prev?.kind === 'item' && nextItem?.kind === 'item' && visible(b.text) <= 40 && !/^※/.test(b.text)) {
+    // legalDepth: 다음 항목이 앞 항목 번호를 잇는다면(가. → 나.) 사이 문단은 앞 항목의 설명 → 잇는다 (생성기는 문단 뒤에서 번호를 늘 다시 센다).
+    // 다음 항목이 처음 번호(가.)면 새 목록이라 잇지 않는다
+    let joins = b.kind === 'para' && visible(b.text) <= 40;
+    if (opts.legalDepth && b.kind === 'para' && nextItem?.kind === 'item') {
+      const same = [...merged].reverse().find((x): x is Extract<Block, { kind: 'item' }> => x.kind === 'item' && x.depth <= nextItem.depth);
+      joins = same?.depth === nextItem.depth && nextGlyph(same.glyph) === nextItem.glyph;
+    }
+    if (b.kind === 'para' && prev?.kind === 'item' && nextItem?.kind === 'item' && joins && !/^※/.test(b.text)) {
       prev.text = `${prev.text} ${b.text}`;
       continue;
     }

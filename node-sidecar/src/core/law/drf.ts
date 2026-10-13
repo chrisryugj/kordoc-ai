@@ -5,6 +5,8 @@
  * - 아이디(OC) 오류도 HTTP 200 + {"result":"사용자 정보 검증에 실패하였습니다.", "msg": ...}, target 오타는 200 + 빈 본문.
  * - target=law 는 현행만, 조례(자치법규)는 없다. MST(법령일련번호)는 개정마다 바뀐다 → 고정하지 않고 캐시도 24시간.
  * - eflaw 검색은 옛 이름으로도 그 법령ID의 현행 행(바뀐 이름)을 함께 준다 → 이름 바뀐 법령 찾기.
+ * - 시행일 판: lawSearch target=eflaw 에 efYd=시작~끝(YYYYMMDD)·sort=efdes, 본문은 lawService target=eflaw 에 MST + efYd(그 판의 시행일자).
+ *   ID 만 주면 efYd 를 무시하고 현행을 준다(open.law.go.kr 안내서).
  * OC 는 주소에만 싣고 로그·오류 문장에는 남기지 않는다.
  */
 
@@ -12,6 +14,9 @@ import { assertAllowed } from '../../infra/net-guard.js';
 import { logger } from '../../infra/logger.js';
 import { cacheGet, cacheSet } from './cache.js';
 import { INTERPUNCT, normName } from './cite.js';
+import { list, parseArticle, str, type ArticleInfo } from './article.js';
+
+export type { ArticleInfo } from './article.js';
 
 export const DRF_BASE = 'https://www.law.go.kr/DRF/';
 
@@ -37,24 +42,17 @@ export interface LawRow {
   mst: string;
   id: string;
   current: boolean;
+  /** 시행일자 YYYYMMDD (모르면 빈 문자열) */
+  ef: string;
 }
 
-export interface ArticleInfo {
-  title?: string;
-  /** 앞부분 (머리 "제N조(제목)"·개정 표시 뺌) */
-  text: string;
-  deleted?: boolean;
-}
 
 /** 요청 사이 간격 — 문서 하나에 법령 수십 개를 물어도 법제처에 몰아치지 않게 */
 const GAP_MS = 150;
 const TIMEOUT_MS = 10_000;
-const PREVIEW = 160;
 let lastAt = 0;
 
 type Obj = Record<string, unknown>;
-const list = (v: unknown): Obj[] => (Array.isArray(v) ? v : v && typeof v === 'object' ? [v] : []) as Obj[];
-const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
 
 async function drfGet(path: 'lawSearch.do' | 'lawService.do', params: Record<string, string>, o: DrfOptions): Promise<Obj> {
   const url = new URL(path, o.base ?? DRF_BASE);
@@ -94,17 +92,20 @@ async function drfGet(path: 'lawSearch.do' | 'lawService.do', params: Record<str
   return j;
 }
 
-/** 법령 검색 — target=law 는 현행만, eflaw 는 연혁·시행예정까지 */
-export async function searchLaws(target: 'law' | 'eflaw', query: string, o: DrfOptions): Promise<LawRow[]> {
+/** 법령 검색 — target=law 는 현행만, eflaw 는 연혁·시행예정까지.
+ *  at.until(YYYYMMDD) 을 주면 eflaw 에서 그날까지 시행된 판만 시행일 늦은 순으로 (efYd 범위 + sort=efdes), at.lid 는 법령ID 로 좁히기(LID) */
+export async function searchLaws(target: 'law' | 'eflaw', query: string, o: DrfOptions, at?: { until: string; lid?: string }): Promise<LawRow[]> {
   const q = query.replace(INTERPUNCT, 'ㆍ');
-  const key = `search:${target}:${normName(q)}`;
+  const key = `search2:${target}:${normName(q)}${at ? `:${at.until}:${at.lid ?? ''}` : ''}`;
   const hit = o.fresh ? undefined : cacheGet<LawRow[]>(key);
   if (hit) return hit;
-  const j = await drfGet('lawSearch.do', { target, query: q, display: '100' }, o);
+  const params: Record<string, string> = { target, ...(q ? { query: q } : {}), display: '100' };
+  if (at) Object.assign(params, { efYd: `19480101~${at.until}`, sort: 'efdes', ...(at.lid ? { LID: at.lid } : {}) });
+  const j = await drfGet('lawSearch.do', params, o);
   const ls = j.LawSearch as Obj | undefined;
   if (!ls || typeof ls !== 'object') throw new LawNetError('검색 응답 모양이 다름');
   const rows = list(ls.law)
-    .map((r) => ({ name: str(r['법령명한글']), abbr: str(r['법령약칭명']), mst: str(r['법령일련번호']), id: str(r['법령ID']), current: str(r['현행연혁코드']) === '현행' }))
+    .map((r) => ({ name: str(r['법령명한글']), abbr: str(r['법령약칭명']), mst: str(r['법령일련번호']), id: str(r['법령ID']), current: str(r['현행연혁코드']) === '현행', ef: str(r['시행일자']).replace(/\D/g, '') }))
     .filter((r) => r.name && r.mst);
   cacheSet(key, rows);
   return rows;
@@ -112,37 +113,13 @@ export async function searchLaws(target: 'law' | 'eflaw', query: string, o: DrfO
 
 export const articleKey = (jo: number, branch = 0) => (branch ? `${jo}의${branch}` : String(jo));
 
-function flatten(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (Array.isArray(v)) return v.map(flatten).filter(Boolean).join(' ');
-  return '';
-}
-
-/** 조문단위 → 본문 한 줄 (항·호·목까지, 머리·개정 표시·태그 뺌). "삭제 <2023.3.14>" 의 날짜는 남긴다 */
-function articleBody(u: Obj): string {
-  const parts = [flatten(u['조문내용']).replace(/^\s*제\s?\d+\s?조(?:\s?의\s?\d+)?\s*(?:\([^)]*\))?/, '')];
-  for (const h of list(u['항'])) {
-    parts.push(flatten(h['항내용']));
-    for (const ho of list(h['호'])) {
-      parts.push(flatten(ho['호내용']));
-      for (const mok of list(ho['목'])) parts.push(flatten(mok['목내용']));
-    }
-  }
-  return parts.join(' ')
-    .replace(/<(?:개정|신설|전문개정|제목개정|타법개정)[^>]*>/g, '')
-    .replace(/\[(?:본조신설|전문개정|제목개정|종전|시행일)[^\]]*\]/g, '')
-    .replace(/<\/?[A-Za-z][^>]*>/g, '')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** 현행 법령 한 판(MST)의 조문 목록 — 키는 articleKey (17, 7의2) */
-export async function lawArticles(mst: string, o: DrfOptions): Promise<Record<string, ArticleInfo>> {
-  const key = `articles:${mst}`;
+/** 법령 한 판의 조문 목록 — 키는 articleKey (17, 7의2).
+ *  at 이 없으면 현행(target=law, MST), 있으면 그 시행일 판(target=eflaw, MST + efYd). */
+export async function lawArticles(mst: string, o: DrfOptions, at?: { efYd: string }): Promise<Record<string, ArticleInfo>> {
+  const key = at ? `art2:ef:${mst}:${at.efYd}` : `art2:${mst}`;
   const hit = cacheGet<Record<string, ArticleInfo>>(key);
   if (hit) return hit;
-  const j = await drfGet('lawService.do', { target: 'law', MST: mst }, o);
+  const j = await drfGet('lawService.do', at ? { target: 'eflaw', MST: mst, efYd: at.efYd } : { target: 'law', MST: mst }, o);
   const law = j['법령'] as Obj | undefined;
   if (!law || typeof law !== 'object') throw new LawNetError('조문 응답 모양이 다름');
   const arts: Record<string, ArticleInfo> = {};
@@ -152,13 +129,7 @@ export async function lawArticles(mst: string, o: DrfOptions): Promise<Record<st
     if (!jo) continue;
     const k = articleKey(jo, parseInt(str(u['조문가지번호']), 10) || 0);
     if (arts[k]) continue;
-    const body = articleBody(u);
-    const title = str(u['조문제목']);
-    arts[k] = {
-      ...(title ? { title } : {}),
-      text: body.length > PREVIEW ? `${body.slice(0, PREVIEW).trimEnd()}…` : body,
-      ...(/^삭제/.test(body) ? { deleted: true } : {}),
-    };
+    arts[k] = parseArticle(u);
   }
   cacheSet(key, arts);
   return arts;

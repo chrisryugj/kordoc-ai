@@ -19,6 +19,8 @@ import { parseCliJson, runKordocCli } from '../kordoc-cli.js';
 import { outputFile, safeFileName } from '../output/index.js';
 import { lintText } from './lint.js';
 import { KIND_PRESET } from '../ai/draft-guides.js';
+import { getSettings } from '../../infra/config.js';
+import { orgDocFoot } from '../template/org.js';
 
 type GongmunLevelStyle = NonNullable<GongmunOptions['levels']>[string];
 
@@ -50,10 +52,11 @@ export function guessPreset(markdown: string): GongmunPreset | undefined {
   const head = markdown.slice(0, 4000);
   const title = (/^#\s+(.+)$/m.exec(head)?.[1] ?? head.split('\n').find((l) => l.trim()) ?? '').trim();
   const has = (re: RegExp) => re.test(head);
+  // 수신 줄 + (제목 줄·시행 번호·"1. 관련:") = 시행문·기안문. 옛 서식은 "수 신"·"제 목".
+  // 보도자료를 보고하는 내부결재 공문("제목 언론보도 자료 보고")이 보도자료로 잡히지 않게 보도자료보다 먼저 본다 (실공문 210건 모두 기안문)
+  if (has(/^\s*수\s?신\s*[:：]?\s*\S/m) && (has(/^\s*제\s?목\s*[:：]?\s*\S/m) || has(/시\s?행\s+\S+-\d+/) || has(/^\s*1\.\s*관련\s*[:：]/m))) return 'official';
   if (has(/보도\s*자료|보도\s*일시|배포\s*일시|엠바고/)) return 'press';
   if (/회의록|회의\s*결과/.test(title) || (has(/참석자?\s*[:：]/) && has(/안건/))) return 'minutes';
-  // 수신 줄 + (제목 줄·시행 번호·"1. 관련:") = 시행문·기안문
-  if (has(/^\s*수신\s*[:：]?\s*\S/m) && (has(/^\s*제목\s*[:：]?\s*\S/m) || has(/시행\s+\S+-\d+/) || has(/^\s*1\.\s*관련\s*[:：]/m))) return 'official';
   const items = (head.match(/^\s*[□■○◦ㅇ❍]\s/gm) ?? []).length;
   if (items >= 4) return /계획/.test(title) ? 'plan' : 'report';
   if (/공고|안내|알림|통지/.test(title)) return 'notice';
@@ -128,12 +131,53 @@ export async function previewPages(buf: ArrayBuffer | Buffer, pages = 2, maxWidt
   });
 }
 
+/** 붙임 둘째 줄부터("2. …") 앞 6칸(= "붙임  " 폭) — 생성기가 같은 붙임의 다음 줄로 이어 그린다(안 띄우면 본문 항목 번호로 읽혀 번호가 바뀌고 끝 앞 두 칸이 사라진다) */
+export function indentAttachments(md: string): string {
+  const lines = md.split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    if (/^\s*붙\s?임\s/.test(lines[i - 1]) || (/^ {6}\d{1,2}\.\s/.test(lines[i - 1]) && i > 1)) {
+      if (/^\s{0,5}\d{1,2}\.\s/.test(lines[i])) lines[i] = `      ${lines[i].trim()}`;
+    }
+  }
+  return lines.join('\n');
+}
+
+/** 기안문 두문·결문 — 내 기관 정보가 있을 때: "# 제목"은 두문 제목으로, 본문 앞쪽 "수신: …"(·"수신 …") 줄은 두문 수신으로 옮기고 본문에서 뺀다.
+ *  결문은 orgDocFoot (발신명의 = 기관장, 결재선 = 기안자 + 결재 라인, 시행 "처리과명-" 번호·시행일은 결재 뒤). 기관 정보가 없으면 그대로 */
+export function officialFrame(md: string, org = getSettings().org): { markdown: string; docHead?: GongmunOptions['docHead']; docFoot?: GongmunOptions['docFoot'] } {
+  const docFoot = orgDocFoot(org);
+  if (!org.name?.trim() && !docFoot) return { markdown: md };
+  const lines = md.split('\n');
+  let title: string | undefined;
+  let to: string | undefined;
+  // 제목 줄과 그 앞뒤 빈 줄·수신 줄까지만 (본문 첫 항목이 나오면 멈춘다)
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    const h = /^#\s+(.+)$/.exec(t);
+    if (h && title === undefined) { title = h[1].trim(); lines[i] = '\u0000'; continue; }
+    const r = /^수\s?신(?!자)\s*[:：]?\s*(\S.*)$/.exec(t);
+    if (r && to === undefined) { to = r[1].trim(); lines[i] = '\u0000'; continue; }
+    break;
+  }
+  const body = lines.filter((l) => l !== '\u0000').join('\n').replace(/^\n+/, '');
+  const head = Object.fromEntries(Object.entries({ org: org.name?.trim(), to, title }).filter(([, v]) => v)) as GongmunOptions['docHead'];
+  return { markdown: body, docHead: head, ...(docFoot ? { docFoot } : {}) };
+}
+
 export async function generateHwpx(p: GenerateParams, signal?: AbortSignal): Promise<{ output_path?: string; warnings: string[]; lint: LintFinding[]; preview?: PagePreview[]; preview_hwpx_b64?: string }> {
   const md = p.markdown ?? '';
   if (!md.trim()) throw new Error('본문이 비어 있습니다. 내용을 적으세요.');
   const preset = presetOf(p.preset);
   const warnings: string[] = [];
   const gongmun: GongmunOptions = { preset, autoFit: { ...AUTO_FIT } };
+  let body = md;
+  if (preset === 'official') {
+    const frame = officialFrame(indentAttachments(md));
+    body = frame.markdown;
+    if (frame.docHead) gongmun.docHead = frame.docHead;
+    if (frame.docFoot) gongmun.docFoot = frame.docFoot;
+  }
   if (p.agency?.trim()) gongmun.agency = checkAgency(p.agency);
   if (p.levels_from) {
     const levels = await levelsFrom(p.levels_from, signal);
@@ -154,7 +198,7 @@ export async function generateHwpx(p: GenerateParams, signal?: AbortSignal): Pro
   }
   if (usesGaejosikMunche(preset)) warnings.push(...muncheLintWarnings(md, 5));
   const genWarnings: string[] = [];
-  const buf = await markdownToHwpx(md, { gongmun, ...(profile ? { profile } : {}), warnings: genWarnings });
+  const buf = await markdownToHwpx(body, { gongmun, ...(profile ? { profile } : {}), warnings: genWarnings });
   warnings.push(...genWarnings);
   // 끝 표시는 엔진이 붙이므로 원고 단위 규칙("끝." 누락 등)은 빼고 검사
   const lint = lintText(md, { document: false });

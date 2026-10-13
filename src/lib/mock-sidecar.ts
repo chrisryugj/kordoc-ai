@@ -217,9 +217,25 @@ const handlers: Handlers = {
     await wait(400);
     return {
       checked: true,
+      as_of: "2026-03-02",
+      as_of_source: "시행일" as const,
+      checks: {
+        done: ["법령 이름", "조·항·호·목이 현행 법령에 있는지", "인용 문장과 조문 내용(낱말 비교)", "공문 시행일(2026. 3. 2.) 당시 조문과 현행 비교"],
+        skipped: ["AI 판단: AI가 연결되어 있지 않아 낱말 비교만 했습니다"],
+      },
       citations: [
-        { text: "「개인정보 보호법」 제17조", law: "개인정보 보호법", article: "제17조", status: "ok" as const, article_title: "개인정보의 제공", article_text: "개인정보처리자는 다음 각 호의 어느 하나에 해당되는 경우에는 정보주체의 개인정보를 제3자에게 제공할 수 있다.", url: "https://www.law.go.kr/법령/개인정보보호법/제17조" },
-        { text: "「전자정부법」 제99조", law: "전자정부법", article: "제99조", status: "article_missing" as const },
+        {
+          text: "「개인정보 보호법」 제17조제1항제1호", law: "개인정보 보호법", article: "제17조제1항제1호", paragraph: 1, item: "1", status: "ok" as const,
+          article_title: "개인정보의 제공", article_text: "① 개인정보처리자는 다음 각 호의 어느 하나에 해당되는 경우에는 정보주체의 개인정보를 제3자에게 제공할 수 있다.",
+          cited_text: "1. 정보주체의 동의를 받은 경우", sentence: "「개인정보 보호법」 제17조제1항제1호에 따라 정보주체의 동의를 받아 개인정보를 제공합니다.",
+          match: { verdict: "match" as const, by: "words" as const, reason: "인용 문장과 조문에 같은 낱말이 있습니다(정보주체·동의).", overlap: ["정보주체", "동의"], score: 0.5 },
+          as_of: "2026-03-02", url: "https://www.law.go.kr/법령/개인정보보호법/제17조",
+        },
+        {
+          text: "같은 법 제17조제5항", law: "개인정보 보호법", article: "제17조제5항", paragraph: 5, status: "article_missing" as const, missing: "paragraph" as const,
+          reason: "제17조에 제5항이 없습니다. 제17조는 제4항까지 있습니다.", sentence: "같은 법 제17조제5항에 따른 동의서 서식을 보냅니다.", url: "https://www.law.go.kr/법령/개인정보보호법/제17조",
+        },
+        { text: "「전자정부법」 제99조", law: "전자정부법", article: "제99조", status: "article_missing" as const, missing: "article" as const },
       ],
     };
   },

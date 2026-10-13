@@ -40,6 +40,7 @@
 .kd-inbox-dl > div { grid-template-columns: 64px minmax(0, 1fr); padding: 5px 0; }
 .kd-inbox-edit { display: flex; flex-direction: column; gap: 6px; }
 .kd-inbox-edit .kd-input { height: 32px; max-width: 180px; }
+.kd-inbox-law { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--color-border-subtle); }
 .kd-inbox-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--color-border-subtle); }
 
 /* 좁은 화면: 보낸 곳 칸을 제목 아래로 */

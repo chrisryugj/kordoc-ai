@@ -6,6 +6,11 @@ import { optPath, registrar } from './params.js';
 
 export function registerLaw(router: RpcRouter): void {
   const reg = registrar(router);
-  reg('law_check', (p, signal) => lawCheck({ text: typeof p.text === 'string' ? p.text : undefined, path: optPath(p.path) }, signal));
+  reg('law_check', (p, signal) => lawCheck({
+    text: typeof p.text === 'string' ? p.text : undefined,
+    path: optPath(p.path),
+    ...(typeof p.ai === 'boolean' ? { ai: p.ai } : {}),
+    ...(typeof p.as_of === 'string' ? { as_of: p.as_of } : {}),
+  }, signal));
   reg('law_test', (_p, signal) => lawTest(signal));
 }

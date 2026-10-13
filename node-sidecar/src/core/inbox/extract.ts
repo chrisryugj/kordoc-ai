@@ -4,7 +4,8 @@
  *   기관명을 못 찾으면 두문(수신 줄 바로 위 행정기관명) → 발신명의(끝. 아래 "…장") → 짧은 첫 줄.
  * - 요청: 요청 말(제출·회신·보고·참석…)이 든 "~주시기 바랍니다/바람" 문장, 기한("~까지")이 붙은 요청 문장,
  *   "~까지 … 제출" 꼴 개조식 줄. 하나도 없으면 "협조하여 주시기 바랍니다" 같은 일반 요청 문장.
- * - 기한: "~까지"가 붙은 날짜, "제출기한: 날짜" 줄, 표의 "기한" 칸, 제목의 "(10. 23.까지)".
+ * - 기한: "~까지"·"~10.16."(물결) 날짜, "제출기한: 날짜" 줄, 표의 "기한" 칸, 제목의 "(10. 23.까지)".
+ * - 수신이 내부결재인 문서는 요청을 뽑지 않는다.
  *   행사 "일시"처럼 까지·기한이 없는 날짜는 기한이 아니다.
  */
 
@@ -41,10 +42,12 @@ const HEADER = /^(?:수\s?신|\(경유\)|경\s?유(?:\s|$)|제\s?목|시\s?행\s
 const TERMINAL = /(?:[.。!?]["”’)]?|다)$/;
 const HEAD_TITLE = /^[가-힣A-Za-z0-9·()\s]{1,30}?(?:장관|차관|지사|청장|시장|군수|구청장|교육감|이사장|위원장|원장|총장|사장|소장|의장|단장|센터장|본부장|국장|과장|대표이사|위원|장)$/;
 
-/** 요청 문장 끝맺음 (바랍니다·바람·요망·주십시오·할 것) */
-const ASK = /(?:바랍니다|바람|요망|주십시오|할\s*것)\.?$/;
-/** 공식 요청 끝맺음 — 다른 요청이 없을 때만 쓴다 */
-const FORMAL = /요청(?:합니다|드립니다)\.?$/;
+/** 요청 문장 끝맺음 (바랍니다·바람·요망·주십시오·할 것·부탁드립니다) */
+const ASK = /(?:바랍니다|바람|요망|주십시오|할\s*것|부탁드립니다)\.?$/;
+/** 공식 요청 끝맺음("요청 드립니다" 띄어 쓴 것도) — 다른 요청이 없을 때만 쓴다 */
+const FORMAL = /요청\s?(?:합니다|드립니다)\.?$/;
+/** 수신이 내부결재면 받는 쪽 할 일이 없다 (기관 안에서 결재받은 문서) */
+const INTERNAL = /^수\s?신(?:자)?\s*[:：]?\s*내\s?부\s?결\s?재/;
 /** 요청 말 — 이것이 든 요청 문장만 할 일로 친다 ("협조하여 주시기 바랍니다"만 있는 문장은 다른 요청이 없을 때만) */
 const WANT = /제출|회신|회보|보고|참석|신청|작성|통보|송부|등록|입력|납부|제공|추천|지정|알려|보내|반납/;
 
@@ -72,9 +75,11 @@ function paragraphs(lines: string[]): Para[] {
   return out;
 }
 
-/** 문단 → 문장 ("…바랍니다. 끝."은 두 문장) */
+/** 문단 → 문장 ("…바랍니다. 끝."은 두 문장). "…참석하여 주시기 바라며, …제출하여 주시기 바랍니다."는 요청 둘 */
 function sentences(text: string): string[] {
-  return text.split(/(?<=(?:다|람|망|것|음|함|임|요|오)\.)\s+(?=\S)/).map((s) => s.trim()).filter(Boolean);
+  return text.split(/(?<=(?:다|람|망|것|음|함|임|요|오)\.)\s+(?=\S)/)
+    .flatMap((s) => s.split(/(?<=주(?:시기|시길)\s?바라며),?\s+/).map((x, i, all) => (i < all.length - 1 ? x.replace(/바라며$/, '바랍니다.') : x)))
+    .map((s) => s.trim()).filter(Boolean);
 }
 
 /** 수신 줄 바로 위의 행정기관명 (두문). 옛 서식은 머리 줄도 "수신자"라 제목 줄보다 앞의 수신 줄을 본다 */
@@ -155,6 +160,6 @@ export function extractInbox(markdown: string, today = todayIso()): Extracted {
   const title = titleOf(lines, head.sender);
   const ref = head.sent_date ?? today;
   const { found, general } = findRequests(lines, ref);
-  const requests = mergeDeadlines(found.length ? found : general, looseDeadlines(lines, ref, title));
+  const requests = lines.some((l) => INTERNAL.test(l)) ? [] : mergeDeadlines(found.length ? found : general, looseDeadlines(lines, ref, title));
   return { ...head, ...(title ? { title } : {}), requests };
 }

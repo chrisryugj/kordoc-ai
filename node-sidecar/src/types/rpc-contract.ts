@@ -172,8 +172,10 @@ export interface RpcMethods {
   inbox_export: [{ output_path?: string }, { output_path: string; count: number }];
 
   // ── 법령 근거 확인 (methods/law.ts) ──
-  /** 글·문서 속 「법령명」 제N조 인용을 찾아 법제처 현행 법령과 대조 (인터넷·OC 필요, 폐쇄망이면 찾기만) */
-  law_check: [{ text?: string; path?: string }, LawCheckResult];
+  /** 글·문서 속 「법령명」 제N조(제N항제N호가목) 인용을 찾아 법제처 현행 법령과 대조 (인터넷·OC 필요, 폐쇄망이면 찾기만).
+   *  인용 문장과 조문 내용 맞춰 보기(낱말 겹침, ai 가 false 가 아니고 AI 가 연결돼 있으면 앞의 몇 건은 AI 판단),
+   *  문서 날짜(as_of, 없으면 글의 시행일·날짜 줄) 당시 조문과 현행 비교 */
+  law_check: [{ text?: string; path?: string; ai?: boolean; as_of?: string }, LawCheckResult];
   /** 설정의 OC 로 법제처에 한 번 물어 연결 확인 */
   law_test: [Record<string, never>, { ok: boolean; error?: string }];
 
@@ -429,6 +431,45 @@ export interface LawCitation {
   /** 현행 조문 앞부분 */
   article_text?: string;
   url?: string;
+  /** 인용한 항·호·목 (제1항제2호가목 → 1, "2", "가". 제2호의3 → "2의3") */
+  paragraph?: number;
+  item?: string;
+  subitem?: string;
+  /** 상태를 쉬운 말로 (예: "제17조에 제3항이 없습니다. 제17조는 제2항까지 있습니다.") */
+  reason?: string;
+  /** article_missing 일 때 없는 단계 (조·항·호·목) */
+  missing?: 'article' | 'paragraph' | 'item' | 'subitem';
+  /** 문서에서 이 인용이 든 문장 (내용이 모자라면 다음 문장까지) */
+  sentence?: string;
+  /** 인용한 항·호·목의 법제처 현행 원문 (항·호를 인용하지 않았으면 조 전체) */
+  cited_text?: string;
+  /** 조 전체 현행 원문 (줄마다 항·호·목, 길면 앞부분) */
+  article_full?: string;
+  /** 인용 문장과 조문 내용 맞춰 보기 (문장에 내용 낱말이 모자라면 없음) */
+  match?: LawMatch;
+  /** 그 당시 조문과 비교한 기준 날짜 YYYY-MM-DD (비교했을 때만) */
+  as_of?: string;
+  /** 기준 날짜 뒤에 바뀜: amended(개정됨, 현행과 다름) · added_later(그 당시엔 없던 조문·항) · deleted_since(그 당시엔 있었으나 지금은 삭제) */
+  changed_since?: {
+    kind: 'amended' | 'added_later' | 'deleted_since';
+    reason: string;
+    /** 그 당시 원문 (인용한 단계) */
+    then_text?: string;
+    /** 어절 단위 차이 (그 당시에서 빠진 것·현행에 더해진 것) */
+    removed?: string[];
+    added?: string[];
+  };
+}
+
+/** 인용 문장과 조문 내용 — match(맞음) · check(확인 필요) · mismatch(안 맞음, AI 만). by: 낱말 겹침(words)·AI */
+export interface LawMatch {
+  verdict: 'match' | 'check' | 'mismatch';
+  by: 'words' | 'ai';
+  reason: string;
+  /** 문장과 조문에 함께 있는 낱말 (AI 면 이유에 인용한 조문 낱말 중 원문에 실제로 있는 것) */
+  overlap: string[];
+  /** 낱말 겹침 비율 0~1 (words 일 때) */
+  score?: number;
 }
 
 export interface LawCheckResult {
@@ -436,6 +477,11 @@ export interface LawCheckResult {
   /** 법제처에 실제로 물어봤는가 (폐쇄망·OC 없음이면 false, 인용 찾기만) */
   checked: boolean;
   note?: string;
+  /** 그 당시 조문 비교 기준 날짜 YYYY-MM-DD 와 그 출처 */
+  as_of?: string;
+  as_of_source?: '시행일' | '문서 날짜' | '받은 공문 시행일';
+  /** 확인한 것·확인 못 한 것 (까닭까지 쉬운 말로) */
+  checks?: { done: string[]; skipped: string[] };
 }
 
 export interface TablesResult {

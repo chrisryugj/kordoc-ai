@@ -17,7 +17,7 @@ import { parseDoc } from '../converter/index.js';
 import { formatOf } from '../files/format.js';
 import { checkAgency, levelsFrom, presetOf, PRESETS } from '../gongmun/index.js';
 import { outputFile, stemOf } from '../output/index.js';
-import { gongmunDate } from './org.js';
+import { gongmunDate, orgDocFoot } from './org.js';
 
 const libDir = () => join(dataDir(), 'templates');
 const indexPath = () => join(libDir(), 'index.json');
@@ -155,10 +155,7 @@ export async function templateStarter(p: { preset: string; agency?: string; outp
   const gongmun: GongmunOptions = { preset, ...(agencyName ? { agency: checkAgency(agencyName) } : {}) };
   if (preset === 'official') {
     gongmun.docHead = compact({ org: org.name });
-    gongmun.docFoot = compact({
-      sender: org.name, drafter: [org.position, org.person].filter(Boolean).join(' '), approvers: org.approval_line,
-      docNum: org.doc_number_prefix, address: org.address, site: org.homepage, phone: org.phone, fax: org.fax, email: org.email,
-    });
+    gongmun.docFoot = orgDocFoot(org);
   } else if (preset === 'press') {
     gongmun.press = compact({ sub: ['(부제를 적으세요)'], contact: compact({ dept: org.dept, manager: org.person, phone: org.phone }) });
   } else if (preset === 'notice') {

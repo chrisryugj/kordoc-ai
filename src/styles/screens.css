@@ -105,6 +105,16 @@
 button.kd-finding { cursor: pointer; }
 button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-strike { text-decoration: line-through; color: var(--color-text-muted); }
+/* 법령 근거: 공문 문장과 법제처 원문 나란히 (좁으면 위아래) */
+.kd-law-src { margin-top: 6px; }
+.kd-law-src > summary { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; font-size: 12.5px; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; list-style: none; }
+.kd-law-src > summary::-webkit-details-marker { display: none; }
+.kd-law-src > summary svg { transition: transform var(--transition-fast); }
+.kd-law-src[open] > summary svg { transform: rotate(90deg); }
+.kd-law-src > summary:hover { color: var(--color-text-primary); }
+.kd-law-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 4px; }
+.kd-law-cap { font-size: 12px; font-weight: 700; color: var(--color-text-muted); margin-bottom: 3px; text-wrap: balance; }
+.kd-law-text { white-space: pre-line; font-size: 13px; line-height: 1.6; padding: 8px 10px; border-radius: var(--radius-md); background: var(--color-bg-primary); border: 1px solid var(--color-border-subtle); overflow-wrap: anywhere; text-wrap: balance; }
 .kd-rulegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 0 12px; }
 .kd-dl { display: flex; flex-direction: column; }
 .kd-dl > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--color-border-subtle); font-size: 13.5px; line-height: 1.5; }
