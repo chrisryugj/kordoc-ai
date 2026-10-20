@@ -6,22 +6,29 @@
  * - 외부 웹폰트 끔(RHWP_DISABLE_EXTERNAL_WEBFONTS=1) — 폐쇄망. 글꼴은 레포 assets/fonts(OFL) 동봉
  * - 서비스워커·예제 문서 제거 — 앱 안 임시 포트에서 도는 페이지라 캐시가 쌓이기만 한다
  * - 앱 쪽 중계 페이지(node-sidecar/editor-host)와 SDK(@rhwp/editor) 를 같은 출처에 함께 둔다
+ * - 편집기 AI 의 도구인 앱 플러그인(node-sidecar/studio-plugin/agent-plugin.mjs)을 스튜디오에 함께 빌드한다(scripts/rhwp-patches.mjs)
  *
  * 사용: node scripts/build-rhwp-studio.mjs      (레포 루트에서. 결과가 있으면 버전이 같을 때 건너뜀)
  *       node scripts/build-rhwp-studio.mjs --force
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { AGENT_PLUGIN_FILE, PLUGIN_ALLOW_FILE, applyPluginAllow, missingPluginHooks } from './rhwp-patches.mjs';
 
 const RHWP_VERSION = '0.8.7'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
+const PLUGIN_SRC = resolve('node-sidecar', 'studio-plugin', 'agent-plugin.mjs');
 const force = process.argv.includes('--force');
+// 플러그인은 스튜디오 번들에 들어가니, 플러그인·패치가 바뀌면 다시 빌드한다
+const pluginHash = createHash('sha256').update(readFileSync(PLUGIN_SRC)).update(readFileSync(resolve('scripts', 'rhwp-patches.mjs'))).digest('hex').slice(0, 16);
 
 const versionFile = join(OUT, 'version.json');
-if (!force && existsSync(versionFile) && JSON.parse(readFileSync(versionFile, 'utf-8')).studio === RHWP_VERSION) {
+const built = existsSync(versionFile) ? JSON.parse(readFileSync(versionFile, 'utf-8')) : null;
+if (!force && built?.studio === RHWP_VERSION && built?.plugin === pluginHash) {
   // 중계 페이지만 고쳤을 수 있으니 그건 늘 다시 복사
   for (const f of readdirSync(HOST_SRC)) cpSync(join(HOST_SRC, f), join(OUT, f));
   console.log(`[rhwp-studio] 이미 ${RHWP_VERSION} — 중계 페이지만 갱신`);
@@ -62,12 +69,20 @@ for (const f of ['rhwp.js', 'rhwp_bg.wasm', 'rhwp.d.ts', 'rhwp_bg.wasm.d.ts']) c
 const studioDir = join(src, 'rhwp-studio');
 for (const f of ['rhwp.js', 'rhwp_bg.wasm']) cpSync(join(pkgDir, f), join(studioDir, 'public', f));
 
-// 3) 빌드
+// 3) 앱 플러그인 — 소스는 캐시돼 다시 쓰이니, 허용 목록 패치는 원본으로 되돌린 뒤 건다
+const missing = missingPluginHooks((f) => (existsSync(join(studioDir, f)) ? readFileSync(join(studioDir, f), 'utf-8') : null));
+if (missing.length) throw new Error(`[rhwp-studio] ${RHWP_VERSION} 에 앱 플러그인이 쓰는 이름이 없습니다 (scripts/rhwp-patches.mjs):\n  ${missing.join('\n  ')}`);
+run('git', ['checkout', '--', `rhwp-studio/${PLUGIN_ALLOW_FILE}`], src);
+const mainPath = join(studioDir, PLUGIN_ALLOW_FILE);
+writeFileSync(mainPath, applyPluginAllow(readFileSync(mainPath, 'utf-8')));
+cpSync(PLUGIN_SRC, join(studioDir, 'src', AGENT_PLUGIN_FILE));
+
+// 4) 빌드
 run(npm, ['ci', '--no-audit', '--no-fund'], studioDir);
 rmSync(join(studioDir, 'dist'), { recursive: true, force: true });
 run(process.execPath, [join('node_modules', 'vite', 'bin', 'vite.js'), 'build', '--base=./'], studioDir, { RHWP_DISABLE_EXTERNAL_WEBFONTS: '1' });
 
-// 4) 가지치기
+// 5) 가지치기
 const dist = join(studioDir, 'dist');
 for (const p of ['samples', 'sw.js', 'registerSW.js', 'manifest.webmanifest', 'rhwp.d.ts', 'rhwp_bg.wasm.d.ts']) rmSync(join(dist, p), { recursive: true, force: true });
 for (const f of readdirSync(dist)) if (/^workbox-.*\.js$/.test(f)) rmSync(join(dist, f));
@@ -79,7 +94,7 @@ html = html
 writeFileSync(indexPath, html);
 if (/registerSW|serviceWorker\.register/.test(html)) throw new Error('[rhwp-studio] 서비스워커 등록이 index.html 에 남았다');
 
-// 5) 배치: studio/ + sdk/ + 중계 페이지 + 라이선스
+// 6) 배치: studio/ + sdk/ + 중계 페이지 + 라이선스
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 cpSync(dist, join(OUT, 'studio'), { recursive: true, dereference: true });
@@ -97,7 +112,7 @@ for (const dep of Object.keys(JSON.parse(readFileSync(join(studioDir, 'package.j
   const lic = existsSync(dir) ? readdirSync(dir).find((f) => /^(licen[cs]e|copying)/i.test(f)) : undefined;
   if (lic) cpSync(join(dir, lic), join(OUT, 'licenses', `rhwp-studio-${dep.replace(/^@/, '').replace('/', '-')}-LICENSE.txt`));
 }
-writeFileSync(versionFile, JSON.stringify({ studio: RHWP_VERSION, sdk: RHWP_VERSION, built_at: new Date().toISOString() }, null, 2));
+writeFileSync(versionFile, JSON.stringify({ studio: RHWP_VERSION, sdk: RHWP_VERSION, plugin: pluginHash, built_at: new Date().toISOString() }, null, 2));
 
 for (const must of ['studio/index.html', 'studio/rhwp_bg.wasm', 'studio/rhwp.js', 'sdk/index.js', 'host.html', 'host.js']) {
   if (!existsSync(join(OUT, must))) throw new Error(`[rhwp-studio] 빠진 파일: ${must}`);

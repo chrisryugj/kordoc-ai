@@ -1,5 +1,6 @@
 // 자동 생성 — scripts/sync-rpc-whitelist.mjs (정본: node-sidecar/src/types/rpc-contract.ts). 손으로 고치지 말 것.
 pub const ALLOWED_METHODS: &[&str] = &[
+    "ai_agent_step",
     "ai_chat",
     "ai_draft",
     "ai_extract",
@@ -33,6 +34,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "edit_undo",
     "editor_open",
     "editor_server",
+    "editor_tab_spots",
     "editor_write",
     "engine_selftest",
     "export_pdf",

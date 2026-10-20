@@ -16,6 +16,19 @@ import { useApp } from "../../state/app";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
+/** 편집기에서 새로 넣은 탭의 폭 — rhwp 가 0 으로 써서 한글에서 붙어 나온다. 편집기가 배치한 대로 잰다. 못 재면 저장은 그대로 */
+async function measuredTabs(ed: HwpEditorClient, data_b64: string, format: "hwp" | "hwpx") {
+  try {
+    const { spots } = await rpc("editor_tab_spots", { data_b64, format });
+    if (!spots.length) return [];
+    const { result } = await ed.call("agent", { method: "measureTabs", args: [spots] });
+    const measures = (result as { tabs: Array<{ width: number; type: number; fill: number } | null> }).tabs;
+    return spots.flatMap((spot, i) => (measures[i] ? [{ ...spot, ...measures[i]! }] : []));
+  } catch {
+    return [];
+  }
+}
+
 export type Step = "compose" | "edit" | "output";
 export type EditorState = "idle" | "starting" | "ready" | "unavailable" | "error";
 
@@ -195,9 +208,11 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       if (fmt === "hwp" && session.hwpSaveBlock) throw new Error(session.hwpSaveBlock);
       const before = await ed.call("state", {}).catch(() => null);
       const bytes = await ed.save(fmt);
+      const data_b64 = bytesToB64(bytes.buffer as ArrayBuffer);
+      const tabs = await measuredTabs(ed, data_b64, fmt);
       // 앱 작업 사본(새로 쓰기 초안)을 다시 쓸 때는 .bak 을 남기지 않는다
       const backup = !(session.working && path === session.path);
-      const r = await rpc("editor_write", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), overwrite: true, backup, ...(session.token ? { token: session.token } : {}) });
+      const r = await rpc("editor_write", { path, data_b64, overwrite: true, backup, ...(tabs.length ? { tabs } : {}), ...(session.token ? { token: session.token } : {}) });
       if (r.backup_path) toast(`덮어쓰기 전 파일은 ${baseName(r.backup_path)} 로 남겼습니다`, "info");
       if (r.tails_lost) toast("바탕쪽이나 메모 일부를 옮기지 못했습니다. 한글에서 열어 확인하세요.", "error");
       await ed.call("saved", { name: baseName(r.path) }).catch(() => undefined);

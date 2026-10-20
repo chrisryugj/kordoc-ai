@@ -1,4 +1,4 @@
-/** 편집 보조 패널 — 칸 채우기 · 표기법 검사 · 법령 근거 확인 · AI 다듬기 · K팀장 검토 (편집기와 postMessage 로 주고받음) */
+/** 편집 보조 패널 — AI 대화(열린 문서를 말로 고치기) · 칸 채우기 · 표기법 검사 · 법령 근거 확인 · AI 다듬기 · K팀장 검토 (편집기와 postMessage 로 주고받음) */
 
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { ClipboardCheck, Download, Replace, Scale, Sparkles, SpellCheck, Square, Undo2 } from "lucide-react";
@@ -12,9 +12,11 @@ import { Seg } from "../common/Field";
 import { ErrorLine, Note, Working } from "../common/Status";
 import { IssueList, LawResults, LintList } from "../workbench/tools/ReviewTool";
 import { TemplateForm, type FormField } from "./TemplateForm";
+import { AgentChat } from "./AgentChat";
 
-type Tab = "fields" | "lint" | "law" | "rewrite" | "review";
+type Tab = "agent" | "fields" | "lint" | "law" | "rewrite" | "review";
 const TABS: Array<{ id: Tab; label: string }> = [
+  { id: "agent", label: "AI 대화" },
   { id: "fields", label: "칸 채우기" },
   { id: "lint", label: "표기법" },
   { id: "law", label: "법령" },
@@ -205,7 +207,7 @@ function ReviewTab() {
 }
 
 export function EditorAssist() {
-  const [tab, setTab] = useState<Tab>("fields");
+  const [tab, setTab] = useState<Tab>("agent");
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     const i = TABS.findIndex((t) => t.id === tab);
@@ -219,6 +221,7 @@ export function EditorAssist() {
         ))}
       </div>
       <div className="kd-assist-body" role="tabpanel">
+        <div hidden={tab !== "agent"}><AgentChat /></div>
         <div hidden={tab !== "fields"}><FieldsTab /></div>
         <div hidden={tab !== "lint"}><LintTab /></div>
         <div hidden={tab !== "law"}><LawTab /></div>

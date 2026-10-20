@@ -11,6 +11,7 @@ import { draftDocument } from '../../core/ai/draft.js';
 import { rewriteText, type RewriteMode } from '../../core/ai/rewrite.js';
 import { suggestFill } from '../../core/ai/fill.js';
 import { writeFromTemplate } from '../../core/ai/template-write.js';
+import { agentStep, type AgentEvent, type AgentToolDef } from '../../core/ai/agent-step.js';
 import { extractTable } from '../../core/ai/extract.js';
 import { fitLinesWithAi } from '../../core/ai/fit-lines.js';
 import { aiStatus, aiTest, aiWarmup, listServerModels } from '../../core/ai/status.js';
@@ -80,6 +81,12 @@ export function registerAi(router: RpcRouter): void {
       guides: q.guides && typeof q.guides === 'object' ? q.guides : undefined,
     }, signal);
   }, { heavy: true });
+
+  reg('ai_agent_step', (p, signal) => agentStep({
+    system: String(p.system ?? ''),
+    tools: Array.isArray(p.tools) ? (p.tools as AgentToolDef[]) : [],
+    events: Array.isArray(p.events) ? (p.events as AgentEvent[]) : [],
+  }, signal), { heavy: true });
 
   reg('ai_template_write', (p, signal) => writeFromTemplate({
     path: validatePath(String(p.path ?? '')),

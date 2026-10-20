@@ -4,6 +4,7 @@
  * 메모 필드를 여는 글자의 종류를 "알 수 없음"으로 바꾸며(메모 자리마다 줄바꿈이 사라진다), 변경 추적 문서는
  * 지운 글까지 표시한 두 번째 본문(ViewText)을 읽는다(쪽 수가 몇 배로 늘고 저장하면 한글이 못 연다).
  * 그래서 열 때 추적 문서는 지금 내용으로 바꿔 주고, 원본의 목록·필드 종류를 표(token)로 간직했다가 저장할 때 되붙인다.
+ * 편집기에서 새로 넣은 탭은 rhwp 가 폭 0 으로 써서 한글에서 붙어 나오니, 편집기가 잰 폭을 써 넣는다(editor_tab_spots → measureTabs → tabs).
  * 처음 덮어쓰는 파일은 옆에 `.bak` 을 남긴다. 판단 근거와 한컴 한글 확인은 이음오피스 결정 0024·0026·0027·0028.
  */
 
@@ -14,6 +15,7 @@ import { readFileB64, writeFileB64 } from '../files/io.js';
 import { fieldKindsOf, restoreFieldKinds, type FieldKinds } from './field-kinds.js';
 import { restoreSectionTails, sectionTailsOf, type SectionTails } from './section-tails.js';
 import { hasTrackedChanges, withoutTrackedChanges } from './tracked-changes.js';
+import { MAX_NEW_TABS, newTabsOf, writeTabWidths, type MeasuredTab, type TabSpot } from './tab-widths.js';
 
 interface OpenedDoc {
   tails: SectionTails | null;
@@ -57,7 +59,17 @@ export async function editorOpen(path: string): Promise<{ data_b64: string; name
   };
 }
 
-export async function editorWrite(p: { path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean }): Promise<{ path: string; backup_path?: string; tails_lost?: boolean }> {
+/** 편집기 내보내기에서 rhwp 가 폭 없이 쓴 새 탭들 — 편집기가 재서(measureTabs) editor_write 의 tabs 로 넘긴다 */
+export function editorTabSpots(p: { data_b64: string; format: 'hwp' | 'hwpx' }): { spots: TabSpot[] } {
+  if (typeof p.data_b64 !== 'string' || !p.data_b64) return { spots: [] };
+  try {
+    return { spots: newTabsOf(Buffer.from(p.data_b64, 'base64'), p.format).slice(0, MAX_NEW_TABS) };
+  } catch {
+    return { spots: [] };
+  }
+}
+
+export async function editorWrite(p: { path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean; tabs?: MeasuredTab[] }): Promise<{ path: string; backup_path?: string; tails_lost?: boolean }> {
   if (typeof p.data_b64 !== 'string' || !p.data_b64) throw new Error('저장할 내용이 없습니다.');
   let bytes: Uint8Array = Buffer.from(p.data_b64, 'base64');
   const hwp = /\.hwp$/i.test(p.path);
@@ -65,6 +77,8 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
   if (/\.hwpx?$/i.test(p.path) && !starts(bytes, hwp ? OLE : ZIP)) {
     throw new Error(`${hwp ? 'HWP' : 'HWPX'} 형식이 아닌 내용을 ${hwp ? '.hwp' : '.hwpx'} 파일로 저장하려 했습니다. 확장자를 맞춰 다시 저장하세요.`);
   }
+  // 탭이 먼저: 탭 자리는 엔진이 쓴 바이트에서 찾았고, 목록 되붙이기는 구역 본문을 그대로 둔다
+  if (p.tabs?.length && /\.hwpx?$/i.test(p.path)) bytes = writeTabWidths(bytes, hwp ? 'hwp' : 'hwpx', p.tabs).bytes;
   const doc = p.token ? opened.get(p.token) : undefined;
   let tailsLost = false;
   if (doc && hwp) {

@@ -210,6 +210,16 @@ export interface RpcMethods {
   /** K팀장 검토 — AI 논리·숫자·날짜 검토 + 표기법 검사 결과를 함께 */
   ai_review: [{ path: string }, { summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }];
   /** 참고 문서·지시를 읽고 서식 칸에 넣을 값 제안. guides = 칸별 안내문(누름틀 안내 글자), instruction = 무슨 문서를 쓰는지(예: "체육대회 개최 안내 공문") */
+  /** 편집기 AI 한 차례 — 대화(user·assistant·tool 결과)와 앱 도구 목록 → 글 + 도구 호출. 도구는 화면 쪽 루프가 편집기에서 실행한다 */
+  ai_agent_step: [{
+    system: string;
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+    events: Array<
+      | { role: 'user'; text: string; context?: string }
+      | { role: 'assistant'; text: string; calls: Array<{ id: string; name: string; input: Record<string, unknown> }> }
+      | { role: 'tool'; results: Array<{ id: string; name: string; output: string; isError?: boolean }> }
+    >;
+  }, { text: string; calls: Array<{ id: string; name: string; input: Record<string, unknown>; inputError?: string }>; redacted: number }];
   /** 서식대로 새로 쓰기 — 견본·양식의 서식은 두고 내용만 AI 가 지시·참고 문서대로 (kordoc 서식 베끼기 + 공문서 게이트). HWP 견본은 HWPX 로 낸다 */
   ai_template_write: [{ path: string; instruction: string; references?: string[]; output_path?: string }, {
     output_path: string; applied: number; skipped: string[]; redacted: number; converted: boolean;
@@ -255,7 +265,10 @@ export interface RpcMethods {
   editor_open: [{ path: string }, { data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }];
   /** 편집기 내보내기 저장 — token 의 원본에서 바탕쪽·메모·수식 캡션·필드 종류를 되붙이고(HWP), 처음 덮어쓰는 파일은 `.bak` 을 남긴다.
    *  tails_lost: 되붙이지 못한 목록이 있다 (한글에서 열어 확인하라고 알린다). backup: false 면 .bak 을 만들지 않는다 (앱 작업 사본) */
-  editor_write: [{ path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean }, { path: string; backup_path?: string; tails_lost?: boolean }];
+  /** 편집기 내보내기에서 rhwp 가 폭 없이 쓴 새 탭 자리 — 편집기 플러그인 measureTabs 로 재서 editor_write 의 tabs 로 */
+  editor_tab_spots: [{ data_b64: string; format: 'hwp' | 'hwpx' }, { spots: Array<{ sec: number; para: number; cells: Array<{ table: number; cell: number; para: number }>; tab: number; tabs: number }> }];
+  editor_write: [{ path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean;
+    tabs?: Array<{ sec: number; para: number; cells: Array<{ table: number; cell: number; para: number }>; tab: number; tabs: number; width: number; type: number; fill: number }> }, { path: string; backup_path?: string; tails_lost?: boolean }];
   /** 편집기에서 내보낸 HWPX 의 미리보기 사본 (read_file_b64 preview 와 같은 처리) */
   preview_bytes: [{ data_b64: string }, { data_b64: string }];
 

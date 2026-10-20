@@ -21,6 +21,16 @@ const target = parentOrigin && parentOrigin !== 'null' ? parentOrigin : '*';
 const send = (msg, transfer = []) => window.parent.postMessage(msg, target, transfer);
 
 const FS = '\u0002';
+/** 스튜디오 안 앱 플러그인 (scripts/rhwp-patches.mjs 가 허용 목록에 넣는다) */
+const AGENT_PLUGIN = 'kordoc-agent';
+const AGENT_METHODS = new Set([
+  'foreignChanges', 'readText', 'findText', 'replaceText', 'replaceAllText', 'insertParagraphs', 'deleteParagraph', 'insertTable',
+  'formatText', 'formatParagraph', 'listTables', 'readTable', 'fillCells', 'addTableLines', 'removeTableLines', 'deleteTable',
+  'reveal', 'selection', 'replaceSelection', 'formatSelection', 'listFields', 'fillField', 'insertToc', 'refreshToc',
+  'listNotes', 'insertNote', 'editNote', 'deleteNote', 'measureTabs', 'clearMarks', 'listStyles', 'formatCells', 'mergeCells',
+  'splitCell', 'undo',
+]);
+let agentLoaded = null;
 const enc = new TextEncoder();
 let studio = null;
 let docLoaded = false;
@@ -251,6 +261,16 @@ const ops = {
     if (watching) schedulePoll(0);
     else clearTimeout(pollTimer);
     return { ok: true };
+  },
+  async agent({ method, args }) {
+    if (typeof method !== 'string' || !AGENT_METHODS.has(method)) throw new Error(`모르는 편집기 도구: ${method}`);
+    // 처음 부를 때 한 번 올린다. 실패하면 다음 호출이 다시 올린다
+    if (!agentLoaded) {
+      agentLoaded = studio.plugins.load(AGENT_PLUGIN);
+      agentLoaded.catch(() => { agentLoaded = null; });
+    }
+    await agentLoaded;
+    return { result: await studio.plugins.invoke(AGENT_PLUGIN, method, Array.isArray(args) ? args : []) };
   },
 };
 
