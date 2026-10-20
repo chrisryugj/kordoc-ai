@@ -10,6 +10,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "ai_rewrite",
     "ai_status",
     "ai_summarize",
+    "ai_template_write",
     "ai_test",
     "ai_warmup",
     "bundle_pdf",

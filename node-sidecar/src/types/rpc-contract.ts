@@ -210,6 +210,11 @@ export interface RpcMethods {
   /** K팀장 검토 — AI 논리·숫자·날짜 검토 + 표기법 검사 결과를 함께 */
   ai_review: [{ path: string }, { summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }];
   /** 참고 문서·지시를 읽고 서식 칸에 넣을 값 제안. guides = 칸별 안내문(누름틀 안내 글자), instruction = 무슨 문서를 쓰는지(예: "체육대회 개최 안내 공문") */
+  /** 서식대로 새로 쓰기 — 견본·양식의 서식은 두고 내용만 AI 가 지시·참고 문서대로 (kordoc 서식 베끼기 + 공문서 게이트). HWP 견본은 HWPX 로 낸다 */
+  ai_template_write: [{ path: string; instruction: string; references?: string[]; output_path?: string }, {
+    output_path: string; applied: number; skipped: string[]; redacted: number; converted: boolean;
+    findings: Array<{ axis: '표기법' | '문체' | '윤문' | '구성'; rule: string; line: number; match: string; message: string; severity: 'error' | 'warning' | 'info'; suggest?: string }>;
+  }];
   ai_fill_suggest: [{ fields: string[]; references: string[]; note?: string; instruction?: string; guides?: Record<string, string> }, { values: Record<string, string>; redacted: number }];
   /** 여러 문서에서 같은 항목을 뽑아 표(xlsx, output_path 가 .csv 면 csv)로. rows 맨 앞에 "파일"(문서 이름) 칸이 붙는다 */
   ai_extract: [{ paths: string[]; columns: string[]; output_path?: string }, { rows: Array<Record<string, string>>; output_path: string; failed: BatchItemResult[] }];

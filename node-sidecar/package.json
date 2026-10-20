@@ -23,7 +23,7 @@
     "cfb": "^1.2.2",
     "iconv-lite": "^0.7.3",
     "jszip": "^3.10.1",
-    "kordoc": "4.21.30",
+    "kordoc": "4.22.17",
     "node-llama-cpp": "3.22.1",
     "pdf-lib": "^1.17.1",
     "puppeteer-core": "^24.0.0",

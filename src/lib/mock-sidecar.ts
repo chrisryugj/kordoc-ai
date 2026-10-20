@@ -419,6 +419,13 @@ const handlers: Handlers = {
     const guess: Record<string, string> = { 제목: "2026년 직원 체육대회 개최 안내", 본문: "직원 화합을 위한 체육대회를 아래와 같이 엽니다.", 수신: "각 부서장", 붙임: "체육대회 세부 일정 1부." };
     return { values: Object.fromEntries(p.fields.map((f) => [f, guess[f] ?? `${f} 예시 값`])), redacted: 0 };
   },
+  ai_template_write: async (p) => {
+    await wait(1200);
+    return {
+      output_path: p.output_path ?? out(p.path, "hwpx", "_새로쓰기"), applied: 9, skipped: [], redacted: 0, converted: p.path.endsWith(".hwp"),
+      findings: [{ axis: "구성", rule: "LOGIC_EFFECT_VAGUE", line: 18, match: "## 기대효과", message: "기대효과에 목표치가 없습니다", severity: "warning", suggest: "민원 연 14건 → 5건처럼 문제점에서 든 지표의 목표치" }],
+    };
+  },
   ai_fit_lines: async (p) => {
     // 미리보기: 끝이 "필요"로 끝나는 첫 개조식 줄 하나를 줄여 쓴 것처럼
     await wait(900);

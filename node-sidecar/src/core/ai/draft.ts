@@ -68,7 +68,7 @@ const FIX_SCHEMA: JsonSchema = {
 };
 
 /** 지적된 줄만 고쳐 받아 그 줄에 바꿔 넣는다. 초안 전체를 다시 쓰게 하면 초안만큼 한 번 더 생성해서 CPU 에서 몇 분이 더 걸린다 */
-async function fixLines(md: string, errors: Array<{ line: number; text: string }>, system: string, signal: AbortSignal): Promise<{ markdown: string; redacted: number }> {
+export async function fixLines(md: string, errors: Array<{ line: number; text: string }>, system: string, signal: AbortSignal): Promise<{ markdown: string; redacted: number }> {
   const lines = md.split('\n');
   const nums = [...new Set(errors.map((e) => e.line))].filter((n) => n >= 1 && n <= lines.length);
   if (!nums.length) return { markdown: md, redacted: 0 };
@@ -93,7 +93,7 @@ async function fixLines(md: string, errors: Array<{ line: number; text: string }
 }
 
 /** 참고 문서를 예산 안의 글로 — 전체를 봐야 하는 종류(한 장 보고·회의록·회신의 받은 공문)는 줄이고, 나머지는 지시와 가까운 부분만 */
-async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefined, instruction: string, room: number, signal: AbortSignal): Promise<{ text: string; redacted: number }> {
+export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefined, instruction: string, room: number, signal: AbortSignal): Promise<{ text: string; redacted: number }> {
   if (!docs.length) return { text: '', redacted: 0 };
   const whole = (d: LoadedDoc, label: string) => `=== ${label}: ${d.name} ===\n${d.text.trim()}`;
   if (kind === 'onepage' || kind === 'minutes' || kind === 'memo') {

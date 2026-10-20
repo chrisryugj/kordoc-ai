@@ -16,6 +16,7 @@ import { TemplateForm, type FormField } from "./TemplateForm";
 import { FillWizard } from "../fill/FillWizard";
 import { baseName } from "../../lib/format";
 import { ActionBar } from "./ActionBar";
+import { TemplateWrite } from "./TemplateWrite";
 
 const GROUPS: Array<{ source: TemplateEntry["source"]; title: string }> = [
   { source: "builtin", title: "표준 기안문" },
@@ -97,7 +98,8 @@ function Detail({ entry, onStyleSample }: { entry: TemplateEntry; onStyleSample:
             )
         ) : analysis.strategy === "fill_labels" ? (
           <>
-            <Note tone="info">이름 칸이 표로 된 서식입니다{analysis.label_fields.length ? ` (칸 ${analysis.label_fields.length}개)` : ""}. 칸 채우기 도우미로 값을 넣거나 편집기에서 직접 씁니다.</Note>
+            <Note tone="info">이름 칸이 표로 된 서식입니다{analysis.label_fields.length ? ` (칸 ${analysis.label_fields.length}개)` : ""}. AI 가 빈칸까지 채워 쓰게 하거나, 칸 채우기 도우미·편집기에서 직접 씁니다.</Note>
+            <TemplateWrite path={entry.path!} name={entry.name} />
             <ActionBar status={entry.name}>
               <Button size="lg" variant="secondary" onClick={() => void openInEditor(entry.path!, { title: entry.name })}>편집기에서 직접 쓰기</Button>
               <Button size="lg" disabled={entry.format !== "hwpx"} title={entry.format !== "hwpx" ? "HWPX 서식에서 씁니다" : undefined} onClick={() => setWizard(true)}>칸 채우기 도우미</Button>
@@ -105,8 +107,9 @@ function Detail({ entry, onStyleSample }: { entry: TemplateEntry; onStyleSample:
           </>
         ) : (
           <>
-            <Note tone="info">견본 서식입니다. AI 초안이나 직접 쓴 글을 이 견본의 글꼴과 항목 기호 단계로 짭니다.</Note>
-            <ActionBar status={entry.name}><Button size="lg" onClick={() => onStyleSample(entry.path!)}>이 견본으로 초안 쓰기</Button></ActionBar>
+            <Note tone="info">견본 서식입니다. AI 가 이 견본의 표·상자까지 그대로 두고 내용만 새로 쓰게 하거나, 초안을 이 견본의 글꼴과 항목 기호 단계로 다시 짭니다.</Note>
+            <TemplateWrite path={entry.path!} name={entry.name} />
+            <ActionBar status={entry.name}><Button size="lg" variant="secondary" onClick={() => onStyleSample(entry.path!)}>초안을 이 견본 글꼴로 짜기</Button></ActionBar>
           </>
         )
       )}
