@@ -15,7 +15,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const RHWP_VERSION = '0.8.6'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
+const RHWP_VERSION = '0.8.7'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
 const force = process.argv.includes('--force');

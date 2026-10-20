@@ -33,6 +33,10 @@ export interface DocSession {
   working?: boolean;
   /** 사용자가 연 기존 문서 (작업대·끌어 놓기) — 단계는 편집·내보내기만 */
   existing?: boolean;
+  /** 편집기로 연 원본의 표 — 저장할 때 rhwp 가 빠뜨린 것을 원본에서 되붙인다 (editor_write) */
+  token?: string;
+  /** HWP 로 저장하면 안 되는 까닭 (추적 기록을 뺄 수 없었던 변경 추적 문서) */
+  hwpSaveBlock?: string;
 }
 
 /** 새로 쓰기 초안을 둘 작업 사본 경로 (앱 데이터 폴더, 문서 폴더에 쌓이지 않게) */
@@ -188,9 +192,14 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     if (!session) throw new Error("저장할 문서가 없습니다. 작성 단계에서 시작점을 고르세요.");
     const ed = client.current;
     if (editorState === "ready" && ed && !opening.current) {
+      if (fmt === "hwp" && session.hwpSaveBlock) throw new Error(session.hwpSaveBlock);
       const before = await ed.call("state", {}).catch(() => null);
       const bytes = await ed.save(fmt);
-      const r = await rpc("write_file", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), overwrite: true });
+      // 앱 작업 사본(새로 쓰기 초안)을 다시 쓸 때는 .bak 을 남기지 않는다
+      const backup = !(session.working && path === session.path);
+      const r = await rpc("editor_write", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), overwrite: true, backup, ...(session.token ? { token: session.token } : {}) });
+      if (r.backup_path) toast(`덮어쓰기 전 파일은 ${baseName(r.backup_path)} 로 남겼습니다`, "info");
+      if (r.tails_lost) toast("바탕쪽이나 메모 일부를 옮기지 못했습니다. 한글에서 열어 확인하세요.", "error");
       await ed.call("saved", { name: baseName(r.path) }).catch(() => undefined);
       // 내보낸 뒤에 고친 게 있으면(저장하는 사이 입력) 그건 아직 저장 안 된 것으로 둔다
       const after = before ? await ed.call("state", {}).catch(() => null) : null;
@@ -208,7 +217,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       return r.path;
     }
     throw new Error(editorState === "unavailable" || editorState === "error" ? FIELDS_LOST : NOT_READY);
-  }, [session, editorState]);
+  }, [session, editorState, toast]);
 
   const suggestedName = useMemo(
     () => (session ? suggestFileName(session.title, settings?.org.dept ?? "") : ""),
@@ -301,7 +310,10 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     try {
       if (!(await ensureEditor())) return;
       const ed = client.current!;
-      const file = await rpc("read_file_b64", { path });
+      const file = await rpc("editor_open", { path });
+      setSession((s) => (s && s.path === path ? { ...s, token: file.token, ...(file.save_blocked ? { hwpSaveBlock: file.save_blocked } : {}) } : s));
+      if (file.tracking_dropped) toast("변경 내용 추적이 든 문서라 지금 내용으로 열었습니다. 저장하면 추적 기록 없이 저장되고, 처음 덮어쓸 때 원본은 .bak 으로 남습니다.", "info");
+      if (file.save_blocked) toast(file.save_blocked, "error");
       try {
         await ed.open(new Uint8Array(b64ToBuffer(file.data_b64)), file.name);
       } catch (e) {

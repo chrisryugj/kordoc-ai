@@ -27,9 +27,8 @@ describe('rhwpCompat', () => {
     expect(Object.keys(zip.files)[0]).toBe('mimetype');
   });
 
-  it('보정하면 목차 제목이 한 줄에 들어간다 (보정 전엔 두 줄)', async () => {
-    const before = await tocLineYs(await raw());
-    expect(before.gyeong).not.toBe(before.bae); // 버그 재현 (rhwp 가 고쳐지면 이 줄을 지운다)
+  // rhwp 0.8.7 에서 보정 전에도 한 줄로 조판된다(0.8.6 까지 "추진 배 / 경") — 보정이 한 줄을 깨지 않는지만 본다
+  it('보정해도 목차 제목이 한 줄에 들어간다', async () => {
     const after = await tocLineYs(await rhwpCompat(await raw()));
     expect(after.gyeong).toBe(after.bae);
   });

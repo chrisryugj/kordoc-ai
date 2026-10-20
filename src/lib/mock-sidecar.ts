@@ -470,6 +470,8 @@ const handlers: Handlers = {
     }
     return { data_b64: PNG_1PX, name: baseName(p.path), size: 68 };
   },
+  editor_open: async (p, emit) => ({ ...(await handlers.read_file_b64!({ path: p.path }, emit)), token: "mock", tracking_dropped: false }),
+  editor_write: (p) => ({ path: p.path }),
   preview_bytes: async (p) => ({ data_b64: p.data_b64 }),
   template_library: () => ({ templates: userTemplates }),
   template_add: async (p) => {

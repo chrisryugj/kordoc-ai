@@ -245,6 +245,12 @@ export interface RpcMethods {
   write_file: [{ path: string; data_b64: string; overwrite?: boolean }, { path: string }];
   /** preview: HWPX 의 빈 누름틀 안내문을 글로 넣은 미리보기 사본 (rhwp 가 안내문 폭을 0으로 잡아 뒤 글자가 겹치는 것 우회) */
   read_file_b64: [{ path: string; preview?: boolean }, { data_b64: string; name: string; size: number }];
+  /** 내장 편집기로 열 바이트 — 변경 추적 HWP 는 지금 내용으로(tracking_dropped), token 은 editor_write 에 넘겨 rhwp 가 빠뜨린 것을 되붙인다.
+   *  save_blocked: 추적 기록을 뺄 수 없어 HWP 로 저장하면 안 되는 문서 (사용자 문장) */
+  editor_open: [{ path: string }, { data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }];
+  /** 편집기 내보내기 저장 — token 의 원본에서 바탕쪽·메모·수식 캡션·필드 종류를 되붙이고(HWP), 처음 덮어쓰는 파일은 `.bak` 을 남긴다.
+   *  tails_lost: 되붙이지 못한 목록이 있다 (한글에서 열어 확인하라고 알린다). backup: false 면 .bak 을 만들지 않는다 (앱 작업 사본) */
+  editor_write: [{ path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean }, { path: string; backup_path?: string; tails_lost?: boolean }];
   /** 편집기에서 내보낸 HWPX 의 미리보기 사본 (read_file_b64 preview 와 같은 처리) */
   preview_bytes: [{ data_b64: string }, { data_b64: string }];
 

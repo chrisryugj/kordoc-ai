@@ -1,4 +1,4 @@
-/** rhwp(@rhwp/core WASM) — 한글 문서 쪽 SVG. 편집기와 같은 버전(0.8.6), 설치본은 external 스테이징
+/** rhwp(@rhwp/core WASM) — 한글 문서 쪽 SVG. 편집기와 같은 버전(0.8.7), 설치본은 external 스테이징
  *
  * render_preview(FillWizard 미리보기)와 PDF 내보내기가 같이 쓴다.
  * PDF 를 kordoc renderDocument 대신 rhwp 로 그리는 이유: kordoc 렌더는 칸 안 줄바꿈(hp:lineBreak)을 아직 무시해서
@@ -52,7 +52,7 @@ export async function openRhwp(bytes: Uint8Array, password?: string): Promise<Rh
   }
 }
 
-/** rhwp(0.8.6)로 열어도 되는 쪽 수 상한 — 쪽 수에 따라 여는 시간이 가파르게 늘고(1만 쪽급은 수 분) 그동안 엔진 전체가 멈춘다.
+/** rhwp(0.8.7)로 열어도 되는 쪽 수 상한 — 쪽 수에 따라 여는 시간이 가파르게 늘고(1만 쪽급은 수 분) 그동안 엔진 전체가 멈춘다.
  *  화면 미리보기(src/lib/rhwp-preview.ts RHWP_MAX_PAGES)와 같은 기준 */
 export const RHWP_MAX_PAGES = 1000;
 

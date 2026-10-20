@@ -92,7 +92,7 @@ React 19 화면 ── Tauri 2 (Rust) ── JSON-RPC(stdin/stdout, 동시 호�
 pnpm install
 node scripts/fetch-node.mjs          # 동봉할 Node 런타임 (SHA-256 검증)
 node scripts/build-sidecar.mjs       # 문서 엔진: tsc → 번들 → 네이티브 스테이징 → OCR 모델
-node scripts/build-rhwp-studio.mjs   # 내장 한글 편집기 (rhwp v0.8.6, Rust 불필요)
+node scripts/build-rhwp-studio.mjs   # 내장 한글 편집기 (rhwp v0.8.7, Rust 불필요)
 node scripts/third-party-notices.mjs # 제3자 고지 모음 THIRD_PARTY_NOTICES.txt (빌드 산출물을 읽음, 네트워크 없음)
 node node-sidecar/scripts/smoke-bundle.mjs   # 설치본 조건 셀프테스트 (릴리스 관문)
 pnpm tauri dev                       # 개발 실행

@@ -18,7 +18,7 @@
     "@anthropic-ai/sdk": "^0.129.0",
     "@hyzyla/pdfium": "2.1.13",
     "@pdf-lib/fontkit": "1.1.1",
-    "@rhwp/core": "0.8.6",
+    "@rhwp/core": "0.8.7",
     "@xmldom/xmldom": "^0.9.8",
     "cfb": "^1.2.2",
     "iconv-lite": "^0.7.3",
