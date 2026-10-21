@@ -72,7 +72,8 @@ async function ensurePrintTempDir(): Promise<void> {
 // PowerShell 은 ‘ ’ ‚ ‛ 도 작은따옴표로 읽는다 — 파일 이름·프린터 이름을 명령 글에 엮지 않고 환경 변수로 넘긴다(명령은 고정 글)
 const PS_PRINT = [
   '$a = @{ FilePath = $env:KORDOC_PRINT_FILE; Verb = "PrintTo"; WindowStyle = "Hidden" }',
-  'if ($env:KORDOC_PRINTER) { $a.ArgumentList = $env:KORDOC_PRINTER }',
+  // PrintTo 는 인자를 빈칸으로 나눠 %2 에 넣는다 — "HP LaserJet 4000" 같은 이름이 첫 낱말만 가지 않게 큰따옴표로 감싼다
+  'if ($env:KORDOC_PRINTER) { $a.ArgumentList = \'"\' + $env:KORDOC_PRINTER + \'"\' }',
   'Start-Process @a',
 ].join('; ');
 

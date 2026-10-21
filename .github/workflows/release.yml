@@ -38,6 +38,16 @@ jobs:
           workspaces: src-tauri
 
       - run: pnpm install --frozen-lockfile
+
+      # 입력한 버전과 앱 버전이 다르면 다른 판 설치 파일이 그 릴리스에 올라간다
+      - name: 버전 대조
+        shell: bash
+        run: |
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$app" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::입력 버전 ${{ github.event.inputs.version }} 과 tauri.conf.json 의 $app 이 다릅니다"; exit 1
+          fi
+
       - name: 동봉 Node·사이드카·편집기 빌드
         run: |
           node scripts/fetch-node.mjs
@@ -55,11 +65,53 @@ jobs:
         working-directory: node-sidecar
         run: node scripts/smoke-bundle.mjs
 
+      - name: 시험 (엔진·화면)
+        shell: bash
+        run: |
+          (cd node-sidecar && node node_modules/vitest/vitest.mjs run)
+          pnpm exec vitest run
+
+      # 코드 서명 — 저장소 시크릿이 있을 때만. 없으면 지금처럼 서명 없이(Windows SmartScreen·macOS Gatekeeper 경고)
+      #   Windows: WINDOWS_CERTIFICATE(PFX base64)·WINDOWS_CERTIFICATE_PASSWORD
+      #   macOS:   APPLE_CERTIFICATE(p12 base64)·APPLE_CERTIFICATE_PASSWORD·APPLE_SIGNING_IDENTITY, 공증은 APPLE_ID·APPLE_PASSWORD(앱 암호)·APPLE_TEAM_ID
+      - name: Windows 서명 인증서 가져오기
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { Write-Host "서명 인증서 없음: 서명 없이 만든다"; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: 설치 파일 만들기
         # beforeBuildCommand(build:all) 가 위 단계를 다시 돌지 않게 프론트만 빌드.
         # Windows 기본 셸(PowerShell)은 인라인 JSON 의 따옴표를 벗겨 버려서 bash 로
         shell: bash
-        run: pnpm tauri build --config '{"build":{"beforeBuildCommand":"pnpm build"}}'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          config=$(node -e '
+            const c = { build: { beforeBuildCommand: "pnpm build" }, bundle: {} };
+            const e = process.env;
+            if (e.WINDOWS_CERT_THUMBPRINT) c.bundle.windows = { certificateThumbprint: e.WINDOWS_CERT_THUMBPRINT, digestAlgorithm: "sha256", timestampUrl: "http://timestamp.digicert.com" };
+            if (process.platform === "darwin" && e.APPLE_SIGNING_IDENTITY) c.bundle.macOS = { signingIdentity: e.APPLE_SIGNING_IDENTITY };
+            process.stdout.write(JSON.stringify(c));
+          ')
+          # 공증 변수가 비어 있으면 넘기지 않는다(빈 값으로 공증을 시도하지 않게)
+          [ -n "$APPLE_ID" ] || unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          [ -n "$APPLE_CERTIFICATE" ] || unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+          pnpm tauri build --config "$config"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,6 +1,6 @@
 {
   "name": "kordoc-ai",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "한국 문서 변환 AI 데스크톱 도구",
   "license": "MIT",
   "type": "module",
@@ -15,7 +15,8 @@
     "tauri:build": "tauri build",
     "build:editor": "node scripts/build-rhwp-studio.mjs",
     "build:node-runtime": "node scripts/fetch-node.mjs",
-    "check:rpc": "node scripts/sync-rpc-whitelist.mjs --check"
+    "check:rpc": "node scripts/sync-rpc-whitelist.mjs --check",
+    "test": "vitest run"
   },
   "packageManager": "pnpm@10.20.0",
   "devDependencies": {
@@ -26,7 +27,8 @@
     "@vitejs/plugin-react": "^5.1.2",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "3.2.7"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod secrets;
 mod shell;
 mod sidecar;
 

@@ -1,6 +1,6 @@
 [package]
 name = "kordoc-ai"
-version = "2.1.0"
+version = "2.1.1"
 description = "KorDoc AI — HWP/HWPX/PDF/XLSX/DOCX 문서 변환·요약·비교·병합 데스크톱 도구"
 authors = ["Chris"]
 edition = "2021"
@@ -28,6 +28,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-deep-link = "=2.4.7"
 tauri-plugin-single-instance = { version = "=2.4.0", features = ["deep-link"] }
 tauri-plugin-notification = "2.3.3"
+
+# Windows: 설정 파일의 API 키를 암호화할 앱 전용 키를 자격 증명 관리자(DPAPI)에 둔다 (secrets.rs)
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+getrandom = "0.3"
+base64 = "0.22"
 
 [features]
 default = ["custom-protocol"]

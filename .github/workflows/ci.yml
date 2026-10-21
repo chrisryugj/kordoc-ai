@@ -54,6 +54,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
+      # 화면 쪽 순수 로직 시험 (src/**/*.test.ts)
+      - run: pnpm exec vitest run
       - run: pnpm exec vite build
       # Rust 허용 목록이 RPC 계약과 어긋나면 실패 (정본: node-sidecar/src/types/rpc-contract.ts)
       - run: node scripts/sync-rpc-whitelist.mjs --check

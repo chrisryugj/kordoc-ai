@@ -130,6 +130,9 @@ impl SidecarManager {
                 cmd.env("KORDOC_AI_DATA_DIR", plain_path(dir));
             }
         }
+        if let Some(key) = crate::secrets::settings_key() {
+            cmd.env("KORDOC_SECRET_KEY", key);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

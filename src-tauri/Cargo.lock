@@ -1937,9 +1937,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "kordoc-ai"
-version = "2.1.0"
+name = "keyring"
+version = "3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eebcc3aff044e5944a8fbaf69eb277d11986064cba30c468730e8b9909fb551c"
 dependencies = [
+ "byteorder",
+ "log",
+ "windows-sys 0.60.2",
+ "zeroize",
+]
+
+[[package]]
+name = "kordoc-ai"
+version = "2.1.1"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.3.4",
+ "keyring",
  "serde",
  "serde_json",
  "tauri",
@@ -5825,6 +5840,12 @@ dependencies = [
  "syn 2.0.117",
  "synstructure",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zerotrie"

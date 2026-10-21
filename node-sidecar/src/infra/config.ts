@@ -14,6 +14,7 @@ import { parse as parseYaml } from 'yaml';
 import type { Settings } from '../types/index.js';
 import { logger } from './logger.js';
 import { FORBIDDEN_KEYS, isObj, loadPolicy, type Policy } from './policy.js';
+import { hasSecretKey, isSealed, seal, unseal } from './secret-box.js';
 
 export const DEFAULT_SETTINGS: Settings = {
   version: 2,
@@ -61,6 +62,50 @@ let cached: Settings | null = null;
 /** 사용자가 정한 값 — settings.json 그대로 (없으면 v1 이관분) */
 let user: Obj = {};
 let policy: Policy | null = null;
+/** API 키가 든 구획 — settings.json 에는 secret-box 로 암호화해 쓴다(Windows) */
+const KEY_SECTIONS = ['openai', 'gemini', 'anthropic', 'local'] as const;
+/** 풀지 못한 암호문(키가 바뀜 등) — 빈 칸으로 쓰되 파일에서는 지우지 않는다(사용자가 새 키를 넣기 전까지) */
+const unreadable = new Map<string, string>();
+
+const aiSection = (o: Obj, k: string): Obj | undefined => {
+  const ai = isObj(o.ai) ? o.ai : undefined;
+  return ai && isObj(ai[k]) ? (ai[k] as Obj) : undefined;
+};
+
+/** 읽은 사용자 값의 암호문을 푼다. 평문 키가 남아 있고 암호화할 수 있으면 true(다시 저장해 암호화) */
+function openSecrets(o: Obj): boolean {
+  unreadable.clear();
+  let plain = false;
+  for (const k of KEY_SECTIONS) {
+    const sec = aiSection(o, k);
+    const v = sec?.api_key;
+    if (!sec || typeof v !== 'string' || !v) continue;
+    if (!isSealed(v)) { plain = true; continue; }
+    const opened = unseal(v);
+    if (opened === null) {
+      unreadable.set(k, v);
+      sec.api_key = '';
+      logger.warn(`[config] 저장한 ${k} API 키를 풀지 못했습니다. 설정 › AI 연결에서 키를 다시 넣으세요`);
+    } else sec.api_key = opened;
+  }
+  return plain && hasSecretKey();
+}
+
+/** 파일에 쓸 모양 — 키는 암호화, 풀지 못한 암호문은 새 키가 없으면 그대로 */
+function sealedForFile(o: Obj): Obj {
+  const out = structuredClone(o);
+  for (const k of KEY_SECTIONS) {
+    const sec = aiSection(out, k);
+    const v = sec?.api_key;
+    if (sec && typeof v === 'string' && v) { sec.api_key = seal(v); unreadable.delete(k); }
+    else if (unreadable.has(k)) {
+      const ai = (isObj(out.ai) ? out.ai : (out.ai = {})) as Obj;
+      const target = (isObj(ai[k]) ? ai[k] : (ai[k] = {})) as Obj;
+      target.api_key = unreadable.get(k);
+    }
+  }
+  return out;
+}
 
 /** v1 YAML 에서 쓸 만한 값만 옮김 — 옮긴 값만 둬야 기관 기본값을 가리지 않는다 */
 function migrateV1(): Obj | null {
@@ -106,8 +151,12 @@ export function reload(): Settings {
     loaded = migrateV1() ?? {};
   }
   user = isObj(loaded) ? loaded : {};
+  const migrate = openSecrets(user);
   policy = loadPolicy(POLICY_SHAPE);
-  return compose();
+  const s = compose();
+  // 예전에 평문으로 저장한 키는 한 번 다시 써서 암호화한다
+  if (migrate) void persist(user).catch((e) => logger.warn(`[config] 키 암호화 저장 실패: ${e}`));
+  return s;
 }
 
 /** 기관 배포 설정으로만 정하는 값 — 띄울 실행 파일 경로. 화면(update_settings)·settings.json 의 값은 쓰지 않는다
@@ -182,13 +231,22 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Se
 
   const next = structuredClone(user);
   applyPatch(next, sanitized, shown, new Set(policy?.lockedPaths), '');
+  await persist(next);
+
+  user = next;
+  logger.info('[config] updated');
+  return compose();
+}
+
+/** settings.json 쓰기 — 임시 파일 뒤 바꿔 넣기, 키는 암호화(sealedForFile) */
+async function persist(next: Obj): Promise<void> {
   const dir = dataDir();
   mkdirSync(dir, { recursive: true });
   const p = configPath();
   // 동시에 두 번 저장해도 같은 임시 파일을 두고 다투지 않게
   const tmp = `${p}.${process.pid}.${++tmpSeq}.tmp`;
   try {
-    await writeFile(tmp, JSON.stringify({ version: 2, ...next }, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await writeFile(tmp, JSON.stringify({ version: 2, ...sealedForFile(next) }, null, 2), { encoding: 'utf-8', mode: 0o600 });
     await rename(tmp, p);
   } catch (err) {
     // 문서 저장 오류 안내("설정 > 저장 위치를 바꾸세요")는 여기와 맞지 않는다
@@ -198,10 +256,6 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Se
     throw err;
   }
   try { chmodSync(p, 0o600); } catch { /* Windows 는 무시 */ }
-
-  user = next;
-  logger.info('[config] updated');
-  return compose();
 }
 
 /** 사용자 값에 patch 를 얹는다. 고정 경로는 버리고(정책을 빼면 원래 값이 돌아오게),

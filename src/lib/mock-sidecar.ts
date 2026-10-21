@@ -176,7 +176,7 @@ const mockInbox: RpcResult<"inbox_list">["items"] = [
 const handlers: Handlers = {
   ping: () => "pong",
   system_info: () => ({
-    app_version: "2.1.0", kordoc_version: "4.22.18", node_version: "v24.11.0", platform: "macOS 27 (arm64)",
+    app_version: "2.1.1", kordoc_version: "4.22.18", node_version: "v24.11.0", platform: "macOS 27 (arm64)",
     data_dir: "/Users/kim/Library/Application Support/com.kordoc-ai.app", model_cache: "/Users/kim/Library/Application Support/com.kordoc-ai.app/models",
     ocr_models_ready: true, offline: settings.privacy.offline, ai_provider: settings.ai.provider,
     llm_models: [{ path: settings.ai.embedded.model_path, name: "qwen3-4b-instruct-q4_k_m.gguf", size: 2_497_000_000 }],
