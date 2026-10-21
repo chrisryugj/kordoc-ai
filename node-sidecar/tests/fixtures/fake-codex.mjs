@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 가짜 Codex app-server (JSON-RPC, 줄 단위) — 실제 codex 대신 시험에서 띄운다.
-// FAKE_CODEX_MODE: ok · apikey · signedout · mcp · nostatus · usage · noprofile · hang · toolitem · noinit
+// FAKE_CODEX_MODE: ok · apikey · signedout · mcp · nostatus · usage · noprofile · hang · toolitem · imageview · noinit · oldcodex · toolong · server
 // FAKE_LOG: 받은 인자·요청을 JSON 줄로 남길 파일
 import { appendFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -22,7 +22,19 @@ rl.on('line', (line) => {
       if (mode === 'apikey') return reply({ account: { type: 'apiKey' }, requiresOpenaiAuth: true });
       if (mode === 'signedout') return reply({ account: null, requiresOpenaiAuth: true });
       return reply({ account: { type: 'chatgpt', planType: 'plus', email: 'kim@example.com' }, requiresOpenaiAuth: true });
-    case 'config/read': return reply({ config: { mcp_servers: { github: { command: 'gh-mcp' } } } });
+    case 'config/read': {
+      // 실제 Codex 처럼 받은 -c 덮어쓰기를 설정에 반영한다 (oldcodex: shell_tool 이름을 모르는 낮은 버전)
+      const config = { mcp_servers: { github: { command: 'gh-mcp' } }, features: { shell_tool: true, unified_exec: true, view_image: true }, web_search: null };
+      const argv = process.argv.slice(2);
+      for (let i = 0; i < argv.length; i++) {
+        if (argv[i] !== '-c') continue;
+        const [k, v] = argv[i + 1].split('=');
+        if (k.startsWith('features.') && !(mode === 'oldcodex' && k === 'features.shell_tool')) config.features[k.slice(9)] = v === 'true';
+        if (k === 'web_search') config.web_search = JSON.parse(v);
+      }
+      if (mode === 'oldcodex') delete config.features.shell_tool;
+      return reply({ config });
+    }
     case 'model/list': return reply({ data: [{ id: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex', isDefault: true }, { id: 'gpt-5.5-mini', displayName: 'Mini' }, { id: 'hidden-one', hidden: true }], nextCursor: null });
     case 'thread/start': {
       const profile = m.params?.config?.default_permissions;
@@ -47,6 +59,9 @@ rl.on('line', (line) => {
         return;
       }
       if (mode === 'toolitem') { n('item/started', { item: { type: 'commandExecution', command: 'type C:\\secret.txt' } }); return; }
+      if (mode === 'imageview') { n('item/started', { item: { type: 'imageView', path: 'C:\\secret.png' } }); return; }
+      if (mode === 'toolong') { n('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: 'too long', codexErrorInfo: 'contextWindowExceeded' } } }); return; }
+      if (mode === 'server') { n('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: 'x', codexErrorInfo: { responseStreamConnectionFailed: { httpStatusCode: 502 } } } } }); return; }
       const text = m.params.outputSchema ? '{"a":"1"}' : '안녕하세요';
       n('item/agentMessage/delta', { delta: text.slice(0, 2) });
       n('item/completed', { item: { type: 'agentMessage', text } });

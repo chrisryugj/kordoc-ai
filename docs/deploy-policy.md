@@ -61,7 +61,7 @@ UTF-8 로 저장한 JSON 파일. 메모장이 붙이는 BOM 은 읽음.
 | `ai.provider` | 글자 | AI를 돌릴 곳: `none`(쓰지 않음)·`embedded`(이 PC 안)·`local`(이 PC의 로컬 모델 서버)·`openai`(기관 서버)·`gemini`·`anthropic`·`claude-code`(구독 계정, Claude Code)·`codex`(구독 계정, ChatGPT/Codex) |
 | `ai.local.base_url` · `ai.local.model` · `ai.local.api_key` | 글자 | 이 PC의 로컬 모델 서버 주소(OpenAI 호환, 예: `http://127.0.0.1:11434/v1`)·모델·키(대개 비움) |
 | `ai.allow_subscription` | true/false | 구독 계정(Claude Code·Codex)으로 문서 보내기 허용 (기본 `false`). **`locked` 에 `false` 로 두면 구독 연결을 막음**(설정 화면 칸이 "기관에서 막음"으로 잠기고 프로그램을 띄우지 않음) |
-| `ai.claude_code.model` · `ai.claude_code.cli_path` · `ai.codex.model` · `ai.codex.cli_path` | 글자 | 구독 프로그램이 쓸 모델(빈 글자면 프로그램 기본)·실행 파일 위치(빈 글자면 PATH 와 흔한 설치 폴더에서 찾음) |
+| `ai.claude_code.model` · `ai.claude_code.cli_path` · `ai.codex.model` · `ai.codex.cli_path` | 글자 | 구독 프로그램이 쓸 모델(빈 글자면 프로그램 기본)·실행 파일 위치(빈 글자면 PATH 와 흔한 설치 폴더에서 찾음). **`cli_path` 는 이 배포 설정으로만 정함**: 설정 화면과 사용자 settings.json 의 값은 버림(화면이 뚫려도 아무 실행 파일이나 띄우지 않게) |
 | `ai.openai.base_url` | 글자 | 기관 AI 서버 주소 (OpenAI 호환, 예: `http://10.10.1.20:8000/v1`) |
 | `ai.openai.api_key` | 글자 | 기관 서버 키 (아래 주의 참고) |
 | `ai.openai.model` · `ai.openai.vision_model` | 글자 | 쓸 모델·그림 읽기 모델 이름 |

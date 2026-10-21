@@ -32,12 +32,32 @@ const PROBE_TIMEOUT_MS = 1500;
 const MAX_MODELS = 500;
 const MAX_BODY = 2 * 1024 * 1024;
 
+/** 주소의 경로가 비었으면 OpenAI 호환 기본 경로(/v1)를 붙인다 — "http://127.0.0.1:1234" 만 넣어도 되게 */
+export function normalizeLocalBase(url: string): string {
+  const t = url.trim().replace(/\/+$/, '');
+  try {
+    const u = new URL(t);
+    return u.pathname === '/' || u.pathname === '' ? `${t}/v1` : t;
+  } catch {
+    return t;
+  }
+}
+
+/** 받으면서 크기를 센다 — 상한을 넘으면 그만 읽는다(서버가 끝없이 보내도 메모리가 커지지 않게) */
 async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
   const res = await fetch(url, { headers: { accept: 'application/json' }, signal, redirect: 'manual' });
-  if (!res.ok) throw new Error(String(res.status));
-  const text = await res.text();
-  if (text.length > MAX_BODY) throw new Error('too big');
-  return JSON.parse(text);
+  if (!res.ok || !res.body) { await res.body?.cancel(); throw new Error(String(res.status)); }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY) { await reader.cancel(); throw new Error('too big'); }
+    chunks.push(value);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 /** `/models` 의 { data: [{ id }] } → 모델 이름들 (순서 유지, 빈·중복 제외). 모양이 아니면 null */

@@ -1,4 +1,4 @@
-/** 구독 계정(ChatGPT/Codex) 공급자 — PC 에 설치해 ChatGPT 계정으로 로그인해 둔 Codex 를 app-server(JSON-RPC, stdio)로 띄워 한 번 답하게 한다
+/** 구독 계정(ChatGPT/Codex) 공급자 — PC 에 설치해 ChatGPT 계정으로 로그인해 둔 Codex를 app-server(JSON-RPC, stdio)로 띄워 한 번 답하게 한다
  *
  * 이음오피스 packages/ai-provider/src/codex-app-server.ts(Apache-2.0, 커밋 9bda9ac)에서 옮김.
  * 바꾼 곳: 실행들이 나눠 쓰던 상주 프로세스·스레드 이어 쓰기(세션 지문)는 빼고 요청마다 띄워 끝냄(kordoc 요청은 한 번 묻고 끝),
@@ -6,15 +6,17 @@
  * (구독이 아닌 API 키 로그인이면 보내지 않음), 사용량 창 표시는 빼고 한도 시각만, 폐쇄망 관문·통신 기록, 오류는 한국어 할 일 안내,
  * 응답이 멈춘 시간 기준 시간 제한, item/agentMessage/delta 가 오면 글 조각으로 흘림.
  *
- * 지키는 것 (이음오피스 packages/ai-provider/AGENTS.md):
+ * 지키는 것 (이음오피스 packages/ai-provider/AGENTS.md). 덮어쓰기·확인 목록은 codex-config.ts:
  * - Codex 에는 사용자 config.toml 을 통째로 무시하는 스위치가 없다 → CODEX_CONFIG_OVERRIDES 로 하나씩 덮고(hooks·plugins·apps·memories 끔,
  *   기본 OpenAI 공급자·주소), MCP 서버는 스레드마다 이름을 대 끈 뒤 mcpServerStatus/list 로 실제로 꺼졌는지 확인한다. 확인 못 하면 보내지 않는다.
- * - Codex 자신의 셸 도구는 끌 수 없다 → 권한 프로필로 읽기를 플랫폼 경로와 이번 임시 폴더로 좁히고, 안 먹으면 read-only 샌드박스.
- *   쓰기 권한·승인을 여는 값은 어느 경로에도 넣지 않는다. approvalPolicy 는 never.
- *   실측(2026-10, Windows · Codex 0.163 데스크톱 사본): 좁힌 프로필은 "elevated Windows sandbox requires effective `:root` read access"
- *   로 thread/start 가 거절돼 늘 read-only 로 내려간다(이음오피스와 같은 대체 경로). 이때 셸 도구는 디스크를 읽을 수 있다(쓰기는 막힘). 지시문으로 도구를 쓰지 말라고 하고 승인은 never,
- *   그래도 차례 안에 명령·파일·MCP·웹 검색 항목이 보이면(item/started) 결과가 모델로 가기 전에 차례를 끊고 프로세스를 끝낸다(TOOL_ITEM).
- * - 모델은 늘 이름을 댄다(비우면 Codex 가 사용자 설정 파일의 모델·공급자를 쓴다).
+ * - Codex 자신의 도구(셸·unified exec·그림 보기·웹 검색·브라우저·하위 에이전트…)는 features.*=false·web_search="disabled" 로
+ *   뿌리에서 끄고, config/read 로 꺼졌는지 확인해 못 끄는 버전이면 보내지 않는다(codexToolProblems). 이음오피스는 셸 도구를 "끌 수 없다"고
+ *   보고 샌드박스에 맡겼으나, 실측(2026-10, Windows · Codex 0.163)에서 read-only 샌드박스는 명령 실행 자체는 막지 않았다(쓰기만 거부).
+ *   그래도 차례 안에 허용 목록(ALLOWED_ITEMS) 밖 항목이 보이면 끊고 프로세스가 끝난 뒤 알린다(마지막 방어선).
+ * - 권한 프로필로 읽기를 플랫폼 경로와 이번 임시 폴더로 좁히고, 안 먹으면 read-only 샌드박스. 쓰기 권한·승인을 여는 값은 어느 경로에도 넣지 않는다.
+ *   project_doc_max_bytes=0 이면 Windows 에서도 프로필이 먹는다(실측: 그 전에는 AGENTS.md 읽기가 샌드박스에 걸려 thread/start 가 거절됨).
+ * - 사용자 설정이 대화에 끼지 않게 프로젝트 지침 파일·환경 설명·개발자 지시·말투·추론 강도를 덮는다. service_tier 는 "설정 안 함"으로 되돌릴 값이 없어 덮지 않는다.
+ * - 모델은 늘 이름을 댄다(비우면 Codex가 사용자 설정 파일의 모델·공급자를 쓴다).
  * - 지시문·대화는 stdin 의 JSON-RPC 로만. 명령줄은 고정 값뿐. 끝나면·취소하면 프로세스 트리를 끝낸다.
  */
 
@@ -26,17 +28,15 @@ import { logger } from '../logger.js';
 import { assertProgramEgress } from '../net-guard.js';
 import { resolveSubscriptionProgram, type SubscriptionProgram } from './subscription/locate.js';
 import { cancelledError, CliRunError } from './subscription/messages.js';
-import { killProcessTree, readLines, spawnSubscriptionProgram, type SpawnFn } from './subscription/process.js';
+import { killProcessTree, readLines, spawnSubscriptionProgram, waitExit, type SpawnFn } from './subscription/process.js';
 import type { ChatImage, ChatRequest, LlmProvider } from './types.js';
-import type { CliModel } from './claude-code.js';
+import { SUBSCRIPTION_CONTEXT_TOKENS, type CliModel } from './claude-code.js';
+import { CLIENT_NAME, codexAppServerArgs, codexAttachedMcpServers, codexMcpServerOverrides, codexThreadStartParams, codexToolProblems, obj, PERMISSION_PROFILE, type McpOverrides, type Obj } from './codex-config.js';
 
 const PROVIDER = 'codex';
 const EGRESS_HOST = 'chatgpt.com';
 const REQUEST_TIMEOUT_MS = 30_000;
 const TEMP_PREFIX = 'kordoc-codex-';
-const CLIENT_NAME = 'kordoc-ai';
-const PERMISSION_PROFILE = 'kordoc';
-const BASE_INSTRUCTIONS = '당신은 KorDoc AI 에 들어 있는 언어 모델 뒷단입니다. 로컬 파일을 보거나 고치지 않고, 셸 명령을 실행하지 않고, 웹을 보지 않고, MCP·앱·Codex 내장 도구를 부르지 않습니다. 호출하는 앱이 필요한 대화를 모두 주므로 글로만 답합니다.';
 
 export interface CodexConfig {
   model: string;
@@ -48,56 +48,6 @@ export interface CodexDeps {
   spawn?: SpawnFn;
   killTree?: (child: { readonly pid?: number }) => void;
   baseEnv?: NodeJS.ProcessEnv;
-}
-
-/** app-server 가 사용자 config.toml 에서 끌어올 수 있는 것을 하나씩 덮는다. `--disable 모르는이름` 은 시작을 막아 -c features.<이름>=false 로 */
-export const CODEX_CONFIG_OVERRIDES: readonly string[] = [
-  'features.hooks=false',
-  'features.plugins=false',
-  'features.apps=false',
-  'features.memories=false',
-  'notify=[]',
-  'history.persistence="none"',
-  'model_provider="openai"',
-  'openai_base_url=""',
-  'skills.include_instructions=false',
-];
-
-export function codexAppServerArgs(): string[] {
-  return ['app-server', ...CODEX_CONFIG_OVERRIDES.flatMap((o) => ['-c', o]), '--listen', 'stdio://'];
-}
-
-type Obj = Record<string, unknown>;
-const obj = (v: unknown): Obj | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : undefined);
-
-export type McpOverrides = Record<string, { enabled: false }>;
-
-/** config/read 가 알려 준 MCP 서버를 이름으로 모두 끄는 스레드 설정 (이름만 읽고 명령·환경은 보지 않는다) */
-export function codexMcpServerOverrides(configRead: unknown): McpOverrides {
-  const config = obj(obj(configRead)?.config);
-  if (!config) throw new Error('no config');
-  return Object.fromEntries(Object.keys(obj(config.mcp_servers) ?? {}).map((n) => [n, { enabled: false as const }]));
-}
-
-/** mcpServerStatus/list 에서 이 스레드가 쓸 수 있는 서버 (disabled 아닌 것, 도구가 있는 것). 목록 모양이 아니면 throw */
-export function codexAttachedMcpServers(statusList: unknown): string[] {
-  const data = obj(statusList)?.data;
-  if (!Array.isArray(data)) throw new Error('no list');
-  return data.flatMap((v) => {
-    const e = obj(v);
-    if (!e) throw new Error('bad entry');
-    // disabled 라고 밝힌 것만 꺼진 것으로 본다 (상태 칸이 없으면 붙은 것으로)
-    const enabled = e.runtimeStatus !== 'disabled';
-    return enabled || Object.keys(obj(e.tools) ?? {}).length ? [typeof e.name === 'string' ? e.name : ''] : [];
-  });
-}
-
-/** 권한 프로필(읽기는 플랫폼 경로 + 이번 임시 폴더) 또는 그게 안 될 때의 read-only 샌드박스 */
-export function codexThreadStartParams(model: string, tempDir: string, mode: 'profile' | 'read-only', mcp: McpOverrides = {}): Obj {
-  const base = { model, cwd: tempDir, approvalPolicy: 'never', serviceName: CLIENT_NAME, baseInstructions: BASE_INSTRUCTIONS, ephemeral: true };
-  const mcpCfg = Object.keys(mcp).length ? { mcp_servers: mcp } : undefined;
-  if (mode === 'read-only') return { ...base, sandbox: 'read-only', ...(mcpCfg ? { config: mcpCfg } : {}) };
-  return { ...base, config: { default_permissions: PERMISSION_PROFILE, permissions: { [PERMISSION_PROFILE]: { filesystem: { ':minimal': 'read', [tempDir]: 'read' } } }, ...mcpCfg } };
 }
 
 /** 이번 차례의 글 — system·대화를 payload 하나로 (그림은 localImage 로 따로) */
@@ -115,18 +65,26 @@ export function buildCodexPrompt(req: Pick<ChatRequest, 'system' | 'messages' | 
   ].join('\n');
 }
 
-/** 실패한 차례(TurnError) → 할 일. rateLimits 는 마지막으로 받은 사용량 (다시 쓸 수 있는 시각) */
+/** 실패한 차례(TurnError) → 할 일. rateLimits 는 마지막으로 받은 사용량 (다시 쓸 수 있는 시각).
+ *  codexErrorInfo 는 문자열('contextWindowExceeded' 등) 이거나 { httpConnectionFailed: { httpStatusCode } } 꼴 */
 export function codexRunError(turnError: unknown, rateLimits?: unknown): CliRunError {
   const v = obj(turnError);
   const info = v?.codexErrorInfo;
-  if (info === 'usageLimitExceeded') {
+  const kind = typeof info === 'string' ? info : Object.keys(obj(info) ?? {})[0] ?? '';
+  const status = Object.values(obj(info) ?? {}).map((d) => obj(d)?.httpStatusCode).find((s): s is number => typeof s === 'number');
+  // 서버가 보낸 글은 남기지 않고 종류·상태 코드만 (계정·문서 조각이 섞일 수 있음)
+  logger.warn(`[codex] 차례 실패: ${kind.slice(0, 60) || '종류 없음'}${status ? ` (${status})` : ''}`);
+  if (kind === 'usageLimitExceeded') {
     const resets = ['primary', 'secondary'].map((k) => obj(obj(rateLimits)?.[k])).filter((w) => w && typeof w.usedPercent === 'number' && w.usedPercent >= 100 && typeof w.resetsAt === 'number').map((w) => (w!.resetsAt as number) * 1000);
     return new CliRunError('rate-limit', PROVIDER, undefined, { resetsAt: resets.length ? Math.max(...resets) : undefined });
   }
-  const status = Object.values(obj(info) ?? {}).map((d) => obj(d)?.httpStatusCode).find((s) => typeof s === 'number');
-  if (info === 'unauthorized' || status === 401) return new CliRunError('signed-out', PROVIDER);
-  if (typeof v?.message === 'string') logger.warn(`[codex] 차례 실패: ${v.message.slice(0, 300)}`);
-  return new CliRunError('failed', PROVIDER, 'Codex 가 답하지 못했습니다.');
+  if (kind === 'unauthorized' || status === 401) return new CliRunError('signed-out', PROVIDER);
+  if (kind === 'contextWindowExceeded' || /context window|too long|maximum context/i.test(String(v?.message ?? ''))) return new CliRunError('too-long', PROVIDER);
+  if (kind === 'serverOverloaded' || status === 503 || status === 529) return new CliRunError('overloaded', PROVIDER);
+  if (kind === 'internalServerError' || (status !== undefined && status >= 500)) return new CliRunError('server-error', PROVIDER);
+  if (kind === 'badRequest' || status === 400) return new CliRunError('bad-request', PROVIDER);
+  if (/connectionFailed|streamDisconnected|tooManyFailedAttempts/i.test(kind)) return new CliRunError('network', PROVIDER);
+  return new CliRunError('failed', PROVIDER, 'Codex가 답하지 못했습니다.');
 }
 
 // ── JSON-RPC 한 줄씩 ──
@@ -141,20 +99,26 @@ class RpcClient {
   private stderr = '';
   closed = false;
 
+  /** 멈추고 프로세스가 완전히 끝날 때까지(최대 5초) 기다린다 — 결과를 알리기·임시 폴더 지우기 전에 */
+  async stopAndWait(reason?: Error): Promise<void> {
+    this.stop(reason);
+    await waitExit(this.child);
+  }
+
   constructor(readonly child: ChildProcess, private readonly killTree: (c: ChildProcess) => void) {
     child.stdin?.on('error', () => undefined);
     child.stderr?.on('data', (c: Buffer) => { this.stderr = (this.stderr + c.toString()).slice(-4000); });
-    if (child.stdout) readLines(child.stdout, (l) => this.onLine(l), () => this.stop(new CliRunError('failed', PROVIDER, 'Codex 가 줄바꿈 없이 너무 긴 줄을 써서 멈췄습니다.')));
+    if (child.stdout) readLines(child.stdout, (l) => this.onLine(l), () => this.stop(new CliRunError('failed', PROVIDER, 'Codex가 줄바꿈 없이 너무 긴 줄을 써서 멈췄습니다.')));
     child.once('error', (err) => this.fail((err as NodeJS.ErrnoException).code === 'ENOENT'
       ? new CliRunError('not-installed', PROVIDER, 'Codex 프로그램을 실행하지 못했습니다.')
-      : new CliRunError('failed', PROVIDER, 'Codex 를 실행하지 못했습니다.')));
+      : new CliRunError('failed', PROVIDER, 'Codex를 실행하지 못했습니다.')));
     child.once('close', (code) => this.fail(/unknown|unexpected argument|unrecognized/i.test(this.stderr)
       ? new CliRunError('needs-update', PROVIDER, 'Codex 버전이 낮아 이 앱이 쓰는 기능(app-server)을 모릅니다.')
-      : new CliRunError('failed', PROVIDER, `Codex 가 답하기 전에 끝났습니다(종료 코드 ${code ?? '없음'}).`)));
+      : new CliRunError('failed', PROVIDER, `Codex가 답하기 전에 끝났습니다(종료 코드 ${code ?? '없음'}).`)));
   }
 
   request(method: string, params: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
-    if (this.closed) return Promise.reject(new CliRunError('failed', PROVIDER, 'Codex 가 이미 끝났습니다.'));
+    if (this.closed) return Promise.reject(new CliRunError('failed', PROVIDER, 'Codex가 이미 끝났습니다.'));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new CliRunError('timeout', PROVIDER, undefined, { seconds: Math.round(timeoutMs / 1000) })); }, timeoutMs);
@@ -214,7 +178,7 @@ class RpcClient {
 
   stop(reason?: Error): void {
     if (!this.closed) this.killTree(this.child);
-    this.fail(reason ?? new CliRunError('failed', PROVIDER, 'Codex 를 멈췄습니다.'));
+    this.fail(reason ?? new CliRunError('failed', PROVIDER, 'Codex를 멈췄습니다.'));
   }
 }
 
@@ -225,7 +189,7 @@ async function openClient(cfg: CodexConfig, deps: CodexDeps, cwd: string): Promi
   try {
     child = spawnSubscriptionProgram(program, codexAppServerArgs(), { cwd, baseEnv: deps.baseEnv, spawn: deps.spawn });
   } catch (err) {
-    throw (err as NodeJS.ErrnoException).code === 'ENOENT' ? new CliRunError('not-installed', PROVIDER, 'Codex 프로그램을 실행하지 못했습니다.') : new CliRunError('failed', PROVIDER, 'Codex 를 실행하지 못했습니다.');
+    throw (err as NodeJS.ErrnoException).code === 'ENOENT' ? new CliRunError('not-installed', PROVIDER, 'Codex 프로그램을 실행하지 못했습니다.') : new CliRunError('failed', PROVIDER, 'Codex를 실행하지 못했습니다.');
   }
   return new RpcClient(child, deps.killTree ?? ((c) => killProcessTree(c)));
 }
@@ -260,24 +224,31 @@ async function modelEntries(client: RpcClient): Promise<Obj[]> {
 
 const entryId = (e: Obj) => (typeof e.id === 'string' ? e.id : typeof e.model === 'string' ? e.model : '');
 
-/** 비워 둔 모델 → Codex 가 내놓은 목록의 기본값 (없으면 첫 번째) */
+/** 비워 둔 모델 → Codex가 내놓은 목록의 기본값 (없으면 첫 번째) */
 async function defaultModel(client: RpcClient): Promise<string> {
   let entries: Obj[];
   try { entries = await modelEntries(client); } catch (err) {
     if (err instanceof CliRunError) throw err;
-    throw new CliRunError('needs-update', PROVIDER, 'Codex 가 모델 목록을 알려 주지 못했습니다(버전이 낮을 수 있음).');
+    throw new CliRunError('needs-update', PROVIDER, 'Codex가 모델 목록을 알려 주지 못했습니다(버전이 낮을 수 있음).');
   }
   const id = entryId(entries.find((e) => e.isDefault === true) ?? entries[0] ?? {});
-  if (!id) throw new CliRunError('failed', PROVIDER, 'Codex 가 쓸 수 있는 모델을 알려 주지 않았습니다. 설정 > AI 연결에서 모델 이름을 넣으세요.');
+  if (!id) throw new CliRunError('failed', PROVIDER, 'Codex가 쓸 수 있는 모델을 알려 주지 않았습니다. 설정 > AI 연결에서 모델 이름을 넣으세요.');
   return id;
 }
 
-/** MCP 를 끈 스레드를 연다 — 권한 프로필이 먹었는지, MCP 가 정말 없는지 Codex 의 답으로 확인 */
+/** MCP 를 끈 스레드를 연다 — 도구가 꺼졌는지, 권한 프로필이 먹었는지, MCP 가 정말 없는지 Codex 의 답으로 확인 */
 async function startThread(client: RpcClient, model: string, tempDir: string): Promise<string> {
   let mcp: McpOverrides;
-  try { mcp = codexMcpServerOverrides(await client.request('config/read', { includeLayers: false, cwd: tempDir })); } catch {
+  let configRead: unknown;
+  try {
+    configRead = await client.request('config/read', { includeLayers: false, cwd: tempDir });
+    mcp = codexMcpServerOverrides(configRead);
+  } catch {
     throw new CliRunError('unsafe-tools', PROVIDER, '설정된 MCP 서버를 알려 주지 않음');
   }
+  // 도구를 뿌리에서 끄지 못하는 버전이면 보내지 않는다 (뒤늦게 알아채고 끊는 것으로는 이미 명령이 돈 뒤다)
+  const problems = codexToolProblems(configRead);
+  if (problems.length) throw new CliRunError('needs-update', PROVIDER, `이 Codex 버전에서는 Codex 자신의 도구를 끌 수 없어(${problems.slice(0, 3).join(', ')}) 문서를 보내지 않았습니다.`);
   const threadOf = (r: unknown) => { const t = obj(obj(r)?.thread); return typeof t?.id === 'string' && t.id ? t.id : undefined; };
   let threadId: string | undefined;
   let tried: unknown;
@@ -287,12 +258,12 @@ async function startThread(client: RpcClient, model: string, tempDir: string): P
   } catch { tried = undefined; /* 낮은 버전은 프로필 키를 거부 → 샌드박스로 */ }
   if (threadId) logger.info('[codex] 권한 프로필(읽기만, 임시 폴더) 적용');
   else {
-    logger.warn('[codex] 권한 프로필이 적용되지 않아 read-only 샌드박스로 엽니다 (이 경우 Codex 셸 도구는 디스크를 읽을 수 있음)');
+    logger.warn('[codex] 권한 프로필이 적용되지 않아 read-only 샌드박스로 엽니다 (도구는 설정으로 꺼져 있음)');
     const abandoned = threadOf(tried);
     if (abandoned) await client.request('thread/delete', { threadId: abandoned }).catch(() => undefined);
     threadId = threadOf(await client.request('thread/start', codexThreadStartParams(model, tempDir, 'read-only', mcp)));
   }
-  if (!threadId) throw new CliRunError('needs-update', PROVIDER, 'Codex 가 대화 스레드를 열지 못했습니다.');
+  if (!threadId) throw new CliRunError('needs-update', PROVIDER, 'Codex가 대화 스레드를 열지 못했습니다.');
   let attached = 0;
   let checked = false;
   try {
@@ -310,8 +281,8 @@ async function startThread(client: RpcClient, model: string, tempDir: string): P
   return threadId;
 }
 
-/** 차례 안에서 보이면 멈추는 항목 — 명령 실행·파일 고치기·MCP·웹 검색·그 밖의 도구 호출 */
-const TOOL_ITEM = /command|fileChange|mcpToolCall|webSearch|toolCall/i;
+/** 차례 안에 나와도 되는 항목 — 이 밖의 것(명령 실행·파일·MCP·웹 검색·그림 보기·하위 에이전트…)이 보이면 멈춘다 */
+export const ALLOWED_ITEMS: ReadonlySet<string> = new Set(['agentMessage', 'reasoning', 'userMessage']);
 
 const EXT: Record<string, string> ={ 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
 
@@ -367,12 +338,11 @@ function waitForTurn(client: RpcClient, threadId: string, start: () => Promise<u
       if (m.method === 'turn/started') {
         const t = obj(p.turn);
         if (typeof t?.id === 'string') turnId = t.id;
-      } else if ((m.method === 'item/started' || m.method === 'item/completed') && TOOL_ITEM.test(String(obj(p.item)?.type ?? ''))) {
-        // 끌 수 없는 Codex 자신의 도구(셸·파일·웹 검색·MCP)를 쓰기 시작하면 결과가 모델로 가기 전에 멈춘다
-        void client.request('turn/interrupt', { threadId, turnId }).catch(() => undefined);
-        const err = new CliRunError('unsafe-tools', PROVIDER, `도구를 쓰기 시작함(${String(obj(p.item)?.type).slice(0, 40)})`);
-        finish(err);
+      } else if ((m.method === 'item/started' || m.method === 'item/completed') && !ALLOWED_ITEMS.has(String(obj(p.item)?.type ?? ''))) {
+        // 도구는 설정으로 꺼 두었다. 그래도 다른 항목이 보이면 그 자리에서 끊는다 (마지막 방어선)
+        const err = new CliRunError('unsafe-tools', PROVIDER, `허용하지 않은 항목(${String(obj(p.item)?.type ?? '').slice(0, 40)})`);
         client.stop(err);
+        finish(err);
       } else if (m.method === 'item/agentMessage/delta') {
         if (typeof p.delta === 'string' && p.delta) { emitted += p.delta; req.onToken?.(p.delta); }
       } else if (m.method === 'item/completed') {
@@ -387,7 +357,7 @@ function waitForTurn(client: RpcClient, threadId: string, start: () => Promise<u
         if (t?.status === 'failed') finish(codexRunError(t.error ?? reported, rateLimits));
         else finish();
       } else if (m.method === 'error') {
-        // willRetry: Codex 가 스스로 다시 붙는 중. 경고도 이 길로 와서 오류만으로 실패시키지 않는다(차례 결과가 정한다)
+        // willRetry: Codex가 스스로 다시 붙는 중. 경고도 이 길로 와서 오류만으로 실패시키지 않는다(차례 결과가 정한다)
         if (p.willRetry !== true) reported = obj(p.error) ?? p;
       }
     });
@@ -416,11 +386,12 @@ async function withClient<T>(cfg: CodexConfig, deps: CodexDeps, signal: AbortSig
     return await work(client, tempDir);
   } catch (err) {
     if (signal.aborted) throw cancelledError();
-    throw err instanceof CliRunError || err instanceof DOMException ? err : new CliRunError('failed', PROVIDER, 'Codex 와 주고받지 못했습니다.');
+    throw err instanceof CliRunError || err instanceof DOMException ? err : new CliRunError('failed', PROVIDER, 'Codex와 주고받지 못했습니다.');
   } finally {
     signal.removeEventListener('abort', onAbort);
-    client?.stop(); // 요청마다 띄웠으니 트리째 끝낸다
-    await rm(tempDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+    // 요청마다 띄웠으니 트리째 끝내고, 완전히 끝난 뒤에 알린다 (Windows 는 열린 그림 파일이 있으면 폴더를 못 지운다)
+    await client?.stopAndWait();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => logger.warn('[codex] 임시 폴더를 지우지 못했습니다(다음 시작 때 치움)'));
   }
 }
 
@@ -442,15 +413,16 @@ export function createCodexProvider(cfg: CodexConfig, timeoutMs: number, deps: C
           input: [{ type: 'text', text: buildCodexPrompt(req), text_elements: [] }, ...images.map((path) => ({ type: 'localImage', path }))],
           ...(req.schema ? { outputSchema: req.schema } : {}),
         }), req, timeoutMs);
-        if (!text.trim()) throw new CliRunError('failed', PROVIDER, 'Codex 가 빈 답을 보냈습니다.');
+        if (!text.trim()) throw new CliRunError('failed', PROVIDER, 'Codex가 빈 답을 보냈습니다.');
         return text;
       });
     },
+    contextTokens: async () => SUBSCRIPTION_CONTEXT_TOKENS,
     listModels: (signal) => listCodexModels(cfg, signal ?? AbortSignal.timeout(30_000), deps).then((ms) => ms.map((m) => m.id)),
   };
 }
 
-/** Codex 가 고를 수 있게 내놓는 모델 (스레드를 열지 않아 모델을 부르지 않는다) */
+/** Codex가 고를 수 있게 내놓는 모델 (스레드를 열지 않아 모델을 부르지 않는다) */
 export async function listCodexModels(cfg: CodexConfig, signal: AbortSignal, deps: CodexDeps = {}): Promise<CliModel[]> {
   if (signal.aborted) throw cancelledError();
   assertProgramEgress(EGRESS_HOST, 'Codex 모델 목록');

@@ -6,8 +6,9 @@
  */
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, isAbsolute, win32 } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { SubscriptionProgram } from './locate.js';
 
@@ -21,12 +22,28 @@ export const STRIPPED_ENV_VARS: readonly string[] = [
   'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN',
 ];
 
-/** 자식 환경 — base 사본에서 위 변수를 뺀다 (Windows 는 이름 대소문자 무시). process.env 는 고치지 않는다 */
+/** 자식에게 넘기는 변수 (허용 목록) — 경로·사용자 폴더·임시 폴더·언어·프록시·인증서·프로그램 설정 폴더만.
+ *  엔진의 NODE_OPTIONS·ELECTRON_*·KORDOC_* 와 그 밖의 비밀 값은 넘기지 않는다. 이름은 대문자로 비교 */
+const CHILD_ENV_ALLOW = new Set([
+  'PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA',
+  'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'SYSTEMROOT', 'SYSTEMDRIVE',
+  'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE',
+  'NUMBER_OF_PROCESSORS', 'PUBLIC', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TERM', 'TZ', '__CF_USER_TEXT_ENCODING',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE',
+  'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN',
+]);
+const CHILD_ENV_ALLOW_PREFIX = ['LC_', 'XDG_'];
+
+/** 자식 환경 — base 에서 허용 목록만 옮기고, 위 요금 경로 변수는 다시 한 번 뺀다 (Windows 는 이름 대소문자 무시). process.env 는 고치지 않는다 */
 export function subscriptionChildEnv(opts: { base?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; command?: string; extra?: Record<string, string> } = {}): NodeJS.ProcessEnv {
   const platform = opts.platform ?? process.platform;
-  const env: NodeJS.ProcessEnv = { ...(opts.base ?? process.env) };
   const stripped = new Set(STRIPPED_ENV_VARS);
-  for (const name of Object.keys(env)) if (stripped.has(platform === 'win32' ? name.toUpperCase() : name)) delete env[name];
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(opts.base ?? process.env)) {
+    const up = name.toUpperCase();
+    if (stripped.has(platform === 'win32' ? up : name)) continue;
+    if (CHILD_ENV_ALLOW.has(up) || CHILD_ENV_ALLOW_PREFIX.some((p) => up.startsWith(p))) env[name] = value;
+  }
   // 프로그램이 로그인·설정 폴더를 HOME 으로 찾는다
   if (platform === 'win32' && !env.HOME && env.USERPROFILE) env.HOME = env.USERPROFILE;
   if (opts.command && isAbsolute(opts.command)) {
@@ -143,6 +160,32 @@ export function runSubscriptionProgram(program: SubscriptionProgram, args: strin
     child.once('error', (e) => finish(e));
     child.once('close', (code) => finish(null, code));
   });
+}
+
+/** 자식이 완전히 끝날 때까지(최대 ms) 기다린다 — Windows 는 열린 파일을 못 지우니 임시 폴더를 지우기 전에, 결과를 알리기 전에 */
+export function waitExit(child: ChildProcess, ms = 5000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return Promise.resolve();
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+    child.once('close', () => { clearTimeout(t); resolve(); });
+  });
+}
+
+/** 구독 프로그램용 임시 폴더 이름 앞부분 — 엔진이 시작할 때 지난번에 못 지운 것을 치운다 */
+export const TEMP_PREFIXES = ['kordoc-claude-code-', 'kordoc-codex-'];
+
+/** 한 시간 넘은 남은 임시 폴더(그림 파일이 남았을 수 있음)를 지운다. 실패해도 조용히 */
+export async function sweepStaleTempDirs(dir = tmpdir(), olderThanMs = 60 * 60_000): Promise<number> {
+  let n = 0;
+  for (const name of await readdir(dir).catch(() => [] as string[])) {
+    if (!TEMP_PREFIXES.some((p) => name.startsWith(p))) continue;
+    const full = join(dir, name);
+    const st = await stat(full).catch(() => null);
+    if (!st?.isDirectory() || Date.now() - st.mtimeMs < olderThanMs) continue;
+    await rm(full, { recursive: true, force: true, maxRetries: 3 }).then(() => { n += 1; }, () => undefined);
+  }
+  return n;
 }
 
 /** 한 줄의 상한 — 줄바꿈 없이 끝없이 쓰는 자식 때문에 버퍼가 커지지 않게 */

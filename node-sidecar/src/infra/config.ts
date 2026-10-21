@@ -110,10 +110,23 @@ export function reload(): Settings {
   return compose();
 }
 
+/** 기관 배포 설정으로만 정하는 값 — 띄울 실행 파일 경로. 화면(update_settings)·settings.json 의 값은 쓰지 않는다
+ *  (화면이 뚫려도 아무 실행 파일이나 띄우게 되지 않게. 평소에는 자동으로 찾는다) */
+const ADMIN_ONLY: ReadonlyArray<[string, string]> = [['claude_code', 'cli_path'], ['codex', 'cli_path']];
+
+function dropAdminOnly(layer: Obj): Obj {
+  const ai = isObj(layer.ai) ? layer.ai : undefined;
+  for (const [section, key] of ADMIN_ONLY) {
+    const sec = ai && isObj(ai[section]) ? (ai[section] as Obj) : undefined;
+    if (sec && Object.hasOwn(sec, key)) delete sec[key];
+  }
+  return layer;
+}
+
 /** 기본값 < 기관 기본값 < 사용자 값 < 기관 고정값, 그리고 화면용 policy 표지 */
 function compose(): Settings {
   let s = structuredClone(DEFAULT_SETTINGS) as unknown as Obj;
-  for (const layer of [policy?.defaults, user, policy?.locked]) if (layer) s = deepMerge(s, structuredClone(layer));
+  for (const layer of [policy?.defaults, dropAdminOnly(structuredClone(user)), policy?.locked]) if (layer) s = deepMerge(s, structuredClone(layer));
   delete s.policy; // settings.json 을 손으로 고쳐 넣은 표지는 버린다
   if (policy) {
     s.policy = {
@@ -165,6 +178,7 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Se
     sanitized[key] = patch[key];
   }
   dropMaskedSecrets(sanitized);
+  dropAdminOnly(sanitized);
 
   const next = structuredClone(user);
   applyPatch(next, sanitized, shown, new Set(policy?.lockedPaths), '');

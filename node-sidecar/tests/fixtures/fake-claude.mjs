@@ -3,13 +3,18 @@
 // FAKE_CLAUDE_MODE: ok · tools · early · auth · ratelimit · hang · old · exit · permission
 // FAKE_CLAUDE_AUTH: subscription(기본) · apikey · out — `auth status --json` 의 답
 // FAKE_LOG: 받은 인자·환경·stdin 줄을 JSON 줄로 남길 파일
+// FAKE_LOG 가 없으면(앱이 자식 환경을 허용 목록으로 걸러 못 받을 때) 임시 폴더의 kordoc-fake-claude.jsonl 에 남긴다
 import { appendFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? 'ok';
-const log = (entry) => { if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${JSON.stringify(entry)}\n`); };
+const logFile = process.env.FAKE_LOG ?? join(tmpdir(), 'kordoc-fake-claude.jsonl');
+const log = (entry) => appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
+log({ kind: 'run', args });
 
 if (args[0] === '--version') { process.stdout.write('2.1.300 (Claude Code)\n'); process.exit(0); }
 if (args[0] === 'auth' && args[1] === 'status') {
@@ -20,7 +25,7 @@ if (args[0] === 'auth' && args[1] === 'status') {
   process.exit(0);
 }
 
-log({ kind: 'start', pid: process.pid, args, cwd: process.cwd(), env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? null, OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? null, DISABLE_AUTOUPDATER: process.env.DISABLE_AUTOUPDATER ?? null } });
+log({ kind: 'start', pid: process.pid, args, cwd: process.cwd(), env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? null, OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? null, DISABLE_AUTOUPDATER: process.env.DISABLE_AUTOUPDATER ?? null, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ?? null, NODE_OPTIONS: process.env.NODE_OPTIONS ?? null, KORDOC_SECRET: process.env.KORDOC_SECRET ?? null } });
 
 if (mode === 'old') { process.stderr.write("error: unknown option '--restricted'\n"); process.exit(1); }
 if (mode === 'exit') process.exit(3);
@@ -52,6 +57,20 @@ rl.on('line', (line) => {
     out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600 } });
     out({ type: 'assistant', error: 'rate_limit', message: { content: [{ type: 'text', text: 'limit reached' }] } });
     out({ type: 'result', subtype: 'success', is_error: true, result: 'limit reached' });
+    return;
+  }
+  if (mode === 'retry') {
+    // 첫 시도가 도중에 끊기고 다시 보낸 답 (API 재시도) — 결과는 두 번째 답이어야 한다
+    out({ type: 'stream_event', event: { type: 'message_start' } });
+    for (const piece of ['첫 시도', '가 끊김']) out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } } });
+    out({ type: 'stream_event', event: { type: 'message_start' } });
+    for (const piece of ['다시 ', '쓴 답입니다']) out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: '다시 쓴 답입니다', stop_reason: 'end_turn' });
+    return;
+  }
+  if (mode === 'toolong') {
+    out({ type: 'assistant', error: 'invalid_request', message: { content: [{ type: 'text', text: 'Prompt is too long' }] } });
+    out({ type: 'result', subtype: 'success', is_error: true, result: 'Prompt is too long', api_error_status: 400 });
     return;
   }
   const text = process.env.FAKE_CLAUDE_REPLY ?? '안녕하세요';

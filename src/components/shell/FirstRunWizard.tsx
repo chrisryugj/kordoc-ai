@@ -11,6 +11,7 @@ import { useDialogKeys } from "../ui/useDialogKeys";
 import { Note, StatusLine } from "../common/Status";
 import { SelectField, Switch, TextField } from "../common/Field";
 import { RouteTile, routeOf, type Route } from "../settings/AiSection";
+import { firstChatModel } from "../settings/LocalServerPanel";
 import { lockProps, useLocked } from "../settings/PolicyLock";
 import { rpc } from "../../lib/rpc";
 
@@ -53,7 +54,7 @@ export function FirstRunWizard() {
   const findLocal = async () => {
     setFinding("busy");
     const s = (await rpc("ai_local_servers", {}).catch(() => ({ servers: [] }))).servers[0];
-    if (s) { setLocalUrl(s.base_url); setLocalModel(s.models.includes(localModel) ? localModel : (s.models[0] ?? "")); }
+    if (s) { setLocalUrl(s.base_url); setLocalModel(s.models.includes(localModel) ? localModel : firstChatModel(s.models)); }
     setFinding(s ? "" : "none");
   };
 

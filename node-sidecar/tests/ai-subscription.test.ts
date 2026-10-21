@@ -6,17 +6,18 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { updateSettings } from '../src/infra/config.js';
 import { netLogSnapshot, OfflineBlockedError } from '../src/infra/net-guard.js';
 import { claudeCodeLaunchArgs, createClaudeCodeProvider, listClaudeCodeModels, type CliDeps } from '../src/infra/llm/claude-code.js';
-import { CODEX_CONFIG_OVERRIDES, createCodexProvider, listCodexModels, type CodexDeps } from '../src/infra/llm/codex.js';
+import { createCodexProvider, listCodexModels, type CodexDeps } from '../src/infra/llm/codex.js';
+import { CODEX_CONFIG_OVERRIDES } from '../src/infra/llm/codex-config.js';
 import { locateSubscriptionProgram, type SubscriptionProgram } from '../src/infra/llm/subscription/locate.js';
 import { CliRunError, type SubscriptionProviderId } from '../src/infra/llm/subscription/messages.js';
-import { subscriptionChildEnv } from '../src/infra/llm/subscription/process.js';
+import { subscriptionChildEnv, sweepStaleTempDirs } from '../src/infra/llm/subscription/process.js';
 import { assertSubscriptionLogin, clearLoginCache, detectSubscriptionLogin, parseClaudeAuthStatus, parseCodexLoginStatus } from '../src/infra/llm/subscription/status.js';
 import type { ChatRequest } from '../src/infra/llm/types.js';
 
@@ -26,7 +27,8 @@ const FAKE_CODEX = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.met
 const work = mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-work-'));
 let logN = 0;
 
-const program = (provider: SubscriptionProviderId, script: string): SubscriptionProgram => ({ provider, command: process.execPath, prefixArgs: [script], env: {}, entry: script, source: 'configured' });
+/** 가짜 프로그램. 자식 환경은 허용 목록만 넘기므로 가짜를 조종하는 FAKE_* 는 program.env(띄울 때 더하는 값)로 */
+const program = (provider: SubscriptionProviderId, script: string, env: Record<string, string> = {}): SubscriptionProgram => ({ provider, command: process.execPath, prefixArgs: [script], env, entry: script, source: 'configured' });
 type Entry = { kind: string; pid?: number; args?: string[]; cwd?: string; env?: Record<string, string | null>; line?: string; method?: string; params?: Record<string, unknown>; id?: unknown; error?: unknown };
 const readLog = (file: string): Entry[] => (existsSync(file) ? readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -47,9 +49,9 @@ function rig(script: string, provider: SubscriptionProviderId, env: Record<strin
   const log = join(work, `log-${++logN}.jsonl`);
   const spawned: Array<{ command: string; args: string[]; shell: unknown }> = [];
   const deps = {
-    resolveProgram: async () => program(provider, script),
+    resolveProgram: async () => program(provider, script, { ...env, FAKE_LOG: log }),
     checkLogin: async () => {},
-    baseEnv: { ...process.env, ...env, FAKE_LOG: log, ANTHROPIC_API_KEY: 'sk-ant-should-not-pass', OPENAI_API_KEY: 'sk-openai-should-not-pass', CODEX_API_KEY: 'x' },
+    baseEnv: { ...process.env, ANTHROPIC_API_KEY: 'sk-ant-should-not-pass', OPENAI_API_KEY: 'sk-openai-should-not-pass', CODEX_API_KEY: 'x', NODE_OPTIONS: '--max-old-space-size=4000', KORDOC_SECRET: 's' },
     exitGraceMs: 500,
     spawn: ((command: string, args: string[], opts: Parameters<typeof spawn>[2]) => {
       spawned.push({ command, args, shell: opts.shell });
@@ -92,7 +94,7 @@ describe('Claude Code: 한 번 묻기 (가짜 프로그램)', () => {
     expect(spawned[0].args.join(' ')).not.toContain('가온시');
     const entries = readLog(log);
     const start = entries.find((e) => e.kind === 'start')!;
-    expect(start.env).toMatchObject({ ANTHROPIC_API_KEY: null, OPENAI_API_KEY: null, DISABLE_AUTOUPDATER: '1' });
+    expect(start.env).toMatchObject({ ANTHROPIC_API_KEY: null, OPENAI_API_KEY: null, DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', NODE_OPTIONS: null, KORDOC_SECRET: null });
     expect(start.cwd).toMatch(/kordoc-claude-code-/);
     const lines = entries.filter((e) => e.kind === 'stdin').map((e) => JSON.parse(e.line!));
     expect(lines[0].request.subtype).toBe('initialize');
@@ -128,8 +130,20 @@ describe('Claude Code: 한 번 묻기 (가짜 프로그램)', () => {
     const { deps } = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'auth' });
     const err = await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, deps).chat(req()).catch((e) => e);
     expect(err.kind).toBe('signed-out');
-    expect(err.message).toMatch(/로그인되어 있지 않습니다.*claude 를 실행해/);
+    expect(err.message).toMatch(/로그인되어 있지 않습니다.*claude 명령을 실행해/);
     expect(err.message).not.toContain('kim@example.com');
+  });
+
+  it('다시 보낸 답(재시도)이면 마지막 시도의 답 전체를 돌려준다 (앞 시도와 섞지 않음)', async () => {
+    const { deps } = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'retry' });
+    expect(await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, deps).chat(req())).toBe('다시 쓴 답입니다');
+  });
+
+  it('너무 긴 문서 → "문서가 너무 깁니다"', async () => {
+    const { deps } = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'toolong' });
+    const err = await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, deps).chat(req()).catch((e) => e);
+    expect(err.kind).toBe('too-long');
+    expect(err.message).toMatch(/^문서가 너무 깁니다/);
   });
 
   it('사용량 한도 → 다시 쓸 수 있는 시각', async () => {
@@ -202,6 +216,8 @@ describe('Codex: app-server (가짜 프로그램)', () => {
     const entries = readLog(log);
     const start = entries.find((e) => e.kind === 'start')!;
     expect(start.args).toEqual(['app-server', ...CODEX_CONFIG_OVERRIDES.flatMap((o) => ['-c', o]), '--listen', 'stdio://']);
+    // Codex 자신의 도구는 뿌리에서 끈다 (codex 0.163 실측 이름)
+    for (const o of ['features.shell_tool=false', 'features.unified_exec=false', 'features.view_image=false', 'web_search="disabled"', 'project_doc_max_bytes=0']) expect(start.args).toContain(o);
     expect(start.env).toEqual({ OPENAI_API_KEY: null, CODEX_API_KEY: null });
     const rpc = entries.filter((e) => e.kind === 'rpc');
     const thread = rpc.find((e) => e.method === 'thread/start')!.params!;
@@ -242,6 +258,9 @@ describe('Codex: app-server (가짜 프로그램)', () => {
     ['mcp', 'unsafe-tools', 'MCP'],
     ['nostatus', 'unsafe-tools', 'MCP'],
     ['usage', 'rate-limit', '부터 다시 쓸 수 있습니다'],
+    ['oldcodex', 'needs-update', '셸 도구를 끌 수 없음'],
+    ['toolong', 'too-long', '문서가 너무 깁니다'],
+    ['server', 'server-error', '서버에 오류'],
   ] as const) {
     it(`${mode} → ${kind}`, async () => {
       const { log, deps } = rig(FAKE_CODEX, 'codex', { FAKE_CODEX_MODE: mode });
@@ -250,17 +269,40 @@ describe('Codex: app-server (가짜 프로그램)', () => {
       expect(err.kind).toBe(kind);
       expect(err.message).toContain(text);
       // 문서 글은 보내지 않았다 (계정·MCP 확인에서 멈춤)
-      if (mode !== 'usage') expect(readLog(log).some((e) => e.method === 'turn/start')).toBe(false);
+      if (!['usage', 'toolong', 'server'].includes(mode)) expect(readLog(log).some((e) => e.method === 'turn/start')).toBe(false);
       expect(await stopped(log)).toBe(true);
     });
   }
 
-  it('차례 안에서 Codex 자신의 도구(명령 실행)를 쓰기 시작하면 끊고 프로세스를 끝낸다', async () => {
-    const { log, deps } = rig(FAKE_CODEX, 'codex', { FAKE_CODEX_MODE: 'toolitem' });
-    const err = await createCodexProvider({ model: 'm', cli_path: '' }, 5000, deps as CodexDeps).chat(req()).catch((e) => e);
-    expect(err.kind).toBe('unsafe-tools');
-    expect(err.message).toContain('commandExecution');
-    expect(await stopped(log)).toBe(true);
+  for (const [mode, item] of [['toolitem', 'commandExecution'], ['imageview', 'imageView']] as const) {
+    it(`차례 안에 허용 목록 밖 항목(${item})이 보이면 끊고, 프로세스가 끝난 뒤에 알린다`, async () => {
+      const { log, deps } = rig(FAKE_CODEX, 'codex', { FAKE_CODEX_MODE: mode });
+      const err = await createCodexProvider({ model: 'm', cli_path: '' }, 5000, deps as CodexDeps).chat(req()).catch((e) => e);
+      expect(err.kind).toBe('unsafe-tools');
+      expect(err.message).toContain(item);
+      const pid = readLog(log).find((e) => e.kind === 'start')!.pid!;
+      expect(alive(pid)).toBe(false); // 기다리지 않고 바로: 오류를 알리기 전에 이미 끝났다
+    });
+  }
+
+  it('그림을 담았던 임시 폴더는 답을 돌려주기 전에 지운다', async () => {
+    const { log, deps } = rig(FAKE_CODEX, 'codex', { FAKE_CODEX_MODE: 'ok' });
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await createCodexProvider({ model: 'm', cli_path: '' }, 5000, deps as CodexDeps).chat(req({ messages: [{ role: 'user', content: '이 그림', images: [{ mime: 'image/png', base64: png }] }] }));
+    const start = readLog(log).find((e) => e.kind === 'start')!;
+    const turn = readLog(log).find((e) => e.method === 'turn/start')!.params as { input: Array<{ type: string; path?: string }> };
+    expect(turn.input.some((i) => i.type === 'localImage' && i.path!.startsWith(start.cwd!))).toBe(true);
+    expect(existsSync(start.cwd!)).toBe(false);
+    expect(alive(start.pid!)).toBe(false);
+  });
+
+  it('엔진 시작 때 한 시간 넘은 구독 임시 폴더를 치운다 (다른 폴더·새 폴더는 둔다)', async () => {
+    const root = mkdtempSync(join(work, 'sweep-'));
+    for (const n of ['kordoc-codex-old', 'kordoc-claude-code-old', 'kordoc-codex-new', 'other-old']) mkdirSync(join(root, n));
+    const past = new Date(Date.now() - 2 * 3600_000);
+    for (const n of ['kordoc-codex-old', 'kordoc-claude-code-old', 'other-old']) utimesSync(join(root, n), past, past);
+    expect(await sweepStaleTempDirs(root)).toBe(2);
+    expect(['kordoc-codex-new', 'other-old'].every((n) => existsSync(join(root, n)))).toBe(true);
   });
 
   it('initialize 중에 취소해도 프로세스를 끝낸다', async () => {
@@ -312,15 +354,11 @@ describe('로그인 상태 — 프로그램 자신의 답으로, 계정은 옮�
     const ready = await detectSubscriptionLogin('claude-code', { locate });
     expect(ready).toMatchObject({ provider: 'claude-code', state: 'ready', version: '2.1.300', plan: 'max', login_command: 'claude' });
     expect(JSON.stringify(ready)).not.toContain('kim@');
-    process.env.FAKE_CLAUDE_AUTH = 'apikey';
-    try {
-      const metered = await detectSubscriptionLogin('claude-code', { locate });
-      expect(metered.state).toBe('metered');
-      expect(metered.message).toMatch(/요금/);
-      await expect(assertSubscriptionLogin('claude-code', program('claude-code', FAKE_CLAUDE))).rejects.toMatchObject({ kind: 'metered' });
-    } finally {
-      delete process.env.FAKE_CLAUDE_AUTH;
-    }
+    const apikey = program('claude-code', FAKE_CLAUDE, { FAKE_CLAUDE_AUTH: 'apikey' });
+    const metered = await detectSubscriptionLogin('claude-code', { locate: async () => apikey });
+    expect(metered.state).toBe('metered');
+    expect(metered.message).toMatch(/요금/);
+    await expect(assertSubscriptionLogin('claude-code', apikey)).rejects.toMatchObject({ kind: 'metered' });
     const missing = await detectSubscriptionLogin('codex', { locate: async () => null });
     expect(missing).toMatchObject({ state: 'not-installed', login_command: 'codex login' });
     expect(missing.message).toMatch(/설치/);
@@ -357,10 +395,13 @@ describe('프로그램 찾기·환경', () => {
     expect(await locateSubscriptionProgram('claude-code', { configuredPath: join(work, 'nope', 'claude'), env: { PATH: '', USERPROFILE: work, HOME: work }, commonDirs: [] })).toBeNull();
   });
 
-  it('자식 환경: 다른 요금 경로 변수를 뺀다 (Windows 는 대소문자 무시), PATH 앞에 프로그램 폴더', () => {
-    const env = subscriptionChildEnv({ base: { Anthropic_Api_Key: 'a', OPENAI_BASE_URL: 'b', CLAUDE_CODE_USE_BEDROCK: '1', KEEP: 'k', Path: 'C:\\x' }, platform: 'win32', command: 'C:\\tools\\claude.exe' });
-    expect(env).toEqual({ KEEP: 'k', Path: `C:\\tools${delimiter}C:\\x` });
-    expect(subscriptionChildEnv({ base: { ANTHROPIC_API_KEY: 'a', anthropic_api_key: 'lower' }, platform: 'linux' })).toEqual({ anthropic_api_key: 'lower' });
+  it('자식 환경: 허용 목록만 넘기고(NODE_OPTIONS·엔진 변수 제외) 다른 요금 경로 변수를 뺀다, PATH 앞에 프로그램 폴더', () => {
+    const env = subscriptionChildEnv({
+      base: { Anthropic_Api_Key: 'a', OPENAI_BASE_URL: 'b', CLAUDE_CODE_USE_BEDROCK: '1', KEEP: 'k', NODE_OPTIONS: '--require x', KORDOC_AI_DATA_DIR: 'd', Path: 'C:\\x', TEMP: 'C:\\t', https_proxy: 'http://p', LC_ALL: 'ko_KR' },
+      platform: 'win32', command: 'C:\\tools\\claude.exe', extra: { DISABLE_TELEMETRY: '1' },
+    });
+    expect(env).toEqual({ Path: `C:\\tools${delimiter}C:\\x`, TEMP: 'C:\\t', https_proxy: 'http://p', LC_ALL: 'ko_KR', DISABLE_TELEMETRY: '1' });
+    expect(subscriptionChildEnv({ base: { ANTHROPIC_API_KEY: 'a', HOME: '/h' }, platform: 'linux' })).toEqual({ HOME: '/h' });
   });
 });
 

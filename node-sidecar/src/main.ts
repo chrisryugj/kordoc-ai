@@ -13,6 +13,7 @@ import { getSettings } from './infra/config.js';
 import { syncOfflineEnv } from './infra/net-guard.js';
 import { seedBundledModels } from './core/system/index.js';
 import { setWorkerEntry } from './infra/worker.js';
+import { sweepStaleTempDirs } from './infra/llm/subscription/process.js';
 
 /** stdout에 JSON-RPC 응답 쓰기 */
 function writeResponse(response: JsonRpcResponse): void {
@@ -49,6 +50,8 @@ async function main(): Promise<void> {
   }
 
   try { seedBundledModels(); } catch (err) { logger.warn(`[main] OCR 모델 시드 실패: ${err}`); }
+  // 지난 실행에서 못 지운 구독 프로그램 임시 폴더(문서 그림이 남았을 수 있음)
+  void sweepStaleTempDirs().then((n) => { if (n) logger.info(`[main] 남은 구독 프로그램 임시 폴더 ${n}개를 지웠습니다`); });
 
   const router = new RpcRouter();
   registerAllMethods(router);

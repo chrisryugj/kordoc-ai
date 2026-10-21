@@ -33,7 +33,7 @@ const INITIALIZE_ID = 'initialize';
 const EXIT_GRACE_MS = 5_000;
 const TEMP_PREFIX = 'kordoc-claude-code-';
 /** 짧게 도는 차례가 시작한 자동 업데이트가 중간에 끊기지 않게. 로그인·요금 경로와 무관 */
-const RUN_ENV: Readonly<Record<string, string>> = { DISABLE_AUTOUPDATER: '1', DISABLE_TELEMETRY: '1' };
+const RUN_ENV: Readonly<Record<string, string>> = { DISABLE_AUTOUPDATER: '1', DISABLE_TELEMETRY: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
 
 export interface ClaudeCodeConfig {
   model: string;
@@ -52,6 +52,10 @@ export interface CliDeps {
 }
 
 const NO_TOOLS = '당신은 사무용 앱(KorDoc AI)에 들어 있는 언어 모델입니다. 스스로 쓰는 도구는 없습니다: 파일을 읽거나 고치거나, 명령을 실행하거나, 웹을 보거나, 어떤 도구도 부를 수 없고 시도하지 않습니다.';
+
+/** 구독 프로그램 차례에 넣을 수 있는 토큰 — 모델 창(약 20만)에서 프로그램 자신의 지시문·여유를 뺀 값.
+ *  contextCharBudget 이 이것으로 문서 글자 예산을 잡는다(인터넷 API 의 40만 자보다 작게: 넘치면 "문서가 너무 깁니다") */
+export const SUBSCRIPTION_CONTEXT_TOKENS = 180_000;
 
 /** 프로그램이 받는 모델 별칭·이름. 옵션으로 읽힐 수 있는 값은 막는다 */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,127}$/;
@@ -107,6 +111,7 @@ const UNKNOWN_OPTION = /unknown option|unknown argument|unrecognized option/i;
 const SIGNED_OUT_TEXT = /not logged in|please run \/login|invalid api key|authentication/i;
 const NETWORK_TEXT = /connection error|unable to connect|fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up/i;
 const TIMEOUT_TEXT = /timed out|timeout/i;
+const TOO_LONG_TEXT = /prompt is too long|context window|context length|too many (input )?tokens|input is too long/i;
 
 /** 프로그램이 스스로 알린 실패. code 는 assistant 메시지의 error(authentication_failed·rate_limit·overloaded…), status 는 api_error_status */
 export function reportedFailure(code: string | undefined, status: unknown, text: string, rateLimit: Record<string, unknown> | undefined): CliRunError {
@@ -115,25 +120,28 @@ export function reportedFailure(code: string | undefined, status: unknown, text:
     const r = rateLimit?.status === 'rejected' && typeof rateLimit.resetsAt === 'number' && rateLimit.resetsAt > 0 ? Math.round(rateLimit.resetsAt * 1000) : undefined;
     return new CliRunError('rate-limit', PROVIDER, undefined, { resetsAt: r });
   }
+  if (TOO_LONG_TEXT.test(text)) return new CliRunError('too-long', PROVIDER);
   if (code === 'overloaded' || status === 529 || status === 503) return new CliRunError('overloaded', PROVIDER);
+  if (code === 'server_error' || (typeof status === 'number' && status >= 500)) return new CliRunError('server-error', PROVIDER);
   if (NETWORK_TEXT.test(text)) return new CliRunError('network', PROVIDER);
   if (TIMEOUT_TEXT.test(text)) return new CliRunError('failed', PROVIDER, 'Claude Code 쪽 요청 시간이 넘었습니다.');
   if ((!code || code === 'unknown') && SIGNED_OUT_TEXT.test(text)) return new CliRunError('signed-out', PROVIDER);
-  if (code === 'model_not_found' || status === 404) return new CliRunError('failed', PROVIDER, '고른 모델을 Claude Code 가 찾지 못했습니다. 설정 > AI 연결에서 모델을 비우거나(기본 모델) 다른 모델을 고르세요.');
-  return new CliRunError('failed', PROVIDER, 'Claude Code 가 오류를 알렸습니다.');
+  if (code === 'model_not_found' || status === 404) return new CliRunError('failed', PROVIDER, '고른 모델을 Claude Code가 찾지 못했습니다. 설정 > AI 연결에서 모델을 비우거나(기본 모델) 다른 모델을 고르세요.');
+  if (code === 'invalid_request' || status === 400) return new CliRunError('bad-request', PROVIDER);
+  return new CliRunError('failed', PROVIDER, 'Claude Code가 오류를 알렸습니다.');
 }
 
 /** 결과 없이 끝난 프로그램. 출력 원문은 계정 이름이 섞일 수 있어 문장에 넣지 않는다 */
 export function exitFailure(code: number | null, stderr: string): CliRunError {
   if (UNKNOWN_OPTION.test(stderr)) return new CliRunError('needs-update', PROVIDER, 'Claude Code 버전이 낮아 이 앱이 쓰는 옵션을 모릅니다.');
   if (SIGNED_OUT_TEXT.test(stderr)) return new CliRunError('signed-out', PROVIDER);
-  return new CliRunError('failed', PROVIDER, `Claude Code 가 답하기 전에 끝났습니다(종료 코드 ${code ?? '없음'}).`);
+  return new CliRunError('failed', PROVIDER, `Claude Code가 답하기 전에 끝났습니다(종료 코드 ${code ?? '없음'}).`);
 }
 
 export function startFailure(err: unknown): CliRunError {
   const code = (err as { code?: unknown } | null)?.code;
   if (code === 'ENOENT') return new CliRunError('not-installed', PROVIDER, 'Claude Code 프로그램을 실행하지 못했습니다.');
-  return new CliRunError('failed', PROVIDER, `Claude Code 를 실행하지 못했습니다${typeof code === 'string' ? `(${code})` : ''}.`);
+  return new CliRunError('failed', PROVIDER, `Claude Code를 실행하지 못했습니다${typeof code === 'string' ? `(${code})` : ''}.`);
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -175,6 +183,8 @@ function runTurn(child: ChildProcess, removeCwd: () => void, req: ChatRequest, t
     let whole = '';
     let emitted = '';
     let skip = 0;
+    /** 마지막 시도의 답 전체 — 흘린 조각(emitted)은 재시도 때 앞 시도와 섞일 수 있어 돌려주는 값으로 쓰지 않는다 */
+    let final: string | undefined;
     let failureCode: string | undefined;
     let failureText = '';
     let rateLimit: Record<string, unknown> | undefined;
@@ -196,7 +206,7 @@ function runTurn(child: ChildProcess, removeCwd: () => void, req: ChatRequest, t
       req.signal.removeEventListener('abort', onAbort);
       stop(err !== undefined);
       if (err) reject(err);
-      else resolve(emitted);
+      else resolve(final ?? emitted);
     };
     // 응답이 멈춘 시간 기준 + 전체 상한(4배)
     const touch = () => {
@@ -245,8 +255,10 @@ function runTurn(child: ChildProcess, removeCwd: () => void, req: ChatRequest, t
       }
       if (!requireVerified()) return;
       const answer = raw || whole || (typeof ev.result === 'string' ? ev.result : '');
+      skip = 0;
       if (answer.length > emitted.length && answer.startsWith(emitted)) deliver(answer.slice(emitted.length));
       else if (!emitted) deliver(answer);
+      final = answer;
       finish();
     };
 
@@ -260,7 +272,7 @@ function runTurn(child: ChildProcess, removeCwd: () => void, req: ChatRequest, t
         case 'control_response': {
           const r = ev.response;
           if (!isObj(r) || r.request_id !== INITIALIZE_ID || initialized) return;
-          if (r.subtype !== 'success') { finish(new CliRunError('needs-update', PROVIDER, 'Claude Code 가 이 앱의 준비 요청을 받지 않았습니다(버전이 낮을 수 있음).')); return; }
+          if (r.subtype !== 'success') { finish(new CliRunError('needs-update', PROVIDER, 'Claude Code가 이 앱의 준비 요청을 받지 않았습니다(버전이 낮을 수 있음).')); return; }
           // 지시문이 자리 잡은 뒤에야 대화가 앱 밖으로 나간다
           initialized = true;
           write(input.user);
@@ -305,7 +317,7 @@ function runTurn(child: ChildProcess, removeCwd: () => void, req: ChatRequest, t
     if (child.stdout) {
       readLines(child.stdout, (line) => {
         try { onLine(line); } catch (err) { finish(err instanceof Error ? err : new Error(String(err))); }
-      }, () => finish(new CliRunError('failed', PROVIDER, `Claude Code 가 줄바꿈 없이 ${MAX_LINE_BYTES} 바이트 넘게 써서 멈췄습니다.`)));
+      }, () => finish(new CliRunError('failed', PROVIDER, `Claude Code가 줄바꿈 없이 ${MAX_LINE_BYTES} 바이트 넘게 써서 멈췄습니다.`)));
     }
     child.once('error', (err) => {
       if (child.pid === undefined) { exited = true; removeCwd(); }
@@ -334,6 +346,7 @@ export function createClaudeCodeProvider(cfg: ClaudeCodeConfig, timeoutMs: numbe
       const { child, removeCwd } = await startChild(cfg, cfg.model, deps, req.signal);
       return runTurn(child, removeCwd, req, timeoutMs, deps);
     },
+    contextTokens: async () => SUBSCRIPTION_CONTEXT_TOKENS,
     listModels: (signal) => listClaudeCodeModels(cfg, signal ?? AbortSignal.timeout(15_000), deps).then((ms) => ms.map((m) => m.id)),
   };
 }
@@ -389,7 +402,7 @@ export async function listClaudeCodeModels(cfg: ClaudeCodeConfig, signal: AbortS
       else resolve(models ?? []);
     };
     const onAbort = () => finish(undefined, cancelledError());
-    const timer = setTimeout(() => finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code 가 모델 목록을 제때 알려 주지 않았습니다.')), 15_000);
+    const timer = setTimeout(() => finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code가 모델 목록을 제때 알려 주지 않았습니다.')), 15_000);
     child.stdin?.on('error', () => undefined);
     child.stderr?.on('data', () => undefined); // 출력은 남기지 않는다 (계정 이름이 섞일 수 있음)
     if (child.stdout) {
@@ -407,10 +420,10 @@ export async function listClaudeCodeModels(cfg: ClaudeCodeConfig, signal: AbortS
         if (['control_request', 'stream_event', 'assistant', 'user', 'result'].includes(String(ev.type))) {
           finish(undefined, new CliRunError('unsafe-tools', PROVIDER, '모델 목록만 물었는데 다른 일을 함'));
         }
-      }, () => finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code 가 끝없는 줄을 써서 멈췄습니다.')));
+      }, () => finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code가 끝없는 줄을 써서 멈췄습니다.')));
     }
     child.once('error', (err) => { if (child.pid === undefined) { exited = true; removeCwd(); } finish(undefined, startFailure(err)); });
-    child.once('close', () => { exited = true; removeCwd(); finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code 가 모델 목록을 알려 주기 전에 끝났습니다.')); });
+    child.once('close', () => { exited = true; removeCwd(); finish(undefined, new CliRunError('failed', PROVIDER, 'Claude Code가 모델 목록을 알려 주기 전에 끝났습니다.')); });
     signal.addEventListener('abort', onAbort, { once: true });
     if (child.stdin?.writable) child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: INITIALIZE_ID, request: { subtype: 'initialize', systemPrompt: [NO_TOOLS] } })}\n`);
   });

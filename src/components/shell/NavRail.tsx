@@ -60,9 +60,10 @@ export function NavRail({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       : { tone: "busy", icon: <Loader2 size={13} className="kd-spin" />, text: "문서 엔진 켜는 중", short: "켜는 중" };
   const aiLine = !ai?.configured
     ? { icon: <CircleAlert size={13} />, text: "AI 연결 안 됨", tone: "warn", short: "AI 없음" }
+    : ai.is_cloud ? { icon: <Cloud size={13} />, text: ai.provider === "claude-code" || ai.provider === "codex" ? "구독 계정 AI" : "인터넷 AI", tone: "warn", short: "AI" }
     : ai.provider === "embedded" ? { icon: <Cpu size={13} />, text: "내장 AI", tone: "ok", short: "AI" }
-    : ai.provider === "openai" ? { icon: <Server size={13} />, text: "기관 AI 서버", tone: "ok", short: "AI" }
-    : { icon: <Cloud size={13} />, text: "인터넷 AI", tone: "warn", short: "AI" };
+    : ai.provider === "local" ? { icon: <Server size={13} />, text: "이 PC의 모델 서버", tone: "ok", short: "AI" }
+    : { icon: <Server size={13} />, text: "기관 AI 서버", tone: "ok", short: "AI" };
 
   return (
     <nav className="kd-nav" data-collapsed={collapsed} aria-label="주 메뉴" onKeyDown={onKey}>

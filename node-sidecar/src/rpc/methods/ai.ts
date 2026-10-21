@@ -35,7 +35,7 @@ export function registerAi(router: RpcRouter): void {
   reg('ai_test', (_p, signal) => aiTest(signal), { heavy: true });
   reg('ai_list_models', (p, signal) => listServerModels({ base_url: str(p.base_url), api_key: str(p.api_key), slot: p.slot === 'local' ? 'local' : 'openai' }, signal));
   reg('ai_local_servers', (_p, signal) => localServers(signal));
-  reg('ai_subscription_status', (p) => subscriptionStatus(p));
+  reg('ai_subscription_status', (p, signal) => subscriptionStatus(p, signal));
   reg('ai_subscription_models', (p, signal) => subscriptionModels(p, signal));
   reg('ai_warmup', () => aiWarmup(), { heavy: true });
 

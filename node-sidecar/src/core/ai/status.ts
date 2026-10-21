@@ -7,6 +7,7 @@ import { getSettings } from '../../infra/config.js';
 import { ask, getProvider } from '../../infra/llm/index.js';
 import { isEmbeddedLoaded, warmupEmbedded } from '../../infra/llm/embedded.js';
 import { createOpenAiProvider } from '../../infra/llm/openai.js';
+import { normalizeLocalBase } from '../../infra/llm/local-servers.js';
 
 /** 설정만 보고 빠진 것을 알려 준다 (네트워크·모델 로드 없음) */
 export function aiStatus(): AiStatus {
@@ -81,7 +82,8 @@ export async function aiTest(signal: AbortSignal): Promise<{ ok: boolean; latenc
 /** 저장 전 주소·키로 모델 목록 — 화면에 가려진 키(****)가 오면 저장된 키를 쓴다. slot: 기관 서버(openai)·이 PC 서버(local) 중 어느 칸의 키인지 */
 export async function listServerModels(params: { base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, signal: AbortSignal): Promise<{ models: string[] }> {
   const saved = getSettings().ai[params.slot === 'local' ? 'local' : 'openai'];
-  const baseUrl = params.base_url?.trim() || saved.base_url;
+  const raw = params.base_url?.trim() || saved.base_url;
+  const baseUrl = params.slot === 'local' ? normalizeLocalBase(raw) : raw;
   if (!baseUrl) throw new Error('AI 서버 주소를 넣으세요. 예: http://127.0.0.1:11434/v1');
   try { new URL(baseUrl); } catch { throw new Error(`AI 서버 주소 형식이 아닙니다: ${baseUrl}. 예: http://127.0.0.1:11434/v1`); }
   // 저장된 키는 저장된 주소에만 — 다른 주소를 시험할 때 키가 그쪽으로 새지 않게

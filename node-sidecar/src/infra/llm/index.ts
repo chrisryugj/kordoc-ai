@@ -8,6 +8,7 @@ import { createClaudeCodeProvider } from './claude-code.js';
 import { createCodexProvider } from './codex.js';
 import { createEmbeddedProvider } from './embedded.js';
 import { createGeminiProvider } from './gemini.js';
+import { normalizeLocalBase } from './local-servers.js';
 import { createOpenAiProvider, resolveOpenAiHost } from './openai.js';
 import type { ChatMessage, ChatRequest, JsonSchema, LlmProvider } from './types.js';
 
@@ -28,7 +29,7 @@ export function getProvider(): LlmProvider {
     case 'embedded': p = createEmbeddedProvider(ai.embedded); break;
     case 'openai': p = createOpenAiProvider(ai.openai, ai.timeout_ms); break;
     // 같은 OpenAI 호환 공급자를 이 PC 서버 칸으로 (127.0.0.1 이면 클라우드 아님 → 폐쇄망에서도 됨)
-    case 'local': p = { ...createOpenAiProvider({ ...ai.local, vision_model: '' }, ai.timeout_ms), id: 'local' }; break;
+    case 'local': p = { ...createOpenAiProvider({ ...ai.local, base_url: normalizeLocalBase(ai.local.base_url), vision_model: '' }, ai.timeout_ms), id: 'local' }; break;
     case 'gemini': p = createGeminiProvider(ai.gemini, ai.timeout_ms); break;
     case 'anthropic': p = createAnthropicProvider(ai.anthropic, ai.timeout_ms); break;
     case 'claude-code':
@@ -69,9 +70,10 @@ const UNKNOWN_LOCAL_CONTEXT = 8192;
 export async function contextCharBudget(opts: { reserveTokens?: number; signal?: AbortSignal; provider?: LlmProvider } = {}): Promise<number> {
   if (!opts.provider) await primeHost();
   const p = opts.provider ?? getProvider();
-  if (p.isCloud) return 400_000;
-  const fallback = p.id === 'embedded' ? getSettings().ai.embedded.context_size : UNKNOWN_LOCAL_CONTEXT;
-  const tokens = (await p.contextTokens?.(opts.signal).catch(() => undefined)) ?? fallback;
+  const known = await p.contextTokens?.(opts.signal).catch(() => undefined);
+  // 인터넷 API 는 넉넉히. 구독 프로그램(Claude Code·Codex)처럼 창 크기를 밝히는 클라우드는 그 값으로
+  if (p.isCloud && !known) return 400_000;
+  const tokens = known ?? (p.id === 'embedded' ? getSettings().ai.embedded.context_size : UNKNOWN_LOCAL_CONTEXT);
   return Math.max(1500, Math.floor((tokens - (opts.reserveTokens ?? 2048)) * CHARS_PER_TOKEN));
 }
 
@@ -88,22 +90,29 @@ export interface AskOptions {
 }
 
 /** 공급자 호출 — 클라우드면 설정에 따라 개인정보를 가린 뒤 보낸다.
- *  system 은 가리지 않으니 고정 지시문만 넣고, 문서·기관 정보 같은 내용은 messages 로 보낼 것. */
+ *  system 은 가리지 않으니 고정 지시문만 넣고, 문서·기관 정보 같은 내용은 messages 로 보낼 것.
+ *  구독 프로그램(Claude Code·Codex)은 system 도 대화와 같은 글로 넘어가므로 system 까지 가린다. */
 export async function ask(opts: AskOptions): Promise<{ text: string; redacted: number }> {
   await primeHost();
   const p = getProvider();
   const { ai } = getSettings();
   let redacted = 0;
   let messages = opts.messages;
+  let system = opts.system;
   if (p.isCloud && ai.redact_before_cloud) {
     messages = messages.map((m) => {
       const r = redactMarkdown(m.content);
       redacted += r.hits.length;
       return { ...m, content: r.text };
     });
+    if (system && (p.id === 'claude-code' || p.id === 'codex')) {
+      const r = redactMarkdown(system);
+      redacted += r.hits.length;
+      system = r.text;
+    }
   }
   const req: ChatRequest = {
-    system: opts.system,
+    system,
     messages,
     maxTokens: opts.maxTokens,
     json: opts.json || Boolean(opts.schema),

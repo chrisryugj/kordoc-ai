@@ -13,6 +13,9 @@ import { Advanced } from "./dirty";
 
 type Local = Settings["ai"]["local"];
 
+/** 저절로 고를 때는 글 모델을 — 임베딩 모델(nomic-embed 등)은 대화에 못 쓴다 */
+export const firstChatModel = (models: string[]) => models.find((m) => !/embed/i.test(m)) ?? models[0] ?? "";
+
 export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
   value: Local; onChange: (p: Partial<Local>) => void; keyInput: string; onKey: (v: string) => void; masked: string;
 }) {
@@ -20,22 +23,25 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
   const lp = (label: string, path: string) => lockProps(label, lk(path));
   const find = useTask<LocalModelServer[]>();
   const list = useTask<void>();
-  const [models, setModels] = useState<string[]>([]);
+  // 목록은 그 목록을 받은 주소와 함께 둔다 — 주소를 바꾸면 이전 서버의 모델이 보이지 않게
+  const [models, setModels] = useState<{ url: string; items: string[] }>({ url: "", items: [] });
+  const shown = models.url === value.base_url ? models.items : [];
   const urlLocked = lk("ai.local.base_url");
 
-  const scan = () => void find.run(async () => (await rpc("ai_local_servers", {})).servers);
+  const scan = () => void find.run(async ({ signal }) => (await rpc("ai_local_servers", {}, { signal })).servers);
   // 처음 열면 한 번 찾아 본다 (127.0.0.1 만, 1초 남짓)
   useEffect(() => { if (!urlLocked) scan(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (s: LocalModelServer) => {
-    setModels(s.models);
-    onChange({ base_url: s.base_url, model: s.models.includes(value.model) ? value.model : (s.models[0] ?? "") });
+    setModels({ url: s.base_url, items: s.models });
+    onChange({ base_url: s.base_url, model: s.models.includes(value.model) ? value.model : firstChatModel(s.models) });
   };
 
-  const loadModels = () => void list.run(async () => {
-    const r = await rpc("ai_list_models", { base_url: value.base_url, slot: "local", ...(keyInput ? { api_key: keyInput } : {}) });
-    setModels(r.models);
-    if (!value.model && r.models[0]) onChange({ model: r.models[0] });
+  const loadModels = () => void list.run(async ({ signal }) => {
+    const url = value.base_url;
+    const r = await rpc("ai_list_models", { base_url: url, slot: "local", ...(keyInput ? { api_key: keyInput } : {}) }, { signal });
+    setModels({ url, items: r.models });
+    if (!value.model && r.models.length) onChange({ model: firstChatModel(r.models) });
   });
 
   const found = find.result ?? [];
@@ -65,10 +71,10 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
         <div className="kd-span2"><TextField {...lp("주소", "ai.local.base_url")} hint="찾은 서버를 고르면 채워집니다. 직접 넣을 때는 보통 http://127.0.0.1:포트/v1" value={value.base_url} onChange={(v) => onChange({ base_url: v })} /></div>
         <Field label={lp("모델", "ai.local.model").label}>
           <div className="flex gap-2">
-            {models.length ? (
+            {shown.length ? (
               <select className="kd-select" disabled={lk("ai.local.model")} value={value.model} onChange={(e) => onChange({ model: e.target.value })} aria-label="모델">
-                {!models.includes(value.model) && <option value={value.model}>{value.model || "고르세요"}</option>}
-                {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                {!shown.includes(value.model) && <option value={value.model}>{value.model || "고르세요"}</option>}
+                {shown.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             ) : (
               <input className="kd-input" disabled={lk("ai.local.model")} value={value.model} onChange={(e) => onChange({ model: e.target.value })} placeholder="예: gemma4" aria-label="모델" />

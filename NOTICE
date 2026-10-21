@@ -37,7 +37,7 @@ GenOffice, Copyright 2026 Mainfunc, Inc. This product includes software develope
 그 저장소(커밋 9bda9ac)에서 옮겨 온 것 (바꾼 곳은 각 파일 머리에 적었다):
 - node-sidecar/src/infra/llm/claude-code.ts ← packages/ai-provider/src/claude-code-cli.ts
   — 설치·로그인해 둔 Claude Code 를 도구 0개(시작 보고로 확인)로 띄워 한 번 답하게 하는 다리, 모델 목록 읽기
-- node-sidecar/src/infra/llm/codex.ts ← packages/ai-provider/src/codex-app-server.ts
+- node-sidecar/src/infra/llm/{codex,codex-config}.ts ← packages/ai-provider/src/codex-app-server.ts
   — Codex app-server(JSON-RPC) 설정 덮어쓰기·MCP 끄고 확인·권한 프로필/read-only 샌드박스·차례 기다리기·모델 목록
 - node-sidecar/src/infra/llm/subscription/{locate,process,status,messages}.ts ← packages/ai-provider/src/subscription/{locate,process,env,status}.ts·run-error.ts
   — 실행 파일 찾기(.cmd 껍데기 뒤), 다른 요금 경로 환경 변수 빼기, 프로세스 트리 끝내기, 로그인 상태 읽기(계정을 옮기지 않음), 실패 종류

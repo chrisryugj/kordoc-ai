@@ -606,16 +606,19 @@ export interface LocalModelServer {
 }
 
 /** 구독 프로그램 상태 — ready: 구독 로그인 · unknown-login: 로그인했지만 구독인지 모름(쓸 수는 있음) ·
- *  metered: 쓴 만큼 요금(API 키 등)이라 보내지 않음 · offline: 폐쇄망 모드 · disabled: 기관이 막음 */
+ *  metered: 쓴 만큼 요금(API 키 등)이라 보내지 않음 · installed: 설치만 확인(문서 보내기를 허용하기 전엔 띄우지 않음) ·
+ *  offline: 폐쇄망 모드 · disabled: 기관이 막음 */
 export interface SubscriptionStatus {
   provider: 'claude-code' | 'codex';
-  state: 'ready' | 'unknown-login' | 'metered' | 'signed-out' | 'not-installed' | 'needs-update' | 'error' | 'offline' | 'disabled';
+  state: 'ready' | 'unknown-login' | 'metered' | 'installed' | 'signed-out' | 'not-installed' | 'needs-update' | 'error' | 'offline' | 'disabled';
   version?: string;
   plan?: string;
   /** 준비되지 않았을 때 할 일 */
   message?: string;
   /** 터미널에서 칠 로그인 명령 (claude · codex login) */
   login_command: string;
+  /** 찾은 프로그램 위치 (읽기 전용. 다른 위치는 기관 배포 설정의 ai.*.cli_path 로만) */
+  path?: string;
 }
 
 export interface LlmCatalogItem {

@@ -26,6 +26,8 @@ export interface SubscriptionDetection {
   message?: string;
   /** 터미널에서 칠 로그인 명령 */
   login_command: string;
+  /** 찾은 프로그램 위치 (화면에 읽기 전용으로) */
+  path?: string;
 }
 
 /** 이 버전부터 initialize 의 systemPrompt 를 받는다 (이음오피스 SUBSCRIPTION_MIN_VERSIONS) */
@@ -82,6 +84,8 @@ const UNKNOWN_COMMAND = /unknown (command|option)|unrecognized (subcommand|optio
 export interface DetectOptions {
   configuredPath?: string;
   timeoutMs?: number;
+  /** 화면이 그만두면 확인 명령도 끝낸다 */
+  signal?: AbortSignal;
   locate?: (provider: SubscriptionProviderId, opts?: LocateOptions) => Promise<SubscriptionProgram | null>;
   run?: (program: SubscriptionProgram, args: string[], opts: { signal: AbortSignal; timeoutMs: number }) => Promise<CommandResult>;
 }
@@ -95,7 +99,7 @@ function result(provider: SubscriptionProviderId, state: SubscriptionState, extr
       const min = MIN_VERSIONS[provider];
       out.message = cliMessage('needs-update', provider, extra.version && min ? `${name} ${extra.version} 은 버전이 낮습니다(${min} 이상 필요).` : undefined);
     }
-    else if (state === 'unknown-login') out.message = `${name}에 로그인되어 있지만 구독 계정인지 확인하지 못했습니다. 구독이 아니면 쓴 만큼 요금이 나갈 수 있습니다. 확실히 하려면 터미널에서 ${LOGIN_COMMAND[provider]} 로 구독 계정에 다시 로그인하세요.`;
+    else if (state === 'unknown-login') out.message = `${name}에 로그인되어 있지만 구독 계정인지 확인하지 못했습니다. 구독이 아니면 쓴 만큼 요금이 나갈 수 있습니다. 확실히 하려면 터미널에서 ${LOGIN_COMMAND[provider]} 명령으로 구독 계정에 다시 로그인하세요.`;
   }
   return out;
 }
@@ -111,19 +115,19 @@ async function inspect(provider: SubscriptionProviderId, opts: DetectOptions, si
   try {
     version = parseVersion((await ask(['--version'])).stdout);
     const min = MIN_VERSIONS[provider];
-    if (min && !version) return result(provider, 'error', { message: `${name}가 버전을 알려 주지 않았습니다. 터미널에서 ${LOGIN_COMMAND[provider]} 가 실행되는지 확인하세요.` });
+    if (min && !version) return result(provider, 'error', { message: `${name}가 버전을 알려 주지 않았습니다. 터미널에서 ${LOGIN_COMMAND[provider]} 명령이 실행되는지 확인하세요.` });
     if (min && version && !versionAtLeast(version, min)) return result(provider, 'needs-update', { version });
     status = await ask(provider === 'claude-code' ? ['auth', 'status', '--json'] : ['login', 'status']);
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     const why = typeof code === 'string' && /^E[A-Z0-9_]{1,30}$/.test(code) ? ` (${code})` : '';
-    return result(provider, 'error', { ...(version ? { version } : {}), message: `${name}를 실행하지 못했습니다${why}. 터미널에서 ${LOGIN_COMMAND[provider]} 가 실행되는지 확인하세요.` });
+    return result(provider, 'error', { ...(version ? { version } : {}), message: `${name}를 실행하지 못했습니다${why}. 터미널에서 ${LOGIN_COMMAND[provider]} 명령이 실행되는지 확인하세요.` });
   }
   const login = provider === 'claude-code' ? parseClaudeAuthStatus(status.stdout) : parseCodexLoginStatus(`${status.stderr}\n${status.stdout}`);
   const v = version ? { version } : {};
   if (!login) {
     if (UNKNOWN_COMMAND.test(`${status.stderr}\n${status.stdout}`)) return result(provider, 'needs-update', v);
-    return result(provider, 'error', { ...v, message: `${name}가 로그인 상태를 알려 주지 않았습니다(종료 코드 ${status.code ?? '없음'}). 터미널에서 ${LOGIN_COMMAND[provider]} 를 실행해 확인하세요.` });
+    return result(provider, 'error', { ...v, message: `${name}가 로그인 상태를 알려 주지 않았습니다(종료 코드 ${status.code ?? '없음'}). 터미널에서 ${LOGIN_COMMAND[provider]} 명령을 실행해 확인하세요.` });
   }
   if (!login.signedIn) return result(provider, 'signed-out', v);
   if (login.method === 'subscription') return result(provider, 'ready', { ...v, ...(login.plan ? { plan: login.plan } : {}) });
@@ -134,6 +138,8 @@ async function inspect(provider: SubscriptionProviderId, opts: DetectOptions, si
 export async function detectSubscriptionLogin(provider: SubscriptionProviderId, opts: DetectOptions = {}): Promise<SubscriptionDetection> {
   const timeoutMs = opts.timeoutMs ?? STATUS_TIMEOUT_MS;
   const ctl = new AbortController();
+  const onAbort = () => ctl.abort();
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<SubscriptionDetection>((r) => {
     timer = setTimeout(() => r(result(provider, 'error', { message: `${PROGRAM_LABEL[provider]}가 ${Math.round(timeoutMs / 1000)}초 안에 답하지 않았습니다. 잠시 뒤 다시 확인하세요.` })), timeoutMs);
@@ -145,6 +151,7 @@ export async function detectSubscriptionLogin(provider: SubscriptionProviderId, 
     ]);
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
     ctl.abort(); // 남은 확인 명령을 끝낸다
   }
 }
@@ -152,6 +159,8 @@ export async function detectSubscriptionLogin(provider: SubscriptionProviderId, 
 // ── 실행 직전 로그인 확인 — 구독이 아닌 로그인으로 요금이 나가는 일을 막는다 (이음오피스 결정 0002) ──
 
 const LOGIN_TTL_MS = 10 * 60_000;
+/** 확인 자체가 안 될 때(시간 초과 등)는 실행에 맡기되, 요청마다 20초씩 다시 묻지 않게 잠깐 기억 */
+const ERROR_TTL_MS = 60_000;
 const loginCache = new Map<string, { at: number; state: SubscriptionState }>();
 
 export function clearLoginCache(): void {
@@ -162,9 +171,9 @@ export function clearLoginCache(): void {
 export async function assertSubscriptionLogin(provider: SubscriptionProviderId, program: SubscriptionProgram, detect: typeof detectSubscriptionLogin = detectSubscriptionLogin): Promise<void> {
   const key = `${provider}|${program.command}|${program.prefixArgs.join(' ')}`;
   const hit = loginCache.get(key);
-  if (hit && Date.now() - hit.at < LOGIN_TTL_MS) return;
+  if (hit && Date.now() - hit.at < (hit.state === 'error' ? ERROR_TTL_MS : LOGIN_TTL_MS)) return;
   const d = await detect(provider, { locate: async () => program });
-  if (d.state === 'ready' || d.state === 'unknown-login') { loginCache.set(key, { at: Date.now(), state: d.state }); return; }
+  if (d.state === 'ready' || d.state === 'unknown-login' || d.state === 'error') { loginCache.set(key, { at: Date.now(), state: d.state }); return; }
   if (d.state === 'signed-out' || d.state === 'metered') throw new CliRunError(d.state, provider);
   if (d.state === 'needs-update') throw new CliRunError('needs-update', provider);
 }
