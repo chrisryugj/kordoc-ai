@@ -61,14 +61,15 @@ export async function showFieldGuides(bytes: Uint8Array): Promise<Uint8Array> {
     if (!edits.length) continue;
     let out = xml;
     for (const e of edits.reverse()) out = out.slice(0, e.at) + e.text + out.slice(e.at);
-    // 원본 항목 시각을 그대로: 같은 문서면 언제 만들어도 같은 바이트 (zip 은 고친 시각을 찍는다)
-    zip.file(name, out, { date: zip.file(name)!.date });
+    // 원본 항목 시각을 그대로: 같은 문서면 언제 만들어도 같은 바이트 (zip 은 고친 시각을 찍는다).
+    // createFolders 를 끄지 않으면 JSZip 이 Contents/ 폴더 항목을 지금 시각으로 새로 만들어 2초 경계마다 바이트가 바뀐다
+    zip.file(name, out, { date: zip.file(name)!.date, createFolders: false });
     changed += edits.length;
   }
   if (!changed) return bytes;
   header = header.replace('</hh:charProperties>', `${added.join('')}</hh:charProperties>`)
     .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (_, a: string, n: string, b: string) => `${a}${Number(n) + added.length}${b}`);
-  zip.file('Contents/header.xml', header, { date: headerFile.date });
+  zip.file('Contents/header.xml', header, { date: headerFile.date, createFolders: false });
   const mime = zip.file('mimetype');
   if (mime) zip.file('mimetype', await mime.async('uint8array'), { compression: 'STORE', date: mime.date });
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
