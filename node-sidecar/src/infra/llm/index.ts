@@ -4,6 +4,8 @@ import { redactMarkdown } from 'kordoc';
 import { getSettings } from '../config.js';
 import { sendToken } from '../progress.js';
 import { createAnthropicProvider } from './anthropic.js';
+import { createClaudeCodeProvider } from './claude-code.js';
+import { createCodexProvider } from './codex.js';
 import { createEmbeddedProvider } from './embedded.js';
 import { createGeminiProvider } from './gemini.js';
 import { createOpenAiProvider, resolveOpenAiHost } from './openai.js';
@@ -11,14 +13,32 @@ import type { ChatMessage, ChatRequest, JsonSchema, LlmProvider } from './types.
 
 export type { ChatImage, ChatMessage, JsonSchema, LlmProvider } from './types.js';
 
+/** 구독 계정 연결이 꺼져 있을 때 — 기관이 막았는지, 사용자가 아직 켜지 않았는지 */
+function subscriptionOff(): Error {
+  const lockedOff = getSettings().policy?.locked.includes('ai.allow_subscription');
+  return new Error(lockedOff
+    ? '기관에서 구독 계정(Claude Code·Codex) 연결을 막았습니다. 설정 > AI 연결에서 다른 AI를 고르세요.'
+    : '구독 계정으로 문서 보내기가 꺼져 있습니다. 설정 > AI 연결의 구독 계정에서 문서 보내기를 허용하거나 다른 AI를 고르세요.');
+}
+
 export function getProvider(): LlmProvider {
   const { ai, privacy } = getSettings();
   let p: LlmProvider;
   switch (ai.provider) {
     case 'embedded': p = createEmbeddedProvider(ai.embedded); break;
     case 'openai': p = createOpenAiProvider(ai.openai, ai.timeout_ms); break;
+    // 같은 OpenAI 호환 공급자를 이 PC 서버 칸으로 (127.0.0.1 이면 클라우드 아님 → 폐쇄망에서도 됨)
+    case 'local': p = { ...createOpenAiProvider({ ...ai.local, vision_model: '' }, ai.timeout_ms), id: 'local' }; break;
     case 'gemini': p = createGeminiProvider(ai.gemini, ai.timeout_ms); break;
     case 'anthropic': p = createAnthropicProvider(ai.anthropic, ai.timeout_ms); break;
+    case 'claude-code':
+      if (!ai.allow_subscription) throw subscriptionOff();
+      p = createClaudeCodeProvider(ai.claude_code, ai.timeout_ms);
+      break;
+    case 'codex':
+      if (!ai.allow_subscription) throw subscriptionOff();
+      p = createCodexProvider(ai.codex, ai.timeout_ms);
+      break;
     default:
       throw new Error('AI가 아직 연결되지 않았습니다. 설정 > AI 연결에서 내장 모델이나 AI 서버를 고르세요.');
   }
@@ -32,6 +52,7 @@ export function getProvider(): LlmProvider {
 async function primeHost(): Promise<void> {
   const { ai } = getSettings();
   if (ai.provider === 'openai') await resolveOpenAiHost(ai.openai.base_url);
+  if (ai.provider === 'local') await resolveOpenAiHost(ai.local.base_url);
 }
 
 export function aiConfigured(): boolean {

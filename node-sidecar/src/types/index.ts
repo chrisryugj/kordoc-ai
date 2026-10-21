@@ -1,6 +1,6 @@
 /** 공유 타입 정의 */
 
-export type AiProviderId = 'none' | 'embedded' | 'openai' | 'gemini' | 'anthropic';
+export type AiProviderId = 'none' | 'embedded' | 'openai' | 'local' | 'gemini' | 'anthropic' | 'claude-code' | 'codex';
 
 /** 설정 파일 구조 (v2 — JSON, 앱 데이터 폴더) */
 export interface Settings {
@@ -13,6 +13,14 @@ export interface Settings {
     openai: { base_url: string; api_key: string; model: string; vision_model: string };
     gemini: { api_key: string; model: string };
     anthropic: { api_key: string; model: string };
+    /** 이 PC 의 로컬 모델 서버 — Ollama·LM Studio·llama.cpp 서버·vLLM 등 (OpenAI 호환, 보통 127.0.0.1) */
+    local: { base_url: string; api_key: string; model: string };
+    /** 구독 계정(Claude Code) — PC 에 설치해 로그인해 둔 프로그램. model 이 비면 프로그램 기본, cli_path 가 비면 자동으로 찾음 */
+    claude_code: { model: string; cli_path: string };
+    /** 구독 계정(ChatGPT/Codex) — 같은 방식 */
+    codex: { model: string; cli_path: string };
+    /** 구독 계정으로 문서 보내기 허용 — 인터넷으로 나가니 기본 꺼짐. 기관이 false 로 고정하면 구독 연결을 막는다 */
+    allow_subscription: boolean;
     /** 클라우드 공급자로 보내기 전 개인정보 자동 마스킹 */
     redact_before_cloud: boolean;
     timeout_ms: number;

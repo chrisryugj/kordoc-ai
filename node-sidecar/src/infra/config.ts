@@ -24,6 +24,10 @@ export const DEFAULT_SETTINGS: Settings = {
     openai: { base_url: 'http://127.0.0.1:11434/v1', api_key: '', model: '', vision_model: '' },
     gemini: { api_key: '', model: 'gemini-3.8-flash' },
     anthropic: { api_key: '', model: 'claude-opus-5-5' },
+    local: { base_url: 'http://127.0.0.1:11434/v1', api_key: '', model: '' },
+    claude_code: { model: '', cli_path: '' },
+    codex: { model: '', cli_path: '' },
+    allow_subscription: false,
     redact_before_cloud: true,
     timeout_ms: 180_000,
   },
@@ -135,7 +139,7 @@ const SECRET_FIELDS = ['api_key'];
 /** 프론트로 보낼 때 키 마스킹 */
 export function maskSecrets(settings: Readonly<Settings>): Settings {
   const s = structuredClone(settings) as Settings;
-  for (const p of ['openai', 'gemini', 'anthropic'] as const) {
+  for (const p of ['openai', 'local', 'gemini', 'anthropic'] as const) {
     const k = s.ai[p].api_key;
     if (k && k.trim()) s.ai[p].api_key = k.length > 4 ? `${k.slice(0, 4)}****` : '****';
   }

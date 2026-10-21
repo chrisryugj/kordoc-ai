@@ -15,6 +15,7 @@ import { agentStep, type AgentEvent, type AgentToolDef } from '../../core/ai/age
 import { extractTable } from '../../core/ai/extract.js';
 import { fitLinesWithAi } from '../../core/ai/fit-lines.js';
 import { aiStatus, aiTest, aiWarmup, listServerModels } from '../../core/ai/status.js';
+import { localServers, subscriptionModels, subscriptionStatus } from '../../core/ai/connect.js';
 import { CATALOG, catalog, deleteModel, downloadModel, importModel, listModels } from '../../core/ai/models.js';
 
 const paths = (v: unknown, what: string): string[] => {
@@ -32,7 +33,10 @@ export function registerAi(router: RpcRouter): void {
   // ── 연결 ──
   reg('ai_status', () => aiStatus());
   reg('ai_test', (_p, signal) => aiTest(signal), { heavy: true });
-  reg('ai_list_models', (p, signal) => listServerModels({ base_url: str(p.base_url), api_key: str(p.api_key) }, signal));
+  reg('ai_list_models', (p, signal) => listServerModels({ base_url: str(p.base_url), api_key: str(p.api_key), slot: p.slot === 'local' ? 'local' : 'openai' }, signal));
+  reg('ai_local_servers', (_p, signal) => localServers(signal));
+  reg('ai_subscription_status', (p) => subscriptionStatus(p));
+  reg('ai_subscription_models', (p, signal) => subscriptionModels(p, signal));
   reg('ai_warmup', () => aiWarmup(), { heavy: true });
 
   // ── 내장 모델 ──

@@ -32,10 +32,20 @@ export function aiStatus(): AiStatus {
       if (!ai.openai.base_url) missing = 'AI 서버 주소가 비어 있습니다. 설정 > AI 연결에서 주소를 넣으세요.';
       else if (!ai.openai.model) missing = 'AI 모델을 고르지 않았습니다. 설정 > AI 연결에서 모델을 고르세요.';
       break;
+    case 'local':
+      model = ai.local.model || undefined;
+      if (!ai.local.base_url) missing = '로컬 모델 서버 주소가 비어 있습니다. 설정 > AI 연결에서 이 PC에서 찾기를 누르거나 주소를 넣으세요.';
+      else if (!ai.local.model) missing = '로컬 모델 서버의 모델을 고르지 않았습니다. 설정 > AI 연결에서 모델을 고르세요.';
+      break;
     case 'gemini':
     case 'anthropic':
       model = ai[ai.provider].model || undefined;
       if (!ai[ai.provider].api_key) missing = 'API 키가 없습니다. 설정 > AI 연결에서 키를 넣으세요.';
+      break;
+    case 'claude-code':
+    case 'codex':
+      // 설치·로그인은 프로그램을 띄워야 알 수 있어 여기서는 보지 않는다 (ai_subscription_status, 실행 직전 확인)
+      model = ai[ai.provider === 'codex' ? 'codex' : 'claude_code'].model || '기본 모델';
       break;
     default:
       missing = 'AI가 아직 연결되지 않았습니다. 설정 > AI 연결에서 내장 모델이나 AI 서버를 고르세요.';
@@ -68,18 +78,18 @@ export async function aiTest(signal: AbortSignal): Promise<{ ok: boolean; latenc
   }
 }
 
-/** 저장 전 주소·키로 모델 목록 — 화면에 가려진 키(****)가 오면 저장된 키를 쓴다 */
-export async function listServerModels(params: { base_url?: string; api_key?: string }, signal: AbortSignal): Promise<{ models: string[] }> {
-  const saved = getSettings().ai;
-  const baseUrl = params.base_url?.trim() || saved.openai.base_url;
+/** 저장 전 주소·키로 모델 목록 — 화면에 가려진 키(****)가 오면 저장된 키를 쓴다. slot: 기관 서버(openai)·이 PC 서버(local) 중 어느 칸의 키인지 */
+export async function listServerModels(params: { base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, signal: AbortSignal): Promise<{ models: string[] }> {
+  const saved = getSettings().ai[params.slot === 'local' ? 'local' : 'openai'];
+  const baseUrl = params.base_url?.trim() || saved.base_url;
   if (!baseUrl) throw new Error('AI 서버 주소를 넣으세요. 예: http://127.0.0.1:11434/v1');
   try { new URL(baseUrl); } catch { throw new Error(`AI 서버 주소 형식이 아닙니다: ${baseUrl}. 예: http://127.0.0.1:11434/v1`); }
   // 저장된 키는 저장된 주소에만 — 다른 주소를 시험할 때 키가 그쪽으로 새지 않게
   const norm = (u: string) => u.trim().replace(/\/+$/, '');
   const typed = params.api_key && !params.api_key.includes('****') ? params.api_key.trim() : '';
-  const key = typed || (norm(baseUrl) === norm(saved.openai.base_url) ? saved.openai.api_key : '');
+  const key = typed || (norm(baseUrl) === norm(saved.base_url) ? saved.api_key : '');
   // 폐쇄망 모드면 listModels 안의 관문(assertAllowed)이 외부 주소를 막는다
-  const p = createOpenAiProvider({ base_url: baseUrl, api_key: key, model: '', vision_model: '' }, saved.timeout_ms);
+  const p = createOpenAiProvider({ base_url: baseUrl, api_key: key, model: '', vision_model: '' }, getSettings().ai.timeout_ms);
   try {
     return { models: await p.listModels!(AbortSignal.any([signal, AbortSignal.timeout(15_000)])) };
   } catch (err) {

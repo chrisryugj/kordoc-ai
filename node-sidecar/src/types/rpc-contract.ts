@@ -189,8 +189,14 @@ export interface RpcMethods {
   ai_status: [Record<string, never>, AiStatus];
   /** 연결 시험 — 짧은 질문 한 번 */
   ai_test: [Record<string, never>, { ok: boolean; latency_ms: number; sample?: string; error?: string }];
-  /** 저장 전 설정값으로 모델 목록 (OpenAI 호환 서버) */
-  ai_list_models: [{ base_url?: string; api_key?: string }, { models: string[] }];
+  /** 저장 전 설정값으로 모델 목록 (OpenAI 호환 서버). slot: 저장된 키를 꺼낼 칸 — 기관 서버(openai, 기본)·이 PC 서버(local) */
+  ai_list_models: [{ base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, { models: string[] }];
+  /** 이 PC 에서 켜진 로컬 모델 서버 찾기 — 127.0.0.1 의 잘 알려진 포트(Ollama·LM Studio·llama.cpp 서버·vLLM 등)에 /v1/models */
+  ai_local_servers: [Record<string, never>, { servers: LocalModelServer[] }];
+  /** 구독 프로그램(Claude Code·Codex) 설치·로그인 상태. provider 가 없으면 둘 다. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */
+  ai_subscription_status: [{ provider?: 'claude-code' | 'codex' }, { statuses: SubscriptionStatus[] }];
+  /** 구독 프로그램이 고를 수 있게 내놓는 모델 (모델을 부르지 않음). id 가 빈 값이면 프로그램 기본 모델 */
+  ai_subscription_models: [{ provider: 'claude-code' | 'codex' }, { models: Array<{ id: string; label: string }> }];
   ai_warmup: [Record<string, never>, { gpu: string | false; context_size: number }];
   llm_catalog: [Record<string, never>, LlmCatalogItem[]];
   llm_list: [Record<string, never>, Array<{ path: string; name: string; size: number }>];
@@ -589,6 +595,27 @@ export interface AiStatus {
   /** 내장 모델이 메모리에 올라 있음 */
   embedded_loaded: boolean;
   error?: string;
+}
+
+/** 이 PC 에서 찾은 로컬 모델 서버 */
+export interface LocalModelServer {
+  /** 포트로 짐작한 이름은 "llama.cpp 서버 등" 처럼 "등"을 붙인다 */
+  name: string;
+  base_url: string;
+  models: string[];
+}
+
+/** 구독 프로그램 상태 — ready: 구독 로그인 · unknown-login: 로그인했지만 구독인지 모름(쓸 수는 있음) ·
+ *  metered: 쓴 만큼 요금(API 키 등)이라 보내지 않음 · offline: 폐쇄망 모드 · disabled: 기관이 막음 */
+export interface SubscriptionStatus {
+  provider: 'claude-code' | 'codex';
+  state: 'ready' | 'unknown-login' | 'metered' | 'signed-out' | 'not-installed' | 'needs-update' | 'error' | 'offline' | 'disabled';
+  version?: string;
+  plan?: string;
+  /** 준비되지 않았을 때 할 일 */
+  message?: string;
+  /** 터미널에서 칠 로그인 명령 (claude · codex login) */
+  login_command: string;
 }
 
 export interface LlmCatalogItem {

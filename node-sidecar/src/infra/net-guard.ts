@@ -69,6 +69,14 @@ async function isExternalHost(host: string): Promise<boolean> {
   return addrs.length === 0 || addrs.some((x) => !isPrivateAddress(x.address));
 }
 
+/** 이 앱이 띄운 구독 프로그램(Claude Code·Codex)이 인터넷으로 나가기 전에 호출 — 기록을 남기고, 폐쇄망 모드면 throw.
+ *  프로그램이 실제로 어느 주소로 가는지는 앱이 볼 수 없어, 그 회사의 대표 주소에 프로그램 이름을 붙여 적고 늘 외부로 센다 */
+export function assertProgramEgress(host: string, via: string): void {
+  const allowed = !getSettings().privacy.offline;
+  record(`${host} (${via})`, true, allowed);
+  if (!allowed) throw new OfflineBlockedError(host);
+}
+
 /** 요청 전에 호출 — 기록을 남기고, 폐쇄망 모드에서 외부 주소면 throw */
 export async function assertAllowed(url: string): Promise<void> {
   const host = new URL(url).hostname;
