@@ -55,7 +55,7 @@
 
 ## 근거
 
-문서 엔진 [kordoc](https://github.com/chrisryugj/kordoc) 의 공개 검증 결과입니다(kordoc 4.21.18 README 기준, 앱에는 4.22.17).
+문서 엔진 [kordoc](https://github.com/chrisryugj/kordoc) 의 공개 검증 결과입니다(kordoc 4.21.18 README 기준, 앱에는 4.22.18).
 
 - **PDF 공개 벤치 종합 0.963**: opendataloader-bench 200문서, 공개 12개 파서 비교 1위(2026-09-29 기록)
 - **한국 공문서 표 구조 100%**: 원본 HWPX 2,424문서의 보이는 표 10,342개 전부 구조 일치(4.21.18 검증)
