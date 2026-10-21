@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process';
 import { writeFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, basename, extname } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { PrintPreset } from 'kordoc';
 import { docToPdf } from '../export/index.js';
@@ -69,18 +69,20 @@ async function ensurePrintTempDir(): Promise<void> {
   }
 }
 
-function quotePsArg(s: string): string {
-  // PowerShell 단일 인용 — 작은따옴표 이스케이프
-  return `'${s.replace(/'/g, "''")}'`;
-}
+// PowerShell 은 ‘ ’ ‚ ‛ 도 작은따옴표로 읽는다 — 파일 이름·프린터 이름을 명령 글에 엮지 않고 환경 변수로 넘긴다(명령은 고정 글)
+const PS_PRINT = [
+  '$a = @{ FilePath = $env:KORDOC_PRINT_FILE; Verb = "PrintTo"; WindowStyle = "Hidden" }',
+  'if ($env:KORDOC_PRINTER) { $a.ArgumentList = $env:KORDOC_PRINTER }',
+  'Start-Process @a',
+].join('; ');
 
 async function shellPrint(pdfPath: string, printer?: string): Promise<void> {
-  const args = ['-FilePath', quotePsArg(pdfPath), '-Verb', 'PrintTo'];
-  if (printer) args.push('-ArgumentList', quotePsArg(printer));
-  args.push('-WindowStyle', 'Hidden');
-  const command = `Start-Process ${args.join(' ')}`;
-  await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], {
+  const env: NodeJS.ProcessEnv = { ...process.env, KORDOC_PRINT_FILE: pdfPath };
+  if (printer) env.KORDOC_PRINTER = printer;
+  else delete env.KORDOC_PRINTER;
+  await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS_PRINT], {
     windowsHide: true,
+    env,
   });
 }
 
@@ -114,7 +116,8 @@ export async function printFiles(
 
     try {
       const pdfBuf = await docToPdf(safePath, signal);
-      const pdfName = `${Date.now()}-${i}-${basename(safePath, extname(safePath))}.pdf`;
+      // 임시 이름은 ASCII 로만 — 원래 이름은 인쇄 대기열에 보일 필요가 없다
+      const pdfName = `print-${Date.now()}-${i}.pdf`;
       const pdfPath = join(PRINT_TEMP_DIR, pdfName);
       await writeFile(pdfPath, pdfBuf);
 

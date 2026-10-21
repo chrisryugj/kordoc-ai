@@ -41,7 +41,7 @@ function Ask() {
   useEffect(() => registerDrop("assistant", (p) => setPaths((cur) => [...new Set([...cur, ...p])])), [registerDrop]);
 
   const onCite = (c: Citation) => openDocs([c.path], { page: c.page });
-  const send = (text: string) => { void chat.send(text); setQ(""); };
+  const send = (text: string) => { if (!chat.busy && text.trim()) { void chat.send(text); setQ(""); } };
 
   return (
     <div className="kd-assistant">

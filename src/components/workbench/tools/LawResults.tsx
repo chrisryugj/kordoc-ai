@@ -12,7 +12,7 @@ type Badge = { label: string; tone?: string };
 
 const MISSING: Record<NonNullable<LawCitation["missing"]>, string> = { article: "조문 없음", paragraph: "항 없음", item: "호 없음", subitem: "목 없음" };
 
-/** 주 판정: 맞음 · 확인 필요 · 안 맞음 · 조문/항/호/목 없음 · 법령 없음 · 이름 바뀜 · 확인 못 함 */
+/** 주 판정: 맞음 · 조문 있음(내용 대조 못 함) · 확인 필요 · 안 맞음 · 조문/항/호/목 없음 · 법령 없음 · 이름 바뀜 · 확인 못 함 */
 export function lawVerdict(c: LawCitation): Badge {
   if (c.status === "unchecked") return { label: "확인 못 함" };
   if (c.status === "renamed") return { label: "이름 바뀜", tone: "warn" };
@@ -20,6 +20,8 @@ export function lawVerdict(c: LawCitation): Badge {
   if (c.status === "article_missing") return { label: MISSING[c.missing ?? "article"], tone: "err" };
   if (c.match?.verdict === "mismatch") return { label: "안 맞음", tone: "err" };
   if (c.match?.verdict === "check") return { label: "확인 필요", tone: "warn" };
+  // 공문 문장이 짧아 내용까지는 대조하지 못했다 — 조문이 있다는 것만 안다
+  if (!c.match) return { label: "조문 있음", tone: "info" };
   return { label: "맞음", tone: "ok" };
 }
 

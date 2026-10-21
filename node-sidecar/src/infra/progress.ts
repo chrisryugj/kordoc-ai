@@ -12,7 +12,8 @@ export const requestContext = new AsyncLocalStorage<{ id: number | string | null
 
 export function sendNotification(method: string, params: Record<string, unknown>): void {
   const notification: JsonRpcNotification = { jsonrpc: '2.0', method, params };
-  process.stdout.write(JSON.stringify(notification) + '\n');
+  // 짝 없는 서로게이트는 U+FFFD 로 (main.ts writeResponse 와 같은 이유)
+  process.stdout.write(JSON.stringify(notification, (_k, v: unknown) => (typeof v === 'string' ? (v as string & { toWellFormed(): string }).toWellFormed() : v)) + '\n');
 }
 
 function currentId(explicit?: number | string): number | string | null | undefined {

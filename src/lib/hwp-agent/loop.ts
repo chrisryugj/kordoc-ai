@@ -12,6 +12,19 @@ export type AgentEvent = RpcParams<"ai_agent_step">["events"][number];
 
 /** 요청 하나에서 모델 차례 상한 — 고장 난 모델이 도구를 끝없이 부르지 않게 */
 export const MAX_STEPS = 24;
+/** 이어 보내는 대화의 글자 상한 — 로컬 모델은 맥락이 짧아(4K~8K 토큰) 넘치면 지시문이 잘려 답 형식이 깨진다 */
+export const HISTORY_CHARS = 24_000;
+
+/** 지난 요청의 문서 맥락은 빼고(그새 문서가 바뀌었다), 그래도 길면 가장 오래된 요청부터 통째로 덜어낸다 */
+export function trimHistory(events: AgentEvent[], limit = HISTORY_CHARS): void {
+  for (const e of events) if (e.role === "user" && "context" in e) delete (e as { context?: string }).context;
+  const size = () => events.reduce((n, e) => n + JSON.stringify(e).length, 0);
+  while (size() > limit) {
+    const next = events.findIndex((e, i) => i > 0 && e.role === "user");
+    if (next < 0) break;
+    events.splice(0, next);
+  }
+}
 
 export interface RunHooks {
   /** 모델이 쓴 글 (차례마다 마지막 글로 바뀐다) */
@@ -29,6 +42,7 @@ export async function runAgent(opts: {
 }): Promise<{ text: string; redacted: number }> {
   const { skill, events, signal, hooks } = opts;
   const context = skill.buildContext?.() ?? "";
+  trimHistory(events);
   events.push({ role: "user", text: opts.request, ...(context ? { context } : {}) });
   const executed: ExecutedToolCall[] = [];
   let corrected = false;

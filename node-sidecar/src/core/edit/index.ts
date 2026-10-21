@@ -9,11 +9,12 @@
  * 제약: HWPX 전용 (HwpxSession과 동일). 세션 수/undo 깊이 상한으로 메모리 가드.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HwpxSession, type BlockEdit, type BlockCapabilityInfo, type IRBlock } from 'kordoc';
 import { logger } from '../../infra/logger.js';
+import { uniquePath } from '../output/index.js';
 
 /** 동시 보유 세션 상한 — 초과 시 가장 오래 안 쓴 세션 강제 종료 */
 const MAX_SESSIONS = 4;
@@ -214,13 +215,24 @@ export async function editRedo(params: EditHistoryParams, signal?: AbortSignal):
 export interface EditSaveParams {
   session_id: string;
   output_path: string;
+  /** 이 편집에서 처음 저장 — 같은 이름 파일(지난번 편집본)이 있으면 덮지 않고 새 이름으로 */
+  fresh?: boolean;
 }
 
 export async function editSave(params: EditSaveParams): Promise<{ success: boolean; output_path: string }> {
-  const { session_id, output_path } = params;
+  const { session_id } = params;
   const entry = getSession(session_id);
+  const output_path = params.fresh ? uniquePath(params.output_path) : params.output_path;
   await mkdir(dirname(output_path), { recursive: true });
-  await writeFile(output_path, entry.session.bytes);
+  // 임시 파일에 다 쓴 뒤 바꿔 넣는다 (쓰다 끊기면 반쯤 쓴 파일이 남지 않게)
+  const tmp = `${output_path}.kordoc-tmp`;
+  await writeFile(tmp, entry.session.bytes);
+  try {
+    await rename(tmp, output_path);
+  } catch (e) {
+    await rm(tmp, { force: true });
+    throw e;
+  }
   logger.info(`[edit_save] 세션 ${session_id} → ${output_path}`);
   return { success: true, output_path };
 }

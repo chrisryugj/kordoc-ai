@@ -5,12 +5,12 @@
  * 지운 글까지 표시한 두 번째 본문(ViewText)을 읽는다(쪽 수가 몇 배로 늘고 저장하면 한글이 못 연다).
  * 그래서 열 때 추적 문서는 지금 내용으로 바꿔 주고, 원본의 목록·필드 종류를 표(token)로 간직했다가 저장할 때 되붙인다.
  * 편집기에서 새로 넣은 탭은 rhwp 가 폭 0 으로 써서 한글에서 붙어 나오니, 편집기가 잰 폭을 써 넣는다(editor_tab_spots → measureTabs → tabs).
- * 처음 덮어쓰는 파일은 옆에 `.bak` 을 남긴다. 판단 근거와 한컴 한글 확인은 이음오피스 결정 0024·0026·0027·0028.
+ * 처음 덮어쓰는 파일은 옆에 `.bak` 을 남긴다(이미 있으면 그대로 둔다). 판단 근거와 한컴 한글 확인은 이음오피스 결정 0024·0026·0027·0028.
  */
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, constants } from 'node:fs/promises';
 import { readFileB64, writeFileB64 } from '../files/io.js';
 import { fieldKindsOf, restoreFieldKinds, type FieldKinds } from './field-kinds.js';
 import { restoreSectionTails, sectionTailsOf, type SectionTails } from './section-tails.js';
@@ -34,6 +34,7 @@ const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
 const starts = (b: Uint8Array, magic: number[]) => b.length >= magic.length && magic.every((x, i) => b[i] === x);
 
+export const EDITOR_REOPEN_NEEDED = '편집기 엔진이 다시 시작돼 이 문서의 저장 보정 정보가 없어졌습니다. 원본을 지키려고 저장하지 않았습니다. 편집 내용은 다른 이름으로 HWPX 로 저장하거나, 문서를 닫고 다시 연 뒤 고쳐 주세요.';
 export const TRACKED_SAVE_BLOCK = '변경 내용 추적이 든 한글 문서인데 추적 기록을 뺄 수 없어, 지운 글까지 들어간 채 저장하게 됩니다. HWPX 로 저장하거나 한글에서 변경 내용을 반영한 뒤 다시 여세요.';
 
 export async function editorOpen(path: string): Promise<{ data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }> {
@@ -80,6 +81,8 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
   // 탭이 먼저: 탭 자리는 엔진이 쓴 바이트에서 찾았고, 목록 되붙이기는 구역 본문을 그대로 둔다
   if (p.tabs?.length && /\.hwpx?$/i.test(p.path)) bytes = writeTabWidths(bytes, hwp ? 'hwp' : 'hwpx', p.tabs).bytes;
   const doc = p.token ? opened.get(p.token) : undefined;
+  // 열 때 받은 표가 없다 = 엔진이 다시 켜졌다. 보정 없이 쓰면 한글이 못 여는 HWP 가 원본 자리에 남는다
+  if (p.token && !doc && hwp) throw new Error(EDITOR_REOPEN_NEEDED);
   let tailsLost = false;
   if (doc && hwp) {
     if (doc.tracked) throw new Error(TRACKED_SAVE_BLOCK);
@@ -92,8 +95,13 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
   }
   let backup: string | undefined;
   if (doc && p.backup !== false && existsSync(p.path) && !doc.written.has(p.path)) {
-    backup = `${p.path}.bak`;
-    await copyFile(p.path, backup);
+    // 이미 있는 .bak 은 처음 원본이다 — 다시 열어 저장해도 덮지 않는다
+    try {
+      await copyFile(p.path, `${p.path}.bak`, constants.COPYFILE_EXCL);
+      backup = `${p.path}.bak`;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
   }
   const r = await writeFileB64({ path: p.path, data_b64: Buffer.from(bytes).toString('base64'), overwrite: p.overwrite });
   doc?.written.add(r.path);

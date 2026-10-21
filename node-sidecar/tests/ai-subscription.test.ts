@@ -6,9 +6,9 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { updateSettings } from '../src/infra/config.js';
 import { netLogSnapshot, OfflineBlockedError } from '../src/infra/net-guard.js';
@@ -24,7 +24,8 @@ import type { ChatRequest } from '../src/infra/llm/types.js';
 process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-'));
 const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url));
-const work = mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-work-'));
+// macOS 의 tmpdir 은 /var → /private/var 심링크라 프로그램 위치·작업 폴더 비교가 어긋난다 — 실경로로
+const work = realpathSync(mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-work-')));
 let logN = 0;
 
 /** 가짜 프로그램. 자식 환경은 허용 목록만 넘기므로 가짜를 조종하는 FAKE_* 는 program.env(띄울 때 더하는 값)로 */
@@ -400,7 +401,7 @@ describe('프로그램 찾기·환경', () => {
       base: { Anthropic_Api_Key: 'a', OPENAI_BASE_URL: 'b', CLAUDE_CODE_USE_BEDROCK: '1', KEEP: 'k', NODE_OPTIONS: '--require x', KORDOC_AI_DATA_DIR: 'd', Path: 'C:\\x', TEMP: 'C:\\t', https_proxy: 'http://p', LC_ALL: 'ko_KR' },
       platform: 'win32', command: 'C:\\tools\\claude.exe', extra: { DISABLE_TELEMETRY: '1' },
     });
-    expect(env).toEqual({ Path: `C:\\tools${delimiter}C:\\x`, TEMP: 'C:\\t', https_proxy: 'http://p', LC_ALL: 'ko_KR', DISABLE_TELEMETRY: '1' });
+    expect(env).toEqual({ Path: `C:\\tools${win32.delimiter}C:\\x`, TEMP: 'C:\\t', https_proxy: 'http://p', LC_ALL: 'ko_KR', DISABLE_TELEMETRY: '1' });
     expect(subscriptionChildEnv({ base: { ANTHROPIC_API_KEY: 'a', HOME: '/h' }, platform: 'linux' })).toEqual({ HOME: '/h' });
   });
 });

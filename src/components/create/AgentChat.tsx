@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Send, Square, Undo2 } from "lucide-react";
+import { MessageSquarePlus, Send, Square, Undo2 } from "lucide-react";
 import { useApp } from "../../state/app";
-import { errorText } from "../../lib/rpc";
+import { errorText, isAbort } from "../../lib/rpc";
 import { Button } from "../ui/Button";
 import { ErrorLine, Note } from "../common/Status";
 import { useCreate } from "./session";
@@ -37,7 +37,7 @@ const EXAMPLES = [
 
 export function AgentChat() {
   const { ai } = useApp();
-  const { call, editorState, docSeq } = useCreate();
+  const { call, editorState, docSeq, session } = useCreate();
   const [chat, setChat] = useState<Entry[]>([]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,8 +59,13 @@ export function AgentChat() {
     },
   }), [bridge]);
 
+  // 편집기에 다른 문서를 열기 시작하면 바로 멈춘다 (docSeq 는 다 연 뒤에 올라 그 사이 도구 호출이 새 문서로 갈 수 있다)
+  useEffect(() => { ctrl.current?.abort(); }, [session?.path]);
+
   // 편집기에 다른 문서를 열면 대화를 새로 시작한다 (앞 문서의 도구 결과·되돌리기가 새 문서로 새지 않게)
   useEffect(() => {
+    // 돌던 요청도 멈춘다 — 남은 도구 호출이 새 문서에 적용되지 않게
+    ctrl.current?.abort();
     setChat([]);
     events.current = [];
     setError("");
@@ -101,7 +106,8 @@ export function AgentChat() {
       const note = r.redacted ? `\n\n(인터넷 AI 로 보내기 전 개인정보 ${r.redacted}건을 가렸습니다. 가린 글은 찾아 바꾸지 못할 수 있습니다.)` : "";
       patchLast((e) => ({ ...e, text: (r.text || e.text || "끝났습니다.") + note }));
     } catch (e) {
-      const aborted = e instanceof DOMException && e.name === "AbortError";
+      // rpc 는 이름만 AbortError 인 Error 를 던진다 (DOMException 만 보면 멈추기가 빨간 오류로 보였다)
+      const aborted = isAbort(e);
       patchLast((x) => ({ ...x, text: aborted ? "멈췄습니다." : errorText(e), error: !aborted }));
     } finally {
       const count = runChanges.current;
@@ -172,6 +178,9 @@ export function AgentChat() {
         {busy
           ? <Button variant="secondary" size="sm" onClick={() => ctrl.current?.abort()}><Square size={12} /> 멈추기</Button>
           : <Button size="sm" disabled={!prompt.trim()} onClick={() => void send(prompt)}><Send size={12} /> 보내기</Button>}
+        {!busy && chat.length > 0 && (
+          <Button size="sm" variant="ghost" onClick={() => { setChat([]); events.current = []; setError(""); }}><MessageSquarePlus size={12} /> 새 대화</Button>
+        )}
       </div>
     </div>
   );

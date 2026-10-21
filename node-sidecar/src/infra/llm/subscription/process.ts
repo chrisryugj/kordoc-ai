@@ -8,7 +8,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, win32 } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, posix, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { SubscriptionProgram } from './locate.js';
 
@@ -46,9 +46,11 @@ export function subscriptionChildEnv(opts: { base?: NodeJS.ProcessEnv; platform?
   }
   // 프로그램이 로그인·설정 폴더를 HOME 으로 찾는다
   if (platform === 'win32' && !env.HOME && env.USERPROFILE) env.HOME = env.USERPROFILE;
-  if (opts.command && isAbsolute(opts.command)) {
+  // 경로 규칙은 대상 플랫폼 것으로 (Windows 경로를 다른 OS 에서 시험할 때도 같게)
+  const p = platform === 'win32' ? win32 : posix;
+  if (opts.command && p.isAbsolute(opts.command)) {
     const key = Object.keys(env).find((n) => n.toLowerCase() === 'path') ?? 'PATH';
-    env[key] = `${dirname(opts.command)}${delimiter}${env[key] ?? ''}`;
+    env[key] = `${p.dirname(opts.command)}${p.delimiter}${env[key] ?? ''}`;
   }
   return { ...env, ...opts.extra };
 }

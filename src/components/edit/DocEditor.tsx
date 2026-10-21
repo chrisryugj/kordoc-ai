@@ -24,6 +24,7 @@ import { RhwpPreview } from "../../lib/rhwp-preview";
 import { annotateBlocks, type BlockAnnotation } from "../../lib/svg-annotate";
 import type { ImportedFile } from "../../types/pipeline";
 import { joinPath } from "../../lib/format";
+import { onQuitGuard } from "../../lib/quit";
 
 // ── 사이드카 응답 타입 (node-sidecar/src/core/edit과 동기) ──
 
@@ -116,6 +117,8 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const [hoverKey, setHoverKey] = useState("");
   const [showLocks, setShowLocks] = useState(false);
 
+  /** 이 편집에서 처음 저장할 때 정한 파일 — 그 뒤 저장(자동 포함)은 같은 파일에 */
+  const [savedPath, setSavedPath] = useState<string | null>(null);
   const savePath = useMemo(() => {
     const stem = file.name.replace(/\.[^.]+$/, "");
     const dir = outputDir || file.path.replace(/[\\/][^\\/]+$/, "");
@@ -225,20 +228,36 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   }, [page, docVersion, loading, renderPage]);
 
   // ── 저장 (수동 + 30초 자동) ──
-  const doSave = useCallback(async (auto: boolean) => {
-    if (!sessionId) return;
+  /** 저장 중인 약속 — 자동 저장 도중 닫기·종료가 또 저장하면 첫 저장이 둘 다 새 이름을 받아 파일이 둘 생긴다 */
+  const saving = useRef<Promise<string | null> | null>(null);
+  /** 닫으려는데 저장이 실패했다 — 버리고 닫을 길을 보인다 */
+  const [closeFailed, setCloseFailed] = useState(false);
+  const doSave = useCallback((auto: boolean): Promise<string | null> => {
+    if (saving.current) return saving.current;
+    const p = saveOnce(auto).finally(() => { saving.current = null; });
+    saving.current = p;
+    return p;
+    // saveOnce 는 아래에서 같은 deps 로 만든다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, savePath, savedPath]);
+  const saveOnce = async (auto: boolean): Promise<string | null> => {
+    if (!sessionId) return null;
     setBusy("save");
     try {
-      await sidecarCall("edit_save", { session_id: sessionId, output_path: savePath });
+      // 처음 저장은 지난번 편집본을 덮지 않게 새 이름을 받는다
+      const r = await sidecarCall("edit_save", { session_id: sessionId, output_path: savedPath ?? savePath, fresh: !savedPath }) as { output_path: string };
+      setSavedPath(r.output_path);
       setDirty(false);
       setSavedAt(new Date());
-      if (!auto) showToast(`저장 완료: ${savePath}`, "success");
+      if (!auto) showToast(`저장했습니다: ${r.output_path}`, "success");
+      return r.output_path;
     } catch (e) {
-      showToast(`저장 실패: ${e}`, "error");
+      showToast(`저장하지 못했습니다. ${e instanceof Error ? e.message : String(e)} 다른 폴더를 고르거나 파일을 연 프로그램을 닫고 다시 저장하세요.`, "error");
+      return null;
     } finally {
       setBusy("");
     }
-  }, [sessionId, savePath, sidecarCall, showToast]);
+  };
 
   // 변경 후 30초 뒤 자동저장 — dirty가 유지되는 동안 1회
   useEffect(() => {
@@ -291,14 +310,19 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     }
   }, [sessionId, sidecarCall, showToast, applyState]);
 
+  // 트레이 "완전 종료" 전: 고친 것이 있으면 저장부터 (실패하면 끄지 않는다)
+  useEffect(() => onQuitGuard(async () => !dirty || !sessionId || !!(await doSave(true))), [dirty, sessionId, doSave]);
+
   // ── 닫기: 미저장 변경은 저장 후 종료 ──
   const handleClose = useCallback(async () => {
     if (dirty && sessionId) {
-      await doSave(true);
-      showToast(`변경 사항 저장됨: ${savePath}`, "info");
+      // 저장에 실패하면 닫지 않는다 (고친 것이 사라지지 않게)
+      const out = await doSave(true);
+      if (!out) { setCloseFailed(true); return; }
+      showToast(`고친 내용을 저장했습니다: ${out}`, "info");
     }
     onClose();
-  }, [dirty, sessionId, doSave, savePath, showToast, onClose]);
+  }, [dirty, sessionId, doSave, showToast, onClose]);
 
   // ── 대화상자: Esc 닫기(고치던 칸이 열려 있으면 그 칸만 닫는다) · Tab 은 안에서만 · 연 단추로 포커스 되돌리기 ──
   const titleId = useId();
@@ -409,6 +433,14 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
           </p>
         </div>
 
+        {closeFailed && (
+          <span className="flex items-center gap-2 shrink-0" role="alert">
+            <span className="ts-2xs" style={{ color: "var(--color-error)" }}>저장하지 못해 닫지 않았습니다</span>
+            <button type="button" className="kd-link ts-2xs" onClick={onClose}>고친 것 버리고 닫기</button>
+            <button type="button" className="kd-link ts-2xs" onClick={() => setCloseFailed(false)}>계속 고치기</button>
+          </span>
+        )}
+
         {/* 저장 상태 */}
         <span className="ts-2xs shrink-0" style={{ color: dirty ? "var(--color-warning)" : "var(--color-text-muted)" }}>
           {busy === "save" ? "저장 중..." : dirty ? "● 저장 안 됨 (30초 후 자동 저장)" : savedAt ? `저장됨 ${savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : ""}
@@ -436,7 +468,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
             </span>
           </Button>
           {savedAt && (
-            <button onClick={() => onOpenFolder(savePath)} className="p-1.5 rounded-md hover-bg-tertiary" aria-label="저장 위치 열기" title="저장 위치 열기">
+            <button onClick={() => onOpenFolder(savedPath ?? savePath)} className="p-1.5 rounded-md hover-bg-tertiary" aria-label="저장 위치 열기" title="저장 위치 열기">
               <FolderOpen size={15} style={{ color: "var(--color-text-secondary)" }} />
             </button>
           )}

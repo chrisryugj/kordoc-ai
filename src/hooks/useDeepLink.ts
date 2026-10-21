@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invokeCmd, isTauri } from "../lib/rpc";
+import { canQuit } from "../lib/quit";
 
 /**
  * 우클릭 메뉴·Finder 빠른 동작·파일 연결로 들어오는 동작 (Rust 가 Tauri 이벤트로 넘긴다)
@@ -61,6 +62,8 @@ export function useDeepLink(onLink: (p: DeepLinkPayload) => void, onOpenFiles: (
     void Promise.all([
       listen<string>("deep-link", (e) => onDeepLink(e.payload)),
       listen<string[]>("open-files", (e) => onFiles(e.payload)),
+      // 트레이 "완전 종료": 저장 안 한 것을 물은 뒤에만 끈다
+      listen("quit-requested", () => { void canQuit().then((ok) => invokeCmd(ok ? "quit_app" : "quit_cancelled")).catch(() => undefined); }),
     ]).then(async (fns) => {
       if (disposed) { fns.forEach((off) => off()); return; }
       offs = fns;

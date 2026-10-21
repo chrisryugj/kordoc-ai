@@ -6,6 +6,21 @@ mod sidecar;
 use shell::ShellCollector;
 use sidecar::manager::SidecarManager;
 use std::sync::Arc;
+
+/** 트레이 "완전 종료"를 마지막으로 누른 때(초) — 화면이 답하지 않을 때 두 번째 누름은 바로 끈다 */
+static QUIT_ASKED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 화면이 저장 안 한 것을 다 물은 뒤 부르는 완전 종료
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+/// 화면이 종료를 묻고 사용자가 취소했다 — 다음 "완전 종료"도 다시 묻게 시계를 되돌린다
+#[tauri::command]
+fn quit_cancelled() {
+    QUIT_ASKED_AT.store(0, std::sync::atomic::Ordering::SeqCst);
+}
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -72,6 +87,8 @@ pub fn run() {
             shell::shell_menu_install,
             shell::shell_menu_uninstall,
             shell::shell_take_pending,
+            quit_app,
+            quit_cancelled,
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").ok_or("main 윈도우를 찾을 수 없습니다")?;
@@ -128,7 +145,17 @@ pub fn run() {
                             let _ = w.hide();
                         }
                     }
-                    "tray-quit" => app.exit(0),
+                    // 화면에 먼저 묻는다(저장 안 한 문서). 화면이 답하지 못하는 경우를 위해 10초 안에 한 번 더 누르면 바로 끈다
+                    "tray-quit" => {
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                        let last = QUIT_ASKED_AT.swap(now, std::sync::atomic::Ordering::SeqCst);
+                        if last != 0 && now.saturating_sub(last) < 10 {
+                            app.exit(0);
+                        } else {
+                            show_main(app);
+                            let _ = app.emit("quit-requested", ());
+                        }
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray: &tauri::tray::TrayIcon<tauri::Wry>, event: TrayIconEvent| {

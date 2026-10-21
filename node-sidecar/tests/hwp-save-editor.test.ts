@@ -91,6 +91,26 @@ describe('editor_write', () => {
     expect(existsSync(`${target}.bak`)).toBe(false);
   });
 
+  it('엔진이 다시 켜져 모르는 표(token)면 HWP 를 덮지 않는다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kd-hwpsave-'));
+    const path = join(dir, '문서.hwp');
+    writeFileSync(path, hwp('원본'));
+    await expect(editorWrite({ path, data_b64: Buffer.from(hwp('고침')).toString('base64'), token: 'gone', overwrite: true })).rejects.toThrow(/다시 시작/);
+    expect(firstPara(readFileSync(path))).toBe('원본');
+  });
+
+  it('이미 있는 .bak 은 다시 열어 저장해도 덮지 않는다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kd-hwpsave-'));
+    const path = join(dir, '문서.hwp');
+    writeFileSync(path, hwp('처음'));
+    const a = await editorOpen(path);
+    await editorWrite({ path, data_b64: Buffer.from(hwp('한 번')).toString('base64'), token: a.token, overwrite: true });
+    const b = await editorOpen(path);
+    const r = await editorWrite({ path, data_b64: Buffer.from(hwp('두 번')).toString('base64'), token: b.token, overwrite: true });
+    expect(r.backup_path).toBeUndefined();
+    expect(firstPara(readFileSync(`${path}.bak`))).toBe('처음');
+  });
+
   it('확장자와 다른 형식의 바이트는 쓰지 않는다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kd-hwpsave-'));
     const path = join(dir, '문서.hwpx');

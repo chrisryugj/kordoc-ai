@@ -24,9 +24,11 @@ export function useChat(paths: string[]) {
   const patchLast = (fn: (it: ChatItem) => ChatItem) =>
     setItems((prev) => (prev.length ? [...prev.slice(0, -1), fn(prev[prev.length - 1])] : prev));
 
-  const send = useCallback(async (question: string) => {
+  /** 보냈으면 true — 답을 받는 중이거나 빈 질문이면 false (부른 쪽은 true 일 때만 입력칸을 비운다) */
+  const send = useCallback(async (question: string): Promise<boolean> => {
     const q = question.trim();
-    if (!q || !paths.length) return;
+    // 답을 받는 중 Enter 를 또 누르면 요청이 둘 돌고 토큰이 섞인다
+    if (!q || !paths.length || ctrl.current) return false;
     const history: ChatMessage[] = itemsRef.current
       .filter((i) => !i.error && !i.pending && i.content)
       .map((i) => ({ role: i.role, content: i.content }));
@@ -43,13 +45,14 @@ export function useChat(paths: string[]) {
     } catch (e) {
       patchLast((it) => ({ ...it, pending: false, error: isAbort(e) ? "답을 멈췄습니다" : errorText(e) }));
     } finally {
-      ctrl.current = null;
+      if (ctrl.current === ac) ctrl.current = null;
       setBusy(false);
     }
+    return true;
   }, [paths]);
 
   const stop = useCallback(() => ctrl.current?.abort(), []);
-  const reset = useCallback(() => { ctrl.current?.abort(); setItems([]); }, []);
+  const reset = useCallback(() => { ctrl.current?.abort(); ctrl.current = null; setItems([]); }, []);
 
   return { items, busy, send, stop, reset };
 }

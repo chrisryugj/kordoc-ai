@@ -21,7 +21,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { logger } from '../logger.js';
@@ -374,7 +374,8 @@ function waitForTurn(client: RpcClient, threadId: string, start: () => Promise<u
 
 async function withClient<T>(cfg: CodexConfig, deps: CodexDeps, signal: AbortSignal, work: (client: RpcClient, tempDir: string) => Promise<T>): Promise<T> {
   // 이번 요청만의 빈 폴더 — 작업 폴더·권한 프로필의 읽기 허용·그림 파일 자리
-  const tempDir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
+  // 실경로로 — macOS 임시 폴더는 /var → /private/var 심링크라, 권한 프로필·그림 경로가 프로그램이 보는 작업 폴더와 어긋나지 않게
+  const tempDir = await realpath(await mkdtemp(join(tmpdir(), TEMP_PREFIX)));
   let client: RpcClient | undefined;
   const onAbort = () => client?.stop(cancelledError());
   signal.addEventListener('abort', onAbort, { once: true });

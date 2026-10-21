@@ -90,7 +90,7 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
           <h3 id="ask-t" className="kd-h2">이 문서에 묻기</h3>
           <ChatThread items={chat.items} onCite={onCite}
             empty={<p className="kd-small kd-muted">예: 담당 부서와 기한만 표로 정리해 줘</p>} />
-          <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); void chat.send(question); setQuestion(""); }}>
+          <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); if (chat.busy || !question.trim()) return; void chat.send(question); setQuestion(""); }}>
             <textarea className="kd-textarea" rows={2} value={question} placeholder="질문을 쓰고 Enter (줄바꿈은 Shift+Enter)" aria-label="질문"
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !(e.nativeEvent.isComposing || e.keyCode === 229)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />

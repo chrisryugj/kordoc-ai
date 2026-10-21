@@ -15,6 +15,7 @@ import { RHWP_MAX_PAGES } from "../../lib/rhwp-preview";
 import { useApp } from "../../state/app";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+import { onQuitGuard } from "../../lib/quit";
 
 /** 편집기에서 새로 넣은 탭의 폭 — rhwp 가 0 으로 써서 한글에서 붙어 나온다. 편집기가 배치한 대로 잰다. 못 재면 저장은 그대로 */
 async function measuredTabs(ed: HwpEditorClient, data_b64: string, format: "hwp" | "hwpx") {
@@ -57,6 +58,7 @@ export const workingFile = async (name: string) => (await rpc("working_path", { 
 
 const NOT_READY = "한글 편집기가 아직 열리지 않았습니다. 잠시 뒤 다시 시도하세요.";
 const FIELDS_LOST = "한글 편집기가 열리지 않아 채운 칸 값을 저장할 수 없습니다. 앱을 다시 켠 뒤 서식을 다시 채우세요.";
+const OPEN_FAILED = "한글 편집기가 이 문서를 열지 못해 편집기를 닫았습니다. 고치지 않은 그대로 저장·출력하거나, 문서를 다시 열어 보세요.";
 const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 문서 화면에서 내용을 보세요.";
 
 interface Ask { title: string; body: ReactNode; choices: Array<{ id: string; label: string; variant?: "secondary" | "ghost" }>; resolve: (id: string) => void }
@@ -284,11 +286,11 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveRequest.current = () => void saveCurrent(); }, [saveCurrent]);
 
   /** 고친 내용이 남은 지금 문서를 다른 문서로 바꾸기 전에 묻는다 — 바꿔도 되면 true */
-  const settleCurrent = useCallback(async (): Promise<boolean> => {
+  const settleCurrent = useCallback(async (before = "새 문서를 열기 전에"): Promise<boolean> => {
     if (!session || !(await syncDirty())) return true;
     const a = await askUser({
       title: "저장하지 않은 문서",
-      body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{session.name}에서 고친 내용이 아직 저장되지 않았습니다. 새 문서를 열기 전에 저장할까요? 버리면 고친 내용은 사라집니다.</p>,
+      body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{session.name}에서 고친 내용이 아직 저장되지 않았습니다. {before} 저장할까요? 버리면 고친 내용은 사라집니다.</p>,
       choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "discard", label: "버리기", variant: "secondary" }, { id: "save", label: "저장" }],
     });
     if (a === "discard") {
@@ -322,6 +324,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
     setBusyText("한글 편집기를 여는 중");
+    // 편집기에 이 문서가 실제로 들어갔는지 — 못 들어갔는데 편집기를 그대로 두면 앞 문서 내용이 이 경로로 저장된다
+    let loaded = false;
     try {
       if (!(await ensureEditor())) return;
       const ed = client.current!;
@@ -336,18 +340,23 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         if (e instanceof EditorTimeoutError) { stopEditor(BIG_STOPPED); throw new Error(BIG_STOPPED); }
         throw e;
       }
+      loaded = true;
       if (fields) await ed.call("put_fields", { values: fields });
       // 연 뒤 상태를 직접 확인한다 (칸을 넣었으면 디스크 파일과 달라졌다)
       const st = await ed.call("state", {}).catch(() => null);
       setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty } : s));
       setDocSeq((n) => n + 1);
     } catch (e) {
+      if (!loaded && client.current) stopEditor(OPEN_FAILED);
       toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
     } finally {
       opening.current = false;
       setBusyText("");
     }
   }, [askUser, settleCurrent, ensureEditor, stopEditor, toast]);
+
+  // 트레이 "완전 종료" 전에 편집 중인 문서를 묻는다
+  useEffect(() => onQuitGuard(() => settleCurrent("앱을 끄기 전에")), [settleCurrent]);
 
   const focusEditor = useCallback(() => frameRef.current?.focus(), []);
 

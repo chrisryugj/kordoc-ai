@@ -157,7 +157,7 @@ export function registerDocuments(router: RpcRouter): void {
   reg('edit_patch', (p, signal) => editPatch({ session_id: String(p.session_id ?? ''), edits: p.edits as BlockEdit[], include_doc: bool(p.include_doc) }, signal));
   reg('edit_undo', (p, signal) => editUndo({ session_id: String(p.session_id ?? ''), include_doc: bool(p.include_doc) }, signal));
   reg('edit_redo', (p, signal) => editRedo({ session_id: String(p.session_id ?? ''), include_doc: bool(p.include_doc) }, signal));
-  reg('edit_save', (p) => editSave({ session_id: String(p.session_id ?? ''), output_path: reqPath(p.output_path) }));
+  reg('edit_save', (p) => editSave({ session_id: String(p.session_id ?? ''), output_path: reqPath(p.output_path), fresh: p.fresh === true }));
   reg('edit_close', (p) => editClose({ session_id: String(p.session_id ?? '') }));
 
   registerDocumentWork(router);

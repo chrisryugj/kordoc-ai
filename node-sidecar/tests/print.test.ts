@@ -18,7 +18,7 @@ vi.mock('node:child_process', () => ({
     // promisified execFile callback 시그니처: (err, {stdout, stderr})
     // 실제 호출은 promisify(execFile) 형태이므로 callback 마지막 인자로 옴
     const callback = typeof opts === 'function' ? opts : cb;
-    mockExecFile(cmd, args);
+    mockExecFile(cmd, args, typeof opts === 'function' ? undefined : opts);
     if (typeof callback === 'function') {
       // listPrinters 의 stdout 시뮬레이션
       const last = args[args.length - 1] ?? '';
@@ -71,11 +71,27 @@ describe('printFiles', () => {
     expect(result.jobIds[0]).toMatch(/kordoc-print/);
     expect(mockDocToPdf).toHaveBeenCalledWith(file, expect.anything());
     // execFile 가 PowerShell Start-Process 명령으로 호출됨
-    expect(mockExecFile).toHaveBeenCalledWith('powershell', expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']));
+    expect(mockExecFile).toHaveBeenCalledWith('powershell', expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']), expect.anything());
     const command = mockExecFile.mock.calls[0][1].at(-1) as string;
     expect(command).toContain('Start-Process');
     expect(command).toContain('PrintTo');
-    expect(command).toContain("'Test Printer'");
+    // 프린터·파일 이름은 명령 글이 아니라 환경 변수로
+    expect(command).not.toContain('Test Printer');
+    const env = (mockExecFile.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env;
+    expect(env.KORDOC_PRINTER).toBe('Test Printer');
+    expect(env.KORDOC_PRINT_FILE).toMatch(/kordoc-print/);
+  });
+
+  it('파일 이름의 굽은 따옴표(‘ ’)가 PowerShell 명령에 들어가지 않는다', async () => {
+    const file = join(tmp, '회의’;calc;#.hwpx');
+    await writeFile(file, 'dummy');
+    mockDocToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
+    const result = await printFiles({ files: [file] }, new AbortController().signal);
+    expect(result.queued).toBe(1);
+    const [, args, opts] = mockExecFile.mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }];
+    expect(args.at(-1)).not.toMatch(/calc|’/);
+    expect(opts.env.KORDOC_PRINT_FILE).toMatch(/print-\d+-0\.pdf$/);
+    expect(opts.env.KORDOC_PRINTER).toBeUndefined();
   });
 
   it('PDF 만들기 실패 시 failed 에 추가하고 다른 파일은 계속 처리', async () => {
