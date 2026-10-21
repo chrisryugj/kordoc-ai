@@ -5,7 +5,7 @@ export type {
   DocFormat, FileEntry, PagePreview, LintFinding, RedactRule, ChatMessage, Citation, BatchItemResult,
   SystemInfo, McpEnv, DocInfo, ConvertParams, ConvertResult, CompareResult, TablesResult, GongmunMeta,
   GenerateParams, RedactResult, AiStatus, LlmCatalogItem, ReviewIssue, TemplateEntry, TemplateAnalysis,
-  UsageReport, SecurityStatus,
+  UsageReport, SecurityStatus, LocalModelServer, SubscriptionStatus,
   StyleFormat, StyleEntry,
 } from "../../node-sidecar/src/types/rpc-contract";
 export type { Settings, AiProviderId } from "../../node-sidecar/src/types/index";

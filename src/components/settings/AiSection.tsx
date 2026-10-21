@@ -1,7 +1,7 @@
-/** 나. AI 연결 — 쉬운 세 갈래: 이 PC 안 · 기관 AI 서버나 Ollama · 인터넷 AI 서비스 */
+/** 나. AI 연결 — 갈래: 이 PC 안(내장) · 이 PC의 로컬 모델 서버 · 기관 AI 서버 · 인터넷 AI 서비스(키) · 구독 계정(Claude Code·Codex) */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Cloud, Cpu, Lock, PlugZap, RefreshCw, Save, Server } from "lucide-react";
+import { BadgeCheck, Cloud, Cpu, HardDrive, Lock, PlugZap, RefreshCw, Save, Server } from "lucide-react";
 import type { AiProviderId, RpcResult, Settings } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { rpc } from "../../lib/rpc";
@@ -10,11 +10,19 @@ import { Button } from "../ui/Button";
 import { Field, Section, Seg, Switch, TextField } from "../common/Field";
 import { ErrorLine, Note, Working } from "../common/Status";
 import { EmbeddedModels } from "./EmbeddedModels";
+import { LocalServerPanel } from "./LocalServerPanel";
+import { SubscriptionPanel, type SubProvider } from "./SubscriptionPanel";
 import { lockProps, PolicyLock, useLocked } from "./PolicyLock";
 import { Advanced, UnsavedBadge, useDirtyMark } from "./dirty";
 
-type Route = "embedded" | "openai" | "cloud" | "none";
-const routeOf = (p: AiProviderId): Route => (p === "gemini" || p === "anthropic" ? "cloud" : p);
+export type Route = "embedded" | "local" | "openai" | "cloud" | "subscription" | "none";
+export const routeOf = (p: AiProviderId): Route => (p === "gemini" || p === "anthropic" ? "cloud" : p === "claude-code" || p === "codex" ? "subscription" : p);
+/** 화면에 보일 "지금" 이름 */
+export const PROVIDER_LABEL: Record<AiProviderId, string> = {
+  none: "연결 안 됨", embedded: "이 PC 안", local: "이 PC의 로컬 모델 서버", openai: "기관 서버", gemini: "인터넷 서비스", anthropic: "인터넷 서비스",
+  "claude-code": "구독 계정(Claude Code)", codex: "구독 계정(ChatGPT/Codex)",
+};
+const NO_KEYS = { openai: "", gemini: "", anthropic: "", local: "" };
 
 export function RouteTile({ id, route, onPick, icon, title, desc, badge, locked }: {
   id: Route; route: Route; onPick: (r: Route) => void; icon: ReactNode; title: string; desc: string; badge?: string; locked?: string;
@@ -35,7 +43,7 @@ export function AiSection() {
   const offline = s.privacy.offline;
   const [draft, setDraft] = useState<Settings["ai"]>(s.ai);
   const [route, setRoute] = useState<Route>(routeOf(s.ai.provider));
-  const [keys, setKeys] = useState({ openai: "", gemini: "", anthropic: "" });
+  const [keys, setKeys] = useState(NO_KEYS);
   const [models, setModels] = useState<string[]>([]);
   const list = useTask<void>();
   const test = useTask<RpcResult<"ai_test">>();
@@ -45,6 +53,7 @@ export function AiSection() {
   // AI를 돌릴 곳을 기관에서 정했으면 다른 갈래는 고를 수 없다
   const pinned = lk("ai.provider");
   const tileLock = (id: Route) => (pinned && route !== id ? "기관에서 정함" : undefined);
+  const subBlocked = lk("ai.allow_subscription") && !s.ai.allow_subscription;
 
   // 저장된 AI 설정이 바뀔 때만 입력을 맞춘다 (다른 구획을 저장해도 여기 고치던 것은 남는다)
   const savedAi = JSON.stringify(s.ai);
@@ -55,7 +64,8 @@ export function AiSection() {
   }, [savedAi]);
 
   const cloud = draft.provider === "anthropic" ? "anthropic" : "gemini";
-  const provider: AiProviderId = route === "cloud" ? cloud : route;
+  const sub: SubProvider = draft.provider === "codex" ? "codex" : "claude-code";
+  const provider: AiProviderId = route === "cloud" ? cloud : route === "subscription" ? sub : route;
 
   const save = async () => {
     setSaving(true);
@@ -64,9 +74,10 @@ export function AiSection() {
       openai: { ...draft.openai, api_key: keys.openai || draft.openai.api_key },
       gemini: { ...draft.gemini, api_key: keys.gemini || draft.gemini.api_key },
       anthropic: { ...draft.anthropic, api_key: keys.anthropic || draft.anthropic.api_key },
+      local: { ...draft.local, api_key: keys.local || draft.local.api_key },
     };
     const next = await saveSettings({ ai: patch });
-    if (next) { toast("AI 연결을 저장했습니다", "success"); setKeys({ openai: "", gemini: "", anthropic: "" }); }
+    if (next) { toast("AI 연결을 저장했습니다", "success"); setKeys(NO_KEYS); }
     setSaving(false);
     return !!next;
   };
@@ -85,12 +96,12 @@ export function AiSection() {
   const masked = (k: string) => (k ? `저장됨 (${k})` : "");
 
   // 고친 채 저장하지 않았나 (갈래·주소·모델·새로 넣은 키)
-  const dirty = JSON.stringify({ ...draft, provider }) !== savedAi || !!(keys.openai || keys.gemini || keys.anthropic);
+  const dirty = JSON.stringify({ ...draft, provider }) !== savedAi || !!(keys.openai || keys.gemini || keys.anthropic || keys.local);
   useDirtyMark("set-ai", "AI 연결", dirty, save, () => {
     const a = JSON.parse(savedAi) as Settings["ai"];
     setDraft(a);
     setRoute(routeOf(a.provider));
-    setKeys({ openai: "", gemini: "", anthropic: "" });
+    setKeys(NO_KEYS);
   });
 
   return (
@@ -98,9 +109,12 @@ export function AiSection() {
       aside={dirty ? <UnsavedBadge /> : undefined}>
       <div className="kd-ai-tiles" role="radiogroup" aria-label="AI를 돌릴 곳">
         <RouteTile id="embedded" route={route} onPick={setRoute} icon={<Cpu size={20} />} title="이 PC 안에서" desc="인터넷 없이 내장 모델로. 문서가 PC 밖으로 나가지 않습니다." badge="폐쇄망에서 됨" locked={tileLock("embedded")} />
-        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버나 Ollama" desc={"기관 안 AI 서버나 이 PC의 Ollama·LM\u00a0Studio에 연결합니다."} locked={tileLock("openai")} />
-        <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 서비스" desc="Gemini나 Claude. 문서 내용이 그 회사 서버로 갑니다."
+        <RouteTile id="local" route={route} onPick={setRoute} icon={<HardDrive size={20} />} title="이 PC의 로컬 모델 서버" desc="이 PC에서 켠 Ollama·LM Studio·llama.cpp 서버 등. 문서가 PC 밖으로 나가지 않습니다." badge="폐쇄망에서 됨" locked={tileLock("local")} />
+        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버" desc="기관 안 AI 서버(OpenAI 방식)에 연결합니다. 다른 PC의 Ollama·vLLM도 됩니다." locked={tileLock("openai")} />
+        <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 서비스" desc="Gemini나 Claude의 API 키로. 문서 내용이 그 회사 서버로 갑니다."
           locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : tileLock("cloud")} />
+        <RouteTile id="subscription" route={route} onPick={setRoute} icon={<BadgeCheck size={20} />} title="구독 계정" desc="PC에 설치해 로그인한 Claude Code·Codex로. 키 없이 구독으로 쓰며, 문서 내용이 그 회사 서버로 갑니다."
+          locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : subBlocked ? "기관에서 막음" : tileLock("subscription")} />
       </div>
       <div className="mt-2 flex items-center gap-2">
         {!pinned && <button type="button" className="kd-link kd-small" aria-pressed={route === "none"} onClick={() => setRoute("none")}>AI를 쓰지 않기</button>}
@@ -143,6 +157,15 @@ export function AiSection() {
             {offline && <Note tone="info">폐쇄망 모드에서는 기관 안 주소(사설 IP)와 이 PC(127.0.0.1)만 연결됩니다.</Note>}
           </>
         )}
+        {route === "local" && (
+          <LocalServerPanel value={draft.local} onChange={(p) => setDraft((d) => ({ ...d, local: { ...d.local, ...p } }))}
+            keyInput={keys.local} onKey={(v) => setKeys((k) => ({ ...k, local: v }))} masked={masked(draft.local.api_key)} />
+        )}
+        {route === "subscription" && (
+          <SubscriptionPanel provider={sub} pinned={pinned} draft={draft}
+            onProvider={(v) => setDraft((d) => ({ ...d, provider: v }))}
+            onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
+        )}
         {route === "cloud" && (
           <>
             <Field label="서비스"><Seg label="인터넷 AI 서비스" disabled={pinned} value={cloud} onChange={(v) => setDraft((d) => ({ ...d, provider: v }))} options={[{ value: "gemini", label: "Google Gemini" }, { value: "anthropic", label: "Anthropic Claude" }]} /></Field>
@@ -159,7 +182,7 @@ export function AiSection() {
         <div className="flex flex-wrap items-center gap-2 border-t pt-4" style={{ borderColor: "var(--color-border-subtle)" }}>
           <Button onClick={() => void save()} disabled={saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>
           {route !== "none" && (test.busy ? <Working label="연결을 시험하는 중" /> : <Button variant="secondary" onClick={runTest}><PlugZap size={14} /> 저장하고 연결 시험</Button>)}
-          <span className="kd-small kd-muted ml-auto">지금: {ai?.configured ? (ai.provider === "embedded" ? "이 PC 안" : ai.provider === "openai" ? "기관 서버" : "인터넷 서비스") : "연결 안 됨"}</span>
+          <span className="kd-small kd-muted ml-auto">지금: {ai?.configured ? PROVIDER_LABEL[ai.provider] : "연결 안 됨"}</span>
         </div>
         <ErrorLine message={test.error} />
         {test.result && (test.result.ok

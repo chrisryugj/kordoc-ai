@@ -48,7 +48,9 @@ function mockStyle(name: string): RpcResult<"style_extract">["format"] {
 }
 const savedStyles: RpcResult<"style_list">["styles"] = [];
 
-type Handlers = { [M in RpcMethod]?: (p: RpcParams<M>, emit: Emit) => RpcResult<M> | Promise<RpcResult<M>> };
+const mockIsCloud = () => ["gemini", "anthropic", "claude-code", "codex"].includes(settings.ai.provider);
+
+type Handlers = { [M in RpcMethod]?:(p: RpcParams<M>, emit: Emit) => RpcResult<M> | Promise<RpcResult<M>> };
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -61,6 +63,10 @@ const settings: Settings = {
     openai: { base_url: "http://127.0.0.1:11434/v1", api_key: "", model: "", vision_model: "" },
     gemini: { api_key: "", model: "gemini-3.8-flash" },
     anthropic: { api_key: "", model: "claude-opus-5-5" },
+    local: { base_url: "http://127.0.0.1:11434/v1", api_key: "", model: "" },
+    claude_code: { model: "", cli_path: "" },
+    codex: { model: "", cli_path: "" },
+    allow_subscription: false,
     redact_before_cloud: true,
     timeout_ms: 180000,
   },
@@ -375,7 +381,17 @@ const handlers: Handlers = {
   pdf_page_count: () => ({ page_count: 12 }),
   pdf_extract_pages: async (p) => { await wait(400); return { output_path: p.output_path, extracted_pages: 3, total_pages: 12 }; },
 
-  ai_status: () => ({ provider: settings.ai.provider, configured: settings.ai.provider !== "none", is_cloud: settings.ai.provider === "gemini" || settings.ai.provider === "anthropic", supports_vision: false, model: "Qwen3 4B Instruct", offline: settings.privacy.offline, embedded_loaded: true }),
+  ai_status: () => ({ provider: settings.ai.provider, configured: settings.ai.provider !== "none", is_cloud: mockIsCloud(), supports_vision: false, model: "Qwen3 4B Instruct", offline: settings.privacy.offline, embedded_loaded: true }),
+  ai_local_servers: async () => { await wait(500); return { servers: [{ name: "Ollama", base_url: "http://127.0.0.1:11434/v1", models: ["gemma4:latest", "qwen3:8b"] }, { name: "LM Studio", base_url: "http://127.0.0.1:1234/v1", models: ["exaone-4.0-32b"] }] }; },
+  ai_subscription_status: async (p) => {
+    await wait(600);
+    const list = p.provider ? [p.provider] : (["claude-code", "codex"] as const);
+    if (settings.privacy.offline) return { statuses: list.map((provider) => ({ provider, state: "offline" as const, message: "폐쇄망 모드에서는 구독 계정을 쓸 수 없습니다. 이 PC의 로컬 모델 서버나 내장 모델을 고르세요.", login_command: provider === "codex" ? "codex login" : "claude" })) };
+    return { statuses: list.map((provider) => provider === "codex"
+      ? { provider, state: "signed-out" as const, message: "Codex에 로그인되어 있지 않습니다. 터미널에서 codex login 을 실행해 ChatGPT 계정으로 로그인한 뒤 다시 시도하세요.", login_command: "codex login" }
+      : { provider, state: "ready" as const, version: "2.1.300", plan: "max", login_command: "claude" }) };
+  },
+  ai_subscription_models: async () => { await wait(400); return { models: [{ id: "", label: "Default (recommended)" }, { id: "sonnet", label: "Sonnet" }, { id: "opus", label: "Opus" }] }; },
   ai_test: async () => { await wait(800); return { ok: true, latency_ms: 840, sample: "네, 연결되었습니다. 문서 작업을 도와드릴게요." }; },
   ai_list_models: async () => { await wait(300); return { models: ["gemma4:latest", "qwen3:8b", "exaone3.5:7.8b"] }; },
   ai_warmup: async () => { await wait(900); return { gpu: "Apple M5", context_size: settings.ai.embedded.context_size }; },
@@ -552,7 +568,7 @@ const handlers: Handlers = {
   },
   security_status: () => ({
     offline: settings.privacy.offline, ai_provider: settings.ai.provider,
-    ai_is_cloud: settings.ai.provider === "gemini" || settings.ai.provider === "anthropic",
+    ai_is_cloud: mockIsCloud(),
     redact_before_cloud: settings.ai.redact_before_cloud, external_sent: 0,
     recent: [
       { at: "2026-10-10T09:02:11", host: "127.0.0.1:52144 (한글 편집기)", external: false, allowed: true },

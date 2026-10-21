@@ -14,7 +14,10 @@ import { Section, Switch } from "../common/Field";
 import { ErrorLine } from "../common/Status";
 import { lockProps, useLocked } from "./PolicyLock";
 
-const WHERE: Record<string, string> = { embedded: "이 PC 안 (내장 모델)", openai: "기관 AI 서버", gemini: "인터넷 서비스 (Google Gemini)", anthropic: "인터넷 서비스 (Anthropic Claude)", none: "AI를 쓰지 않음" };
+const WHERE: Record<string, string> = {
+  embedded: "이 PC 안 (내장 모델)", local: "이 PC의 로컬 모델 서버", openai: "기관 AI 서버", gemini: "인터넷 서비스 (Google Gemini)", anthropic: "인터넷 서비스 (Anthropic Claude)",
+  "claude-code": "구독 계정 (Claude Code 프로그램, Anthropic 서버)", codex: "구독 계정 (Codex 프로그램, OpenAI 서버)", none: "AI를 쓰지 않음",
+};
 
 function clock(iso: string) {
   const d = new Date(iso);

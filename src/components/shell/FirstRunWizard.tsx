@@ -1,7 +1,7 @@
 /** 첫 실행 — 내 기관 정보와 AI 연결을 한 번 받는다 (나중에 설정에서 바꿀 수 있음) */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Cloud, Cpu, Server } from "lucide-react";
+import { Cloud, Cpu, HardDrive, Search, Server } from "lucide-react";
 import type { AiProviderId, Settings } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { writePref } from "../../lib/recent";
@@ -10,10 +10,9 @@ import { Button } from "../ui/Button";
 import { useDialogKeys } from "../ui/useDialogKeys";
 import { Note, StatusLine } from "../common/Status";
 import { SelectField, Switch, TextField } from "../common/Field";
-import { RouteTile } from "../settings/AiSection";
+import { RouteTile, routeOf, type Route } from "../settings/AiSection";
 import { lockProps, useLocked } from "../settings/PolicyLock";
-
-type Route = "embedded" | "openai" | "cloud" | "none";
+import { rpc } from "../../lib/rpc";
 
 export function FirstRunWizard() {
   const { settings, saveSettings, setFirstRun, openSettings } = useApp();
@@ -22,11 +21,15 @@ export function FirstRunWizard() {
   const [org, setOrg] = useState<Settings["org"]>(settings!.org);
   // 기관 배포 설정 등으로 이미 정해진 AI 갈래가 있으면 그것부터 (기본 "이 PC 안"으로 덮어쓰지 않게)
   const saved = settings!.ai.provider;
-  const [startRoute] = useState<Route>(saved === "none" && !settings!.policy?.locked.includes("ai.provider") ? "embedded" : saved === "gemini" || saved === "anthropic" ? "cloud" : saved);
+  // 구독 계정(기관 배포 설정으로 정해 둔 경우)은 이 마법사에 칸이 없다: 고른 그대로 두고 설정에서 확인하게 한다
+  const [startRoute] = useState<Route>(saved === "none" && !settings!.policy?.locked.includes("ai.provider") ? "embedded" : routeOf(saved));
   const [route, setRoute] = useState<Route>(startRoute);
   const [offline, setOffline] = useState(settings!.privacy.offline);
   const [baseUrl, setBaseUrl] = useState(settings!.ai.openai.base_url);
   const [model, setModel] = useState(settings!.ai.openai.model);
+  const [localUrl, setLocalUrl] = useState(settings!.ai.local.base_url);
+  const [localModel, setLocalModel] = useState(settings!.ai.local.model);
+  const [finding, setFinding] = useState<"" | "busy" | "none">("");
   const [cloud, setCloud] = useState<"gemini" | "anthropic">(saved === "anthropic" ? "anthropic" : "gemini");
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -44,17 +47,27 @@ export function FirstRunWizard() {
     if (step === 2) startRef.current?.focus();
     else boxRef.current?.querySelector<HTMLElement>(".kd-wizard-body input:not(:disabled), .kd-wizard-body button:not(:disabled)")?.focus();
   }, [step]);
-  useEffect(() => { if (offline && route === "cloud") setRoute("embedded"); }, [offline, route]);
+  useEffect(() => { if (offline && (route === "cloud" || route === "subscription")) setRoute("embedded"); }, [offline, route]);
+
+  // 이 PC에서 켜진 로컬 모델 서버 중 첫 번째로 채운다 (127.0.0.1 만 본다)
+  const findLocal = async () => {
+    setFinding("busy");
+    const s = (await rpc("ai_local_servers", {}).catch(() => ({ servers: [] }))).servers[0];
+    if (s) { setLocalUrl(s.base_url); setLocalModel(s.models.includes(localModel) ? localModel : (s.models[0] ?? "")); }
+    setFinding(s ? "" : "none");
+  };
 
   const done = () => { writePref("kordoc-first-run-done", true); setFirstRun(false); };
 
   // 바꾼 AI 설정만 저장한다 (안 건드렸으면 원래 설정 그대로)
-  const aiChanged = route !== startRoute || baseUrl !== settings!.ai.openai.base_url || model !== settings!.ai.openai.model || !!key;
+  const aiChanged = route !== startRoute || baseUrl !== settings!.ai.openai.base_url || model !== settings!.ai.openai.model || !!key
+    || localUrl !== settings!.ai.local.base_url || localModel !== settings!.ai.local.model;
   const save = async (withAi: boolean) => {
     setSaving(true);
-    const provider: AiProviderId = route === "cloud" ? cloud : route;
+    const provider: AiProviderId = route === "cloud" ? cloud : route === "subscription" ? saved : route;
     const ai: Partial<Settings["ai"]> = { provider };
     if (route === "openai") ai.openai = { ...settings!.ai.openai, base_url: baseUrl, model };
+    if (route === "local") ai.local = { ...settings!.ai.local, base_url: localUrl, model: localModel };
     if (route === "cloud" && key) ai[cloud] = { ...settings!.ai[cloud], api_key: key };
     const ok = await saveSettings({ org, privacy: { offline }, ...(withAi ? { ai } : {}) });
     setSaving(false);
@@ -88,10 +101,17 @@ export function FirstRunWizard() {
 
   const aiReady = route === "embedded" ? !!settings!.ai.embedded.model_path
     : route === "openai" ? !!(baseUrl.trim() && model.trim())
+    : route === "local" ? !!(localUrl.trim() && localModel.trim())
+    : route === "subscription" ? settings!.ai.allow_subscription
     : route === "cloud" ? !!(key || settings!.ai[cloud].api_key) : false;
-  const aiWhere = route === "embedded" ? "이 PC 안 내장 모델" : route === "openai" ? `기관 서버 ${baseUrl} · 모델 ${model}` : cloud === "gemini" ? "Google Gemini" : "Anthropic Claude";
+  const aiWhere = route === "embedded" ? "이 PC 안 내장 모델" : route === "openai" ? `기관 서버 ${baseUrl} · 모델 ${model}`
+    : route === "local" ? `이 PC의 로컬 모델 서버 ${localUrl} · 모델 ${localModel}`
+    : route === "subscription" ? (saved === "codex" ? "구독 계정(ChatGPT/Codex)" : "구독 계정(Claude Code)")
+    : cloud === "gemini" ? "Google Gemini" : "Anthropic Claude";
   const aiTodo = route === "embedded" ? "설정 › AI 연결에서 내장 모델을 받거나 가져오세요. 저장하면 그 화면으로 갑니다."
     : route === "openai" ? "설정 › AI 연결에서 서버 주소와 모델 이름을 넣으세요. 저장하면 그 화면으로 갑니다."
+    : route === "local" ? "Ollama나 LM Studio를 켜고 설정 › AI 연결에서 이 PC에서 찾기를 누르세요. 저장하면 그 화면으로 갑니다."
+    : route === "subscription" ? "설정 › AI 연결의 구독 계정에서 로그인 상태를 확인하고 문서 보내기를 허용하세요. 저장하면 그 화면으로 갑니다."
     : route === "cloud" ? "설정 › AI 연결에서 API 키를 넣으세요. 저장하면 그 화면으로 갑니다."
     : "저장하면 설정 › AI 연결로 갑니다. 문서 읽기·바꾸기·검사는 AI 없이도 됩니다.";
 
@@ -131,7 +151,8 @@ export function FirstRunWizard() {
               <p className="kd-text">요약·초안·검토에 쓸 AI를 어디서 돌릴까요? 문서 내용이 어디까지 가는지가 달라집니다.</p>
               <div className="kd-ai-tiles mt-4" role="radiogroup" aria-label="AI를 돌릴 곳">
                 <RouteTile id="embedded" route={route} onPick={setRoute} icon={<Cpu size={20} />} title="이 PC 안에서" desc="인터넷 없이 내장 모델로. 모델은 설정에서 받거나 가져옵니다." badge="폐쇄망에서 됨" locked={tileLock("embedded")} />
-                <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버" desc="기관 안 서버 주소를 넣습니다 (Ollama도 됩니다)" locked={tileLock("openai")} />
+                <RouteTile id="local" route={route} onPick={setRoute} icon={<HardDrive size={20} />} title="이 PC의 로컬 모델 서버" desc="이 PC에서 켠 Ollama·LM Studio 등에 연결합니다" badge="폐쇄망에서 됨" locked={tileLock("local")} />
+                <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버" desc="기관 안 서버 주소를 넣습니다" locked={tileLock("openai")} />
                 <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 서비스" desc="Gemini나 Claude 키가 있을 때" locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : tileLock("cloud")} />
               </div>
               {route === "openai" && (
@@ -140,6 +161,19 @@ export function FirstRunWizard() {
                   <TextField {...lp("모델", "ai.openai.model")} value={model} onChange={setModel} placeholder="예: gemma4" />
                 </div>
               )}
+              {route === "local" && (
+                <>
+                  <div className="kd-fieldgrid mt-4">
+                    <TextField {...lp("주소", "ai.local.base_url")} value={localUrl} onChange={setLocalUrl} hint="Ollama는 보통 http://127.0.0.1:11434/v1" />
+                    <TextField {...lp("모델", "ai.local.model")} value={localModel} onChange={setLocalModel} placeholder="예: gemma4" />
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => void findLocal()} disabled={finding === "busy" || lk("ai.local.base_url")}><Search size={13} /> {finding === "busy" ? "찾는 중" : "이 PC에서 찾기"}</Button>
+                    {finding === "none" && <span className="kd-small kd-muted">켜진 서버를 찾지 못했습니다. Ollama나 LM Studio를 켜고 다시 찾거나 주소를 넣으세요.</span>}
+                  </div>
+                </>
+              )}
+              {route === "subscription" && <Note tone="info">구독 계정으로 정해져 있습니다. 로그인 상태와 문서 보내기 허용은 설정 › AI 연결에서 확인하세요.</Note>}
               {route === "cloud" && (
                 <div className="kd-fieldgrid mt-4">
                   <SelectField label="서비스" disabled={pinned} value={cloud} onChange={setCloud} options={[{ value: "gemini", label: "Google Gemini" }, { value: "anthropic", label: "Anthropic Claude" }]} />

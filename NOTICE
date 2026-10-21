@@ -31,10 +31,19 @@ https://github.com/google/skia/tree/main/modules/canvaskit: BSD-3-Clause
 
 ---
 
-이음오피스 (IeumOffice) — 한글 문서 저장 보정 · 편집기 AI 도구
+이음오피스 (IeumOffice) — 한글 문서 저장 보정 · 편집기 AI 도구 · 구독 계정(Claude Code·Codex) 연결
 https://github.com/pblsketch/openoffice (GenOffice 포크): Apache License 2.0
 GenOffice, Copyright 2026 Mainfunc, Inc. This product includes software developed at Mainfunc, Inc.
-그 저장소(커밋 a907a88c)에서 옮겨 온 것 (바꾼 곳은 각 파일 머리에 적었다):
+그 저장소(커밋 9bda9ac)에서 옮겨 온 것 (바꾼 곳은 각 파일 머리에 적었다):
+- node-sidecar/src/infra/llm/claude-code.ts ← packages/ai-provider/src/claude-code-cli.ts
+  — 설치·로그인해 둔 Claude Code 를 도구 0개(시작 보고로 확인)로 띄워 한 번 답하게 하는 다리, 모델 목록 읽기
+- node-sidecar/src/infra/llm/codex.ts ← packages/ai-provider/src/codex-app-server.ts
+  — Codex app-server(JSON-RPC) 설정 덮어쓰기·MCP 끄고 확인·권한 프로필/read-only 샌드박스·차례 기다리기·모델 목록
+- node-sidecar/src/infra/llm/subscription/{locate,process,status,messages}.ts ← packages/ai-provider/src/subscription/{locate,process,env,status}.ts·run-error.ts
+  — 실행 파일 찾기(.cmd 껍데기 뒤), 다른 요금 경로 환경 변수 빼기, 프로세스 트리 끝내기, 로그인 상태 읽기(계정을 옮기지 않음), 실패 종류
+- node-sidecar/src/infra/llm/local-servers.ts 의 모델 목록 읽기 ← packages/ai-provider/src/custom-models.ts
+- 지키는 규칙(도구 0개·stdin 으로만·셸 없이·로그인 정보를 읽지 않음)과 시험 항목은 그 저장소 packages/ai-provider/AGENTS.md 를 따랐다 (시험 코드는 새로 씀)
+그 저장소(커밋 a907a88c)에서 옮겨 온 것:
 - node-sidecar/src/core/hwp-save/{hwp5-file,section-tails,field-kinds,tracked-changes,tab-widths}.ts
   — rhwp 저장에서 빠지는 바탕쪽·메모·수식 캡션 되붙이기, 메모 필드 종류·새 탭 폭 되돌리기, 변경 추적 문서를 지금 내용으로 열기
 - node-sidecar/studio-plugin/agent-plugin.mjs(.d.mts) — 편집기 안에서 AI 도구를 실행하는 rhwp-studio 플러그인
