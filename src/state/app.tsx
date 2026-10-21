@@ -31,7 +31,9 @@ export interface Intent<T> {
   nonce: number;
 }
 
-export interface WorkbenchFocus { path: string; page?: number; tool?: ToolId; run?: "summarize" | "redact" }
+/** 다른 화면에서 도구를 열며 바로 돌릴 일 */
+export type AutoRunKind = "summarize" | "redact" | "precheck";
+export interface WorkbenchFocus { path: string; page?: number; tool?: ToolId; run?: AutoRunKind }
 export interface BatchStart { paths: string[]; task?: BatchTaskId; autoRun?: boolean }
 export type DraftKind = "reply" | "complaint" | "minutes" | "onepage" | "press" | "memo";
 export interface CreateStart { path?: string; route?: "library" | "blank" | "ai" | "convert"; kind?: DraftKind; markdown?: string; references?: string[] }

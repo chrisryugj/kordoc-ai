@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { DocInfo } from "../../lib/contract";
-import type { OpenDoc, ToolId } from "../../state/app";
+import { useApp, type AutoRunKind, type OpenDoc, type ToolId } from "../../state/app";
 import { isHangul } from "../../lib/format";
 import { InfoTool } from "./tools/InfoTool";
 import { ExportTool } from "./tools/ExportTool";
@@ -61,8 +61,8 @@ const groupOf = (t: ToolId): GroupId => GROUPS.find((g) => g.sections.some((s) =
 /** 탭 안 도구가 모두 꺼졌으면 탭도 끈다 (이유는 첫 도구의 것) */
 const groupOff = (g: (typeof GROUPS)[number], i: DocInfo) => (g.sections.every((s) => s.off?.(i)) ? g.sections[0].off!(i) : false);
 
-export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolProps & {
-  tool: ToolId; onTool: (t: ToolId) => void; autoRun: { kind: "summarize" | "redact"; nonce: number } | null; onGoPage: (page: number) => void;
+export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received = false }: ToolProps & {
+  received?: boolean; tool: ToolId; onTool: (t: ToolId) => void; autoRun: { kind: AutoRunKind; nonce: number } | null; onGoPage: (page: number) => void;
 }) {
   const asked = GROUPS.find((g) => g.id === groupOf(tool))!;
   const current: GroupId = groupOff(asked, info) ? "read" : asked.id;
@@ -93,7 +93,7 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolPr
       case "export": return <ExportTool doc={doc} info={info} />;
       case "print": return <PrintTool doc={doc} info={info} />;
       case "ai": return <AiTool doc={doc} info={info} autoSummary={autoRun?.kind === "summarize" ? autoRun.nonce : 0} onGoPage={onGoPage} />;
-      case "review": return <ReviewTool doc={doc} info={info} onGoPage={onGoPage} />;
+      case "review": return <ReviewTool doc={doc} info={info} onGoPage={onGoPage} autoRun={autoRun?.kind === "precheck" ? autoRun.nonce : 0} />;
       case "redact": return <RedactTool doc={doc} info={info} autoPreview={autoRun?.kind === "redact" ? autoRun.nonce : 0} />;
       case "edit": return <EditTool doc={doc} info={info} />;
       case "tables": return <TablesTool doc={doc} info={info} />;
@@ -101,8 +101,30 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolPr
     }
   };
 
+  // 이 문서로 먼저 해 볼 만한 일 셋 — 문서 모양으로 고른다 (도구 탭을 몰라도 시작하게)
+  const hangul = isHangul(info.format);
+  const aiOn = !!useApp().ai?.configured;
+  const offOf = (id: SectionId) => GROUPS.flatMap((g) => g.sections).find((s) => s.id === id)?.off?.(info);
+  const next: Array<[ToolId, string]> = (received
+    ? [["ai", "요약하기"], ["tables", "표 뽑기"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
+    : hangul
+      ? [["review", "결재 전 점검"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
+      : [["export", "한글 파일로 바꾸기"], ["review", "표기법 점검"], ["redact", "개인정보 가리기"]]) as Array<[ToolId, string]>;
+  // 요약은 AI 가 있어야 한다 — AI 가 꺼져 있으면 권하지 않는다
+  const shown = next.filter(([id]) => !offOf(id) && (id !== "ai" || aiOn)).slice(0, 3);
+
   return (
     <aside className="kd-tools" aria-label="도구">
+      {shown.length > 0 && (
+        <div className="kd-next" aria-label="이 문서로 할 수 있는 일">
+          <span className="kd-next-h">이 문서로 할 수 있는 일</span>
+          <div className="kd-next-row">
+            {shown.map(([id, label]) => (
+              <button key={id} type="button" className="kd-next-btn" aria-pressed={tool === id} onClick={() => onTool(id)}>{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="kd-tabs kd-tooltabs" role="tablist" aria-label="도구 고르기" onKeyDown={onKey}>
         {GROUPS.map((g) => {
           const off = groupOff(g, info);

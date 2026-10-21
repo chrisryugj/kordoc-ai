@@ -15,7 +15,7 @@
 .kd-impact-line svg { color: var(--color-text-muted); }
 .kd-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-muted); }
 
-.kd-drop { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 30px; padding: 26px 32px; min-height: 176px; }
+.kd-drop { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 30px; padding: 22px 32px; min-height: 176px; }
 .kd-drop-title { font-size: 20px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.35; }
 .kd-drop-sub { margin-top: 4px; font-size: 13.5px; color: var(--color-text-muted); line-height: 1.5; text-wrap: pretty; }
 .kd-papers { position: relative; height: 120px; }
@@ -55,8 +55,28 @@
 }
 /* 첫 화면: 끌어다 놓는 자리 + 최근 문서(처음 쓰는 날은 예제). 1366×768 에서도 아래 목차까지 한눈에 */
 .kd-home-hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: start; }
-.kd-home-hero > .kd-dropzone { align-self: stretch; }
+.kd-home-hero > .kd-dropzone { align-self: start; }
 @container (max-width: 860px) { .kd-home-hero { grid-template-columns: 1fr; } }
+/* 자주 하는 일: 굵은 줄 아래 네 칸, 칸마다 준비물 → 결과 */
+.kd-tasks-h { font-size: 15px; font-weight: 700; letter-spacing: -0.015em; padding-bottom: 8px; border-bottom: 1px solid var(--color-rule-strong); }
+.kd-tasks-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kd-task {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 16px 16px 18px;
+  text-align: left; background: none; border: 0; border-left: 1px solid var(--color-border); color: var(--color-text-primary); cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+.kd-task:first-child { border-left: 0; padding-left: 2px; }
+.kd-task:hover { background: var(--color-bg-primary); }
+.kd-task:hover .kd-task-title { color: var(--color-accent); }
+.kd-task-icon { color: var(--color-accent); margin-bottom: 6px; }
+.kd-task-title { font-size: 17px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.35; }
+.kd-task-line { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); text-wrap: pretty; }
+.kd-task-k { flex: none; width: 40px; color: var(--color-text-muted); }
+.kd-task-note { margin-top: 4px; font-size: 12.5px; color: var(--color-warning); }
+@container (max-width: 860px) { .kd-tasks-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kd-task:nth-child(3) { border-left: 0; padding-left: 2px; } }
+.kd-allfeatures > summary { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: 14px; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
+.kd-allfeatures > summary:hover { color: var(--color-text-primary); }
+.kd-allfeatures[open] > summary { margin-bottom: 8px; }
 .kd-home-block { min-width: 0; }
 .kd-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--color-rule-strong); margin-bottom: 2px; }
 .kd-sample-n { width: 24px; flex: none; font-size: 16px; font-weight: 700; color: var(--color-text-muted); text-align: center; }
@@ -162,6 +182,16 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-tools { min-height: 0; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--color-border); }
 /* 탭 넷은 한 줄로 고르게 (1024·1280 에서도 접히지 않게) */
 .kd-tooltabs { padding: 4px 6px 0; flex-wrap: nowrap; }
+/* 도구 패널 맨 위: 이 문서로 할 수 있는 일 */
+.kd-next { padding: 12px 14px 10px; border-bottom: 1px solid var(--color-border-subtle); }
+.kd-next-h { display: block; font-size: 12.5px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 6px; }
+.kd-next-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.kd-next-btn {
+  min-height: 32px; padding: 0 12px; font-size: 13.5px; font-weight: 600; color: var(--color-text-primary);
+  background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer;
+}
+.kd-next-btn:hover { border-color: var(--color-border-hover); }
+.kd-next-btn[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent); }
 .kd-tooltabs .kd-tab { flex: 1 1 0; min-width: 0; padding: 0 6px; }
 .kd-tool-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 16px 16px 28px; }
 /* 탭 안 도구 하나하나: 작은 제목 + 괘선으로 나눈다 */

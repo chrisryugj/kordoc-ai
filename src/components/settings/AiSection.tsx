@@ -105,16 +105,22 @@ export function AiSection() {
   });
 
   return (
-    <Section id="set-ai" mark="나." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 어디서 돌릴지 고르세요. 문서 내용이 어디까지 가는지가 달라집니다."
+    <Section id="set-ai" mark="나." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 고르세요. 무엇을 고를지 모르겠으면 아래 고르는 법대로 하면 됩니다."
       aside={dirty ? <UnsavedBadge /> : undefined}>
-      <div className="kd-ai-tiles" role="radiogroup" aria-label="AI를 돌릴 곳">
-        <RouteTile id="embedded" route={route} onPick={setRoute} icon={<Cpu size={20} />} title="이 PC 안에서" desc="인터넷 없이 내장 모델로. 문서가 PC 밖으로 나가지 않습니다." badge="폐쇄망에서 됨" locked={tileLock("embedded")} />
-        <RouteTile id="local" route={route} onPick={setRoute} icon={<HardDrive size={20} />} title="이 PC의 로컬 모델 서버" desc="이 PC에서 켠 Ollama·LM Studio·llama.cpp 서버 등. 문서가 PC 밖으로 나가지 않습니다." badge="폐쇄망에서 됨" locked={tileLock("local")} />
-        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버" desc="기관 안 AI 서버(OpenAI 방식)에 연결합니다. 다른 PC의 Ollama·vLLM도 됩니다." locked={tileLock("openai")} />
-        <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 서비스" desc="Gemini나 Claude의 API 키로. 문서 내용이 그 회사 서버로 갑니다."
-          locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : tileLock("cloud")} />
-        <RouteTile id="subscription" route={route} onPick={setRoute} icon={<BadgeCheck size={20} />} title="구독 계정" desc="PC에 설치해 로그인한 Claude Code·Codex로. 키 없이 구독으로 쓰며, 문서 내용이 그 회사 서버로 갑니다."
-          locked={offline ? "폐쇄망 모드에서는 쓸 수 없습니다" : subBlocked ? "기관에서 막음" : tileLock("subscription")} />
+      <ul className="kd-pickhow" aria-label="고르는 법">
+        <li><b>인터넷이 막힌 PC</b>라면 이 PC 안에서</li>
+        <li><b>Claude·ChatGPT 유료 구독</b>을 쓰고 있다면 구독 계정</li>
+        <li><b>Gemini·Claude 키</b>가 있다면 인터넷 AI 키</li>
+        <li><b>기관에서 AI 서버 주소</b>를 받았다면 기관 AI 서버</li>
+      </ul>
+      <div className="kd-ai-tiles mt-3" role="radiogroup" aria-label="AI를 돌릴 곳">
+        <RouteTile id="embedded" route={route} onPick={setRoute} icon={<Cpu size={20} />} title="이 PC 안에서" desc="AI 모델 파일을 이 PC에 받아 씁니다. 인터넷 없이 되고 문서가 밖으로 나가지 않습니다." badge="인터넷 없이 됨" locked={tileLock("embedded")} />
+        <RouteTile id="subscription" route={route} onPick={setRoute} icon={<BadgeCheck size={20} />} title="구독 계정" desc="Claude나 ChatGPT 유료 구독이 있으면 키 없이 씁니다. 문서 내용이 그 회사로 갑니다."
+          locked={offline ? "인터넷이 막힌 PC로 정해 두어 쓸 수 없습니다" : subBlocked ? "기관에서 막음" : tileLock("subscription")} />
+        <RouteTile id="cloud" route={route} onPick={setRoute} icon={<Cloud size={20} />} title="인터넷 AI 키" desc="Gemini나 Claude에서 받은 키를 넣어 씁니다. 문서 내용이 그 회사로 갑니다."
+          locked={offline ? "인터넷이 막힌 PC로 정해 두어 쓸 수 없습니다" : tileLock("cloud")} />
+        <RouteTile id="local" route={route} onPick={setRoute} icon={<HardDrive size={20} />} title="이 PC에 켜 둔 AI 프로그램" desc="Ollama·LM Studio 같은 프로그램을 켜 두었다면 찾아서 연결합니다. 문서가 밖으로 나가지 않습니다." badge="인터넷 없이 됨" locked={tileLock("local")} />
+        <RouteTile id="openai" route={route} onPick={setRoute} icon={<Server size={20} />} title="기관 AI 서버" desc="기관 전산 담당자가 알려 준 주소로 연결합니다." locked={tileLock("openai")} />
       </div>
       <div className="mt-2 flex items-center gap-2">
         {!pinned && <button type="button" className="kd-link kd-small" aria-pressed={route === "none"} onClick={() => setRoute("none")}>AI를 쓰지 않기</button>}

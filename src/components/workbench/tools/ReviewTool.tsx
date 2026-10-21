@@ -132,8 +132,8 @@ export function keepFromSettings(org?: { phone?: string; fax?: string; person?: 
   return [org?.phone, org?.fax, org?.person].map((v) => v?.trim() ?? "").filter((v) => v.length >= 2);
 }
 
-export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (page: number) => void }) {
-  const { ai, go, settings, openDocs } = useApp();
+export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { onGoPage?: (page: number) => void; autoRun?: number }) {
+  const { ai, openSettings, settings, openDocs } = useApp();
   const hangul = isHangul(info.format);
   const [munche, setMunche] = useState(false);
   /** 지금 점검한 문서 (고친 뒤엔 고친 사본) */
@@ -159,6 +159,17 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
       void law.run(({ signal, onProgress }) => rpc("law_check", { path }, { signal, onProgress }));
     });
   };
+
+  // 홈 "결재 올리기 전 점검"처럼 다른 화면에서 점검을 바로 시작하라고 왔으면
+  const autoDone = useRef(0);
+  useEffect(() => {
+    if (!autoRun || autoRun === autoDone.current) return;
+    autoDone.current = autoRun;
+    fix.reset();
+    runAll(doc.path);
+    // runAll 은 매번 새로 만들어지는 함수라 요청 번호(autoRun)에만 반응한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, doc.path]);
 
   const items = useMemo<Item[]>(() => {
     const list: Item[] = [
@@ -200,6 +211,8 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
   const runFix = () => void fix.run(() => rpc("lint_fix", { path: target, fixes })).then((r) => { if (r) runAll(r.output_path); });
 
   const done = !!pre.result && !pre.busy;
+  /** K팀장·법령 확인이 아직 돈다 — 이때 "고칠 것 0" 을 녹색으로 내면 다 본 것처럼 읽힌다 */
+  const more = review.busy || law.busy;
   return (
     <div className="flex flex-col gap-4">
       <p className="kd-small kd-muted text-pretty">
@@ -223,7 +236,9 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
           {fixedCopy && fix.result && fix.result.skipped.length > 0 && (
             <p className="kd-small kd-muted kd-num">서식을 지키려고 {fix.result.skipped.length}곳은 고치지 않았습니다. 그 부분은 한글 편집기에서 고치세요.</p>
           )}
-          {counts.error === 0 ? (
+          {counts.error === 0 && more ? (
+            <p className="kd-text font-semibold kd-num" role="status">빠른 검사: 고칠 것 0 · 살필 것 {counts.warning}. AI·법령 확인이 끝나면 결과를 더합니다</p>
+          ) : counts.error === 0 ? (
             <Note tone="ok">
               <span className="block font-semibold">점검 결과: 고칠 것 0</span>
               {(counts.warning > 0 || counts.info > 0) && <span className="block mt-0.5 kd-num">살필 것 {counts.warning} · 참고 {counts.info}. 아래에서 한 번 더 확인하세요.</span>}
@@ -245,7 +260,7 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
           <div className="flex flex-col gap-1">
             {!ai?.configured ? (
               <StatusLine tone="muted">
-                K팀장 검토(AI)는 AI 연결 시 함께 봅니다. <button type="button" className="kd-link" onClick={() => go("settings")}>AI 연결하기</button>
+                K팀장 검토(AI)는 AI 연결 시 함께 봅니다. <button type="button" className="kd-link" onClick={() => openSettings("set-ai")}>AI 연결하기</button>
               </StatusLine>
             ) : review.busy ? <Working label="K팀장이 논리·숫자·날짜를 읽는 중" onCancel={review.cancel} />
               : review.result ? <StatusLine tone="ok">K팀장 검토: {review.result.issues.length ? `${review.result.issues.length}건을 목록에 더했습니다` : "더 짚을 곳이 없습니다"}</StatusLine>
@@ -255,7 +270,7 @@ export function ReviewTool({ doc, info, onGoPage }: ToolProps & { onGoPage?: (pa
               : law.result ? (
                 <StatusLine tone={law.result.checked ? "ok" : "muted"}>
                   법령 근거: {law.result.note ?? `인용 ${law.result.citations.length}건을 현행 법령과 대조했습니다`}
-                  {!law.result.checked && law.result.citations.length > 0 && !settings?.privacy.offline && !settings?.law?.oc && <> <button type="button" className="kd-link" onClick={() => go("settings")}>설정 열기</button></>}
+                  {!law.result.checked && law.result.citations.length > 0 && !settings?.privacy.offline && !settings?.law?.oc && <> <button type="button" className="kd-link" onClick={() => openSettings("set-law")}>설정 열기</button></>}
                 </StatusLine>
               ) : null}
             <ErrorLine message={law.error} />

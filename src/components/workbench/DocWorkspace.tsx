@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
-import { useApp, type OpenDoc, type ToolId } from "../../state/app";
+import { useApp, type AutoRunKind, type OpenDoc, type ToolId } from "../../state/app";
+import { useLooksReceived } from "./docText";
 import { rpc, errorText } from "../../lib/rpc";
 import { Button } from "../ui/Button";
 import { Empty, Note } from "../common/Status";
 import { DocViewer } from "./DocViewer";
 import { ToolPanel } from "./ToolPanel";
+
+const RUN_TOOL: Record<AutoRunKind, ToolId> = { summarize: "ai", redact: "redact", precheck: "review" };
 
 /** 확장자는 알아도 엔진이 읽지 못하는 형식 */
 const UNSUPPORTED = "이 형식은 열 수 없습니다. 한글(HWP·HWPX), PDF, 워드(DOCX), 엑셀(XLSX·XLS), 파워포인트(PPTX), 그림(PNG·JPG·WEBP), 글(TXT·MD·CSV) 파일을 여세요.";
@@ -22,7 +25,8 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
   const [password, setPassword] = useState("");
   const [tool, setTool] = useState<ToolId>("info");
   const [scrollTo, setScrollTo] = useState<{ page: number; nonce: number } | null>(null);
-  const [autoRun, setAutoRun] = useState<{ kind: "summarize" | "redact"; nonce: number } | null>(null);
+  const received = useLooksReceived(active ? doc : null);
+  const [autoRun, setAutoRun] = useState<{ kind: AutoRunKind; nonce: number } | null>(null);
 
   // 처음 보일 때 문서 정보 읽기
   useEffect(() => {
@@ -60,7 +64,7 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
     if (!focus || focus.value.path !== doc.path) return;
     if (focus.value.tool) setTool(focus.value.tool);
     if (focus.value.page) setScrollTo({ page: focus.value.page, nonce: focus.nonce });
-    if (focus.value.run) { setTool(focus.value.run === "summarize" ? "ai" : "redact"); setAutoRun({ kind: focus.value.run, nonce: focus.nonce }); }
+    if (focus.value.run) { setTool(RUN_TOOL[focus.value.run]); setAutoRun({ kind: focus.value.run, nonce: focus.nonce }); }
   }, [focus, doc.path]);
 
   const submitPassword = () => {
@@ -99,7 +103,7 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
           {/* 쪽수는 미리보기가 센 값(rhwp 조판)을 정본으로: 머리·연 문서 목록·정보 탭이 모두 doc.info 를 본다 */}
           <DocViewer doc={doc} info={doc.info!} scrollTo={scrollTo} live={live}
             onPageCount={(n) => { if (doc.info && doc.info.page_count !== n) updateDoc(doc.path, { info: { ...doc.info, page_count: n } }); }} />
-          <ToolPanel doc={doc} info={doc.info!} tool={tool} onTool={setTool} autoRun={autoRun}
+          <ToolPanel doc={doc} info={doc.info!} tool={tool} onTool={setTool} autoRun={autoRun} received={received}
             onGoPage={(page) => setScrollTo({ page, nonce: Date.now() })} />
         </>
       )}

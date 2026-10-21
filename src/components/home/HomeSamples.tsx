@@ -12,22 +12,27 @@ type Scenario = Samples["scenarios"][number];
 
 const MARK: Record<Scenario["id"], string> = { reply: "①", collect: "②", redact: "③", summary: "④" };
 
-export function HomeSamples() {
-  const { ready, startCreate, startBatch, openDocs, toast } = useApp();
-  const [samples, setSamples] = useState<Samples | null>(null);
-
-  useEffect(() => {
-    if (!ready) return;
-    rpc("samples_list", {}).then(setSamples).catch(() => setSamples(null));
-  }, [ready]);
-
-  const start = (s: Scenario) => {
+/** 예제 시나리오 하나 시작 — 홈 예제 목록과 첫 실행 "예제로 연습"이 같이 쓴다 */
+export function useStartSample() {
+  const { startCreate, startBatch, openDocs, toast } = useApp();
+  return (s: Scenario) => {
     if (!s.files.length) { toast("예제 파일을 찾지 못했습니다. 앱을 다시 설치해 보세요.", "error"); return; }
     if (s.id === "reply") startCreate({ route: "ai", kind: "reply", references: [s.files[0]] });
     else if (s.id === "collect") startBatch({ paths: s.files, task: "collect" });
     else if (s.id === "redact") openDocs([s.files[0]], { tool: "redact", run: "redact" });
     else openDocs([s.files[0]], { tool: "ai", run: "summarize" });
   };
+}
+
+export function HomeSamples() {
+  const { ready } = useApp();
+  const [samples, setSamples] = useState<Samples | null>(null);
+  const start = useStartSample();
+
+  useEffect(() => {
+    if (!ready) return;
+    rpc("samples_list", {}).then(setSamples).catch(() => setSamples(null));
+  }, [ready]);
 
   return (
     <section className="kd-home-block" aria-labelledby="samples-t">

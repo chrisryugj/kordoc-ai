@@ -104,12 +104,20 @@
 .kd-advanced > summary svg { transition: transform var(--transition-fast); }
 .kd-advanced[open] > summary svg { transform: rotate(90deg); }
 .kd-advanced > summary:hover { color: var(--color-text-primary); }
+/* 선택 칸 접기 (첫 실행 등) */
+.kd-more > summary { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; list-style: none; font-size: 13px; font-weight: 600; color: var(--color-text-muted); cursor: pointer; }
+.kd-more > summary:hover { color: var(--color-text-primary); }
+.kd-more > summary::-webkit-details-marker { display: none; }
+.kd-more > summary svg { transition: transform var(--transition-fast); }
+.kd-more[open] > summary svg { transform: rotate(90deg); }
 .kd-advanced-body { display: flex; flex-direction: column; gap: 14px; padding: 8px 0 4px; }
 .kd-settings-scroll { position: relative; overflow: auto; min-height: 0; }
 .kd-settings-body { max-width: 840px; padding: 22px 28px 80px; }
 /* 마지막 구획도 목차로 누르면 맨 위에 오게 (화면 높이에서 머리·위아래 여백을 뺀 만큼) */
 .kd-settings-body > .kd-section:last-child { min-height: calc(100vh - 160px); }
 @media (max-width: 1100px) { .kd-settings { grid-template-columns: 164px minmax(0, 1fr); } .kd-settings-body { padding: 20px 22px 80px; } }
+.kd-pickhow { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 4px 20px; margin-top: 2px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: var(--color-text-secondary); background: var(--color-bg-primary); border-radius: var(--radius-lg); }
+.kd-pickhow b { color: var(--color-text-primary); font-weight: 600; }
 .kd-ai-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .kd-ai-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 14px; text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); min-width: 0; }
 .kd-ai-tile:hover:not(:disabled) { border-color: var(--color-border-hover); }

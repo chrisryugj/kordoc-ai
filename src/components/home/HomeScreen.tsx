@@ -1,12 +1,14 @@
 /** 오늘(홈) — 기한이 다가온 공문, 끌어다 놓는 자리 + 최근 문서(처음 쓰는 날은 예제), 그 아래 "무엇을 할까요?" 업무별 목차 */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History, CalendarClock } from "lucide-react";
+import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History, CalendarClock, LayoutGrid } from "lucide-react";
 import { useApp, type ToolId } from "../../state/app";
 import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
 import { HomeIndex } from "./HomeIndex";
 import { HomeSamples } from "./HomeSamples";
+import { HomeTasks } from "./HomeTasks";
+import { readPref, writePref } from "../../lib/recent";
 import { rpc } from "../../lib/rpc";
 import { pickFiles, pickFolder } from "../../lib/native";
 import { baseName, dirName, num, stem, timeAgo } from "../../lib/format";
@@ -143,6 +145,7 @@ function RecentDocs() {
 
 export function HomeScreen({ active }: { active: boolean }) {
   const { openDocs, startBatch, startCreate, go, askAbout, recent } = useApp();
+  const [allOpen, setAllOpen] = useState(() => readPref<boolean>("kordoc-home-all", false));
 
   const openWith = useCallback(async (tool?: ToolId, hwpxOnly?: boolean) => {
     const paths = await pickFiles(hwpxOnly ? { filters: [{ name: "HWPX 문서", extensions: ["hwpx"] }] } : {});
@@ -155,22 +158,27 @@ export function HomeScreen({ active }: { active: boolean }) {
         <div className="kd-home">
           <div className="kd-home-top">
             <h1 className="kd-home-title">무엇을 할까요?</h1>
-            <p className="kd-head-sub">문서를 끌어다 놓거나 아래에서 하려는 일을 고르세요.</p>
+            <p className="kd-head-sub">하려는 일을 누르거나, 문서를 넣으면 그 문서로 할 수 있는 일을 보여 드립니다.</p>
           </div>
           <ImpactLine />
           <DueSoon active={active} />
+          <HomeTasks />
           <div className="kd-home-hero">
             <DropArea />
             {recent.length > 0 ? <RecentDocs /> : <HomeSamples />}
           </div>
-          <HomeIndex
-            onOpen={openWith}
-            onCreate={(route, kind) => startCreate({ route, kind })}
-            onBatch={(task) => startBatch({ paths: [], task })}
-            onCompare={() => go("compare")}
-            onAsk={(tab) => askAbout({ paths: [], tab })}
-            onInbox={() => go("inbox")}
-          />
+          {/* 기능 전체 목차는 접어 둔다 (처음 쓰는 사람에게 할 일 25개는 많다). 연 상태는 기억 */}
+          <details className="kd-allfeatures" open={allOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setAllOpen(o); writePref("kordoc-home-all", o); }}>
+            <summary><LayoutGrid size={15} /> 모든 기능 보기</summary>
+            <HomeIndex
+              onOpen={openWith}
+              onCreate={(route, kind) => startCreate({ route, kind })}
+              onBatch={(task) => startBatch({ paths: [], task })}
+              onCompare={() => go("compare")}
+              onAsk={(tab) => askAbout({ paths: [], tab })}
+              onInbox={() => go("inbox")}
+            />
+          </details>
           {recent.length > 0 && <HomeSamples />}
         </div>
       </div>

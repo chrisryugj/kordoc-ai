@@ -20,13 +20,19 @@ const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail 
 const ui = await openUi({ relay: RELAY, width: 1280, height: 800, prefs: { 'kordoc-nav-collapsed': false } });
 const { page } = ui;
 try {
-  // ── 첫 실행: AI 는 나중에 → 설정의 AI 연결 구획으로
+  // ── 첫 실행: AI 없이 시작 → 홈 그대로, 왼쪽 아래 "AI 꺼짐 · 켜기"로 설정의 AI 연결 구획
   await ui.waitText('처음 오셨네요', 30000);
   await page.type('.kd-wizard input', '가온시');
+  check('첫 실행 1단계: 기관명·부서만 펼쳐 보임', await page.evaluate(() => [...document.querySelectorAll('.kd-wizard-body input')].filter((e) => e.checkVisibility()).length === 2));
   await ui.click('다음', { exact: true });
-  await ui.click('AI는 나중에 정하기');
+  check('첫 실행 2단계: 기본은 AI 없이 시작', await page.evaluate(() => document.querySelector('.kd-wizard [role=radio][aria-checked=true]')?.textContent.includes('AI 없이 시작')));
+  await ui.click('AI 없이 시작');
+  await ui.click('다음', { exact: true });
   await ui.shot(join(OUT, '01-wizard-done.png'));
   await ui.click('저장하고 시작');
+  await sleep(1500);
+  check('첫 실행 AI 없이 → 홈 그대로', await page.evaluate(() => document.querySelector('.kd-nav-item[aria-current="page"]')?.getAttribute('data-screen') === 'home'));
+  await ui.click('AI 꺼짐');
   await sleep(1500);
   const landed = await page.evaluate(() => {
     const cur = document.querySelector('.kd-settings-index [aria-current="true"]')?.textContent ?? '';
@@ -35,7 +41,7 @@ try {
     const gap = sec && root ? Math.round(sec.getBoundingClientRect().top - root.getBoundingClientRect().top) : null;
     return { cur, gap, screen: document.querySelector('.kd-nav-item[aria-current="page"]')?.getAttribute('data-screen') };
   });
-  check('첫 실행 끝 → 설정 AI 연결 구획', landed.screen === 'settings' && landed.cur.includes('AI 연결') && landed.gap != null && Math.abs(landed.gap) < 40, JSON.stringify(landed));
+  check('AI 꺼짐 · 켜기 → 설정 AI 연결 구획', landed.screen === 'settings' && landed.cur.includes('AI 연결') && landed.gap != null && Math.abs(landed.gap) < 40, JSON.stringify(landed));
   await ui.shot(join(OUT, '02-settings-ai.png'));
 
   // ── 설정: 기술 용어는 고급 접기 안에만
@@ -83,13 +89,20 @@ try {
   // ── 오늘: 처리 0건이면 효과 줄 숨김, 기한 임박 공문
   check('처리 0건이면 "이번 달 처리" 줄 없음', !(await page.evaluate(() => !!document.querySelector('.kd-impact-line'))));
   const added = await ui.call('inbox_add', { paths: [LETTER] });
-  await ui.call('inbox_update', { id: added.items[0].id, due: '2026-10-15' });
+  // 기한은 오늘부터 3일 뒤 (고정 날짜는 날이 지나면 "지남"이 되어 D-n 이 안 나온다)
+  const soon = new Date(Date.now() + 3 * 86400000);
+  await ui.call('inbox_update', { id: added.items[0].id, due: `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, '0')}-${String(soon.getDate()).padStart(2, '0')}` });
   await page.click('.kd-nav-item[data-screen="inbox"]');
   await sleep(300);
   await page.click('.kd-nav-item[data-screen="home"]');
   await ui.waitText('기한이 다가온 공문');
   const due = await page.evaluate(() => [...document.querySelectorAll('[aria-labelledby="due-t"] .kd-row')].map((r) => r.innerText.replace(/\n/g, ' ')));
   check('오늘: 기한 임박 공문 (최대 3)', due.length >= 1 && due.length <= 3 && /D-\d/.test(due[0]), due.join(' | '));
+  const tasks = await page.evaluate(() => [...document.querySelectorAll('.kd-task-title')].map((h) => h.textContent));
+  check('자주 하는 일 넷', tasks.join('/') === '받은 공문에 회신 쓰기/결재 올리기 전 점검/새 공문 쓰기/부서 제출 문서 모으기', tasks.join('/'));
+  check('모든 기능 보기는 처음에 접힘', await page.evaluate(() => !document.querySelector('.kd-allfeatures').open));
+  await page.evaluate(() => { document.querySelector('.kd-allfeatures').open = true; });
+  await sleep(200);
   const groups = await page.evaluate(() => [...document.querySelectorAll('.kd-index-title')].map((h) => h.textContent));
   check('업무별 목차 (접수·회신/쓰기/검토/서무 도구/묻기)', groups.join('/') === '접수·회신/쓰기/검토/서무 도구/묻기', groups.join('/'));
   const firstCol = await page.evaluate(() => document.querySelector('.kd-index-col')?.innerText ?? '');
@@ -148,7 +161,7 @@ try {
   // ── 설정 다시: 고급 펼침·외톨이 줄 (1280·1024), 저장하지 않고 나가기
   await page.click('.kd-nav-item[data-screen="settings"]');
   await sleep(500);
-  await ui.click('기관 AI 서버나 Ollama');
+  await ui.click('기관 AI 서버');
   await page.evaluate(() => document.querySelectorAll('.kd-settings-body details').forEach((d) => { d.open = true; }));
   await sleep(300);
   for (const [w, h] of [[1280, 800], [1024, 768]]) {
