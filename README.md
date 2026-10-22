@@ -71,7 +71,7 @@
 | Windows (기관 배포) | `KorDoc AI_x.y.z_x64_ko-KR.msi` | 일괄 배포용 |
 | macOS 14 이상 (Apple 실리콘) | `KorDoc AI_x.y.z_aarch64.dmg` | |
 
-설치 파일은 [최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest)(v2.1.1)에서 받습니다. 처음 실행하면 내 기관 정보와 AI 연결을 한 번 묻습니다.
+설치 파일은 [최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest)(v2.1.2)에서 받습니다. 처음 실행하면 내 기관 정보와 AI 연결을 한 번 묻습니다.
 
 - PDF 내보내기(한글·글 문서를 PDF 로, 합본 PDF)는 PC 에 Microsoft Edge 나 Google Chrome 이 있어야 합니다. Windows 10·11 은 보통 Edge 가 들어 있고, macOS 는 Chrome(또는 Edge)을 설치해야 합니다.
 - 우클릭 메뉴는 사용자마다 설정 > 저장과 연결에서 넣습니다. 여러 PC에 한꺼번에 넣는 명령(`kordoc-ai.exe --shell-menu install`)은 [기관 배포 설정](./docs/deploy-policy.md)에 있습니다.

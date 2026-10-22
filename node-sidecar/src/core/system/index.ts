@@ -93,7 +93,7 @@ export function listLocalLlmModels(): Array<{ path: string; name: string; size: 
 export function systemInfo() {
   const s = getSettings();
   return {
-    app_version: '2.1.1',
+    app_version: '2.1.2',
     kordoc_version: VERSION,
     node_version: process.version,
     platform: `${process.platform}-${process.arch}`,
