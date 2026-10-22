@@ -12,6 +12,7 @@ import { orgAutofill } from '../../core/template/org.js';
 import { toHwpx, toHwpxBatch } from '../../core/to-hwpx/index.js';
 import { compareHwpx } from '../../core/comparator/index.js';
 import { bundlePdf, pdfStamp } from '../../core/export/index.js';
+import { pdfShrink } from '../../core/pdf-shrink/index.js';
 import { collectFields, collectRun, extractImages } from '../../core/extract/index.js';
 import { collectGather, collectRoster } from '../../core/collect/gather.js';
 import { searchFiles } from '../../core/search/index.js';
@@ -71,6 +72,14 @@ export function registerDocumentWork(router: RpcRouter): void {
   reg('compare_hwpx', (p, signal) => compareHwpx({ old_path: reqPath(p.old_path), new_path: reqPath(p.new_path), title: str(p.title), output_path: optPath(p.output_path) }, signal), { heavy: true });
   reg('bundle_pdf', (p, signal) => bundlePdf({ paths: reqPaths(p.paths), output_path: optPath(p.output_path), watermark: str(p.watermark), page_numbers: bool(p.page_numbers) }, signal), { heavy: true });
   reg('pdf_stamp', (p, signal) => pdfStamp({ path: reqPath(p.path), watermark: str(p.watermark), page_numbers: bool(p.page_numbers), output_path: optPath(p.output_path) }, signal), { heavy: true });
+  reg('pdf_shrink', (p, signal) => pdfShrink({
+    path: reqPath(p.path),
+    level: oneOf(p.level, ['light', 'normal', 'strong'] as const),
+    target_mb: num(p.target_mb),
+    allow_raster: bool(p.allow_raster),
+    output_path: optPath(p.output_path),
+    output_dir: optPath(p.output_dir),
+  }, signal), { heavy: true });
   reg('extract_images', (p, signal) => extractImages({ path: reqPath(p.path), output_dir: optPath(p.output_dir), allow_empty: bool(p.allow_empty) }, signal), { heavy: true });
   reg('search_files', (p, signal) => searchFiles({ paths: reqPaths(p.paths), query: String(p.query ?? ''), max_hits: num(p.max_hits) }, signal), { heavy: true });
   reg('collect_fields', (p, signal) => collectFields({ paths: reqPaths(p.paths) }, signal), { heavy: true });

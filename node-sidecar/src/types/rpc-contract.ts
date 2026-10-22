@@ -247,6 +247,13 @@ export interface RpcMethods {
   /** 결재·공개용 합본 PDF — 본문 + 붙임 순서대로, 워터마크("대외비"·"사본" 등)·쪽번호 선택 */
   bundle_pdf: [{ paths: string[]; output_path?: string; watermark?: string; page_numbers?: boolean }, { output_path: string; page_count: number; failed: BatchItemResult[] }];
   pdf_stamp: [{ path: string; watermark?: string; page_numbers?: boolean; output_path?: string }, { output_path: string }];
+  /** PDF 용량 줄이기 (결재 첨부 한도) — 그림만 줄여 글자는 그대로. target_mb 를 주면 한도 안에 들 때까지 단계를 올리고,
+   *  allow_raster 면 그래도 넘을 때 쪽을 그림으로(글자 복사·검색 안 됨). 한글·워드는 PDF 로 바꾼 뒤 줄인다.
+   *  원래 PDF 를 거의 못 줄였으면 저장하지 않고 output_path: null + note */
+  pdf_shrink: [
+    { path: string; level?: PdfShrinkLevel; target_mb?: number; allow_raster?: boolean; output_path?: string; output_dir?: string },
+    PdfShrinkResult,
+  ];
   /** 문서 속 그림만 폴더로 */
   /** allow_empty: 그림이 없으면 오류 대신 { count: 0, output_dir: '' } */
   extract_images: [{ path: string; output_dir?: string; allow_empty?: boolean }, { output_dir: string; count: number }];
@@ -340,6 +347,24 @@ export interface SystemInfo {
 
 export interface McpEnv {
   clients: Array<{ id: string; name: string; installed: boolean; configured: boolean; config_path: string }>;
+}
+
+export type PdfShrinkLevel = 'light' | 'normal' | 'strong';
+
+export interface PdfShrinkResult {
+  /** 저장한 파일 — 더 줄일 수 없어 저장하지 않았으면 null */
+  output_path: string | null;
+  before_bytes: number;
+  after_bytes: number;
+  /** 실제로 쓴 단계 (쪽을 그림으로 바꿨으면 'raster') */
+  level_used: PdfShrinkLevel | 'raster' | null;
+  images: number;
+  images_shrunk: number;
+  /** 한도를 줬을 때 한도 안에 들었는가 */
+  under_target: boolean | null;
+  /** 글자를 그대로 두었는가 (쪽을 그림으로 바꾸면 false) */
+  text_kept: boolean;
+  note?: string;
 }
 
 export interface DocInfo {

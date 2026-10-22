@@ -47,6 +47,7 @@ export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox
         ["문서 수합해서 엑셀로", () => onBatch("collect")],
         ["명부로 여러 장 만들기", () => onBatch("mailmerge")],
         ["결재용 합본 PDF", () => onBatch("bundle")],
+        ["PDF 용량 줄이기", () => onBatch("shrink"), "결재 첨부 한도에 맞게"],
         ["신구대조표 만들기", onCompare],
         ["여러 문서에서 찾기", () => onBatch("search")],
         ["스캔 문서 글자 읽기(OCR)", () => onBatch("ocr")],

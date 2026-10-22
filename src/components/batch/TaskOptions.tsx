@@ -13,6 +13,7 @@ import type { BatchOpts } from "./tasks";
 import { GatherOptions } from "./GatherOptions";
 import { PrintOptions } from "./PrintOptions";
 import { MailMergeOptions } from "./MailMerge";
+import { ShrinkOptions } from "../workbench/tools/ShrinkTool";
 
 const NO_OUTPUT: BatchTaskId[] = ["search", "pdftools", "watch", "print", "compare"];
 
@@ -48,6 +49,7 @@ export function TaskOptions({ task, opts, set }: {
         </>
       )}
       {(task === "merge" || task === "pdftools") && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
+      {task === "shrink" && <ShrinkOptions value={opts.shrink} onChange={(shrink) => set({ shrink })} />}
       {task === "collect" && <GatherOptions opts={opts} set={set} />}
       {task === "print" && <PrintOptions value={opts.printer} onChange={(printer) => set({ printer })} />}
       {task === "extract" && (

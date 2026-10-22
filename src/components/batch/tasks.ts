@@ -3,6 +3,7 @@
 import type { DocFormat, RedactRule } from "../../lib/contract";
 import type { BatchTaskId } from "../../state/app";
 import { DISCLOSURE_RULES } from "../workbench/tools/RedactTool";
+import { DEFAULT_SHRINK, type ShrinkChoice } from "../workbench/tools/ShrinkTool";
 
 export interface TaskDef {
   id: BatchTaskId;
@@ -23,6 +24,7 @@ export const TASKS: TaskDef[] = [
   { id: "mailmerge", group: "명부로 여러 장", title: "명부로 여러 장 만들기", desc: "양식 하나에 명부 한 줄씩", min: 0 },
   { id: "redact", group: "정보공개 공개본", title: "개인정보 가리기", desc: "주민번호·전화번호 등을 가린 사본", min: 1 },
   { id: "bundle", group: "결재 합본", title: "합본 PDF", desc: "본문과 붙임까지 PDF 한 권으로", min: 1 },
+  { id: "shrink", group: "결재 합본", title: "PDF 용량 줄이기", desc: "첨부 한도에 맞게 그림을 줄여 용량을 낮춥니다. 글자는 그대로", min: 1, skips: ["md", "txt", "csv", "image"] },
   { id: "merge", group: "결재 합본", title: "한 문서로 합치기", desc: "한글·워드 문서를 하나로 이어 붙이기", min: 2 },
   { id: "pdftools", group: "결재 합본", title: "PDF 나누기·쪽 뽑기", desc: "쪽 단위로 나누거나 골라 새 PDF로", min: 1, accepts: ["pdf"] },
   { id: "print", group: "결재 합본", title: "한꺼번에 인쇄", desc: "고른 프린터로 바로 보냅니다", min: 1 },
@@ -62,6 +64,8 @@ export interface BatchOpts {
   printer: string;
   /** 우리 서식으로 맞추기: 저장한 서식 id */
   styleId: string;
+  /** PDF 용량 줄이기: 첨부 한도·정도·쪽을 그림으로 */
+  shrink: ShrinkChoice;
 }
 
 export const DEFAULT_OPTS: BatchOpts = {
@@ -83,6 +87,7 @@ export const DEFAULT_OPTS: BatchOpts = {
   gatherAi: true,
   printer: "",
   styleId: "",
+  shrink: DEFAULT_SHRINK,
 };
 
 export function accepts(def: TaskDef, f: DocFormat): boolean {

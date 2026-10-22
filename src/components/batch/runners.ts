@@ -6,6 +6,7 @@ import type { TaskCtx } from "../../hooks/useTask";
 import { rpc, errorText, isAbort } from "../../lib/rpc";
 import { dirName, joinPath, stem } from "../../lib/format";
 import type { BatchOpts } from "./tasks";
+import { shrinkParams, shrinkSummary } from "../workbench/tools/ShrinkTool";
 
 export interface RowState {
   status: "wait" | "run" | "ok" | "fail";
@@ -101,6 +102,12 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
     }
     case "pdf":
       return { kind: "files", ...(await eachFile(env, async (f) => ({ output: (await rpc("export_pdf", { path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.pdf`) } : {}) }, { signal })).output_path }))) };
+    case "shrink":
+      return { kind: "files", ...(await eachFile(env, async (f) => {
+        const r = await rpc("pdf_shrink", { path: f.path, ...shrinkParams(opts.shrink), ...outDirOf(opts) }, { signal });
+        if (!r.output_path) return { note: r.note };
+        return { output: r.output_path, note: r.under_target === false ? `${shrinkSummary(r)}. 한도를 아직 넘습니다` : shrinkSummary(r) };
+      })) };
     case "ocr":
       return { kind: "files", ...(await eachFile(env, async (f) => {
         const r = await rpc("ocr", { input_path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.md`) } : {}) }, { signal });

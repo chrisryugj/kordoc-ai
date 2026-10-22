@@ -15,6 +15,7 @@ import { RedactTool } from "./tools/RedactTool";
 import { EditTool } from "./tools/EditTool";
 import { TablesTool } from "./tools/TablesTool";
 import { SealTool } from "./tools/SealTool";
+import { ShrinkTool } from "./tools/ShrinkTool";
 
 export interface ToolProps {
   doc: OpenDoc;
@@ -52,6 +53,7 @@ const GROUPS: Array<{ id: GroupId; label: string; sections: SectionDef[] }> = [
   {
     id: "export", label: "내보내기", sections: [
       { id: "export", title: "다른 형식으로 저장" },
+      { id: "shrink", title: "PDF 용량 줄이기", off: (i) => (i.encrypted && "암호가 걸린 문서에서는 아직 쓸 수 없습니다. 암호를 푼 사본을 저장해 여세요") || ((i.format === "image" || i.format === "txt" || i.format === "md" || i.format === "csv") && "PDF·한글·오피스 문서에서 씁니다") },
       { id: "print", title: "인쇄" },
     ],
   },
@@ -98,6 +100,7 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received
       case "edit": return <EditTool doc={doc} info={info} />;
       case "tables": return <TablesTool doc={doc} info={info} />;
       case "seal": return <SealTool doc={doc} info={info} />;
+      case "shrink": return <ShrinkTool doc={doc} info={info} />;
     }
   };
 
@@ -109,7 +112,9 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received
     ? [["ai", "요약하기"], ["tables", "표 뽑기"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
     : hangul
       ? [["review", "결재 전 점검"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
-      : [["export", "한글 파일로 바꾸기"], ["review", "표기법 점검"], ["redact", "개인정보 가리기"]]) as Array<[ToolId, string]>;
+      : info.format === "pdf"
+        ? [["shrink", "용량 줄이기"], ["export", "한글 파일로 바꾸기"], ["redact", "개인정보 가리기"]]
+        : [["export", "한글 파일로 바꾸기"], ["review", "표기법 점검"], ["redact", "개인정보 가리기"]]) as Array<[ToolId, string]>;
   // 요약은 AI 가 있어야 한다 — AI 가 꺼져 있으면 권하지 않는다
   const shown = next.filter(([id]) => !offOf(id) && (id !== "ai" || aiOn)).slice(0, 3);
 

@@ -78,6 +78,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "patch_document",
     "pdf_extract_pages",
     "pdf_page_count",
+    "pdf_shrink",
     "pdf_stamp",
     "ping",
     "precheck",

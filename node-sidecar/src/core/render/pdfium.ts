@@ -32,6 +32,7 @@ export async function rasterPdfPage(
   pageNo: number,
   maxWidth: number,
   as: 'png' | 'jpeg' = 'png',
+  quality = 85,
 ): Promise<{ data: Buffer; width: number; height: number; pxWidth: number; pxHeight: number }> {
   const sharp = (await import('sharp')).default;
   const page = doc.getPage(pageNo - 1);
@@ -41,6 +42,6 @@ export async function rasterPdfPage(
   const r = await page.render({ scale, render: async ({ data }) => data });
   // @hyzyla/pdfium 의 bitmap 은 이미 RGBA 다 (BGRA 로 보고 바꾸면 빨강이 파랑이 됨: 실측)
   const img = sharp(Buffer.from(r.data), { raw: { width: r.width, height: r.height, channels: 4 } });
-  const data = as === 'png' ? await img.png({ compressionLevel: 6 }).toBuffer() : await img.flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer();
+  const data = as === 'png' ? await img.png({ compressionLevel: 6 }).toBuffer() : await img.flatten({ background: '#ffffff' }).jpeg({ quality }).toBuffer();
   return { data, width: originalWidth, height: originalHeight, pxWidth: r.width, pxHeight: r.height };
 }

@@ -461,6 +461,10 @@ const handlers: Handlers = {
   compare_hwpx: async (p) => { await wait(600); return { output_path: p.output_path ?? out(p.new_path, "hwpx", "_신구대조표"), stats: { added: 1, removed: 1, modified: 3, unchanged: 2 } }; },
   bundle_pdf: async (p) => { await wait(800); return { output_path: p.output_path ?? joinPath(DOCS_DIR, "합본.pdf"), page_count: 9 * p.paths.length, failed: [] }; },
   pdf_stamp: async (p) => ({ output_path: p.output_path ?? out(p.path, "pdf", "_사본") }),
+  pdf_shrink: async (p) => ({
+    output_path: p.output_path ?? out(p.path, "pdf", "_용량줄임"), before_bytes: 12_600_000, after_bytes: 2_100_000,
+    level_used: p.level ?? "normal", images: 39, images_shrunk: 39, under_target: p.target_mb ? true : null, text_kept: true, note: "12MB → 2.0MB",
+  }),
   extract_images: async (p) => { await wait(300); return { output_dir: p.output_dir ?? joinPath(DOCS_DIR, `${stem(p.path)}_그림`), count: 1 + (hashOf(p.path) % 7) }; },
   search_files: async (p) => {
     await wait(500);
