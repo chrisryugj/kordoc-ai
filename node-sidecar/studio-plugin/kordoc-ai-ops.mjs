@@ -32,10 +32,75 @@ function uniqueParas(ids) {
   return (ids ?? []).map(parsePara).filter((p) => { const k = `${p.sec}.${p.para}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+/**
+ * 표 자리: 본문 표 "구역.문단.번호", 칸 안의 표는 그 뒤에 ">칸.칸문단.번호" 를 잇는다 (예: 0.5.0>13.4.0).
+ * inner: 바깥에서 안쪽으로 [{ cell, cellPara, ctrl }] — 칸 cell 의 문단 cellPara 에 든 번호 ctrl 의 표
+ */
 export function parseTable(id) {
-  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(id ?? '').trim());
-  if (!m) fail(`표 자리 "${id}" 를 읽지 못했습니다. read_document 가 준 "구역.문단.번호" 꼴(예: 0.5.0)로 주세요.`);
-  return { sec: Number(m[1]), para: Number(m[2]), ctrl: Number(m[3]) };
+  const raw = String(id ?? '').trim();
+  const m = /^(\d+)\.(\d+)\.(\d+)((?:>\d+\.\d+\.\d+)*)$/.exec(raw);
+  if (!m) fail(`표 자리 "${id}" 를 읽지 못했습니다. read_document·read_table 이 준 "구역.문단.번호" 꼴(예: 0.5.0, 칸 안의 표는 0.5.0>3.0.0)로 주세요.`);
+  const inner = m[4] ? m[4].slice(1).split('>').map((x) => { const [cell, cellPara, ctrl] = x.split('.').map(Number); return { cell, cellPara, ctrl }; }) : [];
+  return { sec: Number(m[1]), para: Number(m[2]), ctrl: Number(m[3]), inner };
+}
+
+const tableId = (t) => [`${t.sec}.${t.para}.${t.ctrl}`, ...t.inner.map((x) => `${x.cell}.${x.cellPara}.${x.ctrl}`)].join('>');
+
+/** 칸 안의 표의 칸 문단까지 가는 경로 (엔진의 ByPath API 꼴) */
+function cellPath(t, cellIdx, cellPara) {
+  const ctrls = [t.ctrl, ...t.inner.map((x) => x.ctrl)];
+  const steps = [...t.inner.map((x) => [x.cell, x.cellPara]), [cellIdx, cellPara]];
+  return JSON.stringify(steps.map(([cellIndex, cellParaIndex], i) => ({ controlIndex: ctrls[i], cellIndex, cellParaIndex })));
+}
+
+/** 표 칸 읽기·쓰기 (본문 표는 평면 API, 칸 안의 표는 경로 API) */
+function cellApi(doc, t) {
+  if (!t.inner?.length) {
+    const a = (c) => [t.sec, t.para, t.ctrl, c];
+    return {
+      dims: () => j(doc.getTableDimensions(t.sec, t.para, t.ctrl)),
+      boxes: () => j(doc.getTableCellBboxes(t.sec, t.para, t.ctrl)),
+      paras: (c) => doc.getCellParagraphCount(...a(c)),
+      len: (c, cp) => doc.getCellParagraphLength(...a(c), cp),
+      text: (c, cp, n) => doc.getTextInCell(...a(c), cp, 0, n),
+      del: (c, cp, off, n) => doc.deleteTextInCell(...a(c), cp, off, n),
+      ins: (c, cp, off, s) => doc.insertTextInCell(...a(c), cp, off, s),
+      merge: (c, cp) => doc.mergeParagraphInCell(...a(c), cp),
+      split: (c, cp, off) => doc.splitParagraphInCell(...a(c), cp, off),
+      prefix: (c, cp) => [{ controlIndex: t.ctrl, cellIndex: c, cellParaIndex: cp }],
+    };
+  }
+  const p = (c, cp) => cellPath(t, c, cp);
+  return {
+    dims: () => j(doc.getTableDimensionsByPath(t.sec, t.para, p(0, 0))),
+    boxes: () => j(doc.getTableCellBboxesByPath(t.sec, t.para, p(0, 0))),
+    paras: (c) => doc.getCellParagraphCountByPath(t.sec, t.para, p(c, 0)),
+    len: (c, cp) => doc.getCellParagraphLengthByPath(t.sec, t.para, p(c, cp)),
+    text: (c, cp, n) => doc.getTextInCellByPath(t.sec, t.para, p(c, cp), 0, n),
+    del: (c, cp, off, n) => doc.deleteTextInCellByPath(t.sec, t.para, p(c, cp), off, n),
+    ins: (c, cp, off, s) => doc.insertTextInCellByPath(t.sec, t.para, p(c, cp), off, s),
+    merge: (c, cp) => doc.mergeParagraphInCellByPath(t.sec, t.para, p(c, cp)),
+    split: (c, cp, off) => doc.splitParagraphInCellByPath(t.sec, t.para, p(c, cp), off),
+    prefix: (c, cp) => JSON.parse(p(c, cp)),
+  };
+}
+
+/** 칸 c 의 문단들에 든 개체 (번호 순): 표면 그 자리, 그 밖은 'object' */
+function cellObjects(doc, t, api, c) {
+  const out = [];
+  const n = api.paras(c);
+  for (let cp = 0; cp < n; cp++) {
+    for (let k = 0; k < 20; k++) {
+      try {
+        const d = j(doc.getTableDimensionsByPath(t.sec, t.para, JSON.stringify([...api.prefix(c, cp), { controlIndex: k, cellIndex: 0, cellParaIndex: 0 }])));
+        out.push({ cellPara: cp, ctrl: k, rows: d.rowCount, cols: d.colCount });
+      } catch (e) {
+        if (/범위 초과/.test(String(e))) break; // 이 문단엔 더 없다
+        out.push({ cellPara: cp, ctrl: k, kind: 'object' }); // 표가 아닌 개체 (그림 등)
+      }
+    }
+  }
+  return out;
 }
 
 function checkPara(doc, { sec, para }) {
@@ -94,47 +159,51 @@ export function outline(doc, { from = 0, count = 120, maxChars = 400 } = {}) {
 export function readTable(doc, { table }) {
   const t = parseTable(table);
   const d = dims(doc, t, table);
+  const api = cellApi(doc, t);
   const grid = Array.from({ length: d.rowCount }, () => Array(d.colCount).fill(null));
-  for (const c of cells(doc, t)) grid[c.row][c.col] = cellText(doc, t, c.cellIdx);
-  return { table, rows: d.rowCount, cols: d.colCount, cells: grid };
+  const nested = [];
+  for (const c of cells(doc, t)) {
+    grid[c.row][c.col] = cellText(doc, t, c.cellIdx);
+    // 칸 안의 표: 자리를 알려 read_table·fill_cells 로 이어 갈 수 있게
+    for (const o of cellObjects(doc, t, api, c.cellIdx)) {
+      if (!o.kind) nested.push({ row: c.row, col: c.col, table: `${tableId(t)}>${c.cellIdx}.${o.cellPara}.${o.ctrl}`, rows: o.rows, cols: o.cols });
+    }
+  }
+  return { table: tableId(t), rows: d.rowCount, cols: d.colCount, cells: grid, ...(nested.length ? { nested } : {}) };
 }
 
 function dims(doc, t, table) {
   let d = null;
-  try { d = j(doc.getTableDimensions(t.sec, t.para, t.ctrl)); } catch { /* 표가 아닌 자리 */ }
-  if (!d?.rowCount) fail(`표 ${table} 이 없습니다. read_document 로 다시 확인하세요.`);
+  try { d = cellApi(doc, t).dims(); } catch { /* 표가 아닌 자리 */ }
+  if (!d?.rowCount) fail(`표 ${table} 이 없습니다. read_document·read_table 로 다시 확인하세요.`);
   return d;
 }
 
 /** 칸 문단에 표·그림 같은 개체가 있나 (칸 경로로 물어 "범위 초과"면 없음) */
-function cellHasObjects(doc, t, cellIdx) {
-  const n = doc.getCellParagraphCount(t.sec, t.para, t.ctrl, cellIdx);
-  for (let cp = 0; cp < n; cp++) {
-    try {
-      doc.getTableDimensionsByPath(t.sec, t.para, JSON.stringify([{ controlIndex: t.ctrl, cellIndex: cellIdx, cellParaIndex: cp }, { controlIndex: 0, cellIndex: 0, cellParaIndex: 0 }]));
-      return true;
-    } catch (e) {
-      if (!/범위 초과/.test(String(e))) return true;
-    }
-  }
-  return false;
-}
+const cellHasObjects = (doc, t, cellIdx) => cellObjects(doc, t, cellApi(doc, t), cellIdx).length > 0;
 
 function cells(doc, t) {
-  const boxes = j(doc.getTableCellBboxes(t.sec, t.para, t.ctrl));
+  const boxes = cellApi(doc, t).boxes();
   const seen = new Map();
   for (const b of boxes) if (!seen.has(b.cellIdx)) seen.set(b.cellIdx, { cellIdx: b.cellIdx, row: b.row, col: b.col, rowSpan: b.rowSpan ?? 1, colSpan: b.colSpan ?? 1 });
   return [...seen.values()];
 }
 
 function cellText(doc, t, cellIdx) {
-  const n = doc.getCellParagraphCount(t.sec, t.para, t.ctrl, cellIdx);
+  const api = cellApi(doc, t);
+  const n = api.paras(cellIdx);
   const lines = [];
   for (let cp = 0; cp < n; cp++) {
-    const len = doc.getCellParagraphLength(t.sec, t.para, t.ctrl, cellIdx, cp);
-    lines.push(len ? doc.getTextInCell(t.sec, t.para, t.ctrl, cellIdx, cp, 0, len).replace(CTRL_CHAR, '') : '');
+    const len = api.len(cellIdx, cp);
+    lines.push(len ? api.text(cellIdx, cp, len).replace(CTRL_CHAR, '') : '');
   }
   return lines.join('\n');
+}
+
+/** 찾기 결과의 경로 → 그 칸이 든 표 자리 ("구역.문단.번호>칸.칸문단.번호…") */
+function nestedTableId(h) {
+  const path = h.cellPath;
+  return [`${h.sec}.${h.para}.${path[0].controlIndex}`, ...path.slice(1).map((x, i) => `${path[i].cellIndex}.${path[i].cellParaIndex}.${x.controlIndex}`)].join('>');
 }
 
 /** 글 찾기 (본문·표 칸) */
@@ -144,8 +213,8 @@ export function find(doc, { text }) {
   return {
     count: hits.length,
     matches: hits.slice(0, 30).map((h) => (h.cellPath
-      // 표 칸 안의 표: 바깥 표 자리만 알린다 (그 안은 고칠 수 없다)
-      ? { at: `${h.sec}.${h.para}.${h.cellPath[0].controlIndex}`, cell: h.cellPath[0].cellIndex, nested: true, offset: h.charOffset }
+      // 칸 안의 표: 그 안쪽 표 자리와 칸 번호
+      ? { at: nestedTableId(h), cell: h.cellPath.at(-1).cellIndex, offset: h.charOffset }
       : {
         at: h.cellContext ? `${h.sec}.${h.cellContext.parentPara}.${h.cellContext.ctrlIdx}` : `${h.sec}.${h.para}`,
         ...(h.cellContext ? { cell: h.cellContext.cellIdx } : {}),
@@ -200,10 +269,14 @@ export function replace(doc, { find: text, replace: by = '', occurrence, all = f
     targets = [hits[occurrence - 1]];
   } else if (hits.length > 1) fail(`"${text}" 가 ${hits.length}곳에 있습니다. occurrence 로 몇 번째인지 정하거나 all 로 모두 바꾸세요.`);
   else targets = hits;
-  if (targets.some((h) => h.cellPath)) fail('표 칸 안의 표에 든 글은 고칠 수 없습니다. 편집기에서 직접 고치세요.');
   // 뒤에서부터: 앞 자리를 바꿔도 뒤 자리의 위치가 그대로다
   for (const h of [...targets].reverse()) {
-    if (h.cellContext) {
+    if (h.cellPath) {
+      // 칸 안의 표: 경로 API 로
+      const path = JSON.stringify(h.cellPath);
+      doc.deleteTextInCellByPath(h.sec, h.para, path, h.charOffset, h.length);
+      if (by) doc.insertTextInCellByPath(h.sec, h.para, path, h.charOffset, by);
+    } else if (h.cellContext) {
       const c = h.cellContext;
       doc.deleteTextInCell(h.sec, c.parentPara, c.ctrlIdx, c.cellIdx, c.cellPara, h.charOffset, h.length);
       if (by) doc.insertTextInCell(h.sec, c.parentPara, c.ctrlIdx, c.cellIdx, c.cellPara, h.charOffset, by);
@@ -299,22 +372,25 @@ export function fillCells(doc, { table, cells: wanted }) {
 }
 
 function setCell(doc, t, cellIdx, text) {
-  const args = [t.sec, t.para, t.ctrl, cellIdx];
+  const api = cellApi(doc, t);
   // 칸 문단을 하나로 합치고 비운 뒤 줄마다 문단을 나눠 넣는다
-  for (let n = doc.getCellParagraphCount(...args); n > 1; n--) doc.mergeParagraphInCell(...args, n - 1);
-  const len = doc.getCellParagraphLength(...args, 0);
-  if (len) doc.deleteTextInCell(...args, 0, 0, len);
+  for (let n = api.paras(cellIdx); n > 1; n--) api.merge(cellIdx, n - 1);
+  const len = api.len(cellIdx, 0);
+  if (len) api.del(cellIdx, 0, 0, len);
   const lines = text.split('\n');
   lines.forEach((line, i) => {
-    if (i > 0) doc.splitParagraphInCell(...args, i - 1, doc.getCellParagraphLength(...args, i - 1));
-    if (line) doc.insertTextInCell(...args, i, 0, line);
+    if (i > 0) api.split(cellIdx, i - 1, api.len(cellIdx, i - 1));
+    if (line) api.ins(cellIdx, i, 0, line);
   });
 }
 
 /** 줄(행) 넣기·지우기 */
+const noNestedRows = (t, table) => { if (t.inner.length) fail(`표 ${table} 은 칸 안의 표라 줄을 넣거나 지울 수 없습니다. 편집기에서 직접 고치세요.`); };
+
 export function addRows(doc, { table, after_row, count = 1 }) {
   const t = parseTable(table);
   const d = dims(doc, t, table);
+  noNestedRows(t, table);
   if (!Number.isInteger(count) || count < 1 || count > 50) fail('count 는 1~50 사이로 주세요.');
   if (after_row < -1 || after_row >= d.rowCount) fail(`after_row 는 -1(맨 위)~${d.rowCount - 1} 사이로 주세요.`);
   for (let i = 0; i < count; i++) {
@@ -327,6 +403,7 @@ export function addRows(doc, { table, after_row, count = 1 }) {
 export function removeRows(doc, { table, rows }) {
   const t = parseTable(table);
   const d = dims(doc, t, table);
+  noNestedRows(t, table);
   const list = [...new Set(rows ?? [])].sort((a, b) => b - a);
   if (!list.length) fail('지울 줄이 없습니다.');
   if (list.some((r) => r < 0 || r >= d.rowCount)) fail(`줄 번호는 0~${d.rowCount - 1} 사이로 주세요.`);

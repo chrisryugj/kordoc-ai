@@ -261,6 +261,25 @@ try {
     await go(); await key('F5 F8 KeyW');
     check('안쪽 표 셀 블록 W 가 바깥 표 너비를 바꾸지 않음', (await outer()) === before, `${before} → ${await outer()}`);
   }
+  // 편집기 AI 연산(앱이 중계 페이지에 보내는 것과 같은 메시지)으로 칸 안의 표를 읽고 채운다
+  const agent = (method, arg) => page2.evaluate((m, x) => new Promise((resolve) => {
+    const frame = document.querySelector('.kd-editor-frame iframe');
+    const id = `e2e-${Math.random()}`;
+    // 답은 { ok, result: { result: 연산 결과 } } 꼴
+    const on = (e) => { if (e.data?.kd === 'res' && e.data.id === id) { window.removeEventListener('message', on); resolve({ ok: e.data.ok, error: e.data.error, result: e.data.result?.result }); } };
+    window.addEventListener('message', on);
+    frame.contentWindow.postMessage({ kd: 'req', id, op: 'agent', args: { method: m, args: [x] } }, '*');
+  }), method, arg);
+  const doc = await agent('outline', {});
+  const outerId = doc.result?.blocks?.flatMap((b) => b.tables ?? [])[0]?.id;
+  const outerT = await agent('readTable', { table: outerId });
+  const innerId = outerT.result?.nested?.[0]?.table;
+  check('편집기 AI: 바깥 표가 칸 안의 표 자리를 알려 줌', /^\d+\.\d+\.\d+>\d+\.\d+\.\d+$/.test(innerId ?? ''), JSON.stringify(outerT.result?.nested?.[0] ?? outerT.error ?? outerT.result?.error));
+  if (innerId) {
+    const filled = await agent('fillCells', { table: innerId, cells: [{ row: 1, col: 1, text: 'E2E 채움' }] });
+    const back = await agent('readTable', { table: innerId });
+    check('편집기 AI: 칸 안의 표 칸을 채움', filled.ok && !filled.result?.error && back.result?.cells?.[1]?.[1] === 'E2E 채움', JSON.stringify(filled.result ?? filled.error));
+  }
 } finally {
   await ui2.browser.close();
   rp.kill('SIGKILL');

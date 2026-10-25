@@ -141,6 +141,34 @@ describe('고치기', () => {
     expect(JSON.parse(doc.getCellCharPropertiesAt(t.sec, t.para, t.ctrl, 0, 1, 0)).bold).toBe(true);
   });
 
+  it('칸 안의 표: 바깥 표가 자리를 알려 주고, 읽기·채우기·찾아 바꾸기가 되고, 저장해도 남는다 (rhwp 샘플 inner-table-01)', () => {
+    const NESTED = join(__dirname, '..', '..', 'scripts', 'e2e-ui', 'fixtures', 'inner-table-01.hwp');
+    const doc = new HwpDocument(new Uint8Array(readFileSync(NESTED)));
+    const outerId = ops.outline(doc).blocks.flatMap((b: { tables?: Array<{ id: string }> }) => b.tables ?? []).map((t: { id: string }) => t.id)[0];
+    const outer = ops.readTable(doc, { table: outerId });
+    expect(outer.nested?.length).toBeGreaterThan(0);
+    const inner = outer.nested[0];
+    expect(inner.table).toMatch(/^\d+\.\d+\.\d+>\d+\.\d+\.\d+$/);
+    const t = ops.readTable(doc, { table: inner.table });
+    expect([t.rows, t.cols]).toEqual([inner.rows, inner.cols]);
+    const first = t.cells[0][1] as string;
+    expect(first.length).toBeGreaterThan(0);
+    // 찾기 결과는 안쪽 표 자리
+    const hit = ops.find(doc, { text: first }).matches.find((m: { at: string }) => m.at === inner.table);
+    expect(hit).toBeTruthy();
+    ops.fillCells(doc, { table: inner.table, cells: [{ row: 1, col: 1, text: '채운 값\n둘째 줄' }] });
+    ops.replace(doc, { find: first, replace: '바꾼 이름', occurrence: 1 + ops.find(doc, { text: first }).matches.findIndex((m: { at: string }) => m.at === inner.table) });
+    for (const fmt of ['hwp', 'hwpx'] as const) {
+      const again = ops.readTable(reopen(doc, fmt), { table: inner.table });
+      expect(again.cells[1][1], fmt).toBe('채운 값\n둘째 줄');
+      expect(again.cells[0][1], fmt).toBe('바꾼 이름');
+    }
+    // 안쪽 표가 든 바깥 칸은 채우지 않고, 안쪽 표의 줄은 넣지 않는다
+    expect(() => ops.fillCells(doc, { table: outerId, cells: [{ row: inner.row, col: inner.col, text: 'x' }] })).toThrow(/표나 그림/);
+    expect(() => ops.addRows(doc, { table: inner.table, after_row: 0 })).toThrow(/칸 안의 표라 줄을/);
+    expect(() => ops.readTable(doc, { table: `${outerId}>0.0.9` })).toThrow(/없습니다/);
+  });
+
   it('새 스타일은 바탕 스타일 모양(글꼴·장평·간격)을 이어받는다', () => {
     const doc = report();
     const base = ops.readStyle(doc, { name: '개요 1' });
