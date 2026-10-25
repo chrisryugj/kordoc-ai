@@ -12,7 +12,6 @@ import { gongmunGate, parse, patchHwpx, type GongmunGateFinding } from 'kordoc';
 import { ask, contextCharBudget } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { openRhwp } from '../render/rhwp.js';
-import { withoutTrackedChanges, hasTrackedChanges } from '../hwp-save/tracked-changes.js';
 import { outputFile, stemOf } from '../output/index.js';
 import { loadDocs } from './docs.js';
 import { fixLines, referenceText } from './draft.js';
@@ -61,11 +60,10 @@ const SYSTEM = [
 const OLE = [0xd0, 0xcf, 0x11, 0xe0];
 const isOle = (b: Uint8Array) => OLE.every((x, i) => b[i] === x);
 
-/** 견본 바이트를 HWPX 로 (HWP 는 rhwp 로 바꾼다. 변경 추적 HWP 는 지금 내용으로) */
+/** 견본 바이트를 HWPX 로 (HWP 는 rhwp 로 바꾼다) */
 async function templateHwpx(path: string): Promise<{ bytes: Uint8Array; converted: boolean }> {
-  let bytes: Uint8Array = await readFile(path);
+  const bytes: Uint8Array = await readFile(path);
   if (!isOle(bytes)) return { bytes, converted: false };
-  if (hasTrackedChanges(bytes)) bytes = withoutTrackedChanges(bytes) ?? bytes;
   const doc = (await openRhwp(bytes)) as unknown as { exportHwpx(): Uint8Array; free?(): void };
   try {
     return { bytes: doc.exportHwpx(), converted: true };

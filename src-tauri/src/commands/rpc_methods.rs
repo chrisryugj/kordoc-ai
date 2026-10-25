@@ -37,7 +37,6 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "edit_undo",
     "editor_open",
     "editor_server",
-    "editor_tab_spots",
     "editor_write",
     "engine_selftest",
     "export_pdf",
