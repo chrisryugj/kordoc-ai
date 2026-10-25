@@ -1,0 +1,200 @@
+diff --git a/src/document_core/commands/object_ops/common.rs b/src/document_core/commands/object_ops/common.rs
+index 9d15d48ca..5233bf8aa 100644
+--- a/src/document_core/commands/object_ops/common.rs
++++ b/src/document_core/commands/object_ops/common.rs
+@@ -465,3 +465,115 @@ impl crate::document_core::DocumentCore {
+         )))
+     }
+ }
++
++impl crate::document_core::DocumentCore {
++    /// 구역의 쪽 번호 위치(`pgnp`)를 정한다 — 한글의 [쪽 번호 매기기].
++    ///
++    /// 한글 2024 실측: 쪽 번호 위치는 구역마다 하나이고, 커서가 어디에 있든 구역 첫 문단의
++    /// 구역·단 정의 바로 뒤에 들어간다. 이미 있으면 새로 넣지 않고 그 설정을 바꾼다.
++    /// 줄표가 없으면 대시 문자는 0이다(HWPX `sideChar=""`).
++    pub fn set_page_number_pos_native(
++        &mut self,
++        section_idx: usize,
++        format: u8,
++        position: u8,
++        dash: bool,
++    ) -> Result<String, crate::error::HwpError> {
++        use crate::error::HwpError;
++        use crate::model::control::{Control, PageNumberPos};
++
++        if section_idx >= self.document.sections.len() {
++            return Err(HwpError::RenderError(format!(
++                "구역 인덱스 {} 범위 초과",
++                section_idx
++            )));
++        }
++        if self.document.sections[section_idx].paragraphs.is_empty() {
++            return Err(HwpError::RenderError("구역에 문단이 없음".to_string()));
++        }
++        let setting = PageNumberPos {
++            format,
++            position,
++            user_symbol: '\0',
++            prefix_char: '\0',
++            suffix_char: '\0',
++            dash_char: if dash { '-' } else { '\0' },
++        };
++
++        self.document.sections[section_idx].raw_stream = None;
++        let section = &mut self.document.sections[section_idx];
++        let existing = section.paragraphs.iter_mut().find_map(|para| {
++            para.controls.iter_mut().find_map(|control| match control {
++                Control::PageNumberPos(pnp) => Some(pnp),
++                _ => None,
++            })
++        });
++        let replaced = if let Some(pnp) = existing {
++            // 사용자 기호·앞뒤 장식은 이 창이 다루지 않으므로 원래 값을 둔다
++            pnp.format = setting.format;
++            pnp.position = setting.position;
++            pnp.dash_char = setting.dash_char;
++            true
++        } else {
++            let paragraph = &mut section.paragraphs[0];
++            let insert_idx = paragraph
++                .controls
++                .iter()
++                .take_while(|c| matches!(c, Control::SectionDef(_) | Control::ColumnDef(_)))
++                .count();
++            paragraph.align_ctrl_data_records();
++            paragraph
++                .controls
++                .insert(insert_idx, Control::PageNumberPos(setting));
++            paragraph.ctrl_data_records.insert(insert_idx, None);
++            // 앞선 정의들처럼 첫 글자 앞 자리(8 유닛)를 차지한다
++            paragraph.shift_for_inline_control_insert(insert_idx, 0);
++            paragraph.char_count += 8;
++            paragraph.control_mask |= 1u32 << 0x0015;
++            paragraph.has_para_text = true;
++            self.shift_active_field_for_control_insert(section_idx, 0, insert_idx);
++            false
++        };
++
++        if !replaced {
++            self.reflow_paragraph(section_idx, 0);
++        }
++        self.recompose_section(section_idx);
++        self.paginate_if_needed();
++        self.invalidate_page_tree_cache();
++
++        Ok(crate::document_core::helpers::json_ok_with(&format!(
++            "\"replaced\":{}",
++            replaced
++        )))
++    }
++
++    /// 구역의 쪽 번호 위치. 없으면 `pageNumber` 가 null 이다.
++    pub fn get_page_number_pos_native(
++        &self,
++        section_idx: usize,
++    ) -> Result<String, crate::error::HwpError> {
++        use crate::error::HwpError;
++        use crate::model::control::Control;
++
++        let section = self.document.sections.get(section_idx).ok_or_else(|| {
++            HwpError::RenderError(format!("구역 인덱스 {} 범위 초과", section_idx))
++        })?;
++        let found = section.paragraphs.iter().find_map(|para| {
++            para.controls.iter().find_map(|control| match control {
++                Control::PageNumberPos(pnp) => Some(pnp),
++                _ => None,
++            })
++        });
++        let body = match found {
++            Some(pnp) => format!(
++                "\"pageNumber\":{{\"format\":{},\"position\":{},\"dash\":{}}}",
++                pnp.format,
++                pnp.position,
++                pnp.dash_char != '\0'
++            ),
++            None => "\"pageNumber\":null".to_string(),
++        };
++        Ok(crate::document_core::helpers::json_ok_with(&body))
++    }
++}
+diff --git a/src/parser/hwpx/section.rs b/src/parser/hwpx/section.rs
+index 8b490f6b1..c5eca3cc4 100644
+--- a/src/parser/hwpx/section.rs
++++ b/src/parser/hwpx/section.rs
+@@ -5338,8 +5338,9 @@ fn parse_page_num_attrs(e: &quick_xml::events::BytesStart) -> PageNumberPos {
+                 };
+             }
+             b"sideChar" => {
++                // 한글은 줄표 없는 쪽 번호를 `sideChar=""`로 쓴다(HWP5 대시 문자 0)
+                 let s = attr_str(&attr);
+-                pn.dash_char = s.chars().next().unwrap_or('-');
++                pn.dash_char = s.chars().next().unwrap_or('\0');
+             }
+             _ => {}
+         }
+diff --git a/src/serializer/hwpx/section.rs b/src/serializer/hwpx/section.rs
+index 8829aec04..c62fb5376 100644
+--- a/src/serializer/hwpx/section.rs
++++ b/src/serializer/hwpx/section.rs
+@@ -2963,17 +2963,18 @@ fn page_num_format_to_str(fmt: u8) -> &'static str {
+ 
+ /// `<hp:ctrl><hp:pageNum .../></hp:ctrl>` — 쪽 번호 위치(PageNumberPos) 컨트롤.
+ fn render_page_num(pn: &PageNumberPos) -> String {
+-    // dash_char 기본값은 '-' (모델: 항상 '-'); '\0'이면 '-'로 폴백.
++    // 줄표 없는 쪽 번호(대시 문자 0)는 한글처럼 `sideChar=""`로 쓴다. 종전에는 '-'로
++    // 바꿔 써서, 줄표 없이 매긴 쪽 번호가 저장 뒤 "- 1 -"이 됐다.
+     let side = if pn.dash_char == '\0' {
+-        '-'
++        String::new()
+     } else {
+-        pn.dash_char
++        pn.dash_char.to_string()
+     };
+     format!(
+         r#"<hp:ctrl><hp:pageNum pos="{}" formatType="{}" sideChar="{}"/></hp:ctrl>"#,
+         page_num_pos_to_str(pn.position),
+         page_num_format_to_str(pn.format),
+-        xml_escape(&side.to_string()),
++        xml_escape(&side),
+     )
+ }
+ 
+diff --git a/src/wasm_api.rs b/src/wasm_api.rs
+index 2031085e3..c372b7668 100644
+--- a/src/wasm_api.rs
++++ b/src/wasm_api.rs
+@@ -2528,6 +2528,33 @@ impl HwpDocument {
+         .map_err(|e| e.into())
+     }
+ 
++    /// 구역의 쪽 번호 위치 지정 (쪽 > 쪽 번호 매기기). 구역에 이미 있으면 그 설정을 바꾼다.
++    /// format: 번호 모양 0~7 (표 134, HWPX에서도 쓸 수 있는 것), position: 표시 위치 0~10 (표 150)
++    #[wasm_bindgen(js_name = setPageNumberPos)]
++    pub fn set_page_number_pos(
++        &mut self,
++        section_idx: u32,
++        format: u32,
++        position: u32,
++        dash: bool,
++    ) -> Result<String, JsValue> {
++        if format > 7 {
++            return Err(JsValue::from_str("format must be 0~7"));
++        }
++        if position > 10 {
++            return Err(JsValue::from_str("position must be 0~10"));
++        }
++        self.set_page_number_pos_native(section_idx as usize, format as u8, position as u8, dash)
++            .map_err(|e| e.into())
++    }
++
++    /// 구역의 쪽 번호 위치 (`{"ok":true,"pageNumber":{format,position,dash}|null}`)
++    #[wasm_bindgen(js_name = getPageNumberPos)]
++    pub fn get_page_number_pos(&self, section_idx: u32) -> Result<String, JsValue> {
++        self.get_page_number_pos_native(section_idx as usize)
++            .map_err(|e| e.into())
++    }
++
+     /// 다단 설정 변경
+     /// column_type: 0=일반, 1=배분, 2=평행
+     /// same_width: 0=다른 너비, 1=같은 너비

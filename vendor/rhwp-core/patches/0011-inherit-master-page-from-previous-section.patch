@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 00:00:00 +0900
+Subject: [PATCH 11/11] =?UTF-8?q?fix(rendering):=20=EB=B0=94=ED=83=95?=
+ =?UTF-8?q?=EC=AA=BD=EC=9D=B4=20=EC=97=86=EB=8A=94=20=EA=B5=AC=EC=97=AD?=
+ =?UTF-8?q?=EC=9D=80=20=EC=95=9E=20=EA=B5=AC=EC=97=AD=EC=9D=98=20=EB=B0=94?=
+ =?UTF-8?q?=ED=83=95=EC=AA=BD=EC=9D=84=20=EC=9E=87=EB=8A=94=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+한/글은 구역을 나눈 뒤 바탕쪽을 따로 만들지 않은 구역에도 앞 구역의 바탕쪽을 그린다
+(한/글 2024 가 저장한 HWPX 도 그 구역의 `masterPageCnt` 가 0 이다). 구역 사이에 바탕쪽을
+넘겨주는 carry 는 이미 있었지만 `assign_master_pages_for_section` 이 구역에 바탕쪽이 하나도
+없으면 carry 를 보기 전에 끝났다. 첫 구역에만 바탕쪽(쪽 번호와 기관 이름이 든 쪽 아래
+띠)을 둔 교재는 나머지 구역 201쪽 모두에서 그 띠와 쪽 번호가 빠졌다.
+
+carry 도 없을 때만 끝낸다. 구역 첫 쪽 감추기는 그대로 따른다. 지연 표 쪽나눔 경로는
+구역이 하나인 문서에서만 쓰여 넘겨받을 앞 구역이 없다.
+
+IeumOffice patch onto v0.8.7 (not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/document_core/queries/rendering.rs | 100 ++++++++++++++++++++++++-
+ 1 file changed, 99 insertions(+), 1 deletion(-)
+
+diff --git a/src/document_core/queries/rendering.rs b/src/document_core/queries/rendering.rs
+index c435fd5fc..1663799d1 100644
+--- a/src/document_core/queries/rendering.rs
++++ b/src/document_core/queries/rendering.rs
+@@ -868,7 +868,12 @@ fn assign_master_pages_for_section(
+     }
+ 
+     let mps = &section.section_def.master_pages;
+-    if mps.is_empty() {
++    // 바탕쪽이 없는 구역은 앞 구역의 바탕쪽을 잇는다. 한/글은 구역을 나눈 뒤 바탕쪽을
++    // 따로 만들지 않은 구역에도 앞 구역의 바탕쪽을 그린다(한/글 2024 가 저장한 HWPX 도 그
++    // 구역의 `masterPageCnt` 가 0 이다). 종전에는 여기서 끝나, 첫 구역에만 바탕쪽을 둔
++    // 교재의 나머지 구역 모든 쪽에서 쪽 아래 띠와 쪽 번호가 빠졌다. 아래 선택은 이 구역
++    // 바탕쪽이 없으면 이미 carry 로 넘어가고, 첫 쪽 감추기도 그대로 따른다.
++    if mps.is_empty() && carry_master_odd.is_none() && carry_master_even.is_none() {
+         return;
+     }
+ 
+@@ -8580,6 +8585,99 @@ mod tests {
+     use crate::model::bin_data::BinDataContent;
+     use crate::renderer::render_tree::RenderNodeType;
+ 
++    fn master_page_probe_pages(page_numbers: &[u32]) -> PaginationResult {
++        let layout = PageLayoutInfo::from_page_def_default(
++            &crate::model::page::PageDef::default(),
++            &crate::model::page::ColumnDef::default(),
++        );
++        PaginationResult {
++            pages: page_numbers
++                .iter()
++                .enumerate()
++                .map(|(index, &page_number)| PageContent {
++                    page_index: index as u32,
++                    page_number,
++                    page_number_restarted: false,
++                    section_index: 1,
++                    layout: layout.clone(),
++                    column_contents: Vec::new(),
++                    active_header: None,
++                    active_footer: None,
++                    page_number_pos: None,
++                    page_hide: None,
++                    footnotes: Vec::new(),
++                    active_master_page: None,
++                    extra_master_pages: Vec::new(),
++                    ladder_band_tables: Vec::new(),
++                })
++                .collect(),
++            wrap_around_paras: Vec::new(),
++            hidden_empty_paras: std::collections::HashSet::new(),
++            pre_emitted_host_paras: std::collections::HashSet::new(),
++            pre_emitted_host_heights: std::collections::HashMap::new(),
++            pre_emitted_host_content_heights: std::collections::HashMap::new(),
++            endnotes: Vec::new(),
++            endnote_paragraphs: Vec::new(),
++            endnote_para_sources: Vec::new(),
++            endnote_between_notes_hu: 0,
++            endnote_separator_above_hu: 0,
++            endnote_separator_below_hu: 0,
++        }
++    }
++
++    /// 바탕쪽이 없는 구역은 앞 구역의 바탕쪽을 잇는다. 한/글 2024 는 첫 구역에만
++    /// 양쪽·홀수 바탕쪽을 둔 교재(뒤 구역 `masterPageCnt=0`)의 모든 쪽에 그 바탕쪽(쪽 아래
++    /// 띠와 쪽 번호)을 그린다. 구역 첫 쪽 감추기는 그대로 따른다.
++    #[test]
++    fn section_without_master_pages_inherits_previous_section_master_pages() {
++        use crate::model::header_footer::{HeaderFooterApply, MasterPage};
++
++        let mut first = Section::default();
++        first.section_def.master_pages = vec![
++            MasterPage {
++                apply_to: HeaderFooterApply::Both,
++                ..Default::default()
++            },
++            MasterPage {
++                apply_to: HeaderFooterApply::Odd,
++                ..Default::default()
++            },
++        ];
++        let (mut odd, mut even) = (None, None);
++        update_master_page_carry_from_section(0, &first, &mut odd, &mut even);
++
++        let mut later = Section::default();
++        let mut result = master_page_probe_pages(&[55, 56]);
++        assign_master_pages_for_section(&mut result, 1, &later, &odd, &even);
++        let picked: Vec<_> = result
++            .pages
++            .iter()
++            .map(|page| {
++                page.active_master_page
++                    .as_ref()
++                    .map(|mp| (mp.section_index, mp.master_page_index))
++            })
++            .collect();
++        assert_eq!(picked, vec![Some((0, 1)), Some((0, 0))]);
++
++        later.section_def.hide_master_page = true;
++        let mut result = master_page_probe_pages(&[55, 56]);
++        assign_master_pages_for_section(&mut result, 1, &later, &odd, &even);
++        assert!(result.pages[0].active_master_page.is_none());
++        assert_eq!(
++            result.pages[1]
++                .active_master_page
++                .as_ref()
++                .map(|mp| (mp.section_index, mp.master_page_index)),
++            Some((0, 0))
++        );
++
++        // 앞 구역에도 바탕쪽이 없으면 종전대로 비운다.
++        let mut result = master_page_probe_pages(&[1]);
++        assign_master_pages_for_section(&mut result, 1, &Section::default(), &None, &None);
++        assert!(result.pages[0].active_master_page.is_none());
++    }
++
+     #[test]
+     fn issue3137_focused_partial_repaint_rejects_unsafe_justify_and_extra_spacing() {
+         assert!(focused_partial_repaint_alignment_is_safe(

@@ -71,7 +71,9 @@ function CreateBody({ active }: { active: boolean }) {
   useEffect(() => {
     if (!createIntent || createIntent.nonce === handled.current || !createIntent.value.path) return;
     handled.current = createIntent.nonce;
-    void openInEditor(createIntent.value.path, { existing: true });
+    const rec = createIntent.value.recover;
+    // 홈의 "되살리기": 그 경로의 복구 사본으로 연다 (새로 쓰기 초안이었으면 초안 그대로)
+    void openInEditor(createIntent.value.path, rec ? { recover: true, title: rec.title, ...(rec.working ? { working: true } : { existing: true }) } : { existing: true });
   }, [createIntent, openInEditor]);
 
   return (

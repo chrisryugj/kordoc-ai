@@ -275,13 +275,19 @@ export interface RpcMethods {
   read_file_b64: [{ path: string; preview?: boolean }, { data_b64: string; name: string; size: number }];
   /** 내장 편집기로 열 바이트 — 변경 추적 HWP 는 지금 내용으로(tracking_dropped), token 은 editor_write 에 넘겨 rhwp 가 빠뜨린 것을 되붙인다.
    *  save_blocked: 추적 기록을 뺄 수 없어 HWP 로 저장하면 안 되는 문서 (사용자 문장) */
-  editor_open: [{ path: string }, { data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }];
+  editor_open: [{ path: string; recover?: boolean }, { data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }];
   /** 편집기 내보내기 저장 — token 의 원본에서 바탕쪽·메모·수식 캡션·필드 종류를 되붙이고(HWP), 처음 덮어쓰는 파일은 `.bak` 을 남긴다.
    *  tails_lost: 되붙이지 못한 목록이 있다 (한글에서 열어 확인하라고 알린다). backup: false 면 .bak 을 만들지 않는다 (앱 작업 사본) */
   /** 편집기 내보내기에서 rhwp 가 폭 없이 쓴 새 탭 자리 — 편집기 플러그인 measureTabs 로 재서 editor_write 의 tabs 로 */
   editor_tab_spots: [{ data_b64: string; format: 'hwp' | 'hwpx' }, { spots: Array<{ sec: number; para: number; cells: Array<{ table: number; cell: number; para: number }>; tab: number; tabs: number }> }];
   editor_write: [{ path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean;
     tabs?: Array<{ sec: number; para: number; cells: Array<{ table: number; cell: number; para: number }>; tab: number; tabs: number; width: number; type: number; fill: number }> }, { path: string; backup_path?: string; tails_lost?: boolean }];
+  /** 한글 편집기 복구 사본 (앱 데이터 폴더 recovery/, 문서 경로마다 하나) — 저장하지 않은 채 앱이 꺼져도 다음에 되살린다.
+   *  되살리기는 editor_open recover. 지우는 건 저장했거나 사용자가 버렸을 때(recovery_discard). 14일 지난 사본은 목록에서 지운다 */
+  recovery_write: [{ path: string; data_b64: string; title?: string; working?: boolean }, { ok: boolean }];
+  /** path: 그 문서의 사본만 (한글 이름 조합 방식·Windows 대소문자는 같은 파일로 본다) */
+  recovery_list: [{ path?: string }, { entries: RecoveryEntry[] }];
+  recovery_discard: [{ path: string }, boolean];
   /** 편집기에서 내보낸 HWPX 의 미리보기 사본 (read_file_b64 preview 와 같은 처리) */
   preview_bytes: [{ data_b64: string }, { data_b64: string }];
 
@@ -365,6 +371,21 @@ export interface PdfShrinkResult {
   /** 글자를 그대로 두었는가 (쪽을 그림으로 바꾸면 false) */
   text_kept: boolean;
   note?: string;
+}
+
+/** 한글 편집기 복구 사본 하나 (core/recovery) */
+export interface RecoveryEntry {
+  /** 사본이 대신하는 문서 경로 (되살린 뒤 저장할 곳) */
+  path: string;
+  name: string;
+  format: 'hwp' | 'hwpx';
+  title?: string;
+  /** 앱 작업 사본(새로 쓰기 초안)이었다 */
+  working?: boolean;
+  saved_at: number;
+  size: number;
+  /** 원본 파일이 아직 있다 */
+  exists: boolean;
 }
 
 export interface DocInfo {

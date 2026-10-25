@@ -36,7 +36,7 @@ export type AutoRunKind = "summarize" | "redact" | "precheck";
 export interface WorkbenchFocus { path: string; page?: number; tool?: ToolId; run?: AutoRunKind }
 export interface BatchStart { paths: string[]; task?: BatchTaskId; autoRun?: boolean }
 export type DraftKind = "reply" | "complaint" | "minutes" | "onepage" | "press" | "memo";
-export interface CreateStart { path?: string; route?: "library" | "blank" | "ai" | "convert"; kind?: DraftKind; markdown?: string; references?: string[] }
+export interface CreateStart { path?: string; route?: "library" | "blank" | "ai" | "convert"; kind?: DraftKind; markdown?: string; references?: string[]; recover?: { title?: string; working?: boolean } }
 export interface AssistantStart { paths: string[]; tab?: "ask" | "rewrite"; text?: string }
 
 interface AppValue {

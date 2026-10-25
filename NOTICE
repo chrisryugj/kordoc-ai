@@ -50,6 +50,12 @@ GenOffice, Copyright 2026 Mainfunc, Inc. This product includes software develope
 - src/lib/hwp-agent/skill.ts·labels.ts — 편집기 AI 의 도구 정의·지시문·활동 문구 (웹 읽기 도구는 뺐다)
 - scripts/rhwp-patches.mjs 의 플러그인 허용·스튜디오 이름 점검 목록, node-sidecar/src/core/ai/agent-step.ts 의 구조화 응답 방식·문구
 - 시험: node-sidecar/tests/{hwp-save-*,agent-plugin*,agent-hwp-skill}.test.ts, 시험 문서 node-sidecar/tests/fixtures/nested-form.hwp
+그 저장소(커밋 63e2a636)에서 옮겨 온 것:
+- agent-plugin.mjs·skill.ts 의 스타일 읽기·만들기·고치기, 글자 스타일, 도구 줄 스타일 목록 맞추기, 저장 안 됨 알림
+- node-sidecar/studio-plugin/hancom-keys.mjs — 한컴 한글 기본 단축키·연속키·새 명령(한 줄 지우기·쪽 번호 매기기 등)
+- scripts/rhwp-patches.mjs 의 스튜디오 패치(표 안의 표 지우기·한컴 키 잇기·글꼴 치환 기억)
+- vendor/rhwp-core/patches/0001~0015 — rhwp 엔진 조판·스타일·쪽 번호 패치 (빌드한 WASM 도 vendor/rhwp-core)
+- 시험: node-sidecar/tests/{agent-plugin-styles,agent-plugin-dirty,hancom-keys,hancom-commands,page-number,engine-layout}.test.ts 와 그 시험 문서
 라이선스 전문: licenses/IeumOffice-Apache-2.0.txt
 
 ---

@@ -498,6 +498,9 @@ const handlers: Handlers = {
     return { data_b64: PNG_1PX, name: baseName(p.path), size: 68 };
   },
   editor_open: async (p, emit) => ({ ...(await handlers.read_file_b64!({ path: p.path }, emit)), token: "mock", tracking_dropped: false }),
+  recovery_write: async () => ({ ok: true }),
+  recovery_list: async () => ({ entries: [] }),
+  recovery_discard: async () => true,
   editor_write: (p) => ({ path: p.path }),
   editor_tab_spots: () => ({ spots: [] }),
   ai_agent_step: async () => { await wait(600); return { text: "미리보기에서는 문서를 고치지 않습니다. 앱에서 AI 연결을 고른 뒤 써 보세요.", calls: [], redacted: 0 }; },

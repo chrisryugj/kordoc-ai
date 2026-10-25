@@ -1,0 +1,458 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 00:00:00 +0900
+Subject: [PATCH 10/11] =?UTF-8?q?fix(layout):=20=EB=A8=B8=EB=A6=AC?=
+ =?UTF-8?q?=EB=A7=90=C2=B7=EA=BC=AC=EB=A6=AC=EB=A7=90=EC=9D=98=20=EC=9A=A9?=
+ =?UTF-8?q?=EC=A7=80=C2=B7=EC=AA=BD=20=EA=B8=B0=EC=A4=80=20=ED=91=9C=C2=B7?=
+ =?UTF-8?q?=EA=B8=80=EC=83=81=EC=9E=90=EB=8A=94=20=EA=B7=B8=20=ED=8B=80?=
+ =?UTF-8?q?=EC=97=90=EC=84=9C=20=EC=9E=B0=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+한/글은 머리말·꼬리말에 놓인 개체의 용지·쪽 기준 오프셋을 물리 용지나 본문 영역이
+아니라 그 머리말·꼬리말 틀에서 잰다. 틀은 본문 왼쪽 끝·본문 폭, 세로는 머리말이면
+위 여백에서 머리말 여백까지, 꼬리말이면 본문 아래끝에서 꼬리말 여백까지다. 그림은
+#6608 에서 이렇게 고쳤지만 표는 `layout_table` 이 본문 표처럼 용지 원점을 썼고,
+글상자는 `layout_shape` 에 본문 영역·용지를 그대로 넘겼다.
+
+교재의 장 머리말 표(용지 기준 세로 −21mm = −위 여백)는 한/글에서 쪽 맨 위에 놓이는데
+rhwp 는 쪽 위로 79px 내보내 잘랐다. 꼬리말 표·글상자는 용지 기준이면 쪽 맨 위, 쪽
+기준이면 본문 위끝, 아래·오른쪽 정렬이면 용지 오른쪽 아래 구석에 그렸다. 한/글 2024
+PDF 실측(A4, 위 21mm·머리말 12mm·꼬리말 5mm·아래 52mm): 표의 글앞으로·자리차지·
+글뒤로·어울림 넷과 사각형 모두 틀 원점이다.
+
+표는 `resolved_table_origin` 으로 원점을 넘긴다. 정렬과 바깥 여백은 본문의 쪽·종이 기준
+표와 같은 식이고(가로 `compute_table_x_position`, 세로 `absolute_table_vertical_geometry`)
+기준만 틀이다. 문단·단 기준은 종전 경로 그대로다. `footer_area` 는 아래 여백까지
+품으므로 꼬리말 틀 높이는 `build_footer` 의 `margin_footer` 관용구로 되찾는다.
+
+IeumOffice patch onto v0.8.7 (not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/layout.rs       |  87 +++++++++++-
+ src/renderer/layout/tests.rs | 255 ++++++++++++++++++++++++++++++++++-
+ 2 files changed, 335 insertions(+), 7 deletions(-)
+
+diff --git a/src/renderer/layout.rs b/src/renderer/layout.rs
+index 4eb94afc4..05bef0e5a 100644
+--- a/src/renderer/layout.rs
++++ b/src/renderer/layout.rs
+@@ -4894,7 +4894,7 @@ impl LayoutEngine {
+         _composed: &[ComposedParagraph],
+         styles: &ResolvedStyleSet,
+         area: &LayoutRect,
+-        body_area: &LayoutRect,
++        _body_area: &LayoutRect,
+         paper_area: &LayoutRect,
+         table_area: Option<&LayoutRect>,
+         page_index: u32,
+@@ -4973,6 +4973,7 @@ impl LayoutEngine {
+                 _ => 0.0,
+             }
+             + stored_mixed_footer_leading;
++        let frame = Self::header_footer_frame(area, paper_area, is_header);
+         for (i, para) in hf_paragraphs.iter().enumerate() {
+             // 테이블 컨트롤이 있으면 테이블 렌더링
+             let has_table = para.controls.iter().any(|c| matches!(c, Control::Table(_)));
+@@ -5014,6 +5015,8 @@ impl LayoutEngine {
+                         };
+                         let table_y = y_offset + line_anchor_offset;
+                         let table_area = table_area.unwrap_or(area);
++                        let frame_origin =
++                            self.header_footer_table_frame_origin(t.as_ref(), &frame);
+                         y_offset = self.layout_table(
+                             tree,
+                             area_node,
+@@ -5038,7 +5041,7 @@ impl LayoutEngine {
+                             false,
+                             is_header,
+                             0.0,
+-                            None,
++                            frame_origin,
+                             Self::standalone_table_char_border_fill(Some(para), t.as_ref(), styles),
+                         );
+                     }
+@@ -5191,6 +5194,9 @@ impl LayoutEngine {
+                     );
+                 }
+                 // Shape 컨트롤 렌더링 (머리말/꼬리말 내 글상자 등)
++                // 용지·쪽 기준 글상자도 표와 같이 머리말·꼬리말 틀에서 잰다
++                // (`header_footer_frame`). 본문 영역·물리 용지를 넘기면 쪽 번호 글상자가
++                // 쪽 맨 위에 그려졌다. 문단·단 기준이 쓰는 영역은 종전대로 `area` 다.
+                 for (ci, ctrl) in para.controls.iter().enumerate() {
+                     if let Control::Shape(_) = ctrl {
+                         self.layout_shape(
+@@ -5202,8 +5208,8 @@ impl LayoutEngine {
+                             if has_tac_shape { hf_shape_section } else { 0 },
+                             styles,
+                             area,
+-                            body_area,
+-                            paper_area,
++                            &frame,
++                            &frame,
+                             y_offset,
+                             Alignment::Left,
+                             bin_data_content,
+@@ -6240,6 +6246,79 @@ impl LayoutEngine {
+     /// 틀 원점 (왼쪽 여백 75.6, 위 여백 37.8)px 에서 재 (78.68, 51.94)px 에 그리는데,
+     /// 종전엔 용지 (0, 0) 에서 재 (3.3, 14.2)px 였다 — 6쪽 전부 쪽 여백만큼 어긋났다.
+     /// 실측은 `PAPER` 만 있고 `Page` 는 같은 틀로 푼다(본문 영역은 머리말 안에서 뜻이 없다).
++    /// 머리말·꼬리말 안 용지·쪽 기준 개체를 재는 틀.
++    ///
++    /// 한/글은 머리말·꼬리말에 놓인 개체의 용지·쪽 기준 오프셋을 물리 용지나 본문
++    /// 영역이 아니라 **그 머리말·꼬리말 틀**에서 잰다(그림은 #6608). 틀은 본문 왼쪽
++    /// 끝·본문 폭, 세로는 머리말이면 위 여백에서 머리말 여백까지, 꼬리말이면 본문
++    /// 아래끝에서 꼬리말 여백까지다. 한/글 2024 PDF 실측(A4, 위 21mm·머리말 12mm·
++    /// 꼬리말 5mm·아래 52mm): 머리말 용지 기준 (0, −위 여백) 표·글상자는 (본문 왼쪽, 0),
++    /// 꼬리말 용지·쪽 기준 (3000, 1000)HU 는 (본문 왼쪽 + 40.0, 본문 아래끝 + 13.3),
++    /// 꼬리말 아래·오른쪽 정렬은 틀 오른쪽 아래끝 — 표의 글앞으로·자리차지·글뒤로·
++    /// 어울림 넷 모두 같다.
++    ///
++    /// `footer_area` 는 본문 아래끝부터 아래 여백까지 품는다(쪽 계산이 쓰는 rect 라
++    /// 그대로 둔다). 꼬리말 틀의 높이는 `build_footer` 의 `margin_footer` 와 같은
++    /// 관용구로 되찾는다 — 아래 정렬 개체가 아래 여백 끝까지 내려가지 않게.
++    fn header_footer_frame(
++        area: &LayoutRect,
++        paper_area: &LayoutRect,
++        is_header: bool,
++    ) -> LayoutRect {
++        if is_header {
++            *area
++        } else {
++            LayoutRect {
++                height: (paper_area.height - (area.y + area.height)).max(0.0),
++                ..*area
++            }
++        }
++    }
++
++    /// 머리말·꼬리말에 직접 놓인 용지·쪽 기준 부동 표의 원점 `(x, 위끝)`.
++    ///
++    /// 종전에는 `layout_table` 이 본문 표처럼 용지 원점을 써서, 위 여백만큼 위로 올린
++    /// 머리말 표(교재의 장 머리말, 용지 기준 세로 −21mm)가 쪽 위로 79px 나가 잘렸고,
++    /// 꼬리말 표는 쪽 맨 위(용지)·본문 위끝(쪽)·용지 오른쪽 아래 구석(아래·오른쪽
++    /// 정렬)에 그려졌다. 정렬과 바깥 여백은 본문의 쪽·종이 기준 표와 같은 식이고
++    /// (가로 `compute_table_x_position`, 세로 `absolute_table_vertical_geometry`), 기준만
++    /// `header_footer_frame` 이다. 문단·단 기준 가로는 종전 경로가 이미 머리말·꼬리말
++    /// 영역(`table_area`) 안에서 풀므로 `None` 으로 남긴다.
++    fn header_footer_table_frame_origin(
++        &self,
++        table: &crate::model::table::Table,
++        frame: &LayoutRect,
++    ) -> Option<(Option<f64>, f64)> {
++        if table.common.treat_as_char
++            || !matches!(table.common.vert_rel_to, VertRelTo::Paper | VertRelTo::Page)
++        {
++            return None;
++        }
++        let width = hwpunit_to_px(signed_hwpunit(table.common.width).max(0), self.dpi);
++        let height = hwpunit_to_px(signed_hwpunit(table.common.height).max(0), self.dpi);
++        let x = match table.common.horz_rel_to {
++            HorzRelTo::Paper | HorzRelTo::Page => {
++                let h_offset =
++                    hwpunit_to_px(signed_hwpunit(table.common.horizontal_offset), self.dpi);
++                let slack = (frame.width - width).max(0.0);
++                Some(match table.common.horz_align {
++                    HorzAlign::Left | HorzAlign::Inside => frame.x + h_offset,
++                    HorzAlign::Center => frame.x + slack / 2.0 + h_offset,
++                    HorzAlign::Right | HorzAlign::Outside => frame.x + slack - h_offset,
++                })
++            }
++            HorzRelTo::Column | HorzRelTo::Para => None,
++        };
++        let (top, _) = crate::renderer::float_placement::absolute_table_vertical_geometry(
++            table,
++            frame.y,
++            frame.height,
++            height,
++            self.dpi,
++        );
++        Some((x, top))
++    }
++
+     fn layout_header_footer_picture(
+         &self,
+         tree: &mut PageLayoutContext,
+diff --git a/src/renderer/layout/tests.rs b/src/renderer/layout/tests.rs
+index 183873bc9..4f7a6c499 100644
+--- a/src/renderer/layout/tests.rs
++++ b/src/renderer/layout/tests.rs
+@@ -2739,8 +2739,11 @@ fn render_tree_with_header_control(control: Control) -> PageRenderTree {
+     )
+ }
+ 
++/// 머리말 안 용지 기준 글상자도 그림(#6608)·표처럼 머리말 틀 원점에서 잰다.
++/// 한/글 2024 PDF 실측: 머리말 용지 기준 (0, −위 여백) 사각형은 (본문 왼쪽, 0) 에
++/// 그려진다. 종전 이 시험은 용지 원점을 적었고 엔진도 그렇게 그려 사각형이 쪽 위로 나갔다.
+ #[test]
+-fn header_paper_relative_shape_uses_page_origin() {
++fn header_paper_relative_shape_uses_header_frame_origin() {
+     let tree = render_tree_with_header_control(Control::Shape(Box::new(ShapeObject::Rectangle(
+         RectangleShape {
+             common: CommonObjAttr {
+@@ -2760,8 +2763,10 @@ fn header_paper_relative_shape_uses_page_origin() {
+     let bbox = first_header_child_bbox(&tree, |node_type| {
+         matches!(node_type, RenderNodeType::Rectangle(_))
+     });
+-    assert!((bbox.x - hwpunit_to_px(1_500, DEFAULT_DPI)).abs() < 0.01);
+-    assert!((bbox.y - hwpunit_to_px(2_250, DEFAULT_DPI)).abs() < 0.01);
++    let header_area =
++        PageLayoutInfo::from_page_def_default(&a4_page_def(), &ColumnDef::default()).header_area;
++    assert!((bbox.x - (header_area.x + hwpunit_to_px(1_500, DEFAULT_DPI))).abs() < 0.01);
++    assert!((bbox.y - (header_area.y + hwpunit_to_px(2_250, DEFAULT_DPI))).abs() < 0.01);
+ }
+ 
+ /// [#6608] 머리말 안 용지 기준 그림은 물리 용지가 아니라 **머리말 틀 원점**에서
+@@ -2804,6 +2809,250 @@ fn header_paper_relative_picture_uses_header_frame_origin() {
+     assert!((bbox.y - (header_area.y + hwpunit_to_px(2_250, DEFAULT_DPI))).abs() < 0.01);
+ }
+ 
++/// 머리말·꼬리말 표 시험용 1×1 부동 표 (20000×2000 HU, 글앞으로).
++fn header_footer_float_table(
++    vert_rel_to: VertRelTo,
++    horz_rel_to: HorzRelTo,
++    vert_align: VertAlign,
++    horz_align: HorzAlign,
++    vertical_offset: i32,
++    horizontal_offset: i32,
++) -> Control {
++    Control::Table(Box::new(Table {
++        row_count: 1,
++        col_count: 1,
++        common: CommonObjAttr {
++            width: 20_000,
++            height: 2_000,
++            vertical_offset: vertical_offset as u32,
++            horizontal_offset: horizontal_offset as u32,
++            vert_rel_to,
++            horz_rel_to,
++            vert_align,
++            horz_align,
++            text_wrap: TextWrap::InFrontOfText,
++            ..Default::default()
++        },
++        cells: vec![Cell {
++            row: 0,
++            col: 0,
++            row_span: 1,
++            col_span: 1,
++            width: 20_000,
++            height: 2_000,
++            paragraphs: vec![Paragraph::default()],
++            ..Default::default()
++        }],
++        ..Default::default()
++    }))
++}
++
++fn render_tree_with_footer_control(control: Control) -> PageRenderTree {
++    use crate::model::header_footer::Footer;
++    use crate::renderer::pagination::HeaderFooterRef;
++
++    let engine = LayoutEngine::with_default_dpi();
++    let layout = PageLayoutInfo::from_page_def_default(&a4_page_def(), &ColumnDef::default());
++    let paragraphs = vec![Paragraph {
++        controls: vec![Control::Footer(Box::new(Footer {
++            paragraphs: vec![Paragraph {
++                controls: vec![control],
++                ..Default::default()
++            }],
++            ..Default::default()
++        }))],
++        ..Default::default()
++    }];
++    let page_content = PageContent {
++        page_index: 0,
++        page_number: 1,
++        page_number_restarted: false,
++        section_index: 0,
++        layout,
++        column_contents: Vec::new(),
++        active_header: None,
++        active_footer: Some(HeaderFooterRef {
++            para_index: 0,
++            control_index: 0,
++            source_section_index: 0,
++            table_path: Vec::new(),
++        }),
++        page_number_pos: None,
++        page_hide: None,
++        footnotes: Vec::new(),
++        active_master_page: None,
++        extra_master_pages: Vec::new(),
++        ladder_band_tables: Vec::new(),
++    };
++    engine.build_render_tree(
++        &page_content,
++        &paragraphs,
++        &paragraphs,
++        &paragraphs,
++        &[],
++        &ResolvedStyleSet::default(),
++        &FootnoteShape::default(),
++        &[],
++        None,
++        &[],
++        None,
++        0,
++        &[],
++    )
++}
++
++fn first_footer_table_bbox(tree: &PageRenderTree) -> BoundingBox {
++    fn find(node: &RenderNode) -> Option<BoundingBox> {
++        if matches!(node.node_type, RenderNodeType::Table(_)) {
++            return Some(node.bbox);
++        }
++        node.children.iter().find_map(find)
++    }
++    let footer = tree
++        .root
++        .children
++        .iter()
++        .find(|node| matches!(node.node_type, RenderNodeType::Footer))
++        .expect("footer node should be rendered");
++    find(footer).expect("footer table should be rendered")
++}
++
++/// 한/글 2024 의 꼬리말 틀: 본문 왼쪽·본문 폭, 본문 아래끝에서 꼬리말 여백 높이.
++fn footer_frame_px() -> (f64, f64, f64, f64) {
++    let page = a4_page_def();
++    let px = |hu: u32| hwpunit_to_px(hu as i32, DEFAULT_DPI);
++    (
++        px(page.margin_left),
++        px(page.height - page.margin_bottom - page.margin_footer),
++        px(page.width - page.margin_left - page.margin_right),
++        px(page.margin_footer),
++    )
++}
++
++/// 머리말 안 용지 기준 표도 그림(#6608)처럼 머리말 틀 원점에서 오프셋을 잰다.
++/// 실문서: 교재 머리말 표(용지 기준 세로 −위 여백, 가로 0)를 한/글 2024 는 쪽 맨 위,
++/// 본문 왼쪽 여백 선에 그린다. 종전 rhwp 는 용지 원점에서 재어 표가 쪽 위로 나가 잘렸다.
++#[test]
++fn header_paper_relative_table_uses_header_frame_origin() {
++    let page = a4_page_def();
++    let tree = render_tree_with_header_control(header_footer_float_table(
++        VertRelTo::Paper,
++        HorzRelTo::Paper,
++        VertAlign::Top,
++        HorzAlign::Left,
++        -(page.margin_top as i32),
++        0,
++    ));
++    let bbox = first_header_child_bbox(&tree, |node_type| {
++        matches!(node_type, RenderNodeType::Table(_))
++    });
++    let header_area =
++        PageLayoutInfo::from_page_def_default(&page, &ColumnDef::default()).header_area;
++    assert!((bbox.x - header_area.x).abs() < 0.01, "x={}", bbox.x);
++    assert!(bbox.y.abs() < 0.01, "y={}", bbox.y);
++}
++
++/// 꼬리말 안 용지·쪽 기준 표는 꼬리말 틀 원점에서 잰다. 한/글 2024 PDF 실측
++/// (A4, 꼬리말 표 오프셋 (3000, 1000)HU): 용지·쪽 기준 모두 (138.0, 920.0)px — 본문
++/// 왼쪽 98.3 + 40.0, 본문 아래끝 907.1 + 13.3. 종전 rhwp 는 용지 기준을 쪽 맨 위
++/// (40.0, 13.3), 쪽 기준을 본문 위끝(138.3, 138.0)에 그렸다.
++#[test]
++fn footer_paper_and_page_relative_tables_use_footer_frame_origin() {
++    let (frame_x, frame_y, _, _) = footer_frame_px();
++    for rel in [
++        (VertRelTo::Paper, HorzRelTo::Paper),
++        (VertRelTo::Page, HorzRelTo::Page),
++    ] {
++        let tree = render_tree_with_footer_control(header_footer_float_table(
++            rel.0,
++            rel.1,
++            VertAlign::Top,
++            HorzAlign::Left,
++            1_000,
++            3_000,
++        ));
++        let bbox = first_footer_table_bbox(&tree);
++        assert!(
++            (bbox.x - (frame_x + hwpunit_to_px(3_000, DEFAULT_DPI))).abs() < 0.01,
++            "{rel:?} x={}",
++            bbox.x
++        );
++        assert!(
++            (bbox.y - (frame_y + hwpunit_to_px(1_000, DEFAULT_DPI))).abs() < 0.01,
++            "{rel:?} y={}",
++            bbox.y
++        );
++    }
++}
++
++/// 꼬리말 틀의 아래끝은 꼬리말 여백까지다(아래 여백 끝이 아니다). 한/글 2024 PDF 실측
++/// (A4, 꼬리말 5mm·아래 여백 52mm, 아래·오른쪽 정렬): (375.5, 909.5)px = 틀 오른쪽 끝
++/// − 표 폭, 본문 아래끝 907.1 + 꼬리말 18.9 − 표 높이 16.0. 종전 rhwp 는 용지 오른쪽
++/// 아래 구석(527.0, 1105.4)에 그렸다.
++#[test]
++fn footer_bottom_right_table_aligns_inside_footer_band() {
++    let (frame_x, frame_y, frame_w, frame_h) = footer_frame_px();
++    let tree = render_tree_with_footer_control(header_footer_float_table(
++        VertRelTo::Paper,
++        HorzRelTo::Paper,
++        VertAlign::Bottom,
++        HorzAlign::Right,
++        0,
++        0,
++    ));
++    let bbox = first_footer_table_bbox(&tree);
++    let table_w = hwpunit_to_px(20_000, DEFAULT_DPI);
++    let table_h = hwpunit_to_px(2_000, DEFAULT_DPI);
++    assert!(
++        (bbox.x - (frame_x + frame_w - table_w)).abs() < 0.01,
++        "x={}",
++        bbox.x
++    );
++    assert!(
++        (bbox.y - (frame_y + frame_h - table_h)).abs() < 0.01,
++        "y={}",
++        bbox.y
++    );
++}
++
++/// 꼬리말 안 용지 기준 글상자(쪽 번호 상자 등)도 꼬리말 틀에서 잰다. 한/글 2024 PDF
++/// 실측: 오프셋 (3000, 1000)HU 사각형은 (본문 왼쪽 + 40.0, 본문 아래끝 + 13.3). 종전
++/// rhwp 는 용지 원점에서 재어 쪽 맨 위(40.0, 13.3)에 그렸다.
++#[test]
++fn footer_paper_relative_shape_uses_footer_frame_origin() {
++    let (frame_x, frame_y, _, _) = footer_frame_px();
++    let tree = render_tree_with_footer_control(Control::Shape(Box::new(ShapeObject::Rectangle(
++        RectangleShape {
++            common: CommonObjAttr {
++                width: 20_000,
++                height: 1_200,
++                horizontal_offset: 3_000,
++                vertical_offset: 1_000,
++                horz_rel_to: HorzRelTo::Paper,
++                vert_rel_to: VertRelTo::Paper,
++                text_wrap: TextWrap::InFrontOfText,
++                ..Default::default()
++            },
++            ..Default::default()
++        },
++    ))));
++    fn find(node: &RenderNode) -> Option<BoundingBox> {
++        if matches!(node.node_type, RenderNodeType::Rectangle(_)) {
++            return Some(node.bbox);
++        }
++        node.children.iter().find_map(find)
++    }
++    let footer = tree
++        .root
++        .children
++        .iter()
++        .find(|node| matches!(node.node_type, RenderNodeType::Footer))
++        .expect("footer node should be rendered");
++    let bbox = find(footer).expect("footer rectangle should be rendered");
++    assert!((bbox.x - (frame_x + hwpunit_to_px(3_000, DEFAULT_DPI))).abs() < 0.01);
++    assert!((bbox.y - (frame_y + hwpunit_to_px(1_000, DEFAULT_DPI))).abs() < 0.01);
++}
++
+ // [Task #2102] 쪽 배경 이미지 채우기는 구역 첫 쪽에만 적용된다.
+ // 색 채우기는 첫 쪽 여부와 무관하게 유지된다.
+ 

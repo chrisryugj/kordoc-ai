@@ -1,0 +1,361 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:00:00 +0900
+Subject: [PATCH 4/8] =?UTF-8?q?fix(typeset):=20=EC=AA=BD=20=EC=B2=AB=20?=
+ =?UTF-8?q?=EC=A4=84=EC=9D=B4=20=EC=A0=9C=EB=AA=A9=20=ED=91=9C=20=EC=95=84?=
+ =?UTF-8?q?=EB=9E=98=EC=97=90=EC=84=9C=20=EC=8B=9C=EC=9E=91=ED=95=9C=20?=
+ =?UTF-8?q?=EC=AA=BD=EC=9D=80=20=EC=A0=80=EC=9E=A5=20=EC=9C=84=EC=B9=98?=
+ =?UTF-8?q?=EB=A5=BC=20=EA=B7=B8=EB=8C=80=EB=A1=9C=20=EC=93=B4=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+쪽·종이 기준 어울림(Square) 제목 표가 쪽 위를 차지하면 한글은 그 쪽의 첫 줄을 표 바깥
+상자 아래에서 시작하고, 저장 첫 줄 vpos 가 그 상자 바닥과 같다. 조판과 렌더는 쪽 첫
+vpos 를 쪽 원점으로 빼서 첫 줄을 본문 위끝에 두었다. 그래서 제목 표 아래로 가야 할
+학습목표 표·본문 제목·본문이 제목 표와 겹치거나(제목 문단 다음에 표 문단이 오는 쪽),
+빈 문단이 표 앞에 있는 쪽에서는 내용 전체가 한글보다 위로 올라갔다.
+
+쪽 첫 저장 줄의 vpos 가 같은 쪽 제목 표의 바깥 상자 바닥과 같으면(2px 이내, 합성 줄
+제외) 그 쪽의 원점을 0 으로 둔다. 조판과 렌더가 같은 판정을 쓴다.
+- 첫 문단(제목 표 host 포함)은 저장 위치에서 시작한다.
+- 제목 표와, 쪽을 연 제목 표 host 의 항목 뒤에는 쪽 원점을 지우지 않는다. 다른 문단의
+  표가 지운 원점은 되살리지 않는다.
+- 같은 host 의 글자처럼 취급 표는 상자 아래에서 이미 시작해도 자리를 확정해 둔다.
+  확정이 없으면 렌더가 상자 옆 글 줄 다음에 표를 다시 놓아 한 줄만큼 내려갔다.
+- 원점만 바로잡는다. 그 쪽의 저장 사다리는 지금까지처럼 앞 간격 회수나 뒤로 스냅하는
+  근거로 쓰지 않는다(렌더의 순차 흐름과 같게).
+
+IeumOffice patch onto v0.8.7 (not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/layout.rs               | 134 ++++++++++++++++++++++++++-
+ src/renderer/typeset.rs              |  18 ++++
+ src/renderer/typeset/section/flow.rs |  23 +++++
+ src/renderer/typeset/section/vpos.rs |  53 ++++++++++-
+ 4 files changed, 226 insertions(+), 2 deletions(-)
+
+diff --git a/src/renderer/layout.rs b/src/renderer/layout.rs
+index 2b7702563..d72d4868a 100644
+--- a/src/renderer/layout.rs
++++ b/src/renderer/layout.rs
+@@ -3372,6 +3372,73 @@ pub(crate) fn stored_first_margin_is_page_relative(
+             <= 0.5
+ }
+ 
++/// 쪽 첫 저장 줄의 vpos가 같은 쪽의 쪽·종이 기준 어울림 표 바깥 상자 바닥과 같으면
++/// 그 vpos는 쪽 원점부터의 거리다. 한/글은 쪽 위를 차지한 제목 표 아래에서 첫 줄을
++/// 시작한다. 표는 첫 문단부터 저장 사다리가 되감기기 전까지의 몇 문단에서 찾는다
++/// (제목 표 문단 앞에 빈 문단이 있는 쪽도 같다). 합성 줄은 증거로 쓰지 않는다.
++pub(crate) fn stored_first_line_clears_page_square_table(
++    paragraphs: &[Paragraph],
++    first_index: usize,
++    layout: &PageLayoutInfo,
++    dpi: f64,
++) -> bool {
++    /// 저장 vpos와 상자 바닥이 같다고 볼 허용치(약 2px).
++    const TOLERANCE_HU: i32 = 150;
++    /// 제목 표를 찾는 문단 수.
++    const LOOKAHEAD: usize = 8;
++    let Some(first_seg) = paragraphs
++        .get(first_index)
++        .and_then(|p| p.line_segs.first())
++    else {
++        return false;
++    };
++    if first_seg.tag & crate::model::paragraph::LineSeg::TAG_IMPLEMENTATION_PROPERTY != 0
++        || first_seg.vertical_pos <= TOLERANCE_HU
++    {
++        return false;
++    }
++    let paper = LayoutRect {
++        x: 0.0,
++        y: 0.0,
++        width: layout.page_width,
++        height: layout.page_height,
++    };
++    let frame = crate::renderer::float_placement::ObjectPlacementFrame {
++        container: &layout.body_area,
++        column: &layout.body_area,
++        body: &layout.body_area,
++        paper: &paper,
++        paragraph_y: layout.body_area.y,
++        alignment: crate::model::style::Alignment::Left,
++        dpi,
++    };
++    let body_top = px_to_hwpunit(layout.body_area.y, dpi);
++    let mut previous = first_seg.vertical_pos;
++    for para in paragraphs.iter().skip(first_index).take(LOOKAHEAD) {
++        if let Some(seg) = para.line_segs.first() {
++            if seg.vertical_pos < previous {
++                break;
++            }
++            previous = para
++                .line_segs
++                .last()
++                .map_or(seg.vertical_pos, |last| last.vertical_pos);
++        }
++        for control in &para.controls {
++            let Control::Table(table) = control else {
++                continue;
++            };
++            let Some(exclusion) = frame.page_anchored_square_table_exclusion(table) else {
++                continue;
++            };
++            if (exclusion.vertical.end - body_top - first_seg.vertical_pos).abs() <= TOLERANCE_HU {
++                return true;
++            }
++        }
++    }
++    false
++}
++
+ pub(crate) fn para_has_overlay_shape(para: &Paragraph) -> bool {
+     use crate::model::shape::{TextWrap, VertRelTo};
+     para.controls.iter().any(|c| match c {
+@@ -7855,6 +7922,26 @@ impl LayoutEngine {
+                         )
+                     })
+         );
++        let first_line_clears_page_square_table = (self.profile.get().hwpx_stored_layout()
++            || self.profile.get().hwp5_stored_pagination_layout())
++            && !self.profile.get().session_edited()
++            && col_content
++                .items
++                .first()
++                .and_then(|item| match item {
++                    PageItem::FullParagraph { para_index } | PageItem::Table { para_index, .. } => {
++                        Some(*para_index)
++                    }
++                    PageItem::PartialParagraph {
++                        para_index,
++                        start_line: 0,
++                        ..
++                    } => Some(*para_index),
++                    _ => None,
++                })
++                .is_some_and(|first| {
++                    stored_first_line_clears_page_square_table(paragraphs, first, layout, self.dpi)
++                });
+         let vpos_page_base_init: Option<i32> = col_content
+             .items
+             .first()
+@@ -7904,7 +7991,10 @@ impl LayoutEngine {
+                 // vpos(예: 1000HU)는 쪽 원점이 아니다. 도형은 자체 좌표로 그려지고
+                 // 뒤따르는 본문은 쪽-상대 vpos를 그대로 따른다. 제목 vpos를
+                 // page_base로 빼면 뒤의 문단·표가 그만큼 위로 밀린다.
+-                if saved_inline_heading_page || stored_first_margin_is_page_relative_in_column {
++                if saved_inline_heading_page
++                    || stored_first_margin_is_page_relative_in_column
++                    || first_line_clears_page_square_table
++                {
+                     0
+                 } else {
+                     base
+@@ -7926,6 +8016,29 @@ impl LayoutEngine {
+             col_content.endnote_flow,
+         );
+         hcursor.suppress_hwpx_stale_forward = self.profile.get().hwpx_stored_layout();
++        // 쪽 첫 문단(제목 표 host 포함)이 제목 표 아래에서 시작하면 그 문단도 저장 위치
++        // (쪽 원점 + 첫 vpos)에 둔다.
++        if first_line_clears_page_square_table {
++            if let Some(first_vpos) = col_content
++                .items
++                .first()
++                .and_then(|item| match item {
++                    PageItem::FullParagraph { para_index }
++                    | PageItem::Table { para_index, .. }
++                    | PageItem::PartialParagraph {
++                        para_index,
++                        start_line: 0,
++                        ..
++                    } => Some(*para_index),
++                    _ => None,
++                })
++                .and_then(|first| paragraphs.get(first))
++                .and_then(|para| para.line_segs.first())
++                .map(|seg| seg.vertical_pos)
++            {
++                y_offset = y_offset.max(col_anchor_y + hwpunit_to_px(first_vpos, self.dpi));
++            }
++        }
+         // [#5854] 통짜 합성 LINE_SEG 사다리 판정 — 본문 단에서만 갱신한다. 미주 단은
+         // `paragraphs` 가 미주 전용 재색인 배열이라 구역 판정의 근거가 아니므로 본문에서
+         // 정해진 값을 그대로 이어 쓴다 (조판 경로 `TypesetEngine` 과 같은 구역 단위 값).
+@@ -9931,8 +10044,27 @@ impl LayoutEngine {
+                     col_content,
+                     self.dpi,
+                 );
++            // 첫 줄이 제목 표 아래에서 시작한 쪽은 쪽 원점이 확정돼 있다. 종이·쪽 기준 제목
++            // 표는 흐름과 무관하게 놓이고, 쪽을 연 제목 표 host 의 개체 줄은 저장 위치에
++            // 있으므로 그 뒤 문단도 같은 원점을 쓴다(조판과 같은 판정).
++            let page_title_table_keeps_page_base = first_line_clears_page_square_table
++                && (matches!(item, PageItem::Table { para_index, control_index }
++                if matches!(
++                    paragraphs.get(*para_index).and_then(|para| para.controls.get(*control_index)),
++                    Some(Control::Table(table))
++                        if !table.common.treat_as_char
++                            && matches!(table.common.text_wrap, TextWrap::Square)
++                            && matches!(table.common.vert_rel_to, VertRelTo::Page | VertRelTo::Paper)
++                )) || matches!(
++                    (item, col_content.items.first()),
++                    (
++                        PageItem::Table { para_index, .. } | PageItem::Shape { para_index, .. },
++                        Some(PageItem::Table { para_index: first, .. }),
++                    ) if para_index == first
++                ));
+             if !heading_shape_keeps_page_base
+                 && !resolved_stored_wrap_fragment
++                && !page_title_table_keeps_page_base
+                 && (was_tac || (is_table_or_shape && !is_para_float_table && !is_inline_tac_object))
+             {
+                 hcursor.vpos_page_base = None;
+diff --git a/src/renderer/typeset.rs b/src/renderer/typeset.rs
+index fb6c18af7..e14b73051 100755
+--- a/src/renderer/typeset.rs
++++ b/src/renderer/typeset.rs
+@@ -4410,6 +4410,24 @@ impl TypesetEngine {
+                 if side_wrap_placement.is_none_or(|current| placement.y > current.y) {
+                     side_wrap_placement = Some(placement);
+                 }
++            } else if side_wrap_placement.is_none() {
++                // 개체 줄이 이미 상자 아래에서 시작해도(쪽 첫 줄이 제목 표 아래인 쪽) 자리를
++                // 확정해 둔다. 확정이 없으면 그리는 쪽은 상자 옆 글 줄을 먼저 그린 뒤 표를
++                // 그 줄 아래에 다시 놓아 줄 하나만큼 내려간다.
++                let top = natural_top.max(st.inline_box_flow_bottom);
++                let slack = (column.width - left - right - advance).max(0.0);
++                let offset =
++                    match style.map_or(crate::model::style::Alignment::Left, |s| s.alignment) {
++                        crate::model::style::Alignment::Right => slack,
++                        crate::model::style::Alignment::Center => slack / 2.0,
++                        _ => 0.0,
++                    };
++                side_wrap_placement = Some(super::float_placement::InlineBoxPlacement {
++                    x: column.x + left + offset,
++                    y: column.y + top,
++                    clearance: (top - natural_top).max(0.0),
++                    advance_end: None,
++                });
+             }
+         }
+         let clearance = side_wrap_placement.map_or(0.0, |p| p.clearance);
+diff --git a/src/renderer/typeset/section/flow.rs b/src/renderer/typeset/section/flow.rs
+index 1d051e743..dc090eadb 100644
+--- a/src/renderer/typeset/section/flow.rs
++++ b/src/renderer/typeset/section/flow.rs
+@@ -300,6 +300,29 @@ impl TypesetEngine {
+                 }
+             }
+         } else {
++            // 쪽 첫 문단이 제목 표(쪽·종이 기준 어울림 표)의 host 이고 그 저장 첫 줄이 표 바깥
++            // 아래에서 시작하면, 한/글처럼 그 줄부터 저장 위치에 둔다. 쪽 원점은 0 이다.
++            if st.current_items.is_empty()
++                && st.col_count == 1
++                && (st.profile.hwpx_stored_layout() || st.profile.hwp5_stored_pagination_layout())
++                && !st.profile.session_edited()
++                && crate::renderer::layout::stored_first_line_clears_page_square_table(
++                    paragraphs, para_idx, &st.layout, self.dpi,
++                )
++            {
++                if let Some(first) = para.line_segs.first() {
++                    st.record_vpos_column_anchor(st.current_height);
++                    st.record_vpos_page_origin(Some(0));
++                    st.record_vpos_lazy_origin(None);
++                    st.record_vpos_origin_provenance(true);
++                    // 원점만 바로잡는다. 이 쪽의 저장 사다리는 지금까지처럼 앞 간격 회수나
++                    // 뒤로 스냅하는 근거로 쓰지 않는다(그리는 쪽의 순차 흐름과 같게).
++                    st.record_vpos_ladder_validity(true);
++                    st.align_flow_to(
++                        st.current_height + hwpunit_to_px(first.vertical_pos, self.dpi),
++                    );
++                }
++            }
+             // 표 문단: Phase 2에서 전환 예정. 현재는 기존 방식 호환용 stub.
+             self.typeset_table_paragraph(
+                 st,
+diff --git a/src/renderer/typeset/section/vpos.rs b/src/renderer/typeset/section/vpos.rs
+index bb2538b5e..9c9ddd759 100644
+--- a/src/renderer/typeset/section/vpos.rs
++++ b/src/renderer/typeset/section/vpos.rs
+@@ -23,6 +23,7 @@ impl TypesetEngine {
+         }
+         // 컬럼 첫 항목: anchor + page_base 확립 (렌더러 2186/2216 정합).
+         // items.first() 의 vpos 를 page_base 로, 현 current_height 를 anchor 로 둔다.
++        let mut first_item_stored_top: Option<f64> = None;
+         if st.current_items.is_empty() {
+             st.record_vpos_column_anchor(st.current_height);
+             st.record_vpos_page_origin(
+@@ -42,7 +43,19 @@ impl TypesetEngine {
+                                     self.dpi,
+                                 )
+                             });
+-                        if margin_is_page_relative {
++                        let clears_page_square_table = (st.profile.hwpx_stored_layout()
++                            || st.profile.hwp5_stored_pagination_layout())
++                            && !st.profile.session_edited()
++                            && crate::renderer::layout::stored_first_line_clears_page_square_table(
++                                paragraphs, para_idx, &st.layout, self.dpi,
++                            );
++                        if clears_page_square_table {
++                            first_item_stored_top = Some(
++                                st.vpos_col_anchor
++                                    + crate::renderer::hwpunit_to_px(seg.vertical_pos, self.dpi),
++                            );
++                        }
++                        if margin_is_page_relative || clears_page_square_table {
+                             0
+                         } else {
+                             seg.vertical_pos
+@@ -60,6 +73,41 @@ impl TypesetEngine {
+                     }),
+             );
+             st.record_vpos_ladder_validity(false);
++            if first_item_stored_top.is_some() {
++                // 제목 표 아래 쪽 시작은 원점만 바로잡는다. 저장 사다리를 앞 간격 회수나
++                // 뒤로 스냅하는 근거로 쓰지 않는 것은 그리는 쪽의 순차 흐름과 같다.
++                st.mark_vpos_ladder_dirty();
++            }
++        }
++        // 제목 표 host 가 쪽을 연 쪽에서는 그 host 의 표 항목 뒤에 쪽 원점이 지워진다. 그 쪽
++        // 첫 줄이 제목 표 아래에서 시작했다면 host 바로 뒤 문단의 원점은 계속 0 이다(그리는
++        // 쪽과 같은 판정). 다른 문단의 표가 지운 원점은 되살리지 않는다.
++        if st.vpos_page_base.is_none() && st.vpos_lazy_base.is_none() {
++            let page_first = st
++                .current_items
++                .first()
++                .and_then(|item| match item {
++                    crate::renderer::pagination::PageItem::Table { para_index, .. } => {
++                        Some(*para_index)
++                    }
++                    _ => None,
++                })
++                .filter(|first| {
++                    st.current_items.iter().all(|item| {
++                        crate::renderer::typeset::page_item_para_index(item) == Some(*first)
++                    })
++                });
++            if let Some(first) = page_first {
++                if (st.profile.hwpx_stored_layout() || st.profile.hwp5_stored_pagination_layout())
++                    && !st.profile.session_edited()
++                    && crate::renderer::layout::stored_first_line_clears_page_square_table(
++                        paragraphs, first, &st.layout, self.dpi,
++                    )
++                {
++                    st.record_vpos_page_origin(Some(0));
++                    st.record_vpos_origin_provenance(true);
++                }
++            }
+         }
+         let mut hc = HeightCursor {
+             dpi: self.dpi,
+@@ -87,6 +135,9 @@ impl TypesetEngine {
+             curr_item_is_table_fragment: false,
+         };
+         let mut y = hc.vpos_adjust(st.current_height, para_idx, paragraphs, styles);
++        if let Some(top) = first_item_stored_top {
++            y = y.max(top);
++        }
+         // 재조판된 저장 문단이 행을 줄였으면 후속 저장 사다리의 절대 vpos는
+         // 옛 행 수를 담고 있다. 동일 쪽에서 회수한 높이를 뺀 뒤 흐름 뒤로만 스냅한다.
+         if st.profile.hwpx_stored_layout()

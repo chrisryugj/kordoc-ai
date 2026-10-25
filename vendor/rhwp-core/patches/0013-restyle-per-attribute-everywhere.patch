@@ -1,0 +1,866 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 00:00:00 +0900
+Subject: [PATCH 13/13] =?UTF-8?q?fix(style):=20=EC=8A=A4=ED=83=80=EC=9D=BC?=
+ =?UTF-8?q?=20=EA=B1=B8=EA=B8=B0=C2=B7=EA=B3=A0=EC=B9=98=EA=B8=B0=EB=A5=BC?=
+ =?UTF-8?q?=20=EC=86=8D=EC=84=B1=EB=A7=88=EB=8B=A4=20=EB=A7=9E=EC=B6=94?=
+ =?UTF-8?q?=EA=B3=A0=20=EB=AA=A8=EB=93=A0=20=EB=AC=B8=EB=8B=A8=EC=97=90=20?=
+ =?UTF-8?q?=ED=8D=BC=EB=9C=A8=EB=A6=B0=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+한컴 한글 2024 와 같게 한다.
+
+- 스타일을 걸 때 직접 서식이 있는 문단은 옛 스타일과 다른 속성만 남기고 나머지는
+  새 스타일을 따른다. 종전엔 문단 모양을 통째로 남겼다. 글자 모양도 같은 규칙이고,
+  글자 스타일을 건 글자는 그대로 둔다.
+- 스타일을 고치면 표(겹친 표 포함)·글상자·머리말·꼬리말·각주의 문단까지 같은
+  규칙으로 바꾼다. 종전엔 본문과 바깥 표 칸 문단 가운데 문단 모양이 스타일과 똑같은
+  것만 바꿨다.
+- 글자 스타일을 고치면 그 글자 모양을 쓰는 글자가 따라 바뀐다. 다른 스타일과 글자
+  모양을 나눠 쓰는 글자 스타일은 가릴 수 없어 그대로 둔다.
+---
+ src/document_core/commands/formatting.rs | 262 +++++++++++++++++++++--
+ src/model/document.rs                    |  75 +++++++
+ src/model/paragraph.rs                   |  26 +++
+ src/model/style.rs                       | 124 +++++++++++
+ src/wasm_api.rs                          |  86 +-------
+ src/wasm_api/tests.rs                    | 163 ++++++++++++++
+ 6 files changed, 631 insertions(+), 105 deletions(-)
+
+diff --git a/src/document_core/commands/formatting.rs b/src/document_core/commands/formatting.rs
+index 95cce1d58..33a3f2788 100644
+--- a/src/document_core/commands/formatting.rs
++++ b/src/document_core/commands/formatting.rs
+@@ -1993,6 +1993,194 @@ impl DocumentCore {
+         base_psid
+     }
+ 
++    /// [ieum] 고친 스타일을 그 스타일을 쓰는 모든 문단에 퍼뜨린다. `old_csid`·`old_psid` 는
++    /// 고치기 전 스타일의 글자·문단 모양이다.
++    ///
++    /// 한컴 한글 2024 와 같이 본문뿐 아니라 표(겹친 표 포함)·글상자·머리말·꼬리말·각주의
++    /// 문단까지 바꾸고, 직접 서식이 있는 문단은 속성마다 맞춘다(`ParaShape::restyled`).
++    /// 문단 스타일을 고칠 때 글자 스타일을 건 글자는 그대로 두고, 글자 스타일을 고치면 그
++    /// 글자 모양을 쓰는 글자가 따라 바뀐다. 다른 스타일과 글자 모양을 나눠 쓰는 글자
++    /// 스타일은 어느 글자가 그 스타일인지 가릴 수 없어 글자를 바꾸지 않는다.
++    ///
++    /// 종전엔 본문과 바깥 표 칸 문단 가운데 문단 모양이 스타일과 똑같은 것만 바꿨고, 글자
++    /// 스타일을 고쳐도 글자는 그대로였다.
++    pub(crate) fn spread_style_change(&mut self, style_id: usize, old_csid: u32, old_psid: u16) {
++        use crate::model::control::Control;
++        use crate::model::identity::walk::{walk, Node};
++        use crate::model::paragraph::Paragraph;
++        use std::collections::{BTreeSet, HashMap};
++
++        type CellPath = Vec<(usize, usize, usize)>;
++
++        /// 표 칸·글상자 문단 가운데 `affected` 인 것의 경로. 겹친 표와 글상자 안까지 따라간다.
++        fn cell_paragraphs(
++            controls: &[Control],
++            path: &mut CellPath,
++            affected: &dyn Fn(&Paragraph) -> bool,
++            out: &mut Vec<(CellPath, usize)>,
++        ) {
++            for (ci, ctrl) in controls.iter().enumerate() {
++                let lists: Vec<(usize, &[Paragraph])> = match ctrl {
++                    Control::Table(t) => t
++                        .cells
++                        .iter()
++                        .enumerate()
++                        .map(|(i, c)| (i, c.paragraphs.as_slice()))
++                        .collect(),
++                    Control::Shape(s) => crate::document_core::helpers::get_textbox_from_shape(s)
++                        .map(|tb| vec![(0, tb.paragraphs.as_slice())])
++                        .unwrap_or_default(),
++                    _ => continue,
++                };
++                for (cell, paras) in lists {
++                    for (k, p) in paras.iter().enumerate() {
++                        path.push((ci, cell, k));
++                        if affected(p) {
++                            out.push((path.clone(), k));
++                        }
++                        cell_paragraphs(&p.controls, path, affected, out);
++                        path.pop();
++                    }
++                }
++            }
++        }
++
++        let Some(style) = self.document.doc_info.styles.get(style_id).cloned() else {
++            return;
++        };
++        let sid = style_id as u8;
++        let new_csid = style.char_shape_id as u32;
++        let new_psid = style.para_shape_id;
++        let char_style = style.style_type == 1;
++        if char_style {
++            let shared = self
++                .document
++                .doc_info
++                .styles
++                .iter()
++                .enumerate()
++                .any(|(i, s)| i != style_id && s.char_shape_id as u32 == old_csid);
++            if shared || old_csid == new_csid {
++                return;
++            }
++        }
++
++        // 1. 바뀔 모양 ID 를 모은다.
++        let mut psids = BTreeSet::new();
++        let mut runs = BTreeSet::new();
++        if !char_style {
++            for section in &mut self.document.sections {
++                let _ = walk(&mut section.paragraphs, |node| {
++                    if let Node::Paragraph(p) = node {
++                        if p.style_id == sid {
++                            psids.insert(p.para_shape_id);
++                            runs.extend(p.char_shapes.iter().map(|r| r.char_shape_id));
++                        }
++                    }
++                    Ok(())
++                });
++            }
++        }
++        let para_ids: HashMap<u16, u16> = psids
++            .into_iter()
++            .map(|id| {
++                (
++                    id,
++                    self.document.restyled_para_shape_id(id, old_psid, new_psid),
++                )
++            })
++            .collect();
++        let char_ids = if char_style {
++            HashMap::from([(old_csid, new_csid)])
++        } else {
++            self.document
++                .restyled_char_shape_ids(runs, old_csid, new_csid)
++        };
++
++        // 2. 문단에 건다.
++        let doc_info = &self.document.doc_info;
++        let indent = |id: u16| {
++            doc_info
++                .para_shapes
++                .get(id as usize)
++                .map_or(0, |ps| ps.indent)
++        };
++        for section in &mut self.document.sections {
++            let mut touched = false;
++            let _ = walk(&mut section.paragraphs, |node| {
++                if let Node::Paragraph(p) = node {
++                    if char_style {
++                        if !p.char_shapes.is_empty() {
++                            touched |= p.remap_char_shapes(&char_ids, new_csid);
++                        }
++                    } else if p.style_id == sid {
++                        if let Some(&id) = para_ids.get(&p.para_shape_id) {
++                            if id != p.para_shape_id {
++                                restamp_indentation(
++                                    &mut p.line_segs,
++                                    indent(p.para_shape_id),
++                                    indent(id),
++                                );
++                                p.para_shape_id = id;
++                            }
++                        }
++                        p.remap_char_shapes(&char_ids, new_csid);
++                        touched = true;
++                    }
++                }
++                Ok(())
++            });
++            if touched {
++                section.raw_stream = None;
++            }
++        }
++
++        // 3. 바뀐 문단의 줄을 다시 나눈다. 머리말·꼬리말은 그릴 때 영역 폭으로 다시 접는다.
++        let affected = |p: &Paragraph| {
++            if char_style {
++                p.char_shapes.iter().any(|r| r.char_shape_id == new_csid)
++            } else {
++                p.style_id == sid
++            }
++        };
++        let mut body = Vec::new();
++        let mut cells = Vec::new();
++        let mut notes = Vec::new();
++        for (si, section) in self.document.sections.iter().enumerate() {
++            for (pi, para) in section.paragraphs.iter().enumerate() {
++                if affected(para) {
++                    body.push((si, pi));
++                }
++                for (ci, ctrl) in para.controls.iter().enumerate() {
++                    if let Control::Footnote(n) = ctrl {
++                        for (k, p) in n.paragraphs.iter().enumerate() {
++                            if affected(p) {
++                                notes.push((si, pi, ci, k));
++                            }
++                        }
++                    }
++                }
++                let mut found = Vec::new();
++                cell_paragraphs(&para.controls, &mut Vec::new(), &affected, &mut found);
++                cells.extend(found.into_iter().map(|(path, k)| (si, pi, path, k)));
++            }
++        }
++        for (si, pi) in body {
++            self.reflow_body_paragraph(si, pi);
++        }
++        for (si, pi, path, k) in cells {
++            self.reflow_cell_paragraph_by_path(si, pi, &path, k);
++            self.mark_cell_control_dirty(si, pi, path[0].0);
++        }
++        if !notes.is_empty() {
++            // 각주 줄 나누기는 캐시된 모양 표를 읽는다. 새로 만든 모양이 들어가게 먼저 맞춘다.
++            self.rebuild_resolved_styles();
++            for (si, pi, ci, k) in notes {
++                self.reflow_footnote_paragraph(si, pi, ci, k);
++            }
++        }
++    }
++
+     /// 본문 문단의 LineSeg를 현재 CharShape/ParaShape 기준으로 다시 계산한다.
+     pub(crate) fn reflow_body_paragraph(&mut self, sec_idx: usize, para_idx: usize) {
+         let para_shape_id = match self
+@@ -2135,10 +2323,25 @@ impl DocumentCore {
+             return Ok("{\"ok\":true}".to_string());
+         }
+ 
+-        let new_para_shape_id = match old_style.as_ref() {
+-            Some(old) if current_psid != old.para_shape_id => current_psid,
+-            _ => self.resolve_style_para_shape_id(style_id, current_psid),
+-        };
++        // [ieum] 직접 서식이 있는 문단도 속성마다 새 스타일을 따르고, 직접 정한 속성만 남긴다
++        // (한컴 방식). 종전엔 문단 모양을 통째로 남겨 새 스타일의 여백·간격이 하나도 안 들어갔다.
++        let new_para_shape_id =
++            match old_style.as_ref() {
++                Some(old) if current_psid != old.para_shape_id => self
++                    .document
++                    .restyled_para_shape_id(current_psid, old.para_shape_id, style.para_shape_id),
++                _ => self.resolve_style_para_shape_id(style_id, current_psid),
++            };
++
++        let runs: Vec<u32> = self.document.sections[sec_idx].paragraphs[para_idx]
++            .char_shapes
++            .iter()
++            .map(|r| r.char_shape_id)
++            .collect();
++        let char_ids = old_style.as_ref().map(|old| {
++            self.document
++                .restyled_char_shape_ids(runs, old.char_shape_id as u32, new_char_shape_id)
++        });
+ 
+         let para = self
+             .document
+@@ -2151,13 +2354,11 @@ impl DocumentCore {
+ 
+         para.style_id = style_id as u8;
+         para.para_shape_id = new_para_shape_id;
+-        if let Some(old) = old_style {
+-            para.replace_style_char_shape_preserving_overrides(
+-                old.char_shape_id as u32,
+-                new_char_shape_id,
+-            );
+-        } else {
+-            para.set_single_char_shape(new_char_shape_id);
++        match char_ids {
++            Some(ids) => {
++                para.remap_char_shapes(&ids, new_char_shape_id);
++            }
++            None => para.set_single_char_shape(new_char_shape_id),
+         }
+ 
+         self.reflow_body_paragraph(sec_idx, para_idx);
+@@ -2239,11 +2440,30 @@ impl DocumentCore {
+             return Ok("{\"ok\":true}".to_string());
+         }
+ 
+-        let new_para_shape_id = match old_style.as_ref() {
+-            Some(old) if current_psid != old.para_shape_id => current_psid,
+-            _ => self.resolve_style_para_shape_id(style_id, current_psid),
+-        };
++        // [ieum] 직접 서식이 있는 문단도 속성마다 새 스타일을 따르고, 직접 정한 속성만 남긴다
++        // (한컴 방식). 종전엔 문단 모양을 통째로 남겨 새 스타일의 여백·간격이 하나도 안 들어갔다.
++        let new_para_shape_id =
++            match old_style.as_ref() {
++                Some(old) if current_psid != old.para_shape_id => self
++                    .document
++                    .restyled_para_shape_id(current_psid, old.para_shape_id, style.para_shape_id),
++                _ => self.resolve_style_para_shape_id(style_id, current_psid),
++            };
+         let (old_indent, new_indent) = self.para_shape_indents(current_psid, new_para_shape_id);
++        let runs: Vec<u32> = self
++            .get_cell_paragraph_ref(
++                sec_idx,
++                parent_para_idx,
++                control_idx,
++                cell_idx,
++                cell_para_idx,
++            )
++            .map(|p| p.char_shapes.iter().map(|r| r.char_shape_id).collect())
++            .unwrap_or_default();
++        let char_ids = old_style.as_ref().map(|old| {
++            self.document
++                .restyled_char_shape_ids(runs, old.char_shape_id as u32, new_char_shape_id)
++        });
+ 
+         {
+             let cell_para = self.get_cell_paragraph_mut(
+@@ -2256,13 +2476,11 @@ impl DocumentCore {
+             cell_para.style_id = style_id as u8;
+             cell_para.para_shape_id = new_para_shape_id;
+             restamp_indentation(&mut cell_para.line_segs, old_indent, new_indent);
+-            if let Some(old) = old_style {
+-                cell_para.replace_style_char_shape_preserving_overrides(
+-                    old.char_shape_id as u32,
+-                    new_char_shape_id,
+-                );
+-            } else {
+-                cell_para.set_single_char_shape(new_char_shape_id);
++            match char_ids {
++                Some(ids) => {
++                    cell_para.remap_char_shapes(&ids, new_char_shape_id);
++                }
++                None => cell_para.set_single_char_shape(new_char_shape_id),
+             }
+         }
+ 
+diff --git a/src/model/document.rs b/src/model/document.rs
+index a83677f76..9ef723925 100644
+--- a/src/model/document.rs
++++ b/src/model/document.rs
+@@ -632,6 +632,81 @@ impl Document {
+         new_id
+     }
+ 
++    /// [ieum] 스타일이 old 에서 new 로 바뀔 때 문단 모양 `current` 가 가질 ID.
++    /// 속성마다 맞추는 규칙은 `ParaShape::restyled` 를 따른다.
++    pub(crate) fn restyled_para_shape_id(&mut self, current: u16, old: u16, new: u16) -> u16 {
++        if current == old {
++            return new;
++        }
++        if old == new {
++            return current;
++        }
++        let shapes = &self.doc_info.para_shapes;
++        let (Some(cur), Some(old_ps), Some(new_ps)) = (
++            shapes.get(current as usize),
++            shapes.get(old as usize),
++            shapes.get(new as usize),
++        ) else {
++            return current;
++        };
++        let merged = cur.restyled(old_ps, new_ps);
++        if let Some(i) = shapes.iter().position(|ps| *ps == merged) {
++            return i as u16;
++        }
++        self.doc_info.para_shapes.push(merged);
++        self.doc_info.raw_stream_dirty = true;
++        (self.doc_info.para_shapes.len() - 1) as u16
++    }
++
++    /// [ieum] 스타일이 old 에서 new 로 바뀔 때 글자 모양 `current` 가 가질 ID.
++    /// 글자 스타일의 글자 모양은 문단 스타일을 따르지 않으므로 그대로 둔다.
++    pub(crate) fn restyled_char_shape_id(&mut self, current: u32, old: u32, new: u32) -> u32 {
++        if current == old {
++            return new;
++        }
++        if old == new
++            || self
++                .doc_info
++                .styles
++                .iter()
++                .any(|s| s.style_type == 1 && s.char_shape_id as u32 == current)
++        {
++            return current;
++        }
++        let shapes = &self.doc_info.char_shapes;
++        let (Some(cur), Some(old_cs), Some(new_cs)) = (
++            shapes.get(current as usize),
++            shapes.get(old as usize),
++            shapes.get(new as usize),
++        ) else {
++            return current;
++        };
++        let merged = cur.restyled(old_cs, new_cs);
++        if let Some(i) = shapes.iter().position(|cs| *cs == merged) {
++            return i as u32;
++        }
++        self.doc_info.char_shapes.push(merged);
++        self.doc_info.raw_stream_dirty = true;
++        (self.doc_info.char_shapes.len() - 1) as u32
++    }
++
++    /// [ieum] 문단의 글자 모양 ID 들을 `restyled_char_shape_id` 로 바꾼 표.
++    pub(crate) fn restyled_char_shape_ids(
++        &mut self,
++        runs: impl IntoIterator<Item = u32>,
++        old: u32,
++        new: u32,
++    ) -> std::collections::HashMap<u32, u32> {
++        let mut ids = std::collections::HashMap::new();
++        for run in runs {
++            if !ids.contains_key(&run) {
++                let id = self.restyled_char_shape_id(run, old, new);
++                ids.insert(run, id);
++            }
++        }
++        ids
++    }
++
+     /// 동일한 TabDef가 이미 있으면 그 ID를, 없으면 새로 추가하고 ID를 반환한다.
+     pub fn find_or_create_tab_def(&mut self, new_td: super::style::TabDef) -> u16 {
+         // 동일한 TabDef가 이미 있는지 검색
+diff --git a/src/model/paragraph.rs b/src/model/paragraph.rs
+index 601e696c5..823dba631 100644
+--- a/src/model/paragraph.rs
++++ b/src/model/paragraph.rs
+@@ -2704,6 +2704,32 @@ impl Paragraph {
+         }
+     }
+ 
++    /// [ieum] 글자 모양 ID 를 표대로 바꾸고 이웃한 같은 모양을 합친다. 비어 있으면 `empty`
++    /// 하나로 채운다.
++    pub fn remap_char_shapes(
++        &mut self,
++        ids: &std::collections::HashMap<u32, u32>,
++        empty: u32,
++    ) -> bool {
++        if self.char_shapes.is_empty() {
++            self.set_single_char_shape(empty);
++            return true;
++        }
++        let mut changed = false;
++        for csr in &mut self.char_shapes {
++            if let Some(&id) = ids.get(&csr.char_shape_id) {
++                if id != csr.char_shape_id {
++                    csr.char_shape_id = id;
++                    changed = true;
++                }
++            }
++        }
++        if changed {
++            self.merge_adjacent_char_shapes();
++        }
++        changed
++    }
++
+     /// 문단 전체에 글자 스타일의 CharShape를 적용한다.
+     pub fn apply_char_shape_to_entire_text(&mut self, char_shape_id: u32) {
+         let text_len = self.text.chars().count();
+diff --git a/src/model/style.rs b/src/model/style.rs
+index cf7344f1e..72c765c92 100644
+--- a/src/model/style.rs
++++ b/src/model/style.rs
+@@ -1171,6 +1171,130 @@ impl ParaShapeMods {
+     }
+ }
+ 
++/// [ieum] 비트 묶음마다 3방향 병합한다. `groups` 의 각 마스크는 여러 비트짜리 값 하나라서
++/// 통째로 고르고, 나머지 비트는 하나씩 고른다. 옛 값과 다른 묶음은 지금 값을, 같은 묶음은
++/// 새 값을 쓴다.
++fn restyled_bits(current: u32, old: u32, new: u32, groups: &[u32]) -> u32 {
++    let mut own = current ^ old;
++    for &mask in groups {
++        if own & mask != 0 {
++            own |= mask;
++        }
++    }
++    (new & !own) | (current & own)
++}
++
++/// [ieum] 스타일을 old 에서 new 로 바꿀 때 문단·글자 모양을 속성마다 맞춘다.
++///
++/// 한컴 한글 2024 의 규칙이다. 문단이 옛 스타일과 같은 값을 가진 속성은 새 스타일 값을
++/// 따르고, 옛 스타일과 다른 값(사용자가 직접 정한 서식)은 남긴다. 스타일을 걸 때와 스타일을
++/// 고쳐 그 스타일의 문단에 퍼뜨릴 때 같은 규칙을 쓴다.
++macro_rules! keep_own {
++    ($out:ident, $current:ident, $old:ident; $($field:ident),* $(,)?) => {
++        $(
++            if $current.$field != $old.$field {
++                $out.$field = $current.$field.clone();
++            }
++        )*
++    };
++}
++
++macro_rules! keep_own_each {
++    ($out:ident, $current:ident, $old:ident; $($field:ident),* $(,)?) => {
++        $(
++            for i in 0..$out.$field.len() {
++                if $current.$field[i] != $old.$field[i] {
++                    $out.$field[i] = $current.$field[i];
++                }
++            }
++        )*
++    };
++}
++
++impl CharShape {
++    /// `self` 는 지금 글자 모양, `old`·`new` 는 옛 스타일과 새 스타일의 글자 모양이다.
++    /// 언어별 값(글꼴·장평·자간·상대 크기·글자 위치)은 언어마다 따로 고른다.
++    pub fn restyled(&self, old: &CharShape, new: &CharShape) -> CharShape {
++        let current = self;
++        let mut out = new.clone();
++        out.raw_data = None;
++        keep_own_each!(out, current, old; font_ids, ratios, spacings, relative_sizes, char_offsets);
++        keep_own!(out, current, old;
++            base_size, italic, bold, underline_type, outline_type, shadow_type,
++            shadow_offset_x, shadow_offset_y, text_color, underline_color, shade_color,
++            shadow_color, border_fill_id, strike_color, strikethrough, emboss, engrave,
++            emphasis_dot, underline_shape, strike_shape, kerning, use_font_space);
++        // 위·아래 첨자는 한 속성이다(둘 중 하나만 켜진다).
++        if (current.subscript, current.superscript) != (old.subscript, old.superscript) {
++            out.subscript = current.subscript;
++            out.superscript = current.superscript;
++        }
++        // 직렬화가 필드에서 다시 채우는 비트도 같은 묶음으로 골라 두어야 같은 모양을 다시
++        // 찾을 수 있다(`PartialEq` 가 `attr` 도 비교한다).
++        out.attr = restyled_bits(
++            current.attr,
++            old.attr,
++            new.attr,
++            &[
++                0x03 << 2,
++                0x0F << 4,
++                0x07 << 8,
++                0x03 << 11,
++                0x07 << 18,
++                0x0F << 21,
++                0x0F << 26,
++            ],
++        );
++        out
++    }
++}
++
++impl ParaShape {
++    /// `self` 는 지금 문단 모양, `old`·`new` 는 옛 스타일과 새 스타일의 문단 모양이다.
++    /// 줄 간격(종류·값)과 문단 머리(종류·수준·번호)는 각각 한 속성으로 고른다.
++    pub fn restyled(&self, old: &ParaShape, new: &ParaShape) -> ParaShape {
++        let current = self;
++        let mut out = new.clone();
++        out.raw_data = None;
++        keep_own!(out, current, old;
++            margin_left, margin_right, indent, spacing_before, spacing_after, alignment,
++            tab_def_id, border_fill_id, border_spacing, break_latin_word);
++        let line = |ps: &ParaShape| {
++            (
++                ps.line_spacing,
++                ps.line_spacing_v2,
++                ps.line_spacing_type,
++                ps.attr3,
++            )
++        };
++        if line(current) != line(old) {
++            out.line_spacing = current.line_spacing;
++            out.line_spacing_v2 = current.line_spacing_v2;
++            out.line_spacing_type = current.line_spacing_type;
++            out.attr3 = current.attr3;
++        }
++        let head = |ps: &ParaShape| (ps.head_type, ps.para_level, ps.numbering_id);
++        let own_head = head(current) != head(old);
++        if own_head {
++            out.head_type = current.head_type;
++            out.para_level = current.para_level;
++            out.numbering_id = current.numbering_id;
++        }
++        out.attr1 = restyled_bits(
++            current.attr1,
++            old.attr1,
++            new.attr1,
++            &[0x03, 0x07 << 2, 0x03 << 5, 0x03 << 20, 0x1F << 23],
++        );
++        // 문단 머리 비트(23~27)는 위에서 고른 필드와 같은 쪽을 따른다.
++        let head_bits = 0x1F << 23;
++        let from = if own_head { current } else { new };
++        out.attr1 = (out.attr1 & !head_bits) | (from.attr1 & head_bits);
++        out.attr2 = restyled_bits(current.attr2, old.attr2, new.attr2, &[0x03]);
++        out
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/src/wasm_api.rs b/src/wasm_api.rs
+index 059f72c8e..6631e51ce 100644
+--- a/src/wasm_api.rs
++++ b/src/wasm_api.rs
+@@ -7370,7 +7370,6 @@ impl HwpDocument {
+         };
+         let old_csid = style.char_shape_id as u32;
+         let old_psid = style.para_shape_id;
+-        let style_type = style.style_type;
+ 
+         // CharShape 수정
+         if !char_mods_json.is_empty() && char_mods_json != "{}" {
+@@ -7411,88 +7410,9 @@ impl HwpDocument {
+         self.core.document.doc_info.styles[style_id as usize].raw_data = None;
+         self.core.document.doc_info.raw_stream_dirty = true;
+ 
+-        let sid = style_id as u8;
+-        let mut body_targets = Vec::new();
+-        let mut cell_targets = Vec::new();
+-        for (sec_idx, section) in self.core.document.sections.iter().enumerate() {
+-            for (para_idx, para) in section.paragraphs.iter().enumerate() {
+-                if para.style_id == sid {
+-                    body_targets.push((sec_idx, para_idx));
+-                }
+-                for (control_idx, ctrl) in para.controls.iter().enumerate() {
+-                    if let Control::Table(table) = ctrl {
+-                        for (cell_idx, cell) in table.cells.iter().enumerate() {
+-                            for (cell_para_idx, cpara) in cell.paragraphs.iter().enumerate() {
+-                                if cpara.style_id == sid {
+-                                    cell_targets.push((
+-                                        sec_idx,
+-                                        para_idx,
+-                                        control_idx,
+-                                        cell_idx,
+-                                        cell_para_idx,
+-                                    ));
+-                                }
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-
+-        // ── 스타일 변경을 해당 스타일을 사용하는 모든 문단에 전파 ──
+-        let updated_style = self.core.document.doc_info.styles[style_id as usize].clone();
+-        let new_csid = updated_style.char_shape_id as u32;
+-        let new_psid = updated_style.para_shape_id;
+-        // [#7490] 셀 문단은 저장 줄 기록을 두고 재조판하므로 bit 20 도 새 들여쓰기로 단다.
+-        // 본문 문단은 `reflow_body_paragraph` 가 줄을 비우고 다시 짠다.
+-        let (old_indent, new_indent) = self.core.para_shape_indents(old_psid, new_psid);
+-
+-        for (sec_idx, para_idx) in body_targets {
+-            if let Some(para) = self
+-                .core
+-                .document
+-                .sections
+-                .get_mut(sec_idx)
+-                .and_then(|s| s.paragraphs.get_mut(para_idx))
+-            {
+-                if style_type == 0 && para.para_shape_id == old_psid {
+-                    para.para_shape_id = new_psid;
+-                }
+-                para.replace_style_char_shape_preserving_overrides(old_csid, new_csid);
+-            }
+-            self.core.reflow_body_paragraph(sec_idx, para_idx);
+-            if let Some(section) = self.core.document.sections.get_mut(sec_idx) {
+-                section.raw_stream = None;
+-            }
+-        }
+-
+-        for (sec_idx, para_idx, control_idx, cell_idx, cell_para_idx) in cell_targets {
+-            if let Ok(cpara) = self.core.get_cell_paragraph_mut(
+-                sec_idx,
+-                para_idx,
+-                control_idx,
+-                cell_idx,
+-                cell_para_idx,
+-            ) {
+-                if style_type == 0 && cpara.para_shape_id == old_psid {
+-                    cpara.para_shape_id = new_psid;
+-                    restamp_indentation(&mut cpara.line_segs, old_indent, new_indent);
+-                }
+-                cpara.replace_style_char_shape_preserving_overrides(old_csid, new_csid);
+-            }
+-            self.core.reflow_cell_paragraph(
+-                sec_idx,
+-                para_idx,
+-                control_idx,
+-                cell_idx,
+-                cell_para_idx,
+-            );
+-            self.core
+-                .mark_cell_control_dirty(sec_idx, para_idx, control_idx);
+-            if let Some(section) = self.core.document.sections.get_mut(sec_idx) {
+-                section.raw_stream = None;
+-            }
+-        }
++        // [ieum] 그 스타일을 쓰는 모든 문단에 퍼뜨린다(한컴 방식).
++        self.core
++            .spread_style_change(style_id as usize, old_csid, old_psid);
+ 
+         // 스타일 캐시 무효화 + 전체 리빌드
+         let num_sections = self.core.document.sections.len();
+diff --git a/src/wasm_api/tests.rs b/src/wasm_api/tests.rs
+index a1c0f32fe..1ee4bd173 100644
+--- a/src/wasm_api/tests.rs
++++ b/src/wasm_api/tests.rs
+@@ -28124,3 +28124,166 @@ fn issue_4576_rebuild_derived_state_recomputes_composition_and_pagination() {
+         "페이지 트리가 기준선과 같아야 한다 (옛 코드 잔재 없음)"
+     );
+ }
++
++/// [ieum] 스타일 걸기·고치기를 한컴 한글 2024 처럼 속성마다 맞추는지 보는 시험의 공통 준비.
++mod restyle {
++    use super::*;
++    use crate::model::control::Control;
++    use crate::model::paragraph::CharShapeRef;
++    use crate::model::style::{Alignment, ParaShapeMods};
++
++    pub(super) fn table_para(doc: &HwpDocument) -> usize {
++        doc.document.sections[0]
++            .paragraphs
++            .iter()
++            .position(|p| p.controls.iter().any(|c| matches!(c, Control::Table(_))))
++            .expect("표 문단")
++    }
++
++    pub(super) fn table(doc: &mut HwpDocument, para: usize) -> &mut crate::model::table::Table {
++        doc.document.sections[0].paragraphs[para]
++            .controls
++            .iter_mut()
++            .find_map(|c| match c {
++                Control::Table(t) => Some(t.as_mut()),
++                _ => None,
++            })
++            .unwrap()
++    }
++
++    pub(super) fn centered(doc: &mut HwpDocument, base: u16) -> u16 {
++        doc.document.find_or_create_para_shape(
++            base,
++            &ParaShapeMods {
++                alignment: Some(Alignment::Center),
++                ..Default::default()
++            },
++        )
++    }
++
++    pub(super) fn runs(ids: &[(u32, u32)]) -> Vec<CharShapeRef> {
++        ids.iter()
++            .map(|&(start_pos, char_shape_id)| CharShapeRef {
++                start_pos,
++                char_shape_id,
++            })
++            .collect()
++    }
++}
++
++/// [ieum] 직접 서식이 있는 문단에 스타일을 걸면 직접 정한 속성(가운데 정렬·진하게)만 남고
++/// 나머지(여백·글자 크기)는 새 스타일을 따른다. 종전엔 문단 모양을 통째로 남겨 새 스타일의
++/// 여백이 들어가지 않았다.
++#[test]
++fn apply_style_keeps_only_own_attributes() {
++    use crate::model::style::Alignment;
++    let mut doc = HwpDocument::create_empty();
++    doc.create_blank_document_native().unwrap();
++    doc.insert_text_native(0, 0, 0, "가나다라").unwrap();
++    let wide = doc.create_style(r#"{"name":"넓게","type":0}"#) as u32;
++    assert!(doc.update_style_shapes(wide, r#"{"fontSize":1600}"#, r#"{"marginLeft":6000}"#));
++    doc.apply_para_format_native(0, 0, r#"{"alignment":"center"}"#)
++        .unwrap();
++    doc.apply_char_format_native(0, 0, 0, 2, r#"{"bold":true}"#)
++        .unwrap();
++
++    doc.apply_style_native(0, 0, wide as usize).unwrap();
++
++    let info = &doc.document.doc_info;
++    let style = &info.styles[wide as usize];
++    let para = &doc.document.sections[0].paragraphs[0];
++    let ps = &info.para_shapes[para.para_shape_id as usize];
++    let style_ps = &info.para_shapes[style.para_shape_id as usize];
++    assert_eq!(ps.alignment, Alignment::Center, "직접 정한 정렬은 남는다");
++    assert_eq!(ps.margin_left, style_ps.margin_left, "여백은 새 스타일");
++    assert_ne!(style_ps.margin_left, 0);
++    let shapes: Vec<_> = para
++        .char_shapes
++        .iter()
++        .map(|r| (r.char_shape_id, &info.char_shapes[r.char_shape_id as usize]))
++        .collect();
++    let bold: Vec<_> = shapes.iter().filter(|(_, cs)| cs.bold).collect();
++    assert_eq!(bold.len(), 1, "직접 정한 진하게는 남는다");
++    assert_eq!(bold[0].1.base_size, 1600, "글자 크기는 새 스타일");
++    for (id, cs) in &shapes {
++        if !cs.bold {
++            assert_eq!(
++                *id, style.char_shape_id as u32,
++                "직접 서식 없는 글자는 새 스타일 그대로"
++            );
++        }
++    }
++}
++
++/// [ieum] 스타일을 고치면 겹친 표 안 문단까지 퍼지고, 직접 서식이 있는 문단은 직접 정한
++/// 속성만 남는다. 글자 스타일을 건 글자는 문단 스타일을 따르지 않고, 글자 스타일을 고치면
++/// 따라 바뀐다. 한컴 한글 2024 에서 같은 고치기를 한 결과와 같다.
++#[test]
++fn edit_style_spreads_like_hangul() {
++    use crate::model::style::Alignment;
++    let mut doc = HwpDocument::create_empty();
++    doc.create_blank_document_native().unwrap();
++    doc.create_table_native(0, 0, 0, 2, 2).expect("표 삽입");
++    let tp = restyle::table_para(&doc);
++    let control = doc.document.sections[0].paragraphs[tp]
++        .controls
++        .iter()
++        .position(|c| matches!(c, crate::model::control::Control::Table(_)))
++        .unwrap();
++    doc.insert_text_in_cell_native(0, tp, control, 2, 0, 0, "가나다라")
++        .unwrap();
++    let emph = doc.create_style(r#"{"name":"강조","type":1}"#) as u32;
++    assert!(doc.update_style_shapes(emph, r#"{"bold":true}"#, ""));
++
++    let base = doc.document.doc_info.styles[0].clone();
++    let emph_cs = doc.document.doc_info.styles[emph as usize].char_shape_id as u32;
++    assert_ne!(emph_cs, base.char_shape_id as u32);
++    let own = restyle::centered(&mut doc, base.para_shape_id);
++    {
++        let table = restyle::table(&mut doc, tp);
++        let nested = crate::model::control::Control::Table(Box::new(table.clone()));
++        for cell in table.cells.iter_mut() {
++            cell.paragraphs[0].style_id = 0;
++        }
++        table.cells[0].paragraphs[0].controls.push(nested);
++        table.cells[1].paragraphs[0].para_shape_id = own;
++        table.cells[2].paragraphs[0].char_shapes =
++            restyle::runs(&[(0, base.char_shape_id as u32), (2, emph_cs)]);
++    }
++
++    assert!(doc.update_style_shapes(0, r#"{"fontSize":1600}"#, r#"{"marginLeft":6000}"#));
++
++    let edited = doc.document.doc_info.styles[0].clone();
++    let info = doc.document.doc_info.clone();
++    let table = restyle::table(&mut doc, tp).clone();
++    let nested = match &table.cells[0].paragraphs[0].controls[0] {
++        crate::model::control::Control::Table(t) => t.cells[0].paragraphs[0].clone(),
++        _ => panic!("겹친 표"),
++    };
++    assert_eq!(nested.para_shape_id, edited.para_shape_id, "겹친 표 문단");
++    assert_eq!(
++        nested.char_shapes[0].char_shape_id,
++        edited.char_shape_id as u32
++    );
++    let own_ps = &info.para_shapes[table.cells[1].paragraphs[0].para_shape_id as usize];
++    assert_eq!(
++        own_ps.alignment,
++        Alignment::Center,
++        "직접 정한 정렬은 남는다"
++    );
++    assert_eq!(
++        own_ps.margin_left, info.para_shapes[edited.para_shape_id as usize].margin_left,
++        "여백은 고친 스타일"
++    );
++    let mixed = &table.cells[2].paragraphs[0].char_shapes;
++    assert_eq!(mixed[0].char_shape_id, edited.char_shape_id as u32);
++    assert_eq!(mixed[1].char_shape_id, emph_cs, "글자 스타일 글자는 그대로");
++
++    assert!(doc.update_style_shapes(emph, r#"{"italic":true}"#, ""));
++    let emph_now = doc.document.doc_info.styles[emph as usize].char_shape_id as u32;
++    let table = restyle::table(&mut doc, tp).clone();
++    let run = table.cells[2].paragraphs[0].char_shapes[1].char_shape_id;
++    assert_eq!(run, emph_now, "글자 스타일을 고치면 그 글자도 바뀐다");
++    let cs = &doc.document.doc_info.char_shapes[run as usize];
++    assert!(cs.bold && cs.italic);
++}

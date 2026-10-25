@@ -3,6 +3,7 @@
  * 편집기 iframe 은 한 번 붙으면 DOM 안에서 옮기지 않는다(옮기면 편집 상태가 사라짐). 숨길 땐 display:none.
  * 저장은 실제로 파일을 쓴 뒤에만 성공이다. 편집기가 열리는 중이면 저장·출력을 막고(canSave),
  * 고친 게 있는지는 편집기에 직접 묻는다(syncDirty). 편집기가 혼자 지운 dirty 는 믿지 않는다.
+ * 저장하지 않은 문서는 30초마다(입력이 2초 멈췄을 때만) 복구 사본으로 남긴다(recovery_write). 저장하거나 버리면 지운다.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -61,6 +62,12 @@ const FIELDS_LOST = "한글 편집기가 열리지 않아 채운 칸 값을 저�
 const OPEN_FAILED = "한글 편집기가 이 문서를 열지 못해 편집기를 닫았습니다. 고치지 않은 그대로 저장·출력하거나, 문서를 다시 열어 보세요.";
 const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 문서 화면에서 내용을 보세요.";
 
+type OpenOpts = { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean; recover?: boolean };
+
+/** 복구 사본을 쓰는 간격과, 입력이 멈춰야 하는 시간 (치는 중엔 내보내지 않는다) */
+const RECOVERY_EVERY_MS = 30_000;
+const RECOVERY_IDLE_MS = 2_000;
+
 interface Ask { title: string; body: ReactNode; choices: Array<{ id: string; label: string; variant?: "secondary" | "ghost" }>; resolve: (id: string) => void }
 
 interface CreateValue {
@@ -74,8 +81,8 @@ interface CreateValue {
   docSeq: number;
   frameRef: React.RefObject<HTMLIFrameElement | null>;
   frameSrc: string;
-  /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다) */
-  openInEditor: (path: string, opts?: { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean }) => Promise<void>;
+  /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다). recover: 그 경로의 복구 사본을 연다 */
+  openInEditor: (path: string, opts?: OpenOpts) => Promise<void>;
   call: HwpEditorClient["call"];
   focusEditor: () => void;
   saveTo: (path: string, format?: "hwp" | "hwpx") => Promise<string>;
@@ -130,6 +137,15 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const savingNow = useRef(false);
   /** 편집기 안 Ctrl/⌘+S 가 부를 최신 저장 함수 (편집기 이벤트 연결은 한 번만 한다) */
   const saveRequest = useRef<() => void>(() => undefined);
+  /** 복구 사본: 마지막 변경 알림 시각 · 마지막으로 사본에 쓴 변경 번호와 시각 */
+  const lastChangeAt = useRef(0);
+  /** gen: 저장·버리기·새 문서 열기 때마다 +1 — 그 전에 시작한 사본 쓰기는 버린다 (버린 사본이 되살아나지 않게) */
+  const recovery = useRef({ seq: -1, at: 0, busy: false, gen: 0 });
+  const dropRecovery = useCallback((path: string) => {
+    recovery.current.gen++;
+    recovery.current.seq = -1;
+    void rpc("recovery_discard", { path }).catch(() => undefined);
+  }, []);
 
   useEffect(() => () => client.current?.destroy(), []);
 
@@ -163,6 +179,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         client.current = ed;
         ed.on((ev) => {
           if (ev.type === "changed") {
+            lastChangeAt.current = Date.now();
             setDocState(ev.state);
             // dirty 는 올리기만 한다. 내리는 건 앱이 저장하거나 새로 열었을 때뿐
             if (ev.state.dirty && !opening.current) setSession((s) => (s && !s.dirty ? { ...s, dirty: true } : s));
@@ -221,6 +238,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 내보낸 뒤에 고친 게 있으면(저장하는 사이 입력) 그건 아직 저장 안 된 것으로 둔다
       const after = before ? await ed.call("state", {}).catch(() => null) : null;
       const editedMeanwhile = !!before && !!after && after.changeSeq !== before.changeSeq;
+      // 디스크에 지금 내용이 있으니 사본은 지운다 (저장하는 사이 고친 것은 다음 차례에 다시 쓴다)
+      dropRecovery(session.path);
       // 작업 사본에 쓴 것은 사용자가 저장한 게 아니다 (작업 사본 표시·저장 창 위치를 그대로 둔다)
       setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, ...(s.working && r.path === s.path ? {} : { working: false, savedAt: Date.now() }) } : s));
       return r.path;
@@ -234,7 +253,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       return r.path;
     }
     throw new Error(editorState === "unavailable" || editorState === "error" ? FIELDS_LOST : NOT_READY);
-  }, [session, editorState, toast]);
+  }, [session, editorState, toast, dropRecovery]);
 
   const suggestedName = useMemo(
     () => (session ? suggestFileName(session.title, settings?.org.dept ?? "") : ""),
@@ -294,6 +313,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "discard", label: "버리기", variant: "secondary" }, { id: "save", label: "저장" }],
     });
     if (a === "discard") {
+      dropRecovery(session.path);
       // 버린 문서는 편집기에서도 저장한 것으로 — 나중에 편집기를 내릴 때(열기 시간 초과) 스튜디오가 "사이트를 나가시겠습니까"를 띄우지 않게
       await client.current?.call("saved", { name: "" }).catch(() => undefined);
       return true;
@@ -307,9 +327,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       toast(`저장하지 못했습니다: ${errorText(e)}`, "error");
       return false;
     }
-  }, [session, syncDirty, askUser, saveTo, ensureSaved, toast]);
+  }, [session, syncDirty, askUser, saveTo, ensureSaved, toast, dropRecovery]);
 
-  const openInEditor = useCallback(async (path: string, opts?: { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean }) => {
+  const openInEditor = useCallback(async (path: string, opts?: OpenOpts) => {
     // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
     const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
     if (pages > RHWP_MAX_PAGES && (await askUser({
@@ -318,9 +338,26 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: "그래도 열기" }],
     })) !== "open") return;
     if (!(await settleCurrent())) return;
+    recovery.current.gen++; // 앞 문서의 사본 쓰기가 아직 돌고 있으면 버린다
+    // 이 파일에 저장하지 않고 꺼진 사본이 있으면 무엇을 열지 묻는다
+    let recover = !!opts?.recover;
+    if (!recover) {
+      const copy = (await rpc("recovery_list", { path }).catch(() => ({ entries: [] }))).entries[0];
+      if (copy) {
+        const a = await askUser({
+          title: "저장하지 않은 사본이 있습니다",
+          body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{baseName(path)}을 고치다 저장하지 않은 채 앱이 꺼졌습니다({new Date(copy.saved_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}). 그때 고친 내용으로 열까요? 원본으로 열면 사본은 지웁니다.</p>,
+          choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "original", label: "원본 열기", variant: "secondary" }, { id: "recover", label: "고친 내용으로 열기" }],
+        });
+        if (a === "cancel") return;
+        if (a === "original") dropRecovery(path);
+        recover = a === "recover";
+      }
+    }
     const format: "hwp" | "hwpx" = extOf(path) === "hwp" ? "hwp" : "hwpx";
     const fields = opts?.fields && Object.keys(opts.fields).length ? opts.fields : null;
     opening.current = true;
+    recovery.current = { seq: -1, at: 0, busy: false, gen: recovery.current.gen + 1 };
     setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
     setBusyText("한글 편집기를 여는 중");
@@ -329,7 +366,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     try {
       if (!(await ensureEditor())) return;
       const ed = client.current!;
-      const file = await rpc("editor_open", { path });
+      const file = await rpc("editor_open", { path, ...(recover ? { recover: true } : {}) });
       setSession((s) => (s && s.path === path ? { ...s, token: file.token, ...(file.save_blocked ? { hwpSaveBlock: file.save_blocked } : {}) } : s));
       if (file.tracking_dropped) toast("변경 내용 추적이 든 문서라 지금 내용으로 열었습니다. 저장하면 추적 기록 없이 저장되고, 처음 덮어쓸 때 원본은 .bak 으로 남습니다.", "info");
       if (file.save_blocked) toast(file.save_blocked, "error");
@@ -344,7 +381,10 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       if (fields) await ed.call("put_fields", { values: fields });
       // 연 뒤 상태를 직접 확인한다 (칸을 넣었으면 디스크 파일과 달라졌다)
       const st = await ed.call("state", {}).catch(() => null);
-      setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty } : s));
+      // 되살린 사본은 디스크 파일과 다르다. 사용자 파일이면 저장이 저장 창 없이 원래 파일로 간다 (처음 덮어쓸 때 .bak)
+      const toOriginal = recover && !opts?.working;
+      setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty || recover, ...(toOriginal ? { savedAt: Date.now() } : {}) } : s));
+      if (recover) toast(toOriginal ? "저장하지 않았던 고친 내용으로 열었습니다. 저장하면 원래 파일에 들어갑니다." : "저장하지 않았던 초안을 되살렸습니다.", "info");
       setDocSeq((n) => n + 1);
     } catch (e) {
       if (!loaded && client.current) stopEditor(OPEN_FAILED);
@@ -353,10 +393,43 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       opening.current = false;
       setBusyText("");
     }
-  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast]);
+  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast, dropRecovery]);
 
   // 트레이 "완전 종료" 전에 편집 중인 문서를 묻는다
   useEffect(() => onQuitGuard(() => settleCurrent("앱을 끄기 전에")), [settleCurrent]);
+
+  // 복구 사본: 저장하지 않은 동안 30초마다, 입력이 멈췄을 때만 내보내 앱 데이터 폴더에 둔다 (원본·.bak 은 그대로)
+  const dirtyDoc = session?.dirty && editorState === "ready" ? session : null;
+  useEffect(() => {
+    if (!dirtyDoc) return;
+    const { path, format, title, working } = dirtyDoc;
+    const t = setInterval(async () => {
+      const r = recovery.current;
+      const ed = client.current;
+      if (!ed || r.busy || opening.current || savingNow.current) return;
+      const now = Date.now();
+      if (now - r.at < RECOVERY_EVERY_MS || now - lastChangeAt.current < RECOVERY_IDLE_MS) return;
+      r.busy = true;
+      const gen = r.gen;
+      try {
+        const st = await ed.call("state", {});
+        if (!st.dirty || st.changeSeq === r.seq) return;
+        const bytes = await ed.save(format);
+        // 그사이 저장·버리기·다른 문서 열기가 있었다
+        if (opening.current || r.gen !== gen) return;
+        await rpc("recovery_write", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), title, ...(working ? { working: true } : {}) });
+        // 쓰는 사이에 지웠다면 방금 쓴 것도 지운다
+        if (r.gen !== gen) { void rpc("recovery_discard", { path }).catch(() => undefined); return; }
+        r.seq = st.changeSeq;
+        r.at = Date.now();
+      } catch {
+        // 사본은 덤: 실패하면 다음 차례에 다시
+      } finally {
+        r.busy = false;
+      }
+    }, 5_000);
+    return () => clearInterval(t);
+  }, [dirtyDoc?.path, dirtyDoc?.format, dirtyDoc?.title, dirtyDoc?.working, !!dirtyDoc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const focusEditor = useCallback(() => frameRef.current?.focus(), []);
 

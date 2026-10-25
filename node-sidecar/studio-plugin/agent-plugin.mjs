@@ -1,5 +1,5 @@
 // 이음오피스(IeumOffice, https://github.com/pblsketch/openoffice, Apache-2.0, Copyright 2026 Mainfunc, Inc.)의
-// apps/hwp/studio-plugin/agent-plugin.mjs(커밋 a907a88c)에서 옮겼다. 바꾼 것: 플러그인·명령 이름(ieum → kordoc).
+// apps/hwp/studio-plugin/agent-plugin.mjs(커밋 a907a88c, 스타일·저장 안 됨 알림·스타일 목록은 63e2a636)에서 옮겼다. 바꾼 것: 플러그인·명령 이름(ieum → kordoc).
 // 판단 근거는 그 저장소의 결정 기록 0022(AI 편집은 편집기 안 플러그인으로, 개체를 잃는 변경은 하지 않는다)·0026(탭 폭).
 /**
  * The app's own plugin inside the rhwp-studio editor: the document operations
@@ -56,6 +56,11 @@ const REVEAL_COMMAND = 'ext:kordoc-reveal'
  * command as its detail: the app hears it and saves or prints the way Ctrl+S and Ctrl+P do.
  */
 export const FILE_COMMAND_EVENT = 'kordoc:file-command'
+/**
+ * The event this plugin fires on the editor's window when the document's unsaved state
+ * changes, with the new state (true: unsaved changes) as its detail.
+ */
+export const DIRTY_EVENT = 'kordoc:dirty-changed'
 /** The File menu items, top to bottom: the command the app runs, and the shortcut shown. */
 const FILE_MENU = [
   { command: 'save', id: 'ext:kordoc-save', shortcut: 'Ctrl+S' },
@@ -600,6 +605,14 @@ function containerOf(doc, hit) {
       formatParagraph: (k, json) =>
         expectOk(doc.applyParaFormat(sec, k, json), 'format the paragraph'),
       applyStyle: (k, id) => expectOk(doc.applyStyle(sec, k, id), 'apply the style'),
+      // a character style is its character shape on the text: the engine's applyStyle
+      // would give it to the whole paragraph
+      setCharShape: (k, start, end, id) =>
+        expectOk(doc.setCharShapeId(sec, k, start, end, id), 'apply the character style'),
+      styleShape: (k) => ({
+        style: parse(doc.getStyleAt(sec, k)).id,
+        paraShape: parse(doc.getParaPropertiesAt(sec, k)).paraShapeId,
+      }),
     }
   }
   const last = path[path.length - 1]
@@ -647,6 +660,20 @@ function containerOf(doc, hit) {
               'apply the style',
             )
         : null,
+    setCharShape: (k, start, end, id) =>
+      expectOk(
+        doc.setCharShapeIdInCellByPath(sec, para, at(k), start, end, id),
+        'apply the character style',
+      ),
+    styleShape:
+      path.length === 1
+        ? (k) => ({
+            style: parse(doc.getCellStyleAt(sec, para, last.controlIndex, last.cellIndex, k)).id,
+            paraShape: parse(
+              doc.getCellParaPropertiesAt(sec, para, last.controlIndex, last.cellIndex, k),
+            ).paraShapeId,
+          })
+        : null,
   }
 }
 
@@ -684,8 +711,45 @@ const PARA_LENGTHS = {
   spacingBefore: { min: 0, max: 200, key: 'spacingBefore' },
   spacingAfter: { min: 0, max: 200, key: 'spacingAfter' },
 }
-/** Style kinds as the engine lists them: paragraph styles are 0. */
+/** Style kinds as the engine lists them: paragraph styles are 0, character styles 1. */
 const PARAGRAPH_STYLE = 0
+const CHARACTER_STYLE = 1
+/** The editor toolbar's style list: one option per style, its value the style's number. */
+const STYLE_LIST_SELECTOR = '#style-name'
+/** How long the document rests before the toolbar's style list is checked against it. */
+const STYLE_LIST_PAUSE_MS = 400
+/** The command this plugin registers to have the editor show the caret's style again. */
+const CARET_STATE_COMMAND = 'ext:kordoc-caret-state'
+
+/**
+ * Fill the editor toolbar's style list (`select`) with the document's styles (as
+ * getStyleList gives them) when they differ from what it shows. The number shown stays
+ * shown when there still is a style by it: the editor sets the list by the number of the
+ * caret's style, which may already be the new one. Returns whether the list was refilled.
+ */
+export function syncStyleList(select, styles) {
+  const shown = Array.from(select.options, (option) => [Number(option.value), option.textContent])
+  if (JSON.stringify(shown) === JSON.stringify(styles.map((style) => [style.id, style.name]))) {
+    return false
+  }
+  const current = select.value
+  select.replaceChildren(
+    ...styles.map((style) => {
+      const option = select.ownerDocument.createElement('option')
+      option.value = String(style.id)
+      option.textContent = style.name
+      return option
+    }),
+  )
+  if (styles.some((style) => String(style.id) === current)) select.value = current
+  else select.selectedIndex = -1
+  return true
+}
+
+/** Longest style name taken, as the editor's style dialog has it. */
+const MAX_STYLE_NAME = 250
+/** Not in a style name, besides control characters: the engine reads names out of JSON without unescaping them. */
+const STYLE_NAME_QUOTES = /["\\]/
 
 /**
  * A format request, checked. `chars` and `paragraph` hold what was asked for, null when
@@ -771,7 +835,15 @@ function formatOf(format, allowParagraph) {
     if (!name || CONTROL_CHARS.test(name)) throw fail('BAD_ARGUMENT', 'style must be a style name')
     style = name
   }
-  const hasChars = Object.keys(chars).length > 0 || font !== null
+  let charStyle = null
+  if (given('charStyle')) {
+    const name = typeof format.charStyle === 'string' ? format.charStyle.trim() : ''
+    if (!name || CONTROL_CHARS.test(name)) {
+      throw fail('BAD_ARGUMENT', 'charStyle must be a style name')
+    }
+    charStyle = name
+  }
+  const hasChars = Object.keys(chars).length > 0 || font !== null || charStyle !== null
   const hasParagraph = Object.keys(paragraph).length > 0 || style !== null
   if (hasParagraph && !allowParagraph) {
     throw fail(
@@ -781,34 +853,63 @@ function formatOf(format, allowParagraph) {
   }
   if (!hasChars && !hasParagraph) throw fail('BAD_ARGUMENT', 'format names nothing to change')
   return {
-    chars: hasChars ? chars : null,
+    chars: Object.keys(chars).length > 0 || font !== null ? chars : null,
     font,
     paragraph: Object.keys(paragraph).length > 0 ? paragraph : null,
     style,
+    charStyle,
   }
 }
 
-/** The paragraph styles of the document, by number, with their names. */
-const paragraphStylesOf = (doc) =>
-  parse(doc.getStyleList()).filter((style) => style.type === PARAGRAPH_STYLE)
+/** The style called `name` (its own or its English name), of `type` unless that is null. */
+function styleNamed(doc, name, type) {
+  const wanted = name.toLowerCase()
+  return (
+    parse(doc.getStyleList()).find(
+      (candidate) =>
+        (type === null || candidate.type === type) &&
+        (String(candidate.name ?? '').toLowerCase() === wanted ||
+          String(candidate.englishName ?? '').toLowerCase() === wanted),
+    ) ?? null
+  )
+}
 
 /** The number of the paragraph style called `name` (its own or its English name), or null. */
 function styleIdOf(doc, name) {
-  const wanted = name.toLowerCase()
-  const style = paragraphStylesOf(doc).find(
-    (candidate) =>
-      String(candidate.name ?? '').toLowerCase() === wanted ||
-      String(candidate.englishName ?? '').toLowerCase() === wanted,
-  )
-  return style ? style.id : null
+  return styleNamed(doc, name, PARAGRAPH_STYLE)?.id ?? null
 }
 
-/** A refusal for a style the document does not have, with the ones it has. */
-const noSuchStyle = (doc) => ({
+/** A refusal for a style the document does not have, with the ones of that kind it has. */
+const noSuchStyle = (doc, type = PARAGRAPH_STYLE) => ({
   ok: false,
   reason: 'no_such_style',
-  styles: paragraphStylesOf(doc).map((style) => style.name),
+  kind: type === null ? 'any' : type === CHARACTER_STYLE ? 'character' : 'paragraph',
+  styles: parse(doc.getStyleList())
+    .filter((style) => type === null || style.type === type)
+    .map((style) => style.name),
 })
+
+/** The refusal for a format whose paragraph or character style the document lacks, or null. */
+function missingStyle(doc, spec) {
+  if (spec.style && styleIdOf(doc, spec.style) === null) return noSuchStyle(doc)
+  if (spec.charStyle && styleNamed(doc, spec.charStyle, CHARACTER_STYLE) === null) {
+    return noSuchStyle(doc, CHARACTER_STYLE)
+  }
+  return null
+}
+
+/**
+ * Whether the paragraph has formatting of its own that applyStyle will keep: its paragraph
+ * shape differs from the shape of its style so far. The engine, as Hangul does, keeps the
+ * properties that differ and takes the rest from the new style (engine patch 0013). Null
+ * where it cannot be asked.
+ */
+function keepsOwnLook(doc, box, k) {
+  if (!box.styleShape) return null
+  const { style, paraShape } = box.styleShape(k)
+  const old = parse(doc.getStyleList()).find((candidate) => candidate.id === style)
+  return old ? old.paraShapeId !== paraShape : false
+}
 
 /**
  * A checked format as the engine takes it, in a change: a font is looked up in the
@@ -834,8 +935,106 @@ function resolveFormat(doc, spec) {
     style = styleIdOf(doc, spec.style)
     if (style === null) throw fail('CHANGED', 'the style is gone')
   }
-  return { chars, paragraph: spec.paragraph ? JSON.stringify(spec.paragraph) : null, style }
+  let charShape = null
+  if (spec.charStyle) {
+    const named = styleNamed(doc, spec.charStyle, CHARACTER_STYLE)
+    if (!named) throw fail('CHANGED', 'the style is gone')
+    charShape = named.charShapeId
+  }
+  return {
+    chars,
+    paragraph: spec.paragraph ? JSON.stringify(spec.paragraph) : null,
+    style,
+    charShape,
+  }
 }
+
+/** A style name as the engine can store it, trimmed; `what` names the argument. */
+function styleNameOf(value, what) {
+  const name = typeof value === 'string' ? value.trim() : ''
+  if (
+    !name ||
+    name.length > MAX_STYLE_NAME ||
+    STYLE_NAME_QUOTES.test(name) ||
+    CONTROL_CHARS.test(name)
+  ) {
+    throw fail(
+      'BAD_ARGUMENT',
+      `${what} must be 1 to ${MAX_STYLE_NAME} characters, without quotes, backslashes or line breaks`,
+    )
+  }
+  return name
+}
+
+/**
+ * The look a style is made or changed with: a format without styles of its own. A
+ * character style takes character formatting only. Null when nothing was given.
+ */
+function styleFormatOf(format, paragraphStyle) {
+  if (format === undefined || format === null) return null
+  if (typeof format !== 'object' || Array.isArray(format)) {
+    throw fail('BAD_ARGUMENT', 'format must be an object')
+  }
+  if (Object.values(format).every((value) => value === undefined || value === null)) return null
+  if (format.style != null || format.charStyle != null) {
+    throw fail('BAD_ARGUMENT', 'a style is not made of other styles: pass its formatting')
+  }
+  const spec = formatOf(format, true)
+  if (!paragraphStyle && spec.paragraph) {
+    throw fail(
+      'BAD_ARGUMENT',
+      'a character style has character formatting only: align, lineSpacing, indents, margins and spacing belong to a paragraph style',
+    )
+  }
+  return spec
+}
+
+/** Set a style's look: its character shape and, for a paragraph style, its paragraph shape. */
+function setStyleLook(doc, id, spec) {
+  if (!spec) return
+  const { chars, paragraph } = resolveFormat(doc, spec)
+  if (!doc.updateStyleShapes(id, chars ?? '{}', paragraph ?? '{}')) {
+    throw fail('ENGINE_REFUSED', 'the editor refused to change the style')
+  }
+}
+
+/** Whether a style other than `except` (an id) is called `name`, by its own or English name. */
+function styleNameTaken(doc, name, except = null) {
+  const style = styleNamed(doc, name, null)
+  return style !== null && style.id !== except
+}
+
+/** Points of a paragraph length as the engine reports it: margins and indent in page pixels. */
+const ptOfPx = (px) => Math.round(px * 7.5) / 10
+/** Points of paragraph spacing as the engine reports it: twice the page pixels. */
+const ptOfSpacing = (px) => Math.round(px * 3.75) / 10
+
+/** What a style looks like, in the units the format calls take. */
+function styleLookOf(doc, style) {
+  const { charProps: c, paraProps: p } = parse(doc.getStyleDetail(style.id))
+  const look = {
+    font: c.fontFamily,
+    size: c.fontSize / 100,
+    bold: c.bold === true,
+    italic: c.italic === true,
+    underline: c.underline === true,
+    strikethrough: c.strikethrough === true,
+    color: c.textColor,
+  }
+  if (style.type !== PARAGRAPH_STYLE) return look
+  return {
+    ...look,
+    align: p.alignment,
+    ...(p.lineSpacingType === 'Percent' ? { lineSpacing: p.lineSpacing } : {}),
+    indent: ptOfPx(p.indent),
+    marginLeft: ptOfPx(p.marginLeft),
+    marginRight: ptOfPx(p.marginRight),
+    spacingBefore: ptOfSpacing(p.spacingBefore),
+    spacingAfter: ptOfSpacing(p.spacingAfter),
+  }
+}
+
+const kindOf = (style) => (style.type === CHARACTER_STYLE ? 'character' : 'paragraph')
 
 function checkWhere(where) {
   if (where !== 'after' && where !== 'before' && where !== 'end') {
@@ -1880,6 +2079,12 @@ export const agentPlugin = {
   },
 
   activate(host) {
+    // the unsaved state as the editor sets it, in the same task as the edit: the app's close
+    // prompt reads its copy of this, and a key typed just before closing must be in it
+    host.events.on('document-dirty-changed', (change) => {
+      globalThis.dispatchEvent?.(new CustomEvent(DIRTY_EVENT, { detail: change?.dirty === true }))
+    })
+
     // counts the changes this plugin did not make (the user typing, the editor's own undo):
     // the panel takes back a run only while this has not moved since the run ended, because
     // the editor's history is one stack and anything on top of the run would be undone first
@@ -1900,6 +2105,35 @@ export const agentPlugin = {
         }
       }
     })
+
+    // the toolbar's style list is filled once, when the document opens. Styles made, renamed
+    // or removed since (the style dialog, this plugin, an undo) are put in after a pause, so
+    // typing does not pay for it: a stale list names the old styles at the old numbers, and
+    // after a removal picking one there applied another style
+    let styleListTimer = null
+    const scheduleStyleList = () => {
+      if (styleListTimer) clearTimeout(styleListTimer)
+      styleListTimer = setTimeout(() => {
+        styleListTimer = null
+        const select = globalThis.document?.querySelector(STYLE_LIST_SELECTOR)
+        if (!select) return
+        try {
+          if (
+            syncStyleList(
+              select,
+              host.read((doc) => parse(doc.getStyleList())),
+            )
+          ) {
+            // the number shown may be a style that moved: the caret's style, as the editor
+            // reads it, is what the list is to show
+            host.automation.execute(CARET_STATE_COMMAND)
+          }
+        } catch {
+          // no document, or the editor is gone: the list stays as it is
+        }
+      }, STYLE_LIST_PAUSE_MS)
+    }
+    host.events.on('document-changed', scheduleStyleList)
 
     let layer = null
     let settle = null
@@ -1989,6 +2223,22 @@ export const agentPlugin = {
             drawMarks(services)
           } catch {
             // marks are a help; a page that cannot take them stays as it is
+          }
+        },
+      })
+    } catch {
+      // registered by an earlier activation of this plugin, or a host without commands
+    }
+
+    try {
+      host.automation.registerCommand({
+        id: CARET_STATE_COMMAND,
+        label: 'Show the caret state',
+        execute: (services) => {
+          try {
+            services.getInputHandler()?.emitCursorFormatState()
+          } catch {
+            // without a caret the toolbar keeps what it shows
           }
         },
       })
@@ -2439,17 +2689,20 @@ export const agentPlugin = {
             },
           }
         }
-        const refusal = host.read((doc) => targets(doc).refusal ?? null)
+        const refusal = host.read((doc) => targets(doc).refusal ?? missingStyle(doc, spec))
         if (refusal) return refusal
         return keepingObjects((mustKeep) =>
           change('format-text', (doc) => {
             const { hits } = targets(doc)
             if (!hits) throw fail('CHANGED', 'the document changed mid-call')
             const before = objectsOf(doc)
-            const { chars } = resolveFormat(doc, spec)
+            const { chars, charShape } = resolveFormat(doc, spec)
             for (const hit of hits) {
               const box = containerOf(doc, hit)
-              box.formatChars(box.index, hit.charOffset, hit.charOffset + hit.length, chars)
+              const end = hit.charOffset + hit.length
+              // the style first: what was asked for besides goes over it
+              if (charShape !== null) box.setCharShape(box.index, hit.charOffset, end, charShape)
+              if (chars) box.formatChars(box.index, hit.charOffset, end, chars)
             }
             mustKeep(before, objectsOf(doc))
             return { ok: true, count: hits.length, place: placeOf(hits[0], hits[0].length) }
@@ -2479,8 +2732,8 @@ export const agentPlugin = {
           const box = containerOf(doc, picked.hit)
           if ((spec.paragraph && !box.formatParagraph) || (spec.style && !box.applyStyle))
             return refuse('unsupported_place')
-          if (spec.style && styleIdOf(doc, spec.style) === null)
-            return { refusal: noSuchStyle(doc) }
+          const missing = missingStyle(doc, spec)
+          if (missing) return { refusal: missing }
           return { box }
         }
         const refusal = host.read((doc) => plan(doc).refusal ?? null)
@@ -2491,13 +2744,20 @@ export const agentPlugin = {
             if (!box) throw fail('CHANGED', 'the document changed mid-call')
             const before = objectsOf(doc)
             const length = box.length(box.index)
-            const { chars, paragraph, style } = resolveFormat(doc, spec)
-            // the style first: what was asked for besides goes over it
+            const { chars, paragraph, style, charShape } = resolveFormat(doc, spec)
+            // the styles first: what was asked for besides goes over them
+            const keptOwnLook = style !== null && keepsOwnLook(doc, box, box.index) === true
             if (style !== null) box.applyStyle(box.index, style)
+            if (charShape !== null && length > 0) box.setCharShape(box.index, 0, length, charShape)
             if (paragraph) box.formatParagraph(box.index, paragraph)
             if (chars && length > 0) box.formatChars(box.index, 0, length, chars)
             mustKeep(before, objectsOf(doc))
-            return { ok: true, inTable: box.inTable, place: box.place(box.index, length) }
+            return {
+              ok: true,
+              inTable: box.inTable,
+              place: box.place(box.index, length),
+              ...(keptOwnLook ? { keptOwnLook: 1 } : {}),
+            }
           }),
         )
       }),
@@ -2633,10 +2893,153 @@ export const agentPlugin = {
         ),
       ),
 
-      /** The paragraph styles of the document, by name: what a format's style takes. */
+      /**
+       * The styles of the document by name: paragraph styles (what a format's style takes)
+       * and character styles (what its charStyle takes).
+       */
       listStyles: guarded(() =>
-        host.read((doc) => paragraphStylesOf(doc).map((style) => style.name)),
+        host.read((doc) => {
+          const styles = parse(doc.getStyleList())
+          const named = (type) =>
+            styles.filter((style) => style.type === type).map((style) => style.name)
+          return { paragraph: named(PARAGRAPH_STYLE), character: named(CHARACTER_STYLE) }
+        }),
       ),
+
+      /** One style: its kind, names, the style that follows it, and what it looks like. */
+      readStyle: guarded((name) => {
+        const wanted = styleNameOf(name, 'name')
+        return host.read((doc) => {
+          const style = styleNamed(doc, wanted, null)
+          if (!style) return noSuchStyle(doc, null)
+          const next =
+            style.type === PARAGRAPH_STYLE
+              ? parse(doc.getStyleList()).find((other) => other.id === style.nextStyleId)
+              : null
+          return {
+            ok: true,
+            name: style.name,
+            englishName: style.englishName ?? '',
+            kind: kindOf(style),
+            ...(next ? { nextStyle: next.name } : {}),
+            look: styleLookOf(doc, style),
+          }
+        })
+      }),
+
+      /**
+       * Add a style. It starts from the look of `basedOn` (a style of the document, 바탕글
+       * when not given) and takes `format` over that. A paragraph style is followed by
+       * itself unless `nextStyle` names another paragraph style, as Hangul makes them. One
+       * undo step.
+       */
+      createStyle: guarded((spec) => {
+        if (!spec || typeof spec !== 'object') throw fail('BAD_ARGUMENT', 'spec must be an object')
+        const name = styleNameOf(spec.name, 'name')
+        const englishName =
+          spec.englishName == null ? '' : styleNameOf(spec.englishName, 'englishName')
+        const kind = spec.kind ?? 'paragraph'
+        if (kind !== 'paragraph' && kind !== 'character') {
+          throw fail('BAD_ARGUMENT', 'kind must be "paragraph" or "character"')
+        }
+        const type = kind === 'character' ? CHARACTER_STYLE : PARAGRAPH_STYLE
+        if (type === CHARACTER_STYLE && spec.nextStyle != null) {
+          throw fail('BAD_ARGUMENT', 'only a paragraph style has a next style')
+        }
+        const basedOn = spec.basedOn == null ? null : styleNameOf(spec.basedOn, 'basedOn')
+        const nextStyle = spec.nextStyle == null ? null : styleNameOf(spec.nextStyle, 'nextStyle')
+        const look = styleFormatOf(spec.format, type === PARAGRAPH_STYLE)
+        const plan = (doc) => {
+          if (styleNameTaken(doc, name) || (englishName && styleNameTaken(doc, englishName))) {
+            return { refusal: { ok: false, reason: 'style_exists' } }
+          }
+          const base = basedOn ? styleNamed(doc, basedOn, null) : parse(doc.getStyleList())[0]
+          if (!base) return { refusal: noSuchStyle(doc, null) }
+          const next = nextStyle ? styleNamed(doc, nextStyle, PARAGRAPH_STYLE) : null
+          if (nextStyle && !next) return { refusal: noSuchStyle(doc) }
+          return { base, next }
+        }
+        const refusal = host.read((doc) => plan(doc).refusal ?? null)
+        if (refusal) return refusal
+        return change('create-style', (doc) => {
+          const { base, next } = plan(doc)
+          if (!base) throw fail('CHANGED', 'the document changed mid-call')
+          const id = doc.createStyle(
+            JSON.stringify({
+              name,
+              englishName,
+              type,
+              nextStyleId: 0,
+              baseParaShapeId: base.paraShapeId,
+              baseCharShapeId: base.charShapeId,
+            }),
+          )
+          if (!Number.isInteger(id) || id < 0) throw fail('ENGINE', 'the style could not be made')
+          if (
+            type === PARAGRAPH_STYLE &&
+            !doc.updateStyle(id, JSON.stringify({ nextStyleId: next ? next.id : id }))
+          ) {
+            throw fail('ENGINE_REFUSED', 'the editor refused to set the next style')
+          }
+          setStyleLook(doc, id, look)
+          return { ok: true, name, kind }
+        })
+      }),
+
+      /**
+       * Change a style: its names, the style that follows it, and its look (`format`, only
+       * what is passed). Paragraphs of the body and of the tables in it that use the style
+       * take the new look where they had none of their own; text that already has a
+       * character style keeps its former look. One undo step.
+       */
+      editStyle: guarded((name, spec) => {
+        const wanted = styleNameOf(name, 'name')
+        if (!spec || typeof spec !== 'object') throw fail('BAD_ARGUMENT', 'spec must be an object')
+        const rename = spec.name == null ? null : styleNameOf(spec.name, 'the new name')
+        const englishName =
+          spec.englishName == null ? null : styleNameOf(spec.englishName, 'englishName')
+        const nextStyle = spec.nextStyle == null ? null : styleNameOf(spec.nextStyle, 'nextStyle')
+        const plan = (doc) => {
+          const style = styleNamed(doc, wanted, null)
+          if (!style) return { refusal: noSuchStyle(doc, null) }
+          const paragraphStyle = style.type === PARAGRAPH_STYLE
+          if (nextStyle && !paragraphStyle) {
+            throw fail('BAD_ARGUMENT', 'only a paragraph style has a next style')
+          }
+          const look = styleFormatOf(spec.format, paragraphStyle)
+          if (!rename && englishName === null && !nextStyle && !look) {
+            throw fail(
+              'BAD_ARGUMENT',
+              'name nothing to change: name, englishName, nextStyle or format',
+            )
+          }
+          if (
+            (rename && styleNameTaken(doc, rename, style.id)) ||
+            (englishName && styleNameTaken(doc, englishName, style.id))
+          ) {
+            return { refusal: { ok: false, reason: 'style_exists' } }
+          }
+          const next = nextStyle ? styleNamed(doc, nextStyle, PARAGRAPH_STYLE) : null
+          if (nextStyle && !next) return { refusal: noSuchStyle(doc) }
+          return { style, next, look }
+        }
+        const refusal = host.read((doc) => plan(doc).refusal ?? null)
+        if (refusal) return refusal
+        return change('edit-style', (doc) => {
+          const { style, next, look } = plan(doc)
+          if (!style) throw fail('CHANGED', 'the document changed mid-call')
+          const names = {
+            ...(rename ? { name: rename } : {}),
+            ...(englishName !== null ? { englishName } : {}),
+            ...(next ? { nextStyleId: next.id } : {}),
+          }
+          if (Object.keys(names).length > 0 && !doc.updateStyle(style.id, JSON.stringify(names))) {
+            throw fail('ENGINE_REFUSED', 'the editor refused to change the style')
+          }
+          setStyleLook(doc, style.id, look)
+          return { ok: true, name: rename ?? style.name, kind: kindOf(style) }
+        })
+      }),
 
       /**
        * Give cells of table `number` (as listTables numbers them) a background colour, or
@@ -3514,8 +3917,8 @@ export const agentPlugin = {
           ) {
             return { refusal: { ok: false, reason: 'unsupported_place' } }
           }
-          if (spec.style && styleIdOf(doc, spec.style) === null)
-            return { refusal: noSuchStyle(doc) }
+          const missing = missingStyle(doc, spec)
+          if (missing) return { refusal: missing }
           return { boxes }
         }
         const refusal = host.read((doc) => plan(doc).refusal ?? null)
@@ -3525,18 +3928,29 @@ export const agentPlugin = {
             const { boxes } = plan(doc)
             if (!boxes) throw fail('CHANGED', 'the document changed mid-call')
             const before = objectsOf(doc)
-            const { chars, paragraph, style } = resolveFormat(doc, spec)
+            const { chars, paragraph, style, charShape } = resolveFormat(doc, spec)
+            let keptOwnLook = 0
             segments.forEach((segment, index) => {
               const { box, k } = boxes[index]
-              if (style !== null) box.applyStyle(k, style)
-              if (paragraph) box.formatParagraph(k, paragraph)
-              if (chars && segment.length > 0) {
-                box.formatChars(k, segment.offset, segment.offset + segment.length, chars)
+              const end = segment.offset + segment.length
+              if (style !== null) {
+                if (keepsOwnLook(doc, box, k) === true) keptOwnLook += 1
+                box.applyStyle(k, style)
               }
+              if (charShape !== null && segment.length > 0) {
+                box.setCharShape(k, segment.offset, end, charShape)
+              }
+              if (paragraph) box.formatParagraph(k, paragraph)
+              if (chars && segment.length > 0) box.formatChars(k, segment.offset, end, chars)
             })
             mustKeep(before, objectsOf(doc))
             const { text: _text, ...place } = segments[0]
-            return { ok: true, count: segments.length, place }
+            return {
+              ok: true,
+              count: segments.length,
+              place,
+              ...(keptOwnLook > 0 ? { keptOwnLook } : {}),
+            }
           }),
         )
       }),

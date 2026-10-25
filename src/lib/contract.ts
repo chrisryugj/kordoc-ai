@@ -6,6 +6,6 @@ export type {
   SystemInfo, McpEnv, DocInfo, ConvertParams, ConvertResult, CompareResult, TablesResult, GongmunMeta,
   GenerateParams, RedactResult, AiStatus, LlmCatalogItem, ReviewIssue, TemplateEntry, TemplateAnalysis,
   UsageReport, SecurityStatus, LocalModelServer, SubscriptionStatus,
-  StyleFormat, StyleEntry, PdfShrinkLevel, PdfShrinkResult,
+  StyleFormat, StyleEntry, PdfShrinkLevel, PdfShrinkResult, RecoveryEntry,
 } from "../../node-sidecar/src/types/rpc-contract";
 export type { Settings, AiProviderId } from "../../node-sidecar/src/types/index";

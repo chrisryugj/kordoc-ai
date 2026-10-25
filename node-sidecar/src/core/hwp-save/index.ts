@@ -10,8 +10,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import { copyFile, constants } from 'node:fs/promises';
 import { readFileB64, writeFileB64 } from '../files/io.js';
+import { recoveryBytes } from '../recovery/index.js';
 import { fieldKindsOf, restoreFieldKinds, type FieldKinds } from './field-kinds.js';
 import { restoreSectionTails, sectionTailsOf, type SectionTails } from './section-tails.js';
 import { hasTrackedChanges, withoutTrackedChanges } from './tracked-changes.js';
@@ -37,8 +39,15 @@ const starts = (b: Uint8Array, magic: number[]) => b.length >= magic.length && m
 export const EDITOR_REOPEN_NEEDED = '편집기 엔진이 다시 시작돼 이 문서의 저장 보정 정보가 없어졌습니다. 원본을 지키려고 저장하지 않았습니다. 편집 내용은 다른 이름으로 HWPX 로 저장하거나, 문서를 닫고 다시 연 뒤 고쳐 주세요.';
 export const TRACKED_SAVE_BLOCK = '변경 내용 추적이 든 한글 문서인데 추적 기록을 뺄 수 없어, 지운 글까지 들어간 채 저장하게 됩니다. HWPX 로 저장하거나 한글에서 변경 내용을 반영한 뒤 다시 여세요.';
 
-export async function editorOpen(path: string): Promise<{ data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }> {
-  const file = await readFileB64(path);
+export const RECOVERY_GONE = '되살릴 사본이 없습니다. 이미 저장했거나 버린 문서입니다. 문서를 그냥 여세요.';
+
+/** recover: 문서 경로의 복구 사본(core/recovery)을 연다. 저장 보정 정보는 원본 파일에서 (원본이 없으면 보정 없이) */
+export async function editorOpen(path: string, recover = false): Promise<{ data_b64: string; name: string; size: number; token: string; tracking_dropped: boolean; save_blocked?: string }> {
+  const copy = recover ? recoveryBytes(path) : null;
+  if (recover && !copy) throw new Error(RECOVERY_GONE);
+  const file = copy
+    ? (existsSync(path) ? await readFileB64(path) : { data_b64: '', name: basename(path), size: 0 })
+    : await readFileB64(path);
   let bytes: Uint8Array = Buffer.from(file.data_b64, 'base64');
   let trackingDropped = false;
   let tracked = false;
@@ -50,6 +59,8 @@ export async function editorOpen(path: string): Promise<{ data_b64: string; name
   const token = randomUUID();
   opened.set(token, { tails: hwp ? sectionTailsOf(bytes) : null, kinds: hwp ? fieldKindsOf(bytes) : null, tracked, written: new Set() });
   while (opened.size > KEEP) opened.delete(opened.keys().next().value!);
+  // 사본은 편집기가 내보낸 것이라 추적 기록이 이미 없다
+  if (copy) return { data_b64: copy.toString('base64'), name: file.name, size: copy.length, token, tracking_dropped: false, ...(tracked ? { save_blocked: TRACKED_SAVE_BLOCK } : {}) };
   return {
     data_b64: trackingDropped ? Buffer.from(bytes).toString('base64') : file.data_b64,
     name: file.name,

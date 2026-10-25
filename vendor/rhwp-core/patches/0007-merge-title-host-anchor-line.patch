@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:00:00 +0900
+Subject: [PATCH 7/8] =?UTF-8?q?fix(typeset):=20=EC=AA=BD=EC=9D=84=20?=
+ =?UTF-8?q?=EC=97=B0=20=EC=A0=9C=EB=AA=A9=20=ED=91=9C=20host=20=EC=9D=98?=
+ =?UTF-8?q?=20=EC=95=B5=EC=BB=A4=EB=A7=8C=20=EB=93=A0=20=EC=95=9E=20?=
+ =?UTF-8?q?=EC=A4=84=EC=9D=84=20=EA=B0=9C=EC=B2=B4=20=EC=A4=84=EA=B3=BC=20?=
+ =?UTF-8?q?=ED=95=A9=EC=B9=9C=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+예전 한글은 제목 표(쪽·종이 기준 어울림 표)·그림 앵커를 글자처럼 취급 표 줄 앞의
+빈 줄에 두고 저장했다(두 줄 host). 한글 2024 는 이 줄을 개체 줄과 합쳐 표를 제목 표
+바로 아래에 두고 같은 쪽의 뒤 내용도 그만큼 올린다. rhwp 는 저장 줄을 따라 표를
+한 줄 낮게 두었다.
+
+제목 표 아래에서 시작한 쪽(앞 커밋의 판정)을 연 host 이고, 보이는 글자가 없고, 개체 줄
+앞의 저장 줄이 합성 줄이 아니면 그 줄들을 개체 줄과 합친다.
+- 조판: 표 자리를 앞 줄 높이 없이 찾고, host 뒤 흐름에서 앞 줄 저장 높이를 회수하고,
+  쪽 원점을 그만큼 옮긴다(뒤 문단 저장 vpos 가 같은 높이만큼 위로 온다).
+- 렌더: 그 host 의 표 항목 뒤 쪽 원점을 같은 높이로 옮긴다.
+
+IeumOffice patch onto v0.8.7 (not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/layout.rs               | 51 ++++++++++++++++++++++++++++
+ src/renderer/typeset.rs              | 23 +++++++++++--
+ src/renderer/typeset/section/vpos.rs | 10 +++++-
+ 3 files changed, 80 insertions(+), 4 deletions(-)
+
+diff --git a/src/renderer/layout.rs b/src/renderer/layout.rs
+index d72d4868a..4eb94afc4 100644
+--- a/src/renderer/layout.rs
++++ b/src/renderer/layout.rs
+@@ -3439,6 +3439,42 @@ pub(crate) fn stored_first_line_clears_page_square_table(
+     false
+ }
+ 
++/// 쪽을 연 제목 표 host 에서 글자처럼 취급 표 줄 앞의 저장 줄이 앵커만 담았으면 그
++/// 줄들의 저장 높이(HU). 예전 한/글은 제목 표·그림 앵커를 개체 줄 앞의 빈 줄에 두고
++/// 저장했다. 한/글 2024 는 그 줄을 개체 줄과 합쳐 개체를 제목 표 바로 아래에 두고, 같은
++/// 쪽의 뒤 내용도 그만큼 올린다. 보이는 글자가 있거나 합성 줄이면 합치지 않는다.
++pub(crate) fn title_host_anchor_lines_before_tac_hu(
++    para: &Paragraph,
++    tac_index: usize,
++) -> Option<i32> {
++    if para_has_visible_text(para) {
++        return None;
++    }
++    let Some(Control::Table(tac)) = para.controls.get(tac_index) else {
++        return None;
++    };
++    if !tac.common.treat_as_char
++        || !para.controls.iter().any(|control| {
++            matches!(control, Control::Table(table)
++                if !table.common.treat_as_char
++                    && matches!(table.common.text_wrap, TextWrap::Square)
++                    && matches!(table.common.vert_rel_to, VertRelTo::Page | VertRelTo::Paper))
++        })
++    {
++        return None;
++    }
++    let line = control_line_seg_index(para, tac_index).filter(|line| *line > 0)?;
++    let segs = para.line_segs.get(..=line)?;
++    if segs
++        .iter()
++        .any(|seg| seg.tag & crate::model::paragraph::LineSeg::TAG_IMPLEMENTATION_PROPERTY != 0)
++    {
++        return None;
++    }
++    let delta = segs[line].vertical_pos - segs[0].vertical_pos;
++    (delta > 0).then_some(delta)
++}
++
+ pub(crate) fn para_has_overlay_shape(para: &Paragraph) -> bool {
+     use crate::model::shape::{TextWrap, VertRelTo};
+     para.controls.iter().any(|c| match c {
+@@ -10062,6 +10098,21 @@ impl LayoutEngine {
+                         Some(PageItem::Table { para_index: first, .. }),
+                     ) if para_index == first
+                 ));
++            // 앵커만 든 앞 줄을 개체 줄과 합친 제목 표 host 는 그 줄 높이만큼 뒤 내용을 올린다
++            // (조판이 같은 높이를 회수한다).
++            if page_title_table_keeps_page_base && hcursor.vpos_page_base == Some(0) {
++                if let PageItem::Table {
++                    para_index,
++                    control_index,
++                } = item
++                {
++                    if let Some(lead) = paragraphs.get(*para_index).and_then(|para| {
++                        title_host_anchor_lines_before_tac_hu(para, *control_index)
++                    }) {
++                        hcursor.vpos_page_base = Some(lead);
++                    }
++                }
++            }
+             if !heading_shape_keeps_page_base
+                 && !resolved_stored_wrap_fragment
+                 && !page_title_table_keeps_page_base
+diff --git a/src/renderer/typeset.rs b/src/renderer/typeset.rs
+index 14ede1771..1e129f365 100755
+--- a/src/renderer/typeset.rs
++++ b/src/renderer/typeset.rs
+@@ -4414,6 +4414,18 @@ impl TypesetEngine {
+         // 내린다. 한/글 2024 는 같은 문단을 다시 저장하면 한 줄로 합치므로 그 경우 상자는
+         // 저장 줄을 따라 한 줄만큼 낮다(줄 다시 나누기는 이 변경의 범위 밖).
+         let host_exclusions = st.host_page_anchored_square_exclusions(para_idx, para, ctrl_idx);
++        // 쪽을 연 제목 표 host 의 앵커만 든 앞 줄은 한/글 2024 처럼 개체 줄과 합친다.
++        let merged_lead_hu = (!host_exclusions.is_empty()
++            && st.vpos_page_base == Some(0)
++            && matches!(st.current_items.first(),
++                Some(PageItem::Table { para_index, .. }) if *para_index == para_idx))
++        .then(|| crate::renderer::layout::title_host_anchor_lines_before_tac_hu(para, ctrl_idx))
++        .flatten();
++        let lead_text = if merged_lead_hu.is_some() {
++            0.0
++        } else {
++            before_text
++        };
+         if !host_exclusions.is_empty() {
+             let host_top = natural_top.max(st.inline_box_flow_bottom) - before_text;
+             let combined: Vec<_> = exclusions.iter().cloned().chain(host_exclusions).collect();
+@@ -4421,12 +4433,12 @@ impl TypesetEngine {
+                 (column.x + left)..(column.x + column.width - right),
+                 column.y + host_top,
+                 advance,
+-                before_text + band_height,
++                lead_text + band_height,
+                 style.map_or(crate::model::style::Alignment::Left, |s| s.alignment),
+                 &combined,
+                 self.dpi,
+             ) {
+-                placement.y += before_text;
++                placement.y += lead_text;
+                 placement.clearance = (placement.y - column.y - natural_top).max(0.0);
+                 if side_wrap_placement.is_none_or(|current| placement.y > current.y) {
+                     side_wrap_placement = Some(placement);
+@@ -4435,7 +4447,7 @@ impl TypesetEngine {
+                 // 개체 줄이 이미 상자 아래에서 시작해도(쪽 첫 줄이 제목 표 아래인 쪽) 자리를
+                 // 확정해 둔다. 확정이 없으면 그리는 쪽은 상자 옆 글 줄을 먼저 그린 뒤 표를
+                 // 그 줄 아래에 다시 놓아 줄 하나만큼 내려간다.
+-                let top = natural_top.max(st.inline_box_flow_bottom);
++                let top = natural_top.max(st.inline_box_flow_bottom) - (before_text - lead_text);
+                 let slack = (column.width - left - right - advance).max(0.0);
+                 let offset =
+                     match style.map_or(crate::model::style::Alignment::Left, |s| s.alignment) {
+@@ -4626,6 +4638,11 @@ impl TypesetEngine {
+                 || unstored_cell_band,
+             styles,
+         );
++        if let Some(lead) = merged_lead_hu {
++            // 합친 앞 줄 높이를 흐름에서 회수하고, 같은 쪽 뒤 문단의 저장 원점도 그만큼 옮긴다.
++            st.reclaim_flow_by(hwpunit_to_px(lead, self.dpi));
++            st.record_vpos_page_origin(Some(lead));
++        }
+         // [#5699 H1] 교정 계상으로 확보한 표 밴드 하단을 흐름 바닥으로 고정 —
+         // 후속 문단의 저장 vpos 스냅이 밴드 위로 되감지 못한다(쪽/단 단위 리셋).
+         if owns_tac_band || side_wrap_placement.is_some() {
+diff --git a/src/renderer/typeset/section/vpos.rs b/src/renderer/typeset/section/vpos.rs
+index 9c9ddd759..0db868ad4 100644
+--- a/src/renderer/typeset/section/vpos.rs
++++ b/src/renderer/typeset/section/vpos.rs
+@@ -104,7 +104,15 @@ impl TypesetEngine {
+                         paragraphs, first, &st.layout, self.dpi,
+                     )
+                 {
+-                    st.record_vpos_page_origin(Some(0));
++                    // 앵커만 든 앞 줄을 합친 host 는 그 높이만큼 옮긴 원점을 쓴다(그리는 쪽과 같다).
++                    let lead = paragraphs.get(first).and_then(|para| {
++                        (0..para.controls.len()).find_map(|index| {
++                            crate::renderer::layout::title_host_anchor_lines_before_tac_hu(
++                                para, index,
++                            )
++                        })
++                    });
++                    st.record_vpos_page_origin(Some(lead.unwrap_or(0)));
+                     st.record_vpos_origin_provenance(true);
+                 }
+             }

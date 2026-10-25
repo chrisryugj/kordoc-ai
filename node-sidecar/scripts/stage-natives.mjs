@@ -9,8 +9,11 @@
  */
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { DROPPED_PACKAGES, STAGED_EXTERNALS } from './externals.mjs';
+
+/** 레지스트리에 없는 패키지 — 레포 폴더에서 파일째 옮긴다 (패치한 rhwp 엔진, 의존 없음) */
+const VENDORED = { '@rhwp/core': resolve('..', 'vendor', 'rhwp-core') };
 
 const STAGE = join('dist', 'stage-natives');
 const TARGET = join('dist', 'node_modules');
@@ -21,7 +24,7 @@ function installedVersion(name) {
 }
 
 const deps = {};
-for (const name of STAGED_EXTERNALS) {
+for (const name of STAGED_EXTERNALS.filter((n) => !VENDORED[n])) {
   const v = installedVersion(name);
   if (!v) throw new Error(`[stage] ${name} 가 설치돼 있지 않다 — npm install 먼저`);
   deps[name] = v;
@@ -46,6 +49,13 @@ execFileSync(npm[0], [...npm[1], 'install', '--omit=dev', '--no-package-lock', '
 // 이동
 renameSync(join(STAGE, 'node_modules'), TARGET);
 rmSync(STAGE, { recursive: true, force: true });
+for (const [name, dir] of Object.entries(VENDORED)) {
+  const to = join(TARGET, name);
+  mkdirSync(to, { recursive: true });
+  const { files } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+  for (const f of ['package.json', ...files]) copyFileSync(join(dir, f), join(to, f));
+  console.log(`[stage] ${name}: ${dir} 에서 복사`);
+}
 
 // ── 가지치기 ──
 const plat = process.platform; // darwin | win32 | linux

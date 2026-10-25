@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:00:00 +0900
+Subject: [PATCH 2/3] =?UTF-8?q?fix(typeset):=20=EC=A0=80=EC=9E=A5=20?=
+ =?UTF-8?q?=EC=AA=BD=20=EB=90=98=EA=B0=90=EA=B9=80=20=EB=92=A4=EC=9D=98=20?=
+ =?UTF-8?q?=EB=AC=B8=EB=8B=A8=20=EA=B8=B0=EC=A4=80=20=EA=B7=B8=EB=A6=BC?=
+ =?UTF-8?q?=EC=9D=B4=20=EC=95=9E=20=EC=A1=B0=EA=B0=81=EC=9D=98=20=EC=86=8C?=
+ =?UTF-8?q?=EC=9C=A0=EB=A5=BC=20=EB=B0=94=EA=BE=B8=EC=A7=80=20=EC=95=8A?=
+ =?UTF-8?q?=EB=8A=94=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+문단 안 저장 vpos 가 0 으로 되감기는 줄은 한글이 그 줄부터 다음 쪽에 둔 것이다. 그
+줄 뒤에 놓인 각주 표식이나 문단 기준(vert=Para) 떠 있는 그림은 앞 조각의 소유를 바꾸지
+않는데, v0.8.7 은 컨트롤이 있는 문단의 되감김을 인정하지 않아 문단을 통째로 앞 쪽에
+두고 그림을 그 쪽 본문 위에 겹쳐 그렸다.
+
+upstream devel 의 두 수정을 v0.8.7 에 옮긴다: 50d06bb8a(되감김 뒤 각주)와
+429dee416(#7704, 문단 기준 그림까지 넓힘)의 stored_body_reset_fragment_matches_current_flow.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/typeset/paragraph/scan.rs | 39 +++++++++++++++++++++++++-
+ 1 file changed, 38 insertions(+), 1 deletion(-)
+
+diff --git a/src/renderer/typeset/paragraph/scan.rs b/src/renderer/typeset/paragraph/scan.rs
+index 9862d0b8e..ca25c90ac 100644
+--- a/src/renderer/typeset/paragraph/scan.rs
++++ b/src/renderer/typeset/paragraph/scan.rs
+@@ -280,6 +280,40 @@ pub(in crate::renderer::typeset) fn stored_body_reset_fragment_matches_current_f
+     let only_bodyless_notes = !para.controls.is_empty() && para.controls.iter().all(|control| {
+         matches!(control, crate::model::control::Control::Footnote(note) if crate::renderer::stored_footnote_is_bodyless(note))
+     });
++    // A note or paragraph-relative floating picture whose marker belongs after
++    // the stored page reset cannot change the control-free prefix's owner. Use the same codepoint space
++    // as control_text_positions; LineSeg.text_start is an original UTF-16 slot.
++    // (upstream 50d06bb8a, 429dee416)
++    let only_suffix_controls = !para.controls.is_empty()
++        && !para.char_offsets.is_empty()
++        && para.line_segs.get(break_line).is_some_and(|line| {
++            let break_char = para.utf16_pos_to_char_idx(line.text_start);
++            let positions = para.control_text_positions();
++            para.controls.iter().enumerate().all(|(index, control)| {
++                let suffix_owner = match control {
++                    crate::model::control::Control::Footnote(_) => true,
++                    crate::model::control::Control::Picture(picture) => {
++                        !picture.common.treat_as_char
++                            && picture.common.vert_rel_to == crate::model::shape::VertRelTo::Para
++                    }
++                    _ => false,
++                };
++                suffix_owner
++                    && positions
++                        .get(index)
++                        .is_some_and(|&position| position >= break_char)
++            })
++        })
++        && super::super::saved_line_range_fits_body_tail(
++            para,
++            start_line,
++            break_line,
++            page.body_height
++                - page.current_footnote_height
++                - page.current_zone_y_offset
++                - page.current_bottom_fixed_exclusion,
++            dpi,
++        );
+     // 먼저 검증된 이월 개체 상자의 하단에서 본문이 재개하는 비영 원점이다.
+     // 이 경우 흐름을 밀지 않는 떠 있는 표가 있어도 앞 글줄의 소유는 보존한다.
+     let stored_frame_reset = (page.profile.hwpx_stored_layout()
+@@ -304,7 +338,10 @@ pub(in crate::renderer::typeset) fn stored_body_reset_fragment_matches_current_f
+         || para.stored_text_partition_is_dirty()
+         || para.cell_format_vpos_dirty
+         || page.col_count != 1
+-        || (!para.controls.is_empty() && !only_bodyless_notes && !stored_frame_reset)
++        || (!para.controls.is_empty()
++            && !only_bodyless_notes
++            && !only_suffix_controls
++            && !stored_frame_reset)
+         || start_line >= break_line
+         || break_line >= para.line_segs.len()
+     {

@@ -1,4 +1,4 @@
-// 이음오피스(IeumOffice, Apache-2.0) apps/hwp/tests/hwp-skill.test.ts(커밋 a907a88c)에서 옮겼다. 바꾼 것: 가져오기 경로, 플러그인·명령 이름(ieum → kordoc).
+// 이음오피스(IeumOffice, Apache-2.0) apps/hwp/tests/hwp-skill.test.ts(커밋 a907a88c, 스타일 도구는 63e2a636)에서 옮겼다. 바꾼 것: 가져오기 경로, 플러그인·명령 이름(ieum → kordoc).
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentToolCall } from '../../src/lib/hwp-agent/types'
 import type { AgentBridge } from '../../src/lib/hwp-agent/bridge'
@@ -107,7 +107,43 @@ function setup(overrides: Partial<AgentBridge> = {}) {
       place: PLACE,
     })),
     listNotes: vi.fn(async () => ({ count: 0, elsewhere: 0, notes: [] })),
-    listStyles: vi.fn(async () => ['바탕글', '본문', '개요 1']),
+    listStyles: vi.fn(async () => ({
+      paragraph: ['바탕글', '본문', '개요 1'],
+      character: ['강조'],
+    })),
+    readStyle: vi.fn(async () => ({
+      ok: true as const,
+      name: '본문',
+      englishName: 'Body',
+      kind: 'paragraph' as const,
+      nextStyle: '본문',
+      look: {
+        font: '함초롬바탕',
+        size: 10,
+        bold: false,
+        italic: false,
+        underline: false,
+        strikethrough: false,
+        color: '#000000',
+        align: 'justify',
+        lineSpacing: 160,
+        indent: 0,
+        marginLeft: 15,
+        marginRight: 0,
+        spacingBefore: 0,
+        spacingAfter: 0,
+      },
+    })),
+    createStyle: vi.fn(async (spec: { name: string; kind?: string | null }) => ({
+      ok: true as const,
+      name: spec.name,
+      kind: (spec.kind ?? 'paragraph') as 'paragraph' | 'character',
+    })),
+    editStyle: vi.fn(async (name: string, changes: { name?: string | null }) => ({
+      ok: true as const,
+      name: changes.name ?? name,
+      kind: 'paragraph' as const,
+    })),
     formatCells: vi.fn(async () => ({
       ok: true,
       count: 1,
@@ -178,6 +214,8 @@ describe('the document context sent with a message', () => {
     expect(context).toContain('Tables: none.')
     // the names a format's style takes
     expect(context).toContain('Paragraph styles: 바탕글, 본문, 개요 1')
+    // and the names a format's char_style takes
+    expect(context).toContain('Character styles: 강조')
   })
 
   it('says how many tables there are, and that their empty cells are not in the text', async () => {
@@ -588,6 +626,7 @@ describe('format_paragraph', () => {
       formatParagraph: async () => ({
         ok: false,
         reason: 'no_such_style',
+        kind: 'paragraph',
         styles: ['바탕글', '본문'],
       }),
     })
@@ -605,6 +644,167 @@ describe('format_paragraph', () => {
     expect(result.isError).toBe(true)
     expect(result.output).toContain('format_text')
     expect(changes).toEqual([])
+  })
+})
+
+describe('styles', () => {
+  it('applies a character style to a piece of text under the editor’s name', async () => {
+    const { call, changes, bridge } = setup()
+    const result = await call('format_text', { find: '본문', char_style: '강조', bold: true })
+    expect(bridge.formatText).toHaveBeenCalledWith('본문', null, false, {
+      bold: true,
+      charStyle: '강조',
+    })
+    expect(result.mutated).toBe(true)
+    expect(changes[0]!.to).toBe('aiFmtBold · aiFmtCharStyle 강조')
+  })
+
+  it('names the character styles there are, or that there are none', async () => {
+    const some = setup({
+      formatText: async () => ({
+        ok: false,
+        reason: 'no_such_style',
+        kind: 'character',
+        styles: ['강조', '용어'],
+      }),
+    })
+    const missing = await some.call('format_text', { find: '본문', char_style: '굵게' })
+    expect(missing.isError).toBe(true)
+    expect(missing.output).toContain('no character style by that name')
+    expect(missing.output).toContain('강조, 용어')
+    const none = setup({
+      formatText: async () => ({
+        ok: false,
+        reason: 'no_such_style',
+        kind: 'character',
+        styles: [],
+      }),
+    })
+    const empty = await none.call('format_text', { find: '본문', char_style: '굵게' })
+    expect(empty.output).toContain('no character styles')
+    expect(empty.output).toContain('create_style')
+  })
+
+  it('says when a paragraph took a style but kept its own look', async () => {
+    const { call } = setup({
+      formatParagraph: async () => ({ ok: true, inTable: false, place: PLACE, keptOwnLook: 1 }),
+    })
+    const result = await call('format_paragraph', { find: '제목', style: '개요 1' })
+    expect(result.isError).toBeFalsy()
+    expect(result.output).toContain('kept the paragraph formatting it had set differently')
+    expect(result.output).toContain('read_style')
+    const plain = await setup().call('format_paragraph', { find: '제목', style: '개요 1' })
+    expect(plain.output).not.toContain('kept')
+  })
+
+  it('reads a style', async () => {
+    const { call, bridge, changes } = setup()
+    const result = await call('read_style', { name: '본문' })
+    expect(bridge.readStyle).toHaveBeenCalledWith('본문')
+    expect(result.output).toContain('Style "본문"')
+    expect(result.output).toContain('"marginLeft":15')
+    expect(result.mutated).toBeFalsy()
+    expect(changes).toEqual([])
+  })
+
+  it('makes a style from what the model passed, and lists it as a change', async () => {
+    const { call, bridge, changes } = setup()
+    const result = await call('create_style', {
+      name: '보고서 제목',
+      english_name: 'Report Title',
+      based_on: '본문',
+      next_style: '본문',
+      bold: true,
+      size: 16,
+      align: 'center',
+      space_after: 6,
+    })
+    expect(bridge.createStyle).toHaveBeenCalledWith({
+      name: '보고서 제목',
+      englishName: 'Report Title',
+      kind: null,
+      basedOn: '본문',
+      nextStyle: '본문',
+      format: { bold: true, size: 16, align: 'center', spacingAfter: 6 },
+    })
+    expect(result.mutated).toBe(true)
+    expect(result.output).toContain('format_paragraph (style)')
+    expect(result.summary).toBe('aiToolStyleCreate:{"name":"보고서 제목"}')
+    expect(changes).toEqual([
+      {
+        kind: 'format',
+        from: 'aiFmtStyle 보고서 제목',
+        to: 'aiStyleNew · aiFmtAlignCenter · aiFmtBold · 16pt · aiFmtSpaceAfter 6pt',
+        count: 1,
+      },
+    ])
+  })
+
+  it('points a new character style at format_text, and refuses a taken name', async () => {
+    const { call, bridge } = setup()
+    const made = await call('create_style', { name: '용어', kind: 'character', italic: true })
+    expect(bridge.createStyle).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'character', format: { italic: true }, basedOn: null }),
+    )
+    expect(made.output).toContain('format_text (char_style)')
+    const taken = setup({ createStyle: async () => ({ ok: false, reason: 'style_exists' }) })
+    const result = await taken.call('create_style', { name: '본문' })
+    expect(result.isError).toBe(true)
+    expect(result.output).toContain('edit_style')
+    expect(taken.changes).toEqual([])
+    expect((await call('create_style', { name: '용어', kind: 3 })).isError).toBe(true)
+    expect((await call('create_style', {})).isError).toBe(true)
+  })
+
+  it('changes a style and says how far the change reaches', async () => {
+    const { call, bridge, changes } = setup()
+    const result = await call('edit_style', {
+      name: '본문',
+      new_name: '본문 1',
+      margin_left: 20,
+    })
+    expect(bridge.editStyle).toHaveBeenCalledWith('본문', {
+      name: '본문 1',
+      englishName: null,
+      nextStyle: null,
+      format: { marginLeft: 20 },
+    })
+    expect(result.output).toContain('Changed the paragraph style "본문 1"')
+    expect(result.output).toContain('Every paragraph that uses it changed with it')
+    expect(changes[0]).toMatchObject({
+      kind: 'format',
+      from: 'aiFmtStyle 본문',
+      to: 'aiStyleRename 본문 1 · aiFmtMarginLeft 20pt',
+    })
+    // a rename alone changes no look
+    const renamed = await call('edit_style', { name: '본문', new_name: '본문 2' })
+    expect(renamed.output).not.toContain('Every paragraph')
+  })
+
+  it('tells a character style edit that the styled text changed with it', async () => {
+    const { call } = setup({
+      editStyle: async () => ({ ok: true, name: '강조', kind: 'character' }),
+    })
+    const result = await call('edit_style', { name: '강조', color: '#C00000' })
+    expect(result.output).toContain('Text this style was applied to changed with it')
+  })
+
+  it('refuses an edit that names nothing to change, and a style that is not there', async () => {
+    const { call, bridge } = setup()
+    const nothing = await call('edit_style', { name: '본문' })
+    expect(nothing.isError).toBe(true)
+    expect(bridge.editStyle).not.toHaveBeenCalled()
+    const gone = setup({
+      editStyle: async () => ({
+        ok: false,
+        reason: 'no_such_style',
+        kind: 'any',
+        styles: ['바탕글', '강조'],
+      }),
+    })
+    const result = await gone.call('edit_style', { name: '없음', bold: true })
+    expect(result.output).toContain('no style by that name. Its styles: 바탕글, 강조')
+    expect(result.summary).toContain('없음')
   })
 })
 
@@ -1373,6 +1573,9 @@ describe('the skill as the model sees it', () => {
       'replace_selection',
       'read_selection',
       'format_selection',
+      'read_style',
+      'create_style',
+      'edit_style',
       'merge_cells',
       'split_cell',
       'format_cells',

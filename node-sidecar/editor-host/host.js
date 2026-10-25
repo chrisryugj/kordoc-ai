@@ -28,7 +28,7 @@ const AGENT_METHODS = new Set([
   'formatText', 'formatParagraph', 'listTables', 'readTable', 'fillCells', 'addTableLines', 'removeTableLines', 'deleteTable',
   'reveal', 'selection', 'replaceSelection', 'formatSelection', 'listFields', 'fillField', 'insertToc', 'refreshToc',
   'listNotes', 'insertNote', 'editNote', 'deleteNote', 'measureTabs', 'clearMarks', 'listStyles', 'formatCells', 'mergeCells',
-  'splitCell', 'undo',
+  'splitCell', 'readStyle', 'createStyle', 'editStyle', 'undo',
 ]);
 let agentLoaded = null;
 const enc = new TextEncoder();
@@ -317,12 +317,14 @@ async function poll() {
   schedulePoll(Math.max(1000, (performance.now() - t0) * 20));
 }
 
-// 편집기 안 Ctrl/⌘+S → 앱이 저장 (embed 프로필의 스튜디오는 이 키를 삼키기만 한다)
+// 편집기 안 Ctrl/⌘+S, Windows 에선 한컴의 Alt+S 도 → 앱이 저장 (embed 프로필의 스튜디오는 이 키를 삼키기만 한다)
+const onMac = /Mac/.test(navigator.platform);
 function forwardSaveKey(win) {
   win.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
     const key = String(e.key).toLowerCase();
-    if (key !== 's' && key !== 'ㄴ') return;
+    const ctrlS = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (key === 's' || key === 'ㄴ');
+    const altS = !onMac && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyS';
+    if (!ctrlS && !altS) return;
     e.preventDefault();
     if (!e.repeat) send({ kd: 'event', type: 'save_request' });
   }, true);
@@ -360,6 +362,9 @@ function hideTimings(win) {
     forwardSaveKey(studio.element.contentWindow);
     try { hideTimings(studio.element.contentWindow); } catch { /* 상태 줄 다듬기는 덤 */ }
     document.getElementById('boot').remove();
+    // 앱 플러그인은 처음부터 올린다: AI 를 부르기 전에도 도구 줄의 스타일 목록을 문서에 맞추고 한컴 키를 건다
+    agentLoaded = studio.plugins.load(AGENT_PLUGIN);
+    agentLoaded.catch(() => { agentLoaded = null; });
     send({ kd: 'event', type: 'ready', studioVersion: version.studio });
   } catch (err) {
     document.getElementById('boot').textContent = `한글 편집기를 열지 못했습니다: ${err?.message || err}`;

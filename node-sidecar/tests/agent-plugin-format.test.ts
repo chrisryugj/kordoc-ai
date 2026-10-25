@@ -141,11 +141,12 @@ describe('indents, margins and spacing', () => {
 })
 
 describe('paragraph styles', () => {
-  it('lists the paragraph styles of the document', () => {
+  it('lists the paragraph and the character styles of the document', () => {
     const { plugin } = open()
     const styles = plugin.listStyles()
-    expect(styles).toContain('바탕글')
-    expect(styles.length).toBeGreaterThan(3)
+    expect(styles.paragraph).toContain('바탕글')
+    expect(styles.paragraph.length).toBeGreaterThan(3)
+    expect(styles.character).toEqual(['쪽 번호'])
   })
 
   it('applies a style by its name or its English name, and what else was asked goes over it', () => {

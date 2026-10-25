@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:00:00 +0900
+Subject: [PATCH 5/8] =?UTF-8?q?fix(typeset):=20=EC=A0=80=EC=9E=A5=20?=
+ =?UTF-8?q?=EC=82=AC=EB=8B=A4=EB=A6=AC=EA=B0=80=20=EB=8B=A4=EC=9D=8C=20?=
+ =?UTF-8?q?=EC=AA=BD=20=EC=9C=84=EC=97=90=EC=84=9C=20=EB=8B=A4=EC=8B=9C=20?=
+ =?UTF-8?q?=EC=8B=9C=EC=9E=91=ED=95=9C=20=EB=AC=B8=EB=8B=A8=EC=9D=84=20?=
+ =?UTF-8?q?=EC=9D=B4=20=EC=AA=BD=EC=97=90=20=EB=82=A8=EA=B8=B0=EC=A7=80=20?=
+ =?UTF-8?q?=EC=95=8A=EB=8A=94=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+저장 줄 위치가 앞 저장 줄보다 위, 쪽 위쪽 띠에서 다시 시작하면 한글은 그 문단으로
+새 쪽을 열었다. 두 예외가 이 증거를 넘어 문단을 앞 쪽 꼬리에 남겨 본문 아래로
+넘치게 했다.
+- 다음 문단이 쪽 나누기일 때 한 줄 미만 넘침을 허용하는 꼬리 예외: 되감김과 전체
+  배치 실패가 함께 서면(stored_vpos_rewind_overflow_break) 적용하지 않는다.
+- 한 줄 문단의 저장 하단이 본문 안이면 남기는 예외: 저장 줄이 앞 저장 줄보다 위인
+  쪽 위 띠(<= 5000HU)에서 시작하면 그 좌표는 다음 쪽의 것이라 근거로 쓰지 않는다.
+
+IeumOffice patch onto v0.8.7 (not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/typeset/paragraph.rs           |  5 ++++-
+ src/renderer/typeset/paragraph/flow.rs      |  1 +
+ src/renderer/typeset/paragraph/whole_fit.rs | 15 +++++++++++++--
+ 3 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/src/renderer/typeset/paragraph.rs b/src/renderer/typeset/paragraph.rs
+index 673506351..3588847f2 100644
+--- a/src/renderer/typeset/paragraph.rs
++++ b/src/renderer/typeset/paragraph.rs
+@@ -365,6 +365,7 @@ pub(super) fn try_place_overflow_paragraph(
+     body_bottom_vpos: Option<i32>,
+     available: f64,
+     forced_page_break_line: Option<usize>,
++    stored_vpos_rewind_overflow_break: bool,
+     dpi: f64,
+ ) -> bool {
+     let page = st.paragraph_overflow_page();
+@@ -397,7 +398,9 @@ pub(super) fn try_place_overflow_paragraph(
+         forced_page_break_line,
+         dpi,
+     );
+-    if tail_allowance.allowed {
++    // 저장 사다리가 이 문단을 다음 쪽 위에서 다시 시작했으면(되감김 + 전체 배치 실패)
++    // 한/글은 이 문단으로 새 쪽을 열었다. 그 쪽이 짧아도 꼬리 넘침으로 끌어오지 않는다.
++    if tail_allowance.allowed && !stored_vpos_rewind_overflow_break {
+         let first_line_advance = fmt.line_advance(0);
+         // 다음 문단이 어차피 쪽나누기로 페이지를 끝내므로, 다음 페이지 layout clamp 를
+         // 막으려던 LAYOUT_DRIFT_SAFETY_PX(현재 페이지 한정) 여유는 이 경우 의미가 없다.
+diff --git a/src/renderer/typeset/paragraph/flow.rs b/src/renderer/typeset/paragraph/flow.rs
+index e83154806..154bf8b7e 100644
+--- a/src/renderer/typeset/paragraph/flow.rs
++++ b/src/renderer/typeset/paragraph/flow.rs
+@@ -164,6 +164,7 @@ pub(in crate::renderer::typeset) fn place(
+         body_bottom_vpos,
+         available,
+         forced_page_break_line,
++        stored_vpos_rewind_overflow_break,
+         dpi,
+     ) {
+         return;
+diff --git a/src/renderer/typeset/paragraph/whole_fit.rs b/src/renderer/typeset/paragraph/whole_fit.rs
+index 1eb8d3fcd..867fe2f2c 100644
+--- a/src/renderer/typeset/paragraph/whole_fit.rs
++++ b/src/renderer/typeset/paragraph/whole_fit.rs
+@@ -1,8 +1,9 @@
+ //! 전체 문단 fit의 저장 근거·되감김 판단. 호환성 spill 기록과 배치는 조정자가 수행한다.
+ 
+ use super::super::{
+-    line_seg_visible_bounds_px, page_item_para_index, para_controls_only_tac_topbottom_objects,
+-    para_controls_only_topbottom_floats, para_has_visible_text, paragraph_page_end_fit_height,
++    is_synthetic_line_seg, line_seg_visible_bounds_px, page_item_para_index,
++    para_controls_only_tac_topbottom_objects, para_controls_only_topbottom_floats,
++    para_has_visible_text, paragraph_page_end_fit_height,
+     paragraph_text_looks_like_list_continuation_tail, preceding_stored_vpos,
+     saved_bounds_fit_at_flow_tail, saved_flow_marks_page_last, single_line_visible_bounds_px,
+     stored_rewind_boundary_matches_current_flow, stored_vpos_restarts_near_body_top,
+@@ -84,7 +85,17 @@ pub(super) fn inspect(
+                 })
+             }))
+             .is_some_and(|(cs, ns)| ns.vertical_pos < cs.vertical_pos);
++    // 저장 줄이 앞 저장 줄보다 위, 쪽 위쪽 띠에서 다시 시작하면 그 좌표는 다음 쪽의 것이다.
++    // 이 쪽 흐름은 이미 그 위치를 지났으므로 저장 줄 하단을 이 쪽에 남길 근거로 쓰지 않는다.
++    let stored_line_restarts_above_preceding = stored_vpos_restarts_near_body_top(para)
++        && para
++            .line_segs
++            .iter()
++            .find(|seg| !is_synthetic_line_seg(seg))
++            .zip(preceding_stored_vpos(paragraphs, para_idx))
++            .is_some_and(|(seg, preceding)| seg.vertical_pos < preceding);
+     let saved_single_line_bottom_fits = !strict_after_empty_host_float
++        && !stored_line_restarts_above_preceding
+         && forced_page_break_line.is_none()
+         && !omit_untrusted_empty
+         && page.col_count == 1

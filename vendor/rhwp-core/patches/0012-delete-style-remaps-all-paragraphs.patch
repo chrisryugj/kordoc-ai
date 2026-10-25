@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 00:00:00 +0900
+Subject: [PATCH 12/13] =?UTF-8?q?fix(style):=20=EC=8A=A4=ED=83=80=EC=9D=BC?=
+ =?UTF-8?q?=20=EC=82=AD=EC=A0=9C=EA=B0=80=20=ED=91=9C=20=EC=85=80=C2=B7?=
+ =?UTF-8?q?=EB=B0=94=ED=83=95=EC=AA=BD=C2=B7=EB=8D=A7=EB=A7=90=20=EB=93=B1?=
+ =?UTF-8?q?=20=EB=B3=B8=EB=AC=B8=20=EB=B0=96=EC=9D=98=20=EC=8A=A4=ED=83=80?=
+ =?UTF-8?q?=EC=9D=BC=20=EB=B2=88=ED=98=B8=EB=8F=84=20=EB=B3=B4=EC=A0=95?=
+ =?UTF-8?q?=ED=95=9C=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+delete_style 은 구역 본문 문단만 돌며 지운 스타일을 바탕글로, 뒤 번호를 하나씩 당겼다.
+표 셀·캡션·글상자·머리말/꼬리말·각주/미주·숨은 설명·필드 메모·바탕쪽의 문단과 덧말은 같은
+스타일 표를 가리키는데 보정되지 않아, 지운 스타일보다 뒤 번호를 쓰던 셀 문단이 다음
+스타일(마지막 스타일이었으면 목록 밖 번호)을 가리킨 채 저장됐다. 한컴 한글 2024 는 그
+문단을 다른 스타일(목록 밖이면 바탕글)로 읽는다.
+
+상위 devel 이 #7882 에서 고친 delete_style 을 그대로 옮긴다. 모델 문단 전체(walk)와 구역의
+구역 정의 사본에 든 바탕쪽, .hwp 바탕쪽 원시 레코드의 PARA_HEADER 스타일 번호, 덧말의
+스타일 번호를 같은 규칙으로 보정한다.
+---
+ src/wasm_api.rs       | 59 ++++++++++++++++++++++++++++++-------------
+ src/wasm_api/tests.rs | 57 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 98 insertions(+), 18 deletions(-)
+
+diff --git a/src/wasm_api.rs b/src/wasm_api.rs
+index 2031085e3..059f72c8e 100644
+--- a/src/wasm_api.rs
++++ b/src/wasm_api.rs
+@@ -7559,6 +7559,9 @@ impl HwpDocument {
+     /// 삭제된 스타일을 사용 중인 문단은 바탕글(ID 0)로 변경된다.
+     #[wasm_bindgen(js_name = deleteStyle)]
+     pub fn delete_style(&mut self, style_id: u32) -> bool {
++        use crate::model::document::RawRecord;
++        use crate::model::identity::walk::{walk, Node};
++
+         if style_id == 0 {
+             return false; // 바탕글은 삭제 불가
+         }
+@@ -7567,31 +7570,51 @@ impl HwpDocument {
+             return false;
+         }
+         let sid = style_id as u8;
+-        // 해당 스타일을 사용 중인 문단을 바탕글(0)로 변경
+-        for section in &mut self.core.document.sections {
+-            for para in &mut section.paragraphs {
+-                if para.style_id == sid {
+-                    para.style_id = 0;
++        // 스타일 표는 인덱스 기반이다. 지운 스타일을 가리키던 번호는 바탕글(0)로, 그 뒤 번호는
++        // 한 칸씩 당긴다.
++        let remap = |id: u8| match id.cmp(&sid) {
++            std::cmp::Ordering::Less => id,
++            std::cmp::Ordering::Equal => 0,
++            std::cmp::Ordering::Greater => id - 1,
++        };
++        // HWP 원본 바탕쪽은 구역 정의의 원시 레코드로 그대로 저장된다. 그 안 문단 머리의
++        // 스타일 번호(PARA_HEADER 10번째 바이트)도 옮겨야 저장본이 모델과 같다.
++        let remap_raw = |records: &mut [RawRecord]| {
++            for record in records {
++                if record.tag_id == crate::parser::tags::HWPTAG_PARA_HEADER {
++                    if let Some(id) = record.data.get_mut(10) {
++                        *id = remap(*id);
++                    }
+                 }
+             }
+-        }
+-        // 스타일 삭제 (인덱스 기반이므로 뒤의 ID가 변경됨에 주의)
++        };
+         self.core.document.doc_info.styles.remove(style_id as usize);
+-        // 삭제된 ID보다 큰 style_id를 가진 문단들 보정
+-        for section in &mut self.core.document.sections {
+-            for para in &mut section.paragraphs {
+-                if para.style_id > sid {
+-                    para.style_id -= 1;
++        // 본문뿐 아니라 표 셀·글상자·머리말/꼬리말·각주/미주·캡션·메모·바탕쪽 문단과 덧말도
++        // 같은 스타일 표를 가리킨다. 하나라도 빠지면 그 문단이 다른 스타일을 가리킨 채 저장된다.
++        let mut visit = |node: &mut Node<'_>| -> Result<(), HwpError> {
++            match node {
++                Node::Paragraph(para) => para.style_id = remap(para.style_id),
++                Node::Control(Control::Ruby(ruby)) => {
++                    if let Ok(id) = u8::try_from(ruby.style_id_ref) {
++                        ruby.style_id_ref = remap(id).into();
++                    }
+                 }
++                Node::Control(Control::SectionDef(def)) => remap_raw(&mut def.extra_child_records),
++                _ => {}
++            }
++            Ok(())
++        };
++        for section in &mut self.core.document.sections {
++            walk(&mut section.paragraphs, &mut visit).expect("스타일 번호 순회는 실패하지 않는다");
++            // 렌더와 HWPX 저장은 구역의 구역 정의 사본에서 바탕쪽을 읽는다.
++            for master in &mut section.section_def.master_pages {
++                walk(&mut master.paragraphs, &mut visit)
++                    .expect("스타일 번호 순회는 실패하지 않는다");
+             }
++            remap_raw(&mut section.section_def.extra_child_records);
+         }
+-        // next_style_id 보정
+         for s in &mut self.core.document.doc_info.styles {
+-            if s.next_style_id == sid {
+-                s.next_style_id = 0;
+-            } else if s.next_style_id > sid {
+-                s.next_style_id -= 1;
+-            }
++            s.next_style_id = remap(s.next_style_id);
+         }
+         // 스타일 캐시 갱신
+         self.core.rebuild_resolved_styles();
+diff --git a/src/wasm_api/tests.rs b/src/wasm_api/tests.rs
+index 72adaf63a..a1c0f32fe 100644
+--- a/src/wasm_api/tests.rs
++++ b/src/wasm_api/tests.rs
+@@ -26538,6 +26538,63 @@ fn delete_style_invalidates_docinfo_and_sections() {
+     );
+ }
+ 
++/// 스타일을 지우면 표 셀 안 문단의 style_id 도 본문과 같이 보정돼야 한다.
++///
++/// 종전엔 구역 본문 문단만 보정해, 지운 스타일보다 뒤 번호를 쓰던 셀 문단이 다음
++/// 스타일(마지막 스타일이었으면 목록 밖 번호)을 가리킨 채 저장됐다. 한컴 한글 2024 는
++/// 그 문단을 다른 스타일(목록 밖이면 바탕글)로 읽는다.
++#[test]
++fn delete_style_remaps_paragraphs_inside_controls() {
++    let mut doc = HwpDocument::create_empty();
++    doc.create_blank_document_native().unwrap();
++    doc.create_table_native(0, 0, 0, 2, 2).expect("표 삽입");
++    let styles = doc.document.doc_info.styles.len();
++    assert!(styles >= 4, "기본 스타일 목록");
++    let (gone, kept, last) = (2u8, 3u8, (styles - 1) as u8);
++    let table_para = doc.document.sections[0]
++        .paragraphs
++        .iter()
++        .position(|p| p.controls.iter().any(|c| matches!(c, Control::Table(_))))
++        .expect("표 문단");
++    fn cell_para(doc: &mut HwpDocument, table_para: usize, cell: usize) -> &mut Paragraph {
++        let table = doc.document.sections[0].paragraphs[table_para]
++            .controls
++            .iter_mut()
++            .find_map(|c| match c {
++                Control::Table(table) => Some(table),
++                _ => None,
++            })
++            .unwrap();
++        &mut table.cells[cell].paragraphs[0]
++    }
++    cell_para(&mut doc, table_para, 0).style_id = gone;
++    cell_para(&mut doc, table_para, 1).style_id = kept;
++    cell_para(&mut doc, table_para, 2).style_id = last;
++    doc.document.sections[0].paragraphs[table_para].style_id = kept;
++
++    assert!(doc.delete_style(gone as u32));
++
++    assert_eq!(
++        cell_para(&mut doc, table_para, 0).style_id,
++        0,
++        "지운 스타일을 쓰던 셀 문단은 바탕글"
++    );
++    assert_eq!(
++        cell_para(&mut doc, table_para, 1).style_id,
++        kept - 1,
++        "뒤 번호 셀 문단은 하나 당긴다"
++    );
++    assert_eq!(
++        cell_para(&mut doc, table_para, 2).style_id,
++        last - 1,
++        "마지막 스타일도 목록 안에 남는다"
++    );
++    assert_eq!(
++        doc.document.sections[0].paragraphs[table_para].style_id,
++        kept - 1
++    );
++}
++
+ /// [#2557] 스타일 이름에 역슬래시/개행/탭이 있어도 방출 JSON 이 파싱 가능해야 한다.
+ ///
+ /// 종전엔 큰따옴표만 이스케이프해 깨진 JSON 이 나왔고, TS 측은 가드 없이

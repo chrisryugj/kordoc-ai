@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 00:00:00 +0900
+Subject: [PATCH 12/12] =?UTF-8?q?perf(canvas-metrics):=20=EC=9A=94=EC=B2=AD=20?=
+ =?UTF-8?q?=EC=88=98=EC=A7=91=EC=9D=80=20=EA=B8=80=EC=9E=90=20=EC=A7=84?=
+ =?UTF-8?q?=ED=96=89=20=ED=8F=AD=EC=9D=84=20=EC=9E=AC=EC=A7=80=20=EC=95=8A?=
+ =?UTF-8?q?=EA=B3=A0=20=ED=8F=AD=20=EC=B6=9C=EC=B2=98=EB=A7=8C=20=EB=B3=B8?=
+ =?UTF-8?q?=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+편집할 때마다 studio 가 `collectCanvasMetricRequests` 를 부르고, 수집기는 문서의 모든 run 에
+`trace_char_width_decisions` 를 부른다. 그 함수는 탭의 진행 폭을 채우려고 run 전체의 글자
+위치(`compute_char_positions`)를 잰다. 수집기는 공백을 건너뛰므로 탭의 판정을 읽지 않는다.
+
+`char_width_decisions_without_advances` 는 같은 글자별 판정을 위치 측정 없이 낸다. 탭이 아닌
+글자의 판정은 `trace_char_width_decisions` 와 같다(단위 시험). 요청 묶음은 바뀌지 않는다.
+
+50쪽 문서(글자 8만 7천 개, 요청 0개)에서 WASM 수집 한 번이 중앙값 153ms 에서 89ms 로 줄었다.
+---
+ src/document_core/canvas_metric_requests.rs |  5 +-
+ src/renderer/layout.rs                      |  8 +--
+ src/renderer/layout/text_measurement.rs     | 61 +++++++++++++++++++++
+ 3 files changed, 68 insertions(+), 6 deletions(-)
+
+diff --git a/src/document_core/canvas_metric_requests.rs b/src/document_core/canvas_metric_requests.rs
+index c2b24f167..b927f272c 100644
+--- a/src/document_core/canvas_metric_requests.rs
++++ b/src/document_core/canvas_metric_requests.rs
+@@ -4,7 +4,7 @@ use crate::model::{control::Control, paragraph::Paragraph, shape::ShapeObject};
+ use crate::renderer::{
+     canvas_text_font::CanvasTextFont,
+     composer::compose_paragraph_for_metric_requests,
+-    layout::{resolved_to_text_style, trace_char_width_decisions},
++    layout::{char_width_decisions_without_advances, resolved_to_text_style},
+     supplemental_metrics::{
+         MetricContext, MetricError, SupplementalMetric, MAX_SUPPLEMENTAL_ENTRIES,
+         MAX_SUPPLEMENTAL_KEY_BYTES,
+@@ -73,7 +73,8 @@ impl Collector<'_> {
+                     }
+                     let mut style = run.text_style(&self.core.styles);
+                     style.supplemental_metrics = None;
+-                    let decisions = trace_char_width_decisions(&run.text, &style);
++                    // only a tab's decision needs the advances, and a tab is never asked for
++                    let decisions = char_width_decisions_without_advances(&run.text, &style);
+                     let mut index = 0;
+                     for cluster in run.text.graphemes(true) {
+                         let count = cluster.chars().count();
+diff --git a/src/renderer/layout.rs b/src/renderer/layout.rs
+index 4eb94afc4..b4181716b 100644
+--- a/src/renderer/layout.rs
++++ b/src/renderer/layout.rs
+@@ -3787,10 +3787,10 @@ pub(crate) use table_layout::border_style_has_diagonal;
+ // [#4149] 셀 커서 fast path 프로브 (document_core::queries::cursor_rect 전용)
+ pub(crate) use table_partial::{PartialTableCellProbe, ProbeCutPlan};
+ pub(crate) use text_measurement::{
+-    compute_char_positions, estimate_text_width, estimate_text_width_exact,
+-    estimate_text_width_unrounded, extract_tab_leaders_with_extended, find_next_tab_stop,
+-    hancom_regenerated_space_width, is_cjk_char, is_halfwidth_cjk_quote, kopub_space_advance_em,
+-    resolved_letter_spacing, resolved_to_text_style, split_into_clusters,
++    char_width_decisions_without_advances, compute_char_positions, estimate_text_width,
++    estimate_text_width_exact, estimate_text_width_unrounded, extract_tab_leaders_with_extended,
++    find_next_tab_stop, hancom_regenerated_space_width, is_cjk_char, is_halfwidth_cjk_quote,
++    kopub_space_advance_em, resolved_letter_spacing, resolved_to_text_style, split_into_clusters,
+     trace_char_width_decisions, CharWidthDecision,
+ };
+ // [#6060] forces_halfwidth_cjk_quote 는 통합 테스트
+diff --git a/src/renderer/layout/text_measurement.rs b/src/renderer/layout/text_measurement.rs
+index 1a1c56b98..91a043f30 100644
+--- a/src/renderer/layout/text_measurement.rs
++++ b/src/renderer/layout/text_measurement.rs
+@@ -1776,6 +1776,29 @@ pub(crate) fn trace_char_width_decisions<'a>(
+         .collect()
+ }
+ 
++/// Width decisions without measuring the text: only a tab's decision needs the
++/// advances (`trace_char_width_decisions` sets it from them), so a caller that never
++/// reads a tab's decision gets the same answers for a fraction of the work.
++pub(crate) fn char_width_decisions_without_advances<'a>(
++    text: &str,
++    style: &'a TextStyle,
++) -> Vec<CharWidthDecision<'a>> {
++    let chars: Vec<char> = text.chars().collect();
++    let cluster_len = build_cluster_len(&chars);
++    let supplemental = super::super::supplemental_metrics::standalone_scalar_mask(text, style);
++    (0..chars.len())
++        .map(|i| {
++            char_width_decision(
++                &chars,
++                &cluster_len,
++                i,
++                style,
++                supplemental.as_ref().is_some_and(|mask| mask[i]),
++            )
++        })
++        .collect()
++}
++
+ // ── 문자 분류 함수 ──────────────────────────────────────────────────
+ 
+ /// CJK 문자 여부 판별 (EmbeddedTextMeasurer의 히우리스틱 폭 계산에서 사용)
+@@ -2051,6 +2074,44 @@ pub(crate) fn vertical_substitute_char(c: char) -> Option<char> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn decisions_without_advances_match_the_traced_ones_but_for_tabs() {
++        let texts = [
++            "한글 English 123 ,.;:!? \u{201C}따옴표\u{201D} \u{300C}낫표\u{300D} \u{FF62}반각\u{FF63}",
++            "탭\t뒤\t\t끝 \u{2460}\u{2461}\u{203B}\u{318D}\u{2027}\u{2007}\u{FFFC}\u{2014}\u{2013}-",
++            "\u{1F600}\u{FE0F} e\u{301} \u{F02B1}\u{F02C4} \u{30C6}\u{30B9}\u{30C8} \u{6F22}\u{5B57} \u{FF21}\u{FF22}",
++        ];
++        let families = ["함초롬바탕", "Noto Sans KR", "맑은 고딕", "없는글꼴"];
++        for family in families {
++            for (bold, italic) in [(false, false), (true, true)] {
++                let style = TextStyle {
++                    font_family: family.to_string(),
++                    font_size: 13.3,
++                    bold,
++                    italic,
++                    letter_spacing: -0.5,
++                    ratio: 0.9,
++                    ..Default::default()
++                };
++                for text in texts {
++                    let traced = trace_char_width_decisions(text, &style);
++                    let decided = char_width_decisions_without_advances(text, &style);
++                    assert_eq!(traced.len(), decided.len());
++                    for (i, ch) in text.chars().enumerate() {
++                        if ch == '\t' {
++                            continue;
++                        }
++                        assert_eq!(
++                            format!("{:?}", traced[i]),
++                            format!("{:?}", decided[i]),
++                            "{family} {ch:?} in {text:?}"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
+     #[test]
+     fn issue_4442_noto_sans_kr_regular_ascii_shared_width_uses_tracked_advances() {
+         let style = TextStyle {

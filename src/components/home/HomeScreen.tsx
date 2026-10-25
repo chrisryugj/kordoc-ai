@@ -1,7 +1,7 @@
 /** 오늘(홈) — 기한이 다가온 공문, 끌어다 놓는 자리 + 최근 문서(처음 쓰는 날은 예제), 그 아래 "무엇을 할까요?" 업무별 목차 */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History, CalendarClock, LayoutGrid } from "lucide-react";
+import { ChevronRight, FolderOpen, FileUp, X, BookOpenText, Layers, Columns2, MessageSquareText, History, CalendarClock, LayoutGrid, LifeBuoy } from "lucide-react";
 import { useApp, type ToolId } from "../../state/app";
 import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
@@ -12,7 +12,7 @@ import { readPref, writePref } from "../../lib/recent";
 import { rpc } from "../../lib/rpc";
 import { pickFiles, pickFolder } from "../../lib/native";
 import { baseName, dirName, num, stem, timeAgo } from "../../lib/format";
-import type { UsageReport } from "../../lib/contract";
+import type { RecoveryEntry, UsageReport } from "../../lib/contract";
 import { daysLeft, dueBadge, dueText, sortItems, type InboxItem } from "../inbox/dday";
 
 /** 기한 임박: 할 일 가운데 기한이 지났거나 7일 안인 것 */
@@ -37,6 +37,38 @@ function ImpactLine() {
       </>}
       <ChevronRight size={14} />
     </button>
+  );
+}
+
+/** 한글 편집기에서 저장하지 않은 채 앱이 꺼진 문서 (복구 사본). 없으면 자리도 없다 */
+function Recovered({ active }: { active: boolean }) {
+  const { ready, startCreate } = useApp();
+  const [items, setItems] = useState<RecoveryEntry[]>([]);
+  const load = useCallback(() => rpc("recovery_list", {}).then((r) => setItems(r.entries)).catch(() => setItems([])), []);
+  useEffect(() => {
+    if (ready && active) void load();
+  }, [ready, active, load]);
+  if (!items.length) return null;
+  return (
+    <section className="kd-home-block" aria-labelledby="recovered-t">
+      <div className="kd-block-head">
+        <h2 id="recovered-t" className="kd-h2 flex items-center gap-2"><LifeBuoy size={16} className="kd-muted" /> 저장하지 않고 꺼진 문서</h2>
+      </div>
+      <div className="kd-rows">
+        {items.slice(0, 3).map((it) => (
+          <div key={it.path} className="kd-row">
+            <span className="kd-row-main">
+              <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{it.working && it.title ? it.title : it.name}</span>
+              <span className="kd-row-desc block">{timeAgo(it.saved_at)} 고친 내용이 남아 있습니다{it.exists || it.working ? "" : ". 원래 파일이 없어 저장할 때 새로 만듭니다"}</span>
+            </span>
+            <span className="kd-row-aside">
+              <Button size="sm" variant="ghost" onClick={() => void rpc("recovery_discard", { path: it.path }).finally(load)}>버리기</Button>
+              <Button size="sm" onClick={() => startCreate({ path: it.path, recover: { title: it.title, working: it.working } })}>되살리기</Button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -161,6 +193,7 @@ export function HomeScreen({ active }: { active: boolean }) {
             <p className="kd-head-sub">하려는 일을 누르거나, 문서를 넣으면 그 문서로 할 수 있는 일을 보여 드립니다.</p>
           </div>
           <ImpactLine />
+          <Recovered active={active} />
           <DueSoon active={active} />
           <HomeTasks />
           <div className="kd-home-hero">

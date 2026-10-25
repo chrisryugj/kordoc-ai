@@ -2,11 +2,11 @@
  * 내장 한글 편집기 빌드 — rhwp-studio(MIT, edwardkim/rhwp) 를 오프라인용으로 빌드해 node-sidecar/editor/ 에.
  *
  * - 소스: rhwp 고정 태그를 스파스 클론 (편집기·SDK·글꼴만, 3.7GB 레포를 다 받지 않는다)
- * - WASM: 같은 버전의 npm @rhwp/core 가 wasm-pack 산출물(pkg)과 같다 → Rust 없이 Node 만으로 빌드
+ * - WASM: 레포의 vendor/rhwp-core (같은 태그 + 조판·스타일·쪽 번호 패치, scripts/build-rhwp-core.mjs 로 만든 것) → Rust 없이 Node 만으로 빌드
  * - 외부 웹폰트 끔(RHWP_DISABLE_EXTERNAL_WEBFONTS=1) — 폐쇄망. 글꼴은 레포 assets/fonts(OFL) 동봉
  * - 서비스워커·예제 문서 제거 — 앱 안 임시 포트에서 도는 페이지라 캐시가 쌓이기만 한다
  * - 앱 쪽 중계 페이지(node-sidecar/editor-host)와 SDK(@rhwp/editor) 를 같은 출처에 함께 둔다
- * - 편집기 AI 의 도구인 앱 플러그인(node-sidecar/studio-plugin/agent-plugin.mjs)을 스튜디오에 함께 빌드한다(scripts/rhwp-patches.mjs)
+ * - 편집기 AI 의 도구인 앱 플러그인(node-sidecar/studio-plugin/agent-plugin.mjs)과 한컴 단축키(hancom-keys.mjs)를 스튜디오에 함께 빌드한다(scripts/rhwp-patches.mjs)
  *
  * 사용: node scripts/build-rhwp-studio.mjs      (레포 루트에서. 결과가 있으면 버전이 같을 때 건너뜀)
  *       node scripts/build-rhwp-studio.mjs --force
@@ -16,15 +16,19 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { AGENT_PLUGIN_FILE, PLUGIN_ALLOW_FILE, applyPluginAllow, missingPluginHooks } from './rhwp-patches.mjs';
+import { AGENT_PLUGIN_FILE, HANCOM_KEYS_FILE, PATCHED_FILES, missingHancomCommands, missingPluginHooks, patchFile } from './rhwp-patches.mjs';
 
 const RHWP_VERSION = '0.8.7'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
 const PLUGIN_SRC = resolve('node-sidecar', 'studio-plugin', 'agent-plugin.mjs');
+const HANCOM_SRC = resolve('node-sidecar', 'studio-plugin', 'hancom-keys.mjs');
+const CORE = resolve('vendor', 'rhwp-core');
+const coreManifest = JSON.parse(readFileSync(join(CORE, 'package.json'), 'utf-8'));
+if (coreManifest.rhwp.tag !== `v${RHWP_VERSION}`) throw new Error(`[rhwp-studio] vendor/rhwp-core 는 ${coreManifest.rhwp.tag} 입니다. RHWP_VERSION(${RHWP_VERSION})과 같은 태그로 scripts/build-rhwp-core.mjs 를 다시 돌리세요`);
 const force = process.argv.includes('--force');
-// 플러그인은 스튜디오 번들에 들어가니, 플러그인·패치가 바뀌면 다시 빌드한다
-const pluginHash = createHash('sha256').update(readFileSync(PLUGIN_SRC)).update(readFileSync(resolve('scripts', 'rhwp-patches.mjs'))).digest('hex').slice(0, 16);
+// 플러그인·한컴 키·엔진은 스튜디오 번들에 들어가니, 그것이나 패치가 바뀌면 다시 빌드한다
+const pluginHash = createHash('sha256').update(readFileSync(PLUGIN_SRC)).update(readFileSync(HANCOM_SRC)).update(readFileSync(resolve('scripts', 'rhwp-patches.mjs'))).update(readFileSync(join(CORE, 'rhwp_bg.wasm'))).digest('hex').slice(0, 16);
 
 const versionFile = join(OUT, 'version.json');
 const built = existsSync(versionFile) ? JSON.parse(readFileSync(versionFile, 'utf-8')) : null;
@@ -51,36 +55,41 @@ if (!existsSync(join(src, 'rhwp-studio', 'package.json'))) {
   run('git', ['sparse-checkout', 'set', 'rhwp-studio', 'npm/editor', 'npm/hwpctrl-ocx', 'assets/logo', 'assets/fonts'], src);
 }
 
-// 2) WASM pkg = npm @rhwp/core 같은 버전, SDK = npm @rhwp/editor 같은 버전
+// 2) WASM pkg = vendor/rhwp-core (패치한 엔진), SDK = npm @rhwp/editor 같은 버전
 const packs = join(work, 'packs');
 rmSync(packs, { recursive: true, force: true });
 mkdirSync(packs, { recursive: true });
-run(npm, ['pack', `@rhwp/core@${RHWP_VERSION}`, `@rhwp/editor@${RHWP_VERSION}`, '--silent'], packs);
+run(npm, ['pack', `@rhwp/editor@${RHWP_VERSION}`, '--silent'], packs);
 for (const t of readdirSync(packs).filter((f) => f.endsWith('.tgz'))) {
   const dir = join(packs, t.replace(/\.tgz$/, ''));
   mkdirSync(dir, { recursive: true });
   run('tar', ['-xzf', t, '-C', dir], packs);
 }
-const corePkg = join(packs, `rhwp-core-${RHWP_VERSION}`, 'package');
 const sdkPkg = join(packs, `rhwp-editor-${RHWP_VERSION}`, 'package');
 const pkgDir = join(src, 'pkg');
 mkdirSync(pkgDir, { recursive: true });
-for (const f of ['rhwp.js', 'rhwp_bg.wasm', 'rhwp.d.ts', 'rhwp_bg.wasm.d.ts']) cpSync(join(corePkg, f), join(pkgDir, f));
+for (const f of ['rhwp.js', 'rhwp_bg.wasm', 'rhwp.d.ts', 'rhwp_bg.wasm.d.ts']) cpSync(join(CORE, f), join(pkgDir, f));
 const studioDir = join(src, 'rhwp-studio');
 for (const f of ['rhwp.js', 'rhwp_bg.wasm']) cpSync(join(pkgDir, f), join(studioDir, 'public', f));
 
-// 3) 앱 플러그인 — 소스는 캐시돼 다시 쓰이니, 허용 목록 패치는 원본으로 되돌린 뒤 건다
+// 3) 앱 플러그인·한컴 키 — 소스는 캐시돼 다시 쓰이니, 패치는 원본으로 되돌린 뒤 건다
+run('git', ['checkout', '--', ...PATCHED_FILES.map((f) => `rhwp-studio/${f}`)], src);
 const missing = missingPluginHooks((f) => (existsSync(join(studioDir, f)) ? readFileSync(join(studioDir, f), 'utf-8') : null));
-if (missing.length) throw new Error(`[rhwp-studio] ${RHWP_VERSION} 에 앱 플러그인이 쓰는 이름이 없습니다 (scripts/rhwp-patches.mjs):\n  ${missing.join('\n  ')}`);
-run('git', ['checkout', '--', `rhwp-studio/${PLUGIN_ALLOW_FILE}`], src);
-const mainPath = join(studioDir, PLUGIN_ALLOW_FILE);
-writeFileSync(mainPath, applyPluginAllow(readFileSync(mainPath, 'utf-8')));
+if (missing.length) throw new Error(`[rhwp-studio] ${RHWP_VERSION} 에 앱 플러그인·한컴 키가 쓰는 이름이 없습니다 (scripts/rhwp-patches.mjs):\n  ${missing.join('\n  ')}`);
+const cmdDir = join(studioDir, 'src', 'command', 'commands');
+const gone = missingHancomCommands(readdirSync(cmdDir).filter((f) => f.endsWith('.ts')).map((f) => readFileSync(join(cmdDir, f), 'utf-8')).join('\n'));
+if (gone.length) throw new Error(`[rhwp-studio] ${RHWP_VERSION} 에 한컴 키가 부르는 명령이 없습니다 (hancom-keys.mjs): ${gone.join(', ')}`);
+for (const f of PATCHED_FILES) writeFileSync(join(studioDir, f), patchFile(f, readFileSync(join(studioDir, f), 'utf-8')));
 cpSync(PLUGIN_SRC, join(studioDir, 'src', AGENT_PLUGIN_FILE));
+cpSync(HANCOM_SRC, join(studioDir, 'src', HANCOM_KEYS_FILE));
 
 // 4) 빌드
 run(npm, ['ci', '--no-audit', '--no-fund'], studioDir);
 rmSync(join(studioDir, 'dist'), { recursive: true, force: true });
 run(process.execPath, [join('node_modules', 'vite', 'bin', 'vite.js'), 'build', '--base=./'], studioDir, { RHWP_DISABLE_EXTERNAL_WEBFONTS: '1' });
+// 캐시 소스는 원본으로 되돌린다 (다음 빌드·패치 시험이 원본에 건다)
+run('git', ['checkout', '--', ...PATCHED_FILES.map((f) => `rhwp-studio/${f}`)], src);
+for (const f of [AGENT_PLUGIN_FILE, HANCOM_KEYS_FILE]) rmSync(join(studioDir, 'src', f), { force: true });
 
 // 5) 가지치기
 const dist = join(studioDir, 'dist');
@@ -102,17 +111,17 @@ mkdirSync(join(OUT, 'sdk'), { recursive: true });
 for (const f of ['index.js', 'transport.js', 'document-agent-contract.js']) cpSync(join(sdkPkg, f), join(OUT, 'sdk', f));
 for (const f of readdirSync(HOST_SRC)) cpSync(join(HOST_SRC, f), join(OUT, f));
 mkdirSync(join(OUT, 'licenses'), { recursive: true });
-cpSync(join(corePkg, 'LICENSE'), join(OUT, 'licenses', 'rhwp-LICENSE.txt'));
+cpSync(join(CORE, 'LICENSE'), join(OUT, 'licenses', 'rhwp-LICENSE.txt'));
 const fontsDir = join(src, 'assets', 'fonts');
 for (const f of readdirSync(fontsDir)) if (/\.(md|txt)$/i.test(f)) cpSync(join(fontsDir, f), join(OUT, 'licenses', f));
 // rhwp 가 밝힌 제3자 목록(WASM 에 든 Rust 크레이트)과 스튜디오에 묶이는 패키지 라이선스. 빌드 임시 폴더가 지워져도 고지(scripts/third-party-notices.mjs)가 읽게
-if (existsSync(join(src, 'THIRD_PARTY_LICENSES.md'))) cpSync(join(src, 'THIRD_PARTY_LICENSES.md'), join(OUT, 'licenses', 'rhwp-THIRD_PARTY_LICENSES.md'));
+cpSync(join(CORE, 'THIRD_PARTY_LICENSES.md'), join(OUT, 'licenses', 'rhwp-THIRD_PARTY_LICENSES.md'));
 for (const dep of Object.keys(JSON.parse(readFileSync(join(studioDir, 'package.json'), 'utf-8')).dependencies ?? {})) {
   const dir = join(studioDir, 'node_modules', dep);
   const lic = existsSync(dir) ? readdirSync(dir).find((f) => /^(licen[cs]e|copying)/i.test(f)) : undefined;
   if (lic) cpSync(join(dir, lic), join(OUT, 'licenses', `rhwp-studio-${dep.replace(/^@/, '').replace('/', '-')}-LICENSE.txt`));
 }
-writeFileSync(versionFile, JSON.stringify({ studio: RHWP_VERSION, sdk: RHWP_VERSION, plugin: pluginHash, built_at: new Date().toISOString() }, null, 2));
+writeFileSync(versionFile, JSON.stringify({ studio: RHWP_VERSION, sdk: RHWP_VERSION, core: coreManifest.version, plugin: pluginHash, built_at: new Date().toISOString() }, null, 2));
 
 for (const must of ['studio/index.html', 'studio/rhwp_bg.wasm', 'studio/rhwp.js', 'sdk/index.js', 'host.html', 'host.js']) {
   if (!existsSync(join(OUT, must))) throw new Error(`[rhwp-studio] 빠진 파일: ${must}`);

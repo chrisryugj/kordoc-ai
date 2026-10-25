@@ -1,0 +1,159 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pblsketch <239486537+pblsketch@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:00:00 +0900
+Subject: [PATCH 3/3] =?UTF-8?q?fix(layout):=20=EB=B3=B8=EB=AC=B8=20?=
+ =?UTF-8?q?=ED=9D=90=EB=A6=84=EC=9D=B4=20=EA=B0=81=EC=A3=BC=20=EC=98=81?=
+ =?UTF-8?q?=EC=97=AD=EC=9D=84=20=EB=84=98=EC=9D=80=20=EC=AA=BD=EC=97=90?=
+ =?UTF-8?q?=EC=84=9C=20=EA=B0=81=EC=A3=BC=20=EC=98=81=EC=97=AD=EC=9D=84=20?=
+ =?UTF-8?q?=EB=B3=B8=EB=AC=B8=20=EC=95=84=EB=9E=98=EB=A1=9C=20=EB=82=B4?=
+ =?UTF-8?q?=EB=A6=B0=EB=8B=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+각주 영역은 본문 아래끝에 맞춰 그리는데, 조판은 빈 꼬리말 띠 회수(#2559)나 저장 줄
+위치를 따라 본문을 그 위끝 아래까지 채울 수 있다. 그러면 마지막 본문 줄이 각주
+구분선·첫 각주와 겹친다. 한글은 이런 쪽에서 각주를 꼬리말 띠 쪽으로 내려 그린다.
+
+쪽을 다 만든 뒤 보이는 글자가 있는 본문 줄과 표의 아래끝이 각주 영역 위끝보다 낮으면
+각주 영역만 그만큼 내린다. 꼬리말 띠 아래끝과 그 띠에 놓인 꼬리말·바탕쪽·용지 기준
+개체의 위끝을 넘지 않는다. 쪽 나누기와 저장 결과는 바뀌지 않는다.
+
+IeumOffice patch onto v0.8.7 (layout only; not proposed upstream yet).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/layout.rs | 113 +++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 113 insertions(+)
+
+diff --git a/src/renderer/layout.rs b/src/renderer/layout.rs
+index 6ee65a450..2b7702563 100644
+--- a/src/renderer/layout.rs
++++ b/src/renderer/layout.rs
+@@ -4748,6 +4748,7 @@ impl LayoutEngine {
+             page_border_fill,
+         );
+         tree.root.children.push(footer_node);
++        Self::lower_footnote_area_below_body(&mut tree.root, layout);
+ 
+         // composer를 거치지 않고 직접 만들어진 표 셀/머리말 TextRun까지 같은
+         // 한컴 PDF 표시 계약을 적용한다. 원문 IR과 char offset은 변경하지 않는다.
+@@ -6486,6 +6487,118 @@ impl LayoutEngine {
+         footer_node
+     }
+ 
++    /// 본문 흐름이 각주 영역 위끝을 넘어 그려진 쪽에서 각주 영역을 본문 아래로 내린다.
++    ///
++    /// 각주 영역은 본문 아래끝에 맞춰 그리는데, 조판은 빈 꼬리말 띠 회수(#2559)나 저장 줄
++    /// 위치를 따라 본문을 그 위끝 아래까지 채울 수 있다. 그러면 마지막 본문 줄이 각주
++    /// 구분선·첫 각주와 겹친다. 한글은 이런 쪽에서 각주를 꼬리말 띠 쪽으로 내려 그린다.
++    /// 쪽 나누기는 그대로 두고 각주 영역만 옮기며, 꼬리말 띠 아래끝과 그 띠에 놓인
++    /// 꼬리말·바탕쪽·용지 기준 개체의 위끝을 넘지 않는다.
++    fn lower_footnote_area_below_body(root: &mut RenderNode, layout: &PageLayoutInfo) {
++        let Some(note_index) = root
++            .children
++            .iter()
++            .position(|node| matches!(node.node_type, RenderNodeType::FootnoteArea))
++        else {
++            return;
++        };
++        let area = root.children[note_index].bbox;
++        let mut body_bottom = f64::MIN;
++        for node in &root.children {
++            if matches!(node.node_type, RenderNodeType::Body { .. }) {
++                Self::visible_flow_bottom(node, &mut body_bottom);
++            }
++        }
++        if body_bottom <= area.y + 0.5 {
++            return;
++        }
++        let band_top = area.y + area.height;
++        let mut limit = layout.footer_area.y + layout.footer_area.height;
++        for (index, node) in root.children.iter().enumerate() {
++            if index == note_index
++                || matches!(
++                    node.node_type,
++                    RenderNodeType::Body { .. } | RenderNodeType::PageBackground(_)
++                )
++            {
++                continue;
++            }
++            Self::band_content_top(node, band_top, area.x, area.x + area.width, &mut limit);
++        }
++        let dy = (body_bottom - area.y).min(limit - band_top);
++        if dy > 0.05 {
++            Self::translate_subtree_y(&mut root.children[note_index], dy);
++        }
++    }
++
++    /// 보이는 글자가 있는 본문 줄과 표의 아래끝 중 가장 낮은 값.
++    fn visible_flow_bottom(node: &RenderNode, bottom: &mut f64) {
++        match &node.node_type {
++            RenderNodeType::TextLine(_) => {
++                if Self::has_visible_text(node) {
++                    *bottom = bottom.max(node.bbox.y + node.bbox.height);
++                }
++            }
++            RenderNodeType::Table(_) => {
++                *bottom = bottom.max(node.bbox.y + node.bbox.height);
++            }
++            _ => {
++                for child in &node.children {
++                    Self::visible_flow_bottom(child, bottom);
++                }
++            }
++        }
++    }
++
++    fn has_visible_text(node: &RenderNode) -> bool {
++        match &node.node_type {
++            RenderNodeType::TextRun(run) => run
++                .text
++                .chars()
++                .any(|ch| !ch.is_whitespace() && !ch.is_control()),
++            _ => node.children.iter().any(Self::has_visible_text),
++        }
++    }
++
++    /// 꼬리말 띠(`band_top` 아래)에 놓여 각주와 가로로 겹치는 개체 중 가장 높은 위끝으로
++    /// `limit`을 줄인다.
++    fn band_content_top(node: &RenderNode, band_top: f64, x0: f64, x1: f64, limit: &mut f64) {
++        let leaf = match &node.node_type {
++            RenderNodeType::TextLine(_) => {
++                if !Self::has_visible_text(node) {
++                    return;
++                }
++                true
++            }
++            RenderNodeType::Table(_)
++            | RenderNodeType::Image(_)
++            | RenderNodeType::Group(_)
++            | RenderNodeType::TextBox
++            | RenderNodeType::Rectangle(_)
++            | RenderNodeType::Ellipse(_)
++            | RenderNodeType::Path(_)
++            | RenderNodeType::Line(_)
++            | RenderNodeType::Equation(_)
++            | RenderNodeType::Placeholder(_)
++            | RenderNodeType::RawSvg(_) => true,
++            _ => false,
++        };
++        if leaf {
++            let bbox = &node.bbox;
++            if bbox.y >= band_top - 0.5
++                && bbox.y < *limit
++                && bbox.x < x1
++                && bbox.x + bbox.width > x0
++            {
++                *limit = bbox.y;
++            }
++            return;
++        }
++        for child in &node.children {
++            Self::band_content_top(child, band_top, x0, x1, limit);
++        }
++    }
++
+     /// 각주 영역 노드를 생성하여 tree에 추가한다.
+     fn build_footnote_area(
+         &self,

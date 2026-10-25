@@ -17,7 +17,8 @@ node-sidecar/   Node 문서 엔진 (JSON-RPC over stdin/stdout)
   models/         ← 내장 OCR 모델 (gitignore)
   samples/        예제 문서 (가상의 가온시, 커밋)
 shell/windows/  MSIX 우클릭 메뉴 패키지 (선택, Win11 상단 메뉴용. 기본은 앱의 HKCU 등록)
-scripts/        빌드: fetch-node · build-sidecar · build-rhwp-studio · sync-rpc-whitelist
+scripts/        빌드: fetch-node · build-sidecar · build-rhwp-studio · sync-rpc-whitelist · build-rhwp-core(엔진 WASM, 손으로만)
+vendor/rhwp-core/ 패치한 rhwp 엔진 WASM (rhwp 0.8.7 + patches/, 화면·엔진·편집기 공용, 커밋)
 ```
 
 ## 정본 (어긋나면 CI 가 잡는다)
@@ -27,7 +28,8 @@ scripts/        빌드: fetch-node · build-sidecar · build-rhwp-studio · sync
 | RPC 메서드·모양 | `node-sidecar/src/types/rpc-contract.ts` | 프론트 `import type`, Rust 허용 목록(`node scripts/sync-rpc-whitelist.mjs` 로 생성, CI `--check`) |
 | 편집기 프로토콜 | `node-sidecar/src/types/editor-bridge.ts` | `editor-host/host.js`, `src/lib/hwp-editor.ts` |
 | kordoc 버전 | `node-sidecar/package.json` 정확 버전 | lockfile |
-| rhwp 버전 | `scripts/build-rhwp-studio.mjs` 의 `RHWP_VERSION` | studio·@rhwp/core·@rhwp/editor 같은 버전 |
+| rhwp 버전 | `scripts/build-rhwp-studio.mjs` 의 `RHWP_VERSION` | studio·@rhwp/editor 같은 버전, `vendor/rhwp-core/package.json` 의 `rhwp.tag` |
+| rhwp 엔진 WASM | `vendor/rhwp-core` (`scripts/build-rhwp-core.mjs` 로 다시 빌드) | 루트·node-sidecar `@rhwp/core` 가 `file:` 로, 설치본은 stage-natives 가 복사 |
 | 동봉 Node 버전 | `scripts/fetch-node.mjs` 의 `NODE_VERSION` | |
 
 ## 빌드·검증
@@ -46,7 +48,9 @@ cd src-tauri && cargo test --lib
 - kordoc 은 번들에 녹이지 않고 패키지째 싣는다. 공개 API 에 없는 서식 보존 마스킹·폴더 감시는 kordoc CLI(`process.execPath` + kordoc/dist/cli.js), MCP 연결은 동봉 Node + kordoc/dist/mcp.js.
 - 수식 OCR(@huggingface/transformers) 은 onnxruntime-web 140MB 를 끌고 와서 설치본에서 뺐다.
 - **rhwp SDK 는 호스트·studioUrl 모두 HTTP(S) 출처만** → 사이드카가 127.0.0.1 임시 포트로 편집기를 서빙(`editor_server`), 앱 창은 중계 페이지를 iframe 으로. CSP `frame-src http://127.0.0.1:*`.
-- **편집기 AI(편집 보조 'AI 대화')** 는 스튜디오 안 앱 플러그인(`node-sidecar/studio-plugin/agent-plugin.mjs`, 이음오피스 Apache-2.0)을 중계 페이지 `agent` 동작으로 부른다. 빌드가 스튜디오 허용 목록에 'kordoc-agent' 를 넣고(`scripts/rhwp-patches.mjs`), 플러그인이 쓰는 스튜디오 내부 이름이 사라지면 빌드를 멈춘다 — rhwp 를 올리면 그 목록과 `tests/agent-plugin*` 부터. 모델은 `ai_agent_step` 이 구조화 응답(JSON 글+도구 호출)으로 받고 루프는 `src/lib/hwp-agent/loop.ts`.
+- **편집기 AI(편집 보조 'AI 대화')** 는 스튜디오 안 앱 플러그인(`node-sidecar/studio-plugin/agent-plugin.mjs`, 이음오피스 Apache-2.0)을 중계 페이지 `agent` 동작으로 부른다. 빌드가 스튜디오 허용 목록에 'kordoc-agent' 를 넣고(`scripts/rhwp-patches.mjs`), 플러그인이 쓰는 스튜디오 내부 이름이 사라지면 빌드를 멈춘다 — rhwp 를 올리면 그 목록과 `tests/agent-plugin*` 부터. 모델은 `ai_agent_step` 이 구조화 응답(JSON 글+도구 호출)으로 받고 루프는 `src/lib/hwp-agent/loop.ts`. 플러그인은 편집기가 준비되면 바로 올린다(도구 줄 스타일 목록을 문서에 맞춤).
+- **한컴 단축키** 는 `node-sidecar/studio-plugin/hancom-keys.mjs`(이음오피스 Apache-2.0) 한 곳. 스튜디오 소스는 `scripts/rhwp-patches.mjs` 의 `STUDIO_PATCHES`(글자 그대로 찾아 바꾸기, 못 찾으면 빌드 실패)로만 잇는다. Ctrl+Y 는 한 줄 지우기, 다시 실행은 Ctrl+Shift+Z. 쪽 번호 매기기(Ctrl+N,P)는 패치한 엔진(0014)의 호출. Windows 의 Alt+S 는 중계 페이지가 저장으로 넘긴다.
+- **복구 사본**: 한글 편집기에서 저장 안 한 문서는 30초마다(입력이 2초 멈췄을 때만) 내보내 앱 데이터 `recovery/` 에 둔다(`core/recovery`, `session.tsx`). 저장·버리기 때만 지우고, 이 실행에서 쓴 것은 홈 "저장하지 않고 꺼진 문서" 에 안 보인다. 되살리기는 `editor_open recover` (바이트는 사본, 저장 보정 정보는 원본에서).
 - **구독 계정(Claude Code·Codex)** 은 이음오피스 방식: PC 에 깐 프로그램을 셸 없이·고정 인자로 띄우고 글은 stdin 으로만(`infra/llm/claude-code.ts`·`codex.ts`·`subscription/`). Claude 는 init 보고의 도구가 0개일 때만 대화를 보낸다(`--json-schema` 금지: 도구가 하나 생김). 시험은 `tests/fixtures/fake-{claude,codex}.mjs` 로만(실제 프로그램은 구독 사용량). 인터넷으로 나가니 `ai.allow_subscription` 기본 false(허용 전엔 상태 확인도 프로그램을 띄우지 않음)·폐쇄망 차단·자동 마스킹·`assertProgramEgress` 로 통신 기록. 프로그램 위치(`cli_path`)는 기관 배포 설정으로만. 실측(2026-10, Windows · Codex 0.163): read-only 샌드박스는 셸 명령 실행을 막지 않는다 → `CODEX_CONFIG_OVERRIDES` 의 `features.shell_tool=false` 등으로 도구를 뿌리에서 끄고 config/read 로 확인(못 끄면 보내지 않음). `project_doc_max_bytes=0` 이어야 Windows 에서 좁힌 권한 프로필이 먹는다. 기능 이름이 바뀌면 `codex features list` 로 다시 확인.
 - **HWP 저장 보정(editor_open·editor_write)**: rhwp 가 빠뜨리는 구역 끝 바탕쪽·메모·수식 캡션을 원본에서 되붙이고, 메모 필드 종류·새 탭 폭(편집기가 잼)을 되돌리고, 변경 추적 문서는 지금 내용으로 연다. 저장은 `write_file` 말고 `editor_write` 로.
 - 편집기 안 문단 바꿔 넣기는 스튜디오 문서 에이전트 계약(applyTextCommand). 해시는 현재 문서를 HWPX 로 내보내 중계 페이지의 별도 rhwp WASM 으로 다시 읽어 계산한다. 글자 모양이 섞인 문단·개체·누름틀 문단은 계약이 거부 → 그 문단을 선택해 두고 붙여 넣기 안내. HwpCtrl 선택 블록은 화면 선택과 따로 논다(쓰지 말 것).
