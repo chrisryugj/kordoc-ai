@@ -156,6 +156,15 @@ export interface RpcMethods {
   split_pdf: [{ input_path: string; output_dir?: string; mode?: 'each' | 'range'; ranges?: string }, unknown];
   pdf_page_count: [{ input_path: string }, { page_count: number }];
   pdf_extract_pages: [{ input_path: string; pages: string; mode?: 'include' | 'exclude'; output_path?: string }, unknown];
+  /** PDF 작업 화면: 넣은 파일을 쪽 단위 원본으로. PDF 가 아니면(그림·한글·워드 …) 임시 PDF 로 바꾼다 */
+  pdf_open: [{ path: string }, PdfWorkSource];
+  /** 쪽 그림(JPEG data URL). pages "1-20", 한 번에 40쪽까지, width 는 그림 폭(px) */
+  pdf_thumbs: [{ path: string; pages?: string; width?: number }, { page_count: number; pages: Array<{ page: number; data_url: string }> }];
+  /** 쪽 조립: 결과 파일마다 넣을 쪽을 차례로 (합치기·뽑기·지우기·순서·돌리기·나누기 모두) */
+  pdf_compose: [PdfComposeParams, PdfComposeResult];
+  /** 쪽을 그림 파일로 (PNG·JPG, dpi 72~300): path(+pages) 의 쪽, 또는 items(작업 화면의 쪽 차례·돌린 각). PDF 가 아니면 PDF 로 바꾼 뒤.
+   *  source 는 이름·기본 폴더를 정할 원래 파일 */
+  pdf_to_images: [{ path?: string; pages?: string; items?: PdfComposePage[]; format?: 'png' | 'jpg'; dpi?: number; output_dir?: string; source?: string }, { output_dir: string; files: string[] }];
   /** 고른 프린터(없으면 기본)로 바로 보낸다 — 인쇄 대화상자 없음. HWP·HWPX 는 rhwp 조판 PDF 로 바꿔 보낸다 */
   print_files: [{ files: string[]; printer?: string }, { queued: number; jobIds: string[]; failed: Array<{ file: string; reason: string }> }];
   list_printers: [Record<string, never>, Array<{ name: string; isDefault: boolean; status: 'ready' | 'offline' | 'error'; driver?: string }>];
@@ -353,6 +362,43 @@ export interface McpEnv {
 }
 
 export type PdfShrinkLevel = 'light' | 'normal' | 'strong';
+
+/** PDF 작업 화면의 원본 하나 */
+export interface PdfWorkSource {
+  /** 쪽 그림·조립에 쓸 PDF (PDF 가 아닌 원본은 바꾼 임시 PDF) */
+  source: string;
+  converted: boolean;
+  /** 보안 설정 PDF: 쪽을 그림으로 넣는다 (글자 복사·검색 안 됨) */
+  secured: boolean;
+  page_count: number;
+  /** 보이는 방향 기준 크기(pt) */
+  pages: Array<{ width: number; height: number }>;
+}
+
+/** 결과에 넣을 한 쪽: 원본 PDF 의 쪽(rotate 는 더 돌릴 각, 90 단위) 또는 빈 쪽(pt) */
+export type PdfComposePage = { path: string; page: number; rotate?: number } | { blank: { width: number; height: number } };
+
+export interface PdfComposeParams {
+  /** 결과 파일마다: 이름(확장자 없어도 됨) 또는 경로, 넣을 쪽 차례 */
+  outputs: Array<{ name?: string; output_path?: string; pages: PdfComposePage[] }>;
+  /** 고른 저장 폴더 (없으면 설정 출력 폴더 → source 옆) */
+  output_dir?: string;
+  /** 사용자가 넣은 첫 원본 (임시 PDF 말고): 기본 저장 폴더·이름 */
+  source?: string;
+  watermark?: string;
+  page_numbers?: boolean;
+  /** 그림 줄이기 단계 (글자는 그대로) */
+  shrink?: PdfShrinkLevel;
+  /** 모든 쪽을 A4(보이는 방향대로 세로·가로)에 맞춰 가운데 */
+  fit_a4?: boolean;
+  overwrite?: boolean;
+}
+
+export interface PdfComposeResult {
+  outputs: Array<{ output_path: string; page_count: number; bytes: number }>;
+  /** 쪽을 그림으로 넣은 보안 PDF 원본 */
+  secured: string[];
+}
 
 export interface PdfShrinkResult {
   /** 저장한 파일 — 더 줄일 수 없어 저장하지 않았으면 null */

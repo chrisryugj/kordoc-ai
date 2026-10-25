@@ -210,6 +210,7 @@ export function HomeScreen({ active }: { active: boolean }) {
               onCompare={() => go("compare")}
               onAsk={(tab) => askAbout({ paths: [], tab })}
               onInbox={() => go("inbox")}
+              onPdf={() => go("pdf")}
             />
           </details>
           {recent.length > 0 && <HomeSamples />}

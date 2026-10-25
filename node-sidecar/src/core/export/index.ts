@@ -70,7 +70,7 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
 }
 
 /** pdf-lib 으로 열기 — 보안 설정 PDF 는 쪽 그림(약 150dpi JPEG)으로 다시 만든다 */
-async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (err) {

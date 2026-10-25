@@ -31,7 +31,7 @@
 .kd-paper[data-k="xls"] { left: 92px; transform: rotate(6deg); color: var(--color-file-xlsx); padding-left: 0; padding-right: 8px; text-align: right; }
 .kd-dropzone[data-over="true"] .kd-paper[data-k="pdf"] { transform: translateY(-6px); transition: transform var(--transition-normal); }
 
-.kd-index { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--color-rule-strong); }
+.kd-index { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--color-rule-strong); }
 .kd-index-col { padding: 14px 14px 6px; border-left: 1px solid var(--color-border); min-width: 0; }
 .kd-index-col:first-child { border-left: 0; padding-left: 0; }
 .kd-index-head { display: flex; align-items: baseline; gap: 6px; }
@@ -49,7 +49,8 @@
 .kd-index-hint { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.4; color: var(--color-text-muted); text-wrap: balance; }
 .kd-drop-names { overflow-wrap: anywhere; }
 .kd-index-link:hover svg { color: var(--color-accent); transform: translateX(2px); }
-@container (max-width: 940px) {
+/* 여섯 칸은 칸마다 215px 넘어야 링크 글이 한 줄 (좁으면 세 칸씩 두 줄) */
+@container (max-width: 1320px) {
   .kd-index { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
   .kd-index-col:nth-child(4) { border-left: 0; padding-left: 0; }
 }
@@ -57,15 +58,16 @@
 .kd-home-hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 .kd-home-hero > .kd-dropzone { align-self: start; }
 @container (max-width: 860px) { .kd-home-hero { grid-template-columns: 1fr; } }
-/* 자주 하는 일: 굵은 줄 아래 네 칸, 칸마다 준비물 → 결과 */
+/* 자주 하는 일: 굵은 줄 아래 세 칸씩 두 줄, 칸마다 준비물 → 결과 */
 .kd-tasks-h { font-size: 15px; font-weight: 700; letter-spacing: -0.015em; padding-bottom: 8px; border-bottom: 1px solid var(--color-rule-strong); }
-.kd-tasks-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kd-tasks-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .kd-task {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 16px 16px 18px;
   text-align: left; background: none; border: 0; border-left: 1px solid var(--color-border); color: var(--color-text-primary); cursor: pointer;
   transition: background-color var(--transition-fast);
 }
-.kd-task:first-child { border-left: 0; padding-left: 2px; }
+.kd-task:nth-child(3n + 1) { border-left: 0; padding-left: 2px; }
+.kd-task:nth-child(n + 4) { border-top: 1px solid var(--color-border); }
 .kd-task:hover { background: var(--color-bg-primary); }
 .kd-task:hover .kd-task-title { color: var(--color-accent); }
 .kd-task-icon { color: var(--color-accent); margin-bottom: 6px; }
@@ -73,7 +75,12 @@
 .kd-task-line { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); text-wrap: pretty; }
 .kd-task-k { flex: none; width: 40px; color: var(--color-text-muted); }
 .kd-task-note { margin-top: 4px; font-size: 12.5px; color: var(--color-warning); }
-@container (max-width: 860px) { .kd-tasks-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kd-task:nth-child(3) { border-left: 0; padding-left: 2px; } }
+@container (max-width: 640px) {
+  .kd-tasks-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kd-task:nth-child(n) { border-left: 1px solid var(--color-border); padding-left: 16px; border-top: 0; }
+  .kd-task:nth-child(2n + 1) { border-left: 0; padding-left: 2px; }
+  .kd-task:nth-child(n + 3) { border-top: 1px solid var(--color-border); }
+}
 .kd-allfeatures > summary { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: 14px; font-weight: 600; color: var(--color-text-secondary); cursor: pointer; }
 .kd-allfeatures > summary:hover { color: var(--color-text-primary); }
 .kd-allfeatures[open] > summary { margin-bottom: 8px; }

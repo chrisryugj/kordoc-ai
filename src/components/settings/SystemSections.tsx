@@ -6,7 +6,7 @@ import { resolveResource } from "@tauri-apps/api/path";
 import type { RpcResult } from "../../lib/contract";
 import { useApp, type ThemePref } from "../../state/app";
 import { rpc, errorText, invokeCmd, isTauri } from "../../lib/rpc";
-import { pickFolder } from "../../lib/native";
+import { notifyQuick, pickFolder } from "../../lib/native";
 import { applyZoom, currentZoom, maxZoom, zoomLabel, ZOOM_STEPS } from "../../lib/zoom";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
@@ -122,6 +122,8 @@ export function StorageSection() {
     setShellErr("");
     try {
       await invokeCmd(removing ? "shell_menu_uninstall" : "shell_menu_install");
+      // 빠른 동작은 끝나면 알림으로 알린다: 넣을 때 알림 권한을 미리 묻는다 (맥은 묻기 전엔 꺼져 있다)
+      if (!removing) await notifyQuick("KorDoc AI", "우클릭 메뉴를 넣었습니다. 빠른 동작이 끝나면 이렇게 알립니다.");
       const now = await invokeCmd<{ supported: boolean; installed: boolean; kind: string }>("shell_menu_status");
       setShell(now);
       if (now.installed === removing) setShellErr(removing ? "메뉴를 빼지 못했습니다. 앱을 다시 켠 뒤 해 보세요." : "메뉴를 넣지 못했습니다. 앱을 다시 켠 뒤 해 보세요.");
@@ -131,7 +133,8 @@ export function StorageSection() {
     }
     setShellBusy(false);
   };
-  const isMac = shell?.kind?.toLowerCase().includes("mac");
+  // macOS 는 Finder 빠른 동작(kind "quick-action"), Windows 는 레지스트리
+  const isMac = shell?.kind === "quick-action";
 
   return (
     <Section id="set-store" mark="마." title="저장과 연결">
@@ -154,7 +157,9 @@ export function StorageSection() {
         <MousePointerClick size={18} className="kd-muted mt-0.5 flex-none" />
         <span className="kd-row-main">
           <span className="kd-row-title block">{isMac ? "Finder 빠른 동작" : "탐색기 우클릭 메뉴"}</span>
-          <span className="kd-row-desc block">파일을 우클릭해 글로 바꾸기, PDF로, 개인정보 가리기, AI 요약을 바로 엽니다.</span>
+          <span className="kd-row-desc block" style={{ textWrap: "balance" }}>{isMac
+            ? "Finder에서 파일을 우클릭해 PDF 합치기·용량 줄이기, 한글 문서로 바꾸기를 창 없이 끝냅니다. 끝나면 알림이 뜹니다."
+            : "파일·폴더를 우클릭해 PDF 합치기·나누기, 한글 문서로 바꾸기, 개인정보 가리기를 창 없이 끝냅니다. 끝나면 알림이 뜹니다."}</span>
           {shell && !shell.supported && <span className="kd-row-desc block">이 운영체제에서는 지원하지 않습니다.</span>}
           {shellErr && <span className="block mt-1"><StatusLine tone="err">{shellErr}</StatusLine></span>}
         </span>

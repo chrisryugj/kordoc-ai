@@ -11,6 +11,8 @@
 type Callback = (payload: unknown) => void;
 
 const relay = new URLSearchParams(window.location.search).get("relay")?.replace(/\/+$/, "");
+/** ?notify 가 있으면 알림 권한이 있는 척하고 알림을 중계기로 넘긴다 (빠른 동작 시험: 중계기 /log 로 확인) */
+const notifyOn = new URLSearchParams(window.location.search).has("notify");
 
 if (relay && !("__TAURI_INTERNALS__" in window)) {
   const callbacks = new Map<number, Callback>();
@@ -32,13 +34,25 @@ if (relay && !("__TAURI_INTERNALS__" in window)) {
 
   /** 중계기로 보내지 않고 여기서 끝내는 명령 */
   const local = (cmd: string): { done: boolean; value?: unknown } => {
-    if (cmd === "plugin:notification|is_permission_granted") return { done: true, value: false };
-    if (cmd === "plugin:notification|request_permission") return { done: true, value: "denied" };
-    if (cmd === "plugin:window|is_focused") return { done: true, value: true };
+    if (cmd === "plugin:notification|is_permission_granted") return { done: true, value: notifyOn };
+    if (cmd === "plugin:notification|request_permission") return { done: true, value: notifyOn ? "granted" : "denied" };
+    if (cmd === "plugin:window|is_focused") return { done: true, value: !notifyOn };
     if (cmd === "plugin:window|is_visible") return { done: true, value: true };
     if (/^plugin:(notification|window-state|process|shell|window|webview|deep-link)\|/.test(cmd)) return { done: true, value: null };
     return { done: false };
   };
+
+  // 알림 플러그인은 window.Notification 으로 보낸다: ?notify 면 권한이 있는 척하고 중계기 기록으로
+  if (notifyOn) {
+    class RelayNotification {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      constructor(title: string, opts?: { body?: string }) {
+        void fetch(`${relay}/invoke`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd: "plugin:notification|notify", args: { title, body: opts?.body ?? "" } }) });
+      }
+    }
+    (window as unknown as { Notification: unknown }).Notification = RelayNotification;
+  }
 
   const internals = {
     metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },

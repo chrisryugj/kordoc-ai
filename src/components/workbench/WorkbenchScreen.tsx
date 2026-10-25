@@ -1,7 +1,7 @@
 /** 문서(작업대) — 연 문서 목록 · 쪽 미리보기 · 도구 패널(읽기·고치기·검토·내보내기) */
 
 import { useEffect, useState } from "react";
-import { FileUp, FilePen, PanelLeftClose, PanelLeftOpen, X, BookOpenText, Reply } from "lucide-react";
+import { FileUp, FilePen, FileStack, PanelLeftClose, PanelLeftOpen, X, BookOpenText, Reply } from "lucide-react";
 import { useApp } from "../../state/app";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
@@ -13,7 +13,7 @@ import { pickFiles } from "../../lib/native";
 import { FORMAT_KIND, fileSize, isHangul, num, stem } from "../../lib/format";
 
 export function WorkbenchScreen({ active }: { active: boolean }) {
-  const { docs, activePath, setActive, closeDoc, openDocs, registerDrop, dragTarget, setBadge, startCreate } = useApp();
+  const { docs, activePath, setActive, closeDoc, openDocs, registerDrop, dragTarget, setBadge, startCreate, startPdf } = useApp();
   const [listOpen, setListOpen] = useState(true);
   const current = docs.find((d) => d.path === activePath) ?? null;
   // 쪽 그림 일꾼(rhwp WASM)·쪽 그림은 지금 문서와 바로 전 문서만 들고 있는다 (연 문서마다 남지 않게)
@@ -45,6 +45,7 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
               ? <Button onClick={reply}><Reply size={15} /> 이 공문에 회신 쓰기</Button>
               : <Button variant="secondary" onClick={reply}><Reply size={15} /> 회신 쓰기</Button>)}
             {current && isHangul(current.format) && !info?.encrypted && <Button variant="secondary" onClick={() => startCreate({ path: current.path })}><FilePen size={15} /> 한글 편집기로 열기</Button>}
+            {current?.format === "pdf" && <Button variant="secondary" onClick={() => startPdf({ paths: [current.path] })}><FileStack size={15} /> 쪽 정리·나누기</Button>}
             <Button variant="secondary" onClick={open}><FileUp size={15} /> 문서 열기</Button>
           </>
         )}

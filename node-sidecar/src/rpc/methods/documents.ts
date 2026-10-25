@@ -6,7 +6,7 @@
 
 import type { BlockEdit } from 'kordoc';
 import type { RpcRouter } from '../router.js';
-import type { ConvertParams, RedactRule } from '../../types/rpc-contract.js';
+import type { ConvertParams, PdfComposePage, RedactRule } from '../../types/rpc-contract.js';
 import { convert, convertBatch } from '../../core/converter/index.js';
 import { docInfo } from '../../core/files/index.js';
 import { renderPages } from '../../core/render/index.js';
@@ -19,6 +19,7 @@ import { redact, redactBatch } from '../../core/redact/index.js';
 import { patchDocument, seal, validateHwpxFile } from '../../core/hwpx-tools/index.js';
 import { watchList, watchStart, watchStop } from '../../core/watch/index.js';
 import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
+import { pdfCompose, pdfOpen, pdfThumbs, pdfToImages } from '../../core/pdf-pages/index.js';
 import { printFiles, listPrinters } from '../../core/print/index.js';
 import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
 import { renderPreview } from '../../core/preview/index.js';
@@ -127,6 +128,27 @@ export function registerDocuments(router: RpcRouter): void {
     const output_path = outputFile({ output_path: optPath(p.output_path), source: file, name: `${stemOf(file)}_${mode === 'exclude' ? '쪽빼기' : '쪽뽑기'}.pdf` });
     return extractPdfPages({ file, output_path, pages, mode }, signal);
   }, { heavy: true });
+  // ── PDF 작업 화면 (쪽 그림은 화면이 보는 만큼 자주 불러서 heavy 아님) ──
+  reg('pdf_open', (p, signal) => pdfOpen({ path: reqPath(p.path) }, signal), { heavy: true });
+  reg('pdf_thumbs', (p, signal) => pdfThumbs({ path: reqPath(p.path), pages: str(p.pages), width: num(p.width) }, signal));
+  // 쪽 목록: { path, page, rotate? } 또는 { blank: { width, height } }
+  const composePages = (v: unknown): PdfComposePage[] => {
+    if (!Array.isArray(v)) throw new Error('저장할 쪽 목록이 비었습니다.');
+    return v.map((x: { path?: unknown; page?: unknown; rotate?: unknown; blank?: { width?: unknown; height?: unknown } }): PdfComposePage =>
+      x?.blank ? { blank: { width: num(x.blank.width) ?? 595.28, height: num(x.blank.height) ?? 841.89 } } : { path: reqPath(x?.path), page: num(x?.page) ?? 0, rotate: num(x?.rotate) });
+  };
+  reg('pdf_compose', (p, signal) => {
+    if (!Array.isArray(p.outputs) || !p.outputs.length) throw new Error('저장할 쪽이 없습니다. 쪽을 하나 이상 남기세요.');
+    const outputs = p.outputs.map((o: { name?: unknown; output_path?: unknown; pages?: unknown }) => ({ name: str(o?.name), output_path: optPath(o?.output_path), pages: composePages(o?.pages) }));
+    return pdfCompose({
+      outputs, output_dir: optPath(p.output_dir), source: optPath(p.source), watermark: str(p.watermark), page_numbers: bool(p.page_numbers),
+      shrink: oneOf(p.shrink, ['light', 'normal', 'strong'] as const), fit_a4: bool(p.fit_a4), overwrite: bool(p.overwrite),
+    }, signal);
+  }, { heavy: true });
+  reg('pdf_to_images', (p, signal) => pdfToImages({
+    path: optPath(p.path), pages: str(p.pages), items: p.items === undefined ? undefined : composePages(p.items),
+    format: oneOf(p.format, ['png', 'jpg'] as const), dpi: num(p.dpi), output_dir: optPath(p.output_dir), source: optPath(p.source),
+  }, signal), { heavy: true });
   reg('print_files', (p, signal) => printFiles({ files: reqPaths(p.files), printer: str(p.printer) }, signal), { heavy: true });
   reg('list_printers', () => listPrinters());
 

@@ -155,7 +155,7 @@ async function shrinkImage(doc: PDFDocument, ref: PDFRef, s: PDFRawStream, lvl: 
 }
 
 /** 그림만 줄인 PDF 바이트 */
-async function shrinkImages(bytes: Uint8Array, level: ShrinkLevel, signal?: AbortSignal): Promise<{ bytes: Uint8Array; images: number; shrunk: number; skippedBytes: number }> {
+export async function shrinkImages(bytes: Uint8Array, level: ShrinkLevel, signal?: AbortSignal): Promise<{ bytes: Uint8Array; images: number; shrunk: number; skippedBytes: number }> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const lvl = LEVELS[level];
   const imgs = doc.context.enumerateIndirectObjects()

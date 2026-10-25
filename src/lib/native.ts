@@ -2,7 +2,7 @@
 
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isPermissionGranted, sendNotification } from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { isTauri, loadMock } from "./rpc";
 
 export const DOC_EXTENSIONS = [
@@ -61,6 +61,20 @@ export async function notifySystem(title: string, body: string) {
     sendNotification({ title, body });
   } catch {
     /* 알림 실패는 무시 */
+  }
+}
+
+/** 창 없이 돈 일(우클릭 빠른 동작)의 알림. 권한이 없으면 한 번 묻고, 못 보냈으면 false (그러면 화면이 창을 열어 알린다) */
+export async function notifyQuick(title: string, body: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    let ok = await isPermissionGranted();
+    if (!ok) ok = (await requestPermission()) === "granted";
+    if (!ok) return false;
+    sendNotification({ title, body });
+    return true;
+  } catch {
+    return false;
   }
 }
 

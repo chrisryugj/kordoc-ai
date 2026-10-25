@@ -1,14 +1,14 @@
-/** 자주 하는 일 넷 — 처음 쓰는 사람이 기능 이름을 몰라도 하려는 일로 바로 시작한다 (준비물 → 결과 한 줄씩) */
+/** 자주 하는 일 여섯 — 처음 쓰는 사람이 기능 이름을 몰라도 하려는 일로 바로 시작한다 (준비물 → 결과 한 줄씩) */
 
 import type { ReactNode } from "react";
-import { ClipboardCheck, FilePlus2, Layers, Reply } from "lucide-react";
+import { ClipboardCheck, FilePlus2, FileStack, FileType2, Layers, Reply } from "lucide-react";
 import { useApp } from "../../state/app";
 import { pickFiles } from "../../lib/native";
 
 interface Task { id: string; icon: ReactNode; title: string; need: string; get: string; ai?: boolean; run: () => void }
 
 export function HomeTasks() {
-  const { ai, openDocs, startCreate, startBatch } = useApp();
+  const { ai, openDocs, startCreate, startBatch, startPdf, go } = useApp();
   const pickOne = async (fn: (path: string) => void) => {
     const [p] = await pickFiles({ multiple: false });
     if (p) fn(p);
@@ -29,6 +29,14 @@ export function HomeTasks() {
     {
       id: "collect", icon: <Layers size={20} />, title: "부서 제출 문서 모으기", need: "부서들이 낸 파일이나 폴더", get: "엑셀 한 장과 미제출 부서 목록",
       run: () => startBatch({ paths: [], task: "collect" }),
+    },
+    {
+      id: "pdf", icon: <FileStack size={20} />, title: "PDF 합치기·나누기", need: "PDF·그림·한글 파일", get: "쪽을 고르고 옮기고 돌린 PDF",
+      run: () => void pickFiles().then((p) => (p.length ? startPdf({ paths: p }) : go("pdf"))),
+    },
+    {
+      id: "tohwp", icon: <FileType2 size={20} />, title: "PDF를 한글 문서로", need: "PDF·워드·스캔본", get: "고쳐 쓸 수 있는 한글 파일(HWPX)",
+      run: () => startCreate({ route: "convert" }),
     },
   ];
   const aiOff = !ai?.configured;

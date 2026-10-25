@@ -13,7 +13,7 @@ import { SelectField, Switch, TextField } from "../common/Field";
 import { RouteTile, routeOf, type Route } from "../settings/AiSection";
 import { firstChatModel } from "../settings/LocalServerPanel";
 import { lockProps, useLocked } from "../settings/PolicyLock";
-import { rpc } from "../../lib/rpc";
+import { invokeCmd, rpc } from "../../lib/rpc";
 import { useStartSample } from "../home/HomeSamples";
 
 export function FirstRunWizard() {
@@ -28,6 +28,11 @@ export function FirstRunWizard() {
   const [startRoute] = useState<Route>(routeOf(saved));
   const [route, setRoute] = useState<Route>(startRoute);
   const [offline, setOffline] = useState(settings!.privacy.offline);
+  // 우클릭 메뉴: 아직 없으면 넣기를 켜 둔다 (끝낼 때 넣는다. 설정에서 뺄 수 있다)
+  const [menu, setMenu] = useState<{ supported: boolean; installed: boolean; kind: string } | null>(null);
+  const [addMenu, setAddMenu] = useState(true);
+  useEffect(() => { invokeCmd<{ supported: boolean; installed: boolean; kind: string } | null>("shell_menu_status").then(setMenu).catch(() => setMenu(null)); }, []);
+  const offerMenu = !!menu?.supported && !menu.installed;
   const [baseUrl, setBaseUrl] = useState(settings!.ai.openai.base_url);
   const [model, setModel] = useState(settings!.ai.openai.model);
   const [localUrl, setLocalUrl] = useState(settings!.ai.local.base_url);
@@ -90,6 +95,7 @@ export function FirstRunWizard() {
   const finish = async (practice = false) => {
     if (!(await save(true))) return;
     done();
+    if (offerMenu && addMenu) await invokeCmd("shell_menu_install").catch(() => undefined);
     if (practice) {
       // AI 없이도 되는 예제(개인정보 가리기)로, AI 가 준비됐으면 받은 공문 회신 예제로
       const r = await rpc("samples_list", {}).catch(() => null);
@@ -214,6 +220,12 @@ export function FirstRunWizard() {
                 </dd></div>
                 <div><dt>폐쇄망 모드</dt><dd>{offline ? "켜짐" : "꺼짐"}</dd></div>
               </dl>
+              {offerMenu && (
+                <div className="mt-2">
+                  <Switch label={menu?.kind === "quick-action" ? "Finder 빠른 동작 넣기" : "탐색기 우클릭 메뉴 넣기"} checked={addMenu} onChange={setAddMenu}
+                    desc="파일을 우클릭해 PDF 합치기·용량 줄이기, 한글 문서로 바꾸기 같은 일을 앱을 열지 않고 바로 합니다. 설정에서 뺄 수 있습니다." />
+                </div>
+              )}
             </div>
           )}
         </div>

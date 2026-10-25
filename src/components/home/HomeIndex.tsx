@@ -10,9 +10,10 @@ interface Props {
   onCompare: () => void;
   onAsk: (tab?: "ask" | "rewrite") => void;
   onInbox: () => void;
+  onPdf: () => void;
 }
 
-export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox }: Props) {
+export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox, onPdf }: Props) {
   const groups: Array<{ n: string; title: string; desc: string; tasks: Array<[string, () => void, string?]> }> = [
     {
       n: "1.", title: "접수·회신", desc: "받은 공문 챙기고 답하기",
@@ -42,19 +43,28 @@ export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox
       ],
     },
     {
-      n: "4.", title: "서무 도구", desc: "여러 문서를 한 번에",
+      n: "4.", title: "PDF", desc: "쪽을 보며 정리하기",
+      tasks: [
+        ["PDF 합치기", onPdf, "그림·한글 파일도 PDF로 바꿔 함께"],
+        ["PDF 나누기·쪽 뽑기", onPdf],
+        ["쪽 순서 바꾸기·돌리기", onPdf],
+        ["쪽을 그림으로 저장", onPdf],
+        ["결재용 합본 PDF", () => onBatch("bundle"), "쪽 번호·워터마크까지 한 권으로"],
+        ["PDF 용량 줄이기", () => onBatch("shrink"), "결재 첨부 한도에 맞게"],
+      ],
+    },
+    {
+      n: "5.", title: "서무 도구", desc: "여러 문서를 한 번에",
       tasks: [
         ["문서 수합해서 엑셀로", () => onBatch("collect")],
         ["명부로 여러 장 만들기", () => onBatch("mailmerge")],
-        ["결재용 합본 PDF", () => onBatch("bundle")],
-        ["PDF 용량 줄이기", () => onBatch("shrink"), "결재 첨부 한도에 맞게"],
         ["신구대조표 만들기", onCompare],
         ["여러 문서에서 찾기", () => onBatch("search")],
         ["스캔 문서 글자 읽기(OCR)", () => onBatch("ocr")],
       ],
     },
     {
-      n: "5.", title: "묻기", desc: "문서 내용으로 대화",
+      n: "6.", title: "묻기", desc: "문서 내용으로 대화",
       tasks: [
         ["문서에 질문하기", () => onAsk("ask")],
         ["요약하기", () => onOpen("ai")],

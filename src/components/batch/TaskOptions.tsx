@@ -48,7 +48,8 @@ export function TaskOptions({ task, opts, set }: {
           </div>
         </>
       )}
-      {(task === "merge" || task === "pdftools") && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
+      {task === "merge" && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
+      {task === "pdftools" && <p className="kd-small kd-muted">시작을 누르면 넣은 파일을 PDF 작업 화면에 놓습니다. 한글·워드·그림도 PDF로 바꿔 넣습니다.</p>}
       {task === "shrink" && <ShrinkOptions value={opts.shrink} onChange={(shrink) => set({ shrink })} />}
       {task === "collect" && <GatherOptions opts={opts} set={set} />}
       {task === "print" && <PrintOptions value={opts.printer} onChange={(printer) => set({ printer })} />}

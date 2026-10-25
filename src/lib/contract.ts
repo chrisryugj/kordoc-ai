@@ -7,5 +7,6 @@ export type {
   GenerateParams, RedactResult, AiStatus, LlmCatalogItem, ReviewIssue, TemplateEntry, TemplateAnalysis,
   UsageReport, SecurityStatus, LocalModelServer, SubscriptionStatus,
   StyleFormat, StyleEntry, PdfShrinkLevel, PdfShrinkResult, RecoveryEntry,
+  PdfWorkSource, PdfComposePage, PdfComposeParams, PdfComposeResult,
 } from "../../node-sidecar/src/types/rpc-contract";
 export type { Settings, AiProviderId } from "../../node-sidecar/src/types/index";

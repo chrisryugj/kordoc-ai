@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, FilePlus2, FolderPlus, Loader2, Play, Trash2, XCircle, Layers } from "lucide-react";
 import type { FileEntry } from "../../lib/contract";
 import { useApp, type BatchTaskId } from "../../state/app";
-import { rpc, errorText, callRaw } from "../../lib/rpc";
+import { rpc, errorText } from "../../lib/rpc";
 import { notifySystem, pickFiles, pickFolder } from "../../lib/native";
 import { baseName, dirName, fileSize, joinPath, num, stem } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
@@ -15,8 +15,7 @@ import { Empty, ErrorLine, Note, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 import { OrderList } from "../common/OrderList";
 import { MergeOrderDialog } from "../pipeline/MergeOrderDialog";
-import { PdfToolsDialog } from "../pipeline/PdfToolsDialog";
-import type { ImportedFile, MergeMode, PdfUtilsOptions } from "../../types/pipeline";
+import type { ImportedFile, MergeMode } from "../../types/pipeline";
 import { TASKS, GROUPS, DEFAULT_OPTS, accepts, type BatchOpts } from "./tasks";
 import { runTask, type Outcome, type RowState } from "./runners";
 import { TaskOptions } from "./TaskOptions";
@@ -35,14 +34,14 @@ function RowStatus({ s }: { s?: RowState }) {
 }
 
 export function BatchScreen({ active }: { active: boolean }) {
-  const { batchIntent, registerDrop, dragTarget, setBadge, ai, toast, settings, startCompare } = useApp();
+  const { batchIntent, registerDrop, dragTarget, setBadge, ai, toast, settings, startCompare, startPdf } = useApp();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [skipped, setSkipped] = useState(0);
   // 서무가 가장 품이 많이 드는 일 (부서 제출물 모으기)
   const [task, setTask] = useState<BatchTaskId>("collect");
   const [opts, setOpts] = useState<BatchOpts>(DEFAULT_OPTS);
   const [rows, setRows] = useState<Record<string, RowState>>({});
-  const [dialog, setDialog] = useState<"" | "merge" | "pdftools">("");
+  const [dialog, setDialog] = useState<"" | "merge">("");
   const [watchCount, setWatchCount] = useState(0);
   // 문서 수합: 앞서 만든 엑셀 + 그 뒤에 더 넣은 파일 수 (다시 만들 때 같은 파일을 바꿀지 묻는다)
   const [gatherPrev, setGatherPrev] = useState("");
@@ -89,12 +88,13 @@ export function BatchScreen({ active }: { active: boolean }) {
   /** again: 문서 수합을 앞서 만든 엑셀로 다시 만들기 (overwrite 면 같은 파일을 바꾸고, 아니면 번호 붙은 새 파일) */
   const start = useCallback(async (list = usable, t = task, again?: { overwrite: boolean }) => {
     if (t === "merge") { setDialog("merge"); return; }
-    if (t === "pdftools") { setDialog("pdftools"); return; }
+    // 쪽 다루기는 PDF 작업 화면에서 (쪽 그림을 보며 고르고 옮긴다)
+    if (t === "pdftools") { startPdf({ paths: list.map((f) => f.path) }); return; }
     const gather = { ai: !!ai?.configured, ...(again && gatherPrev ? { previous: gatherPrev, overwrite: again.overwrite } : {}) };
     const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
     if (outcome?.kind === "gather") { setGatherPrev(outcome.result.output_path); setLate(0); }
     if (outcome) void notifySystem("KorDoc AI: 서무 도구 작업 끝", outcome.message);
-  }, [usable, task, opts, run, ai, gatherPrev]);
+  }, [usable, task, opts, run, ai, gatherPrev, startPdf]);
 
   // 홈·우클릭·예제에서 넘어온 파일과 할 일 (우클릭은 바로 시작)
   useEffect(() => {
@@ -132,23 +132,6 @@ export function BatchScreen({ active }: { active: boolean }) {
   const bundle = (paths: string[]) => {
     const list = paths.map((p) => files.find((f) => f.path === p)!).filter(Boolean);
     return run.run((ctx) => runTask("bundle", { ...ctx, files: list, opts, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
-  };
-
-  const runPdf = (o: PdfUtilsOptions) => {
-    setDialog("");
-    if (o.mode === "merge") { void bundle(usable.map((f) => f.path)); return; }
-    const target = o.targetFile ?? toImported(usable[0]);
-    const dir = o.outputDir || opts.outDir || settings?.convert.output_dir || dirName(target.path);
-    void run.run(async ({ signal }) => {
-      if (o.mode === "split") {
-        const outDir = joinPath(dir, `${stem(target.name)}_분할`);
-        await rpc("split_pdf", { input_path: target.path, output_dir: outDir, mode: o.splitMode ?? "each", ...(o.pages ? { ranges: o.pages } : {}) }, { signal });
-        return { kind: "single", message: "PDF를 나눴습니다", path: outDir, folder: true };
-      }
-      const out = joinPath(dir, `${stem(target.name)}_${o.extractMode === "exclude" ? "제외" : "추출"}.pdf`);
-      await rpc("pdf_extract_pages", { input_path: target.path, pages: o.pages ?? "", mode: o.extractMode ?? "include", output_path: out }, { signal });
-      return { kind: "single", message: "고른 쪽으로 새 PDF를 만들었습니다", path: out };
-    });
   };
 
   const needAi = task === "extract" && !ai?.configured;
@@ -279,7 +262,6 @@ export function BatchScreen({ active }: { active: boolean }) {
           return t.every((x) => x === t[0]) && ["hwpx", "docx", "xlsx", "pdf"].includes(t[0]) ? t[0] : null;
         })()} outputDir={opts.outDir} onConfirm={runMerge} onCancel={() => setDialog("")} />
       )}
-      {dialog === "pdftools" && <PdfToolsDialog files={usable.map(toImported)} sidecarCall={callRaw} onConfirm={runPdf} onCancel={() => setDialog("")} />}
     </div>
   );
 }

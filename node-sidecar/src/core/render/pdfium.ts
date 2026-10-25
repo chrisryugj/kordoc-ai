@@ -1,6 +1,6 @@
 /** PDFium(WASM) — PDF 쪽 래스터. kordoc 이 OCR 에 쓰는 @hyzyla/pdfium 을 같이 쓴다 (설치본은 external 스테이징) */
 
-import type { PDFiumDocument, PDFiumLibrary } from '@hyzyla/pdfium';
+import type { PDFiumDocument, PDFiumLibrary, PDFiumPage } from '@hyzyla/pdfium';
 
 let lib: Promise<PDFiumLibrary> | null = null;
 
@@ -26,19 +26,22 @@ export async function openPdf(bytes: Uint8Array, password?: string): Promise<PDF
   }
 }
 
-/** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배). width·height 는 pt 원본 크기 */
+/** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배, maxScale 을 주면 그만큼). width·height 는 pt 원본 크기.
+ *  loaded: 크기를 보려고 앞서 불러 둔 쪽. @hyzyla/pdfium 은 그린 뒤 쪽을 닫으므로 한 쪽 객체는 한 번만 그린다 (두 번째는 WASM 오류) */
 export async function rasterPdfPage(
   doc: PDFiumDocument,
   pageNo: number,
   maxWidth: number,
   as: 'png' | 'jpeg' = 'png',
   quality = 85,
+  loaded?: PDFiumPage,
+  maxScale = 4,
 ): Promise<{ data: Buffer; width: number; height: number; pxWidth: number; pxHeight: number }> {
   const sharp = (await import('sharp')).default;
-  const page = doc.getPage(pageNo - 1);
+  const page = loaded ?? doc.getPage(pageNo - 1);
   const { originalWidth, originalHeight } = page.getOriginalSize();
   // @hyzyla/pdfium 은 원본 폭을 내림한 뒤 배율을 곱하고 다시 내림한다 → 내림한 폭 기준 + 아주 조금 키워 정확히 maxWidth
-  const scale = Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), 4);
+  const scale = Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), Math.max(4, maxScale));
   const r = await page.render({ scale, render: async ({ data }) => data });
   // @hyzyla/pdfium 의 bitmap 은 이미 RGBA 다 (BGRA 로 보고 바꾸면 빨강이 파랑이 됨: 실측)
   const img = sharp(Buffer.from(r.data), { raw: { width: r.width, height: r.height, channels: 4 } });

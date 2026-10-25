@@ -26,7 +26,7 @@ export const SAMPLES = join(ROOT, 'node-sidecar', 'samples');
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function openUi({ relay, width = 1280, height = 800, dark = false, prefs = {} }) {
+export async function openUi({ relay, width = 1280, height = 800, dark = false, prefs = {}, query = '' }) {
   if (!existsSync(CHROME)) throw new Error(`크롬이 없습니다: ${CHROME}`);
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', `--window-size=${width},${height}`] });
   const page = await browser.newPage();
@@ -40,7 +40,7 @@ export async function openUi({ relay, width = 1280, height = 800, dark = false, 
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // 중계기 알림(EventSource)이 늘 열려 있어 networkidle 은 오지 않는다
-  await page.goto(`${APP}?relay=${encodeURIComponent(relay)}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${APP}?relay=${encodeURIComponent(relay)}${query ? `&${query}` : ''}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.kd-nav', { timeout: 30000 });
 
   const post = async (path, body) => (await fetch(`${relay}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();

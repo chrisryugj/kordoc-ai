@@ -380,6 +380,28 @@ const handlers: Handlers = {
   split_pdf: async (p) => { await wait(500); return { output_files: [1, 2, 3].map((n) => joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_${n}.pdf`)), output_dir: p.output_dir }; },
   pdf_page_count: () => ({ page_count: 12 }),
   pdf_extract_pages: async (p) => { await wait(400); return { output_path: p.output_path, extracted_pages: 3, total_pages: 12 }; },
+  pdf_open: async (p) => {
+    await wait(200);
+    const n = pagesOf(p.path).length;
+    return { source: p.path, converted: formatOf(p.path) !== "pdf", secured: false, page_count: n, pages: Array.from({ length: n }, () => ({ width: 595, height: 842 })) };
+  },
+  pdf_thumbs: async (p) => {
+    await wait(120);
+    const bodies = pagesOf(p.path);
+    return { page_count: bodies.length, pages: previews(bodies, parseRange(p.pages, bodies.length)).map((x) => ({ page: x.page, data_url: x.data_url })) };
+  },
+  pdf_compose: async (p) => {
+    await wait(500);
+    const dir = p.output_dir ?? dirName(p.source ?? joinPath(DOCS_DIR, "x.pdf"));
+    return { outputs: p.outputs.map((o) => ({ output_path: joinPath(dir, `${o.name ?? "PDF"}.pdf`), page_count: o.pages.length, bytes: 48_000 * o.pages.length })), secured: [] };
+  },
+  pdf_to_images: async (p) => {
+    await wait(500);
+    const src = p.source ?? p.path ?? joinPath(DOCS_DIR, "문서.pdf");
+    const dir = joinPath(p.output_dir ?? dirName(src), `${stem(src)}_그림`);
+    const n = p.items?.length ?? 3;
+    return { output_dir: dir, files: Array.from({ length: n }, (_, i) => joinPath(dir, `${stem(src)}_${String(i + 1).padStart(2, "0")}.${p.format ?? "png"}`)) };
+  },
 
   ai_status: () => ({ provider: settings.ai.provider, configured: settings.ai.provider !== "none", is_cloud: mockIsCloud(), supports_vision: false, model: "Qwen3 4B Instruct", offline: settings.privacy.offline, embedded_loaded: true }),
   ai_local_servers: async () => { await wait(500); return { servers: [{ name: "Ollama", base_url: "http://127.0.0.1:11434/v1", models: ["gemma4:latest", "qwen3:8b"] }, { name: "LM Studio", base_url: "http://127.0.0.1:1234/v1", models: ["exaone-4.0-32b"] }] }; },
@@ -613,7 +635,7 @@ export async function mockCall(method: string, params: Record<string, unknown>, 
 export function mockCommand(cmd: string, _args: Record<string, unknown>): unknown {
   void _args;
   if (cmd === "sidecar_status") return "ready";
-  if (cmd === "shell_menu_status") return { supported: true, installed: shellInstalled, kind: "macos" };
+  if (cmd === "shell_menu_status") return { supported: true, installed: shellInstalled, kind: "quick-action" };
   if (cmd === "shell_menu_install") { shellInstalled = true; return null; }
   if (cmd === "shell_menu_uninstall") { shellInstalled = false; return null; }
   if (cmd === "save_clipboard_text" || cmd === "save_clipboard_image") return joinPath(DOCS_DIR, "붙여넣은 글.txt");

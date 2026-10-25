@@ -8,6 +8,7 @@
  *   GET  /events   SSE: event=<Tauri 이벤트 이름>, data=<payload JSON>
  *   POST /dialog   { queue: [경로|경로배열|null, …], reset? }  — 다음 파일 대화상자 응답들을 미리 넣어 둔다(테스트용). reset 이면 남은 응답을 비우고
  *   POST /emit     { event, payload }  — Rust 가 내보내는 이벤트(open-files·deep-link) 흉내
+ *   POST /log      { clear? }  — 화면이 부른 창·알림 명령(shell_show·shell_quick_done·알림) 기록 (우클릭 빠른 동작 시험용)
  *
  * 사용: node scripts/dev-relay.mjs [--port 7717] [--data <앱 데이터 폴더>]
  *   사이드카: node-sidecar/dist/bundle.mjs (동봉 Node 우선), 없으면 dist/main.js (시스템 Node)
@@ -86,9 +87,17 @@ function rpc(method, params) {
   });
 }
 
+/** 창·알림 명령 기록 (화면이 창 없이 돌았는지, 알림을 냈는지 시험이 본다) */
+const shellLog = [];
+
 /** Tauri 명령 흉내 — Rust 쪽 명령 이름 그대로 */
 async function invoke(cmd, args = {}) {
   switch (cmd) {
+    case 'shell_show':
+    case 'shell_quick_done':
+    case 'plugin:notification|notify':
+      shellLog.push({ cmd, args, at: Date.now() });
+      return null;
     case 'sidecar_call':
       if (args.method === 'cancel') {
         child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: nextId++, method: 'cancel', params: args.params ?? {} })}\n`);
@@ -143,6 +152,7 @@ createServer(async (req, res) => {
     return send({ ok: true, queued: dialogQueue.length });
   }
   if (req.url === '/emit') { broadcast(body.event, body.payload); return send({ ok: true }); }
+  if (req.url === '/log') { const log = [...shellLog]; if (body.clear) shellLog.length = 0; return send({ ok: true, log }); }
   res.writeHead(404).end();
 }).listen(PORT, '127.0.0.1', () => console.log(`[relay] http://127.0.0.1:${PORT}`));
 

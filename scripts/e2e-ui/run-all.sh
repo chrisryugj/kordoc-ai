@@ -42,6 +42,14 @@ mkdir -p "$W/out-j-table"
 KORDOC_DATA="$W/data-j-table" node scripts/e2e-ui/j-table-keys.mjs --port 7730 --out "$W/out-j-table" > "$W/j-table.log" 2>&1 || fail=1
 echo "== j-table $(grep -E '통과' "$W/j-table.log" | tail -1)"
 grep -E '^FAIL' "$W/j-table.log" | head -8
+# PDF 작업 화면·우클릭 빠른 동작: 중계기를 스스로 띄운다
+for t in l-pdf-work:7733 m-quick-actions:7734; do
+  n=${t%%:*}; p=${t##*:}
+  mkdir -p "$W/out-$n"
+  KORDOC_DATA="$W/data-$n" node "scripts/e2e-ui/$n.mjs" --port "$p" --out "$W/out-$n" > "$W/$n.log" 2>&1 || fail=1
+  echo "== $n $(grep -E '통과' "$W/$n.log" | tail -1)"
+  grep -E '^FAIL' "$W/$n.log" | head -8
+done
 # 한글 편집기: 중계기를 스스로 두 번 띄운다(앱이 꺼졌다 다시 켜짐)
 mkdir -p "$W/out-h-editor"
 KORDOC_DATA="$W/data-h-editor" node scripts/e2e-ui/h-editor.mjs --port 7728 --out "$W/out-h-editor" > "$W/h-editor.log" 2>&1 || fail=1

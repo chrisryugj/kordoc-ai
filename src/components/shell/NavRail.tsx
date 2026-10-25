@@ -2,7 +2,7 @@
 
 import { useCallback, type KeyboardEvent } from "react";
 import {
-  House, Inbox, BookOpenText, FilePen, Layers, MessageSquareText, Settings2,
+  House, Inbox, BookOpenText, FilePen, FileStack, Layers, MessageSquareText, Settings2,
   PanelLeftClose, PanelLeftOpen, Cpu, Server, Cloud, CircleAlert, Sparkles, Loader2, CheckCircle2, ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -17,6 +17,7 @@ const MAIN: NavDef[] = [
   { id: "inbox", title: "접수함", desc: "받은 공문 기한·요청", icon: Inbox },
   { id: "workbench", title: "문서", desc: "연 문서 읽고 고치기", icon: BookOpenText },
   { id: "create", title: "새로 쓰기", desc: "서식·초안·한글로 바꾸기", icon: FilePen },
+  { id: "pdf", title: "PDF 작업", short: "PDF", desc: "합치기·나누기·쪽 정리", icon: FileStack },
   { id: "batch", title: "서무 도구", desc: "수합·합본·비교·찾기", icon: Layers },
   { id: "assistant", title: "물어보기", desc: "여러 문서에 묻고 다듬기", icon: MessageSquareText },
 ];

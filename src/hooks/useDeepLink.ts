@@ -5,14 +5,17 @@ import { canQuit } from "../lib/quit";
 
 /**
  * 우클릭 메뉴·Finder 빠른 동작·파일 연결로 들어오는 동작 (Rust 가 Tauri 이벤트로 넘긴다)
- *   deep-link: kordoc://open|convert|pdf|redact|summarize?path=<인코딩된 경로>
+ *   deep-link: kordoc://<동작>?path=<인코딩된 경로>   (동작 = LINK_ACTIONS, 정본은 src-tauri/src/shell.rs 의 ACTIONS: Rust 시험이 맞춰 본다)
  *              kordoc://batch?manifest=<인코딩된 경로>   (같은 동작으로 묶인 여러 파일)
  *   open-files: string[]  (파일 연결 "다음으로 열기")
  * 앱이 꺼져 있다 이 동작으로 켜지면 이벤트가 화면 구독보다 먼저 나가 사라지므로, Rust 가 쌓아 두었다가
  * shell_take_pending 으로 넘긴다 (모양은 실시간 이벤트와 같다).
  */
 type PendingEvent = { event: "deep-link"; payload: string } | { event: "open-files"; payload: string[] };
-export const LINK_ACTIONS = ["open", "convert", "pdf", "redact", "summarize"] as const;
+export const LINK_ACTIONS = [
+  "open", "tools", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "pdfsplit", "shrink", "pdfimages",
+  "hwpx", "redact", "tables", "convert", "summarize", "compare", "collect",
+] as const;
 export type LinkAction = (typeof LINK_ACTIONS)[number];
 
 export type DeepLinkPayload =

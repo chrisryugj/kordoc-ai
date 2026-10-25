@@ -84,7 +84,7 @@ try {
 
   // ── 메뉴: 업무 말, 비교는 메뉴에서 빠짐, 화면 id 그대로
   const nav = await page.evaluate(() => [...document.querySelectorAll('.kd-nav-item')].map((b) => `${b.dataset.screen}:${b.querySelector('.kd-nav-title')?.textContent}`));
-  check('메뉴 이름 (오늘·접수함·문서·새로 쓰기·서무 도구·물어보기·설정)', nav.join(',') === 'home:오늘,inbox:접수함,workbench:문서,create:새로 쓰기,batch:서무 도구,assistant:물어보기,settings:설정', nav.join(','));
+  check('메뉴 이름 (오늘·접수함·문서·새로 쓰기·PDF 작업·서무 도구·물어보기·설정)', nav.join(',') === 'home:오늘,inbox:접수함,workbench:문서,create:새로 쓰기,pdf:PDF 작업,batch:서무 도구,assistant:물어보기,settings:설정', nav.join(','));
 
   // ── 오늘: 처리 0건이면 효과 줄 숨김, 기한 임박 공문
   check('처리 0건이면 "이번 달 처리" 줄 없음', !(await page.evaluate(() => !!document.querySelector('.kd-impact-line'))));
@@ -99,12 +99,12 @@ try {
   const due = await page.evaluate(() => [...document.querySelectorAll('[aria-labelledby="due-t"] .kd-row')].map((r) => r.innerText.replace(/\n/g, ' ')));
   check('오늘: 기한 임박 공문 (최대 3)', due.length >= 1 && due.length <= 3 && /D-\d/.test(due[0]), due.join(' | '));
   const tasks = await page.evaluate(() => [...document.querySelectorAll('.kd-task-title')].map((h) => h.textContent));
-  check('자주 하는 일 넷', tasks.join('/') === '받은 공문에 회신 쓰기/결재 올리기 전 점검/새 공문 쓰기/부서 제출 문서 모으기', tasks.join('/'));
+  check('자주 하는 일 여섯', tasks.join('/') === '받은 공문에 회신 쓰기/결재 올리기 전 점검/새 공문 쓰기/부서 제출 문서 모으기/PDF 합치기·나누기/PDF를 한글 문서로', tasks.join('/'));
   check('모든 기능 보기는 처음에 접힘', await page.evaluate(() => !document.querySelector('.kd-allfeatures').open));
   await page.evaluate(() => { document.querySelector('.kd-allfeatures').open = true; });
   await sleep(200);
   const groups = await page.evaluate(() => [...document.querySelectorAll('.kd-index-title')].map((h) => h.textContent));
-  check('업무별 목차 (접수·회신/쓰기/검토/서무 도구/묻기)', groups.join('/') === '접수·회신/쓰기/검토/서무 도구/묻기', groups.join('/'));
+  check('업무별 목차 (접수·회신/쓰기/검토/PDF/서무 도구/묻기)', groups.join('/') === '접수·회신/쓰기/검토/PDF/서무 도구/묻기', groups.join('/'));
   const firstCol = await page.evaluate(() => document.querySelector('.kd-index-col')?.innerText ?? '');
   check('받은 공문 기한 정리가 접수·회신에', firstCol.includes('받은 공문 기한 정리'));
   await ui.shot(join(OUT, '05-home-1280.png'));

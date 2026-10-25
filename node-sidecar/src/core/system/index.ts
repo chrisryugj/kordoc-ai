@@ -1,10 +1,10 @@
 /** 엔진 상태·셀프테스트·모델 관리
  *
  * selftest 는 설치본이 사용자 PC 에서 실제로 도는지 확인하는 관문이다 — 번들 스모크·설정 화면이 같이 쓴다.
- * 각 단계는 실제 기능 경로를 한 바퀴 돈다 (HWPX 생성→파싱, PDF 파싱, 이미지 OCR, 렌더, llama 바인딩).
+ * 각 단계는 실제 기능 경로를 한 바퀴 돈다 (HWPX 생성→파싱, PDF 파싱, 이미지 OCR, 렌더, PDF 쪽 그림·조립, llama 바인딩).
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, copyFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { dataDir, getSettings } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
 import { cliErrorMessage, runKordocCli } from '../kordoc-cli.js';
 import { parseInWorker } from '../converter/index.js';
+import { pdfCompose, pdfThumbs } from '../pdf-pages/index.js';
 
 export const OCR_MODEL_FILES = ['det.onnx', 'rec_korean.onnx', 'rec_korean.yml'];
 
@@ -166,6 +167,22 @@ export async function selftest(opts: { ocr?: boolean; llama?: boolean } = {}): P
     const n = r.assets?.length ?? 0;
     if (!n) throw new Error('쪽 이미지가 없음');
     return `${n}쪽`;
+  });
+
+  // PDF 작업 화면: 쪽 그림(PDFium + sharp, 스테이징된 네이티브·WASM)과 쪽 조립(pdf-lib)
+  await step(steps, 'pdf_pages', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kordoc-selftest-pdf-'));
+    try {
+      const src = join(dir, 'a.pdf');
+      writeFileSync(src, tinyPdf());
+      const t = await pdfThumbs({ path: src, pages: '1', width: 120 });
+      if (!t.pages[0]?.data_url.startsWith('data:image/jpeg')) throw new Error('쪽 그림이 없음');
+      const r = await pdfCompose({ output_dir: dir, source: src, outputs: [{ name: 'b', pages: [{ path: src, page: 1 }, { path: src, page: 1, rotate: 90 }] }] }, new AbortController().signal);
+      if (r.outputs[0]?.page_count !== 2) throw new Error('쪽 조립 결과가 2쪽이 아님');
+      return '쪽 그림·조립';
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // 서식 보존 마스킹·수치 대조·모델 반입·MCP 연결이 쓰는 길: 동봉 Node(process.execPath)로 스테이징된 kordoc CLI 실행

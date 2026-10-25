@@ -8,6 +8,8 @@ import { ToastContainer } from "./components/ui/Toast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useToast } from "./hooks/useToast";
 import { useDeepLink, isLinkAction, type DeepLinkPayload, type LinkAction } from "./hooks/useDeepLink";
+import { useQuickActions } from "./hooks/useQuickActions";
+import { isQuick } from "./lib/quick-actions";
 import { AppProvider, useApp, type Screen } from "./state/app";
 import { NavRail } from "./components/shell/NavRail";
 import { FirstRunWizard } from "./components/shell/FirstRunWizard";
@@ -16,6 +18,7 @@ import { InboxScreen } from "./components/inbox/InboxScreen";
 import { WorkbenchScreen } from "./components/workbench/WorkbenchScreen";
 import { CreateScreen } from "./components/create/CreateScreen";
 import { BatchScreen } from "./components/batch/BatchScreen";
+import { PdfScreen } from "./components/pdf/PdfScreen";
 import { CompareScreen } from "./components/compare/CompareScreen";
 import { AssistantScreen } from "./components/assistant/AssistantScreen";
 import { SettingsScreen } from "./components/settings/SettingsScreen";
@@ -31,6 +34,7 @@ const SCREENS: Array<{ id: Screen; render: (active: boolean) => React.ReactNode 
   { id: "inbox", render: (a) => <InboxScreen active={a} /> },
   { id: "workbench", render: (a) => <WorkbenchScreen active={a} /> },
   { id: "create", render: (a) => <CreateScreen active={a} /> },
+  { id: "pdf", render: (a) => <PdfScreen active={a} /> },
   { id: "batch", render: (a) => <BatchScreen active={a} /> },
   { id: "compare", render: (a) => <CompareScreen active={a} /> },
   { id: "assistant", render: (a) => <AssistantScreen active={a} /> },
@@ -64,7 +68,8 @@ function useNavCollapsed() {
 
 function Shell() {
   const app = useApp();
-  const { screen, openDocs, startBatch, toast, setDragTarget, dropHandler, firstRun, ai } = app;
+  const { screen, openDocs, startBatch, startPdf, startCreate, startCompare, toast, setDragTarget, dropHandler, firstRun, ai } = app;
+  const quick = useQuickActions();
   const [visited, setVisited] = useState<Set<Screen>>(() => new Set<Screen>(["home"]));
   const [collapsed, toggleNav] = useNavCollapsed();
   useInboxReminder();
@@ -91,10 +96,20 @@ function Shell() {
     });
   }, [setDragTarget, dropHandler, openDocs]);
 
-  // 우클릭 메뉴·파일 연결로 들어온 동작. kordoc:// 주소는 웹·메일 링크로도 올 수 있어서, 문서를 밖으로 보내는 일(인터넷 AI 요약)은
+  // 우클릭 메뉴·파일 연결로 들어온 동작. 빠른 동작은 창 없이 돌리고 알림만(useQuickActions), 그 밖은 맞는 화면으로.
+  // kordoc:// 주소는 웹·메일 링크로도 올 수 있어서, 문서를 밖으로 보내는 일(인터넷 AI 요약)은
   // 자동으로 하지 않고 문서만 열어 둔다. 사용자가 요약하기를 눌러야 보낸다
   const runAction = useCallback((action: LinkAction, paths: string[]) => {
+    if (isQuick(action)) { quick(action, paths); return; }
     if (action === "open") openDocs(paths);
+    else if (action === "tools") startBatch({ paths });
+    else if (action === "edit") {
+      startCreate({ path: paths[0] });
+      if (paths.length > 1) toast("한글 편집기는 한 번에 한 문서를 엽니다. 첫 문서를 열었습니다.", "info");
+    } else if (action === "precheck") openDocs(paths, { tool: "review", run: "precheck" });
+    else if (action === "pdfwork") startPdf({ paths });
+    else if (action === "compare") startCompare(paths[0], paths[1]);
+    else if (action === "collect") startBatch({ paths, task: "collect", autoRun: true });
     else if (action === "summarize" && ai?.is_cloud) {
       openDocs(paths, { tool: "ai" });
       toast("인터넷 AI로 보내기 전에 확인하세요. 요약하기를 누르면 보냅니다.", "info");
@@ -103,8 +118,7 @@ function Shell() {
       openDocs(paths, { tool: "ai" });
       toast("AI 설정을 아직 읽지 못해 바로 시작하지 않았습니다. 요약하기를 누르면 시작합니다.", "info");
     } else if (action === "summarize") openDocs(paths, { tool: "ai", run: "summarize" });
-    else startBatch({ paths, task: action === "convert" ? "convert" : action, autoRun: true });
-  }, [openDocs, startBatch, ai, toast]);
+  }, [openDocs, startBatch, startPdf, startCreate, startCompare, quick, ai, toast]);
 
   const onLink = useCallback(async (p: DeepLinkPayload) => {
     if (p.type === "file") { runAction(p.action, [p.path]); return; }
@@ -112,6 +126,8 @@ function Shell() {
       const m = await rpc("read_batch_manifest", { path: p.manifestPath });
       runAction(isLinkAction(m.action) ? m.action : "open", m.files);
     } catch (e) {
+      // 창 없이 켜진 앱이면 알림 글이 안 보인다: 창을 연다
+      void invokeCmd("shell_show").catch(() => undefined);
       toast(`넘겨받은 파일 목록을 읽지 못했습니다: ${errorText(e)}`, "error");
     }
   }, [runAction, toast]);
@@ -155,7 +171,9 @@ function Shell() {
       const k = e.key.toLowerCase();
       if (k === "o") {
         e.preventDefault();
-        void pickFiles().then((paths) => paths.length && openDocs(paths));
+        // PDF 작업 화면에서는 그 책상에 놓는다
+        const put = screenRef.current === "pdf" ? dropHandler("pdf") : undefined;
+        void pickFiles().then((paths) => paths.length && (put ? put(paths) : openDocs(paths)));
         return;
       }
       const dir = k === "=" || k === "+" ? 1 : k === "-" ? -1 : k === "0" ? 0 : null;
@@ -173,7 +191,7 @@ function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openDocs, toast]);
+  }, [openDocs, toast, dropHandler]);
 
   return (
     <div className="kd-app">

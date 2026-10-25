@@ -11,7 +11,7 @@ import { loadRecent, pushRecent, readPref, saveRecent, writePref, type RecentDoc
 import { useSidecar, type SidecarStatus } from "../hooks/useSidecar";
 import type { ToastType } from "../components/ui/Toast";
 
-export type Screen = "home" | "inbox" | "workbench" | "create" | "batch" | "compare" | "assistant" | "settings" | "impact";
+export type Screen = "home" | "inbox" | "workbench" | "create" | "pdf" | "batch" | "compare" | "assistant" | "settings" | "impact";
 export type ToolId = "info" | "export" | "ai" | "review" | "redact" | "edit" | "tables" | "seal" | "shrink";
 export type BatchTaskId =
   | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "bundle" | "pdftools" | "collect" | "extract"
@@ -43,6 +43,8 @@ export interface CreateStart {
   agentTask?: AgentTask;
 }
 export interface AssistantStart { paths: string[]; tab?: "ask" | "rewrite"; text?: string }
+/** PDF 작업에 놓을 파일 (책상을 비우고 이것만) */
+export interface PdfStart { paths: string[] }
 
 interface AppValue {
   screen: Screen;
@@ -70,6 +72,8 @@ interface AppValue {
   askAbout: (a: AssistantStart) => void;
   createIntent: Intent<CreateStart> | null;
   startCreate: (c: CreateStart) => void;
+  pdfIntent: Intent<PdfStart> | null;
+  startPdf: (p: PdfStart) => void;
   recent: RecentDoc[];
   clearRecent: () => void;
   theme: ThemePref;
@@ -114,6 +118,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const [compareIntent, setCompareIntent] = useState<Intent<{ old?: string; new?: string }> | null>(null);
   const [assistantIntent, setAssistantIntent] = useState<Intent<AssistantStart> | null>(null);
   const [createIntent, setCreateIntent] = useState<Intent<CreateStart> | null>(null);
+  const [pdfIntent, setPdfIntent] = useState<Intent<PdfStart> | null>(null);
   const [recent, setRecent] = useState<RecentDoc[]>(loadRecent);
   const [theme, setThemeState] = useState<ThemePref>(() => readPref<ThemePref>("kordoc-theme", "system"));
   const [dragTarget, setDragTarget] = useState<string | null>(null);
@@ -226,13 +231,14 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     compareIntent, startCompare: (o, n) => { setCompareIntent(intent({ old: o, new: n })); setScreen("compare"); },
     assistantIntent, askAbout: (a) => { setAssistantIntent(intent(a)); setScreen("assistant"); },
     createIntent, startCreate: (c) => { setCreateIntent(intent(c)); setScreen("create"); },
+    pdfIntent, startPdf: (p) => { setPdfIntent(intent(p)); setScreen("pdf"); },
     recent, clearRecent: () => { setRecent([]); saveRecent([]); },
     theme, setTheme: (t) => { setThemeState(t); writePref("kordoc-theme", t); },
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),
     badges, setBadge, firstRun, setFirstRun,
     settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard,
   }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
-    docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, createIntent, recent,
+    docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, createIntent, pdfIntent, recent,
     theme, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
