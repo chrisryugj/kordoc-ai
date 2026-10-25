@@ -1,6 +1,6 @@
 /**
- * 편집기 AI 대화 — 열린 한글 문서를 말로 고친다: 찾아 바꾸기·문단 넣기·표 칸 채우기·누름틀·서식·각주·차례·칸 합치기 등.
- * 도구는 편집기 안 앱 플러그인이 실행하고(변경 하나 = 실행 취소 한 단계), 바뀐 곳은 쪽 위에 표시된다.
+ * 편집기 AI 대화 — 열린 한글 문서를 말로 고친다: 찾아 바꾸기·문단 넣기·표 칸 채우기·줄 넣기·누름틀·서식·스타일.
+ * 도구는 편집기 안 AI 플러그인이 실행하고(변경 하나 = 실행 취소 한 단계), 바뀐 곳으로 커서가 간다.
  * 요청 하나가 바꾼 것은 그 요청 뒤에 사용자가 문서를 고치지 않았을 때만 한 번에 되돌린다.
  * 편집기에서 글을 골라 두고 보내면 그 부분에 대한 요청으로 본다.
  */
@@ -13,8 +13,7 @@ import { Button } from "../ui/Button";
 import { ErrorLine, Note } from "../common/Status";
 import { useCreate } from "./session";
 import { createAgentBridge } from "../../lib/hwp-agent/bridge";
-import { createHwpSkill } from "../../lib/hwp-agent/skill";
-import { label } from "../../lib/hwp-agent/labels";
+import { createHwpSkill } from "../../lib/hwp-agent/tools";
 import { runAgent, type AgentEvent } from "../../lib/hwp-agent/loop";
 
 interface Entry {
@@ -51,7 +50,6 @@ export function AgentChat() {
   const bridge = useMemo(() => createAgentBridge(call), [call]);
   const skill = useMemo(() => createHwpSkill({
     bridge,
-    label,
     onChange: (change) => {
       runChanges.current += 1;
       // 바뀐 곳으로 화면을 옮긴다 (문서 아래쪽 변경은 안 보이고 지나간다)
@@ -85,12 +83,12 @@ export function AgentChat() {
     runChanges.current = 0;
     let foreign = -1;
     try {
-      const sel = await bridge.selection().catch(() => null);
-      const scope = sel && sel.ok && !sel.own && sel.segments.length ? sel : null;
-      skill.setSelection(scope ? { segments: scope.segments, inTable: scope.inTable, contiguous: scope.contiguous } : null);
-      const excerpt = scope ? scope.segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim().slice(0, 120) : undefined;
+      // 편집기에서 글을 골라 두고 보냈으면 그 커서가 있는 본문 문단 (스튜디오 선택 정보에는 범위가 없다)
+      const sel = await call("selection_text", {}).catch(() => null);
+      const scope = sel && !sel.collapsed && sel.text.trim() ? sel : null;
+      skill.setSelection(scope ? { text: scope.text, ...(scope.target ? { at: `${scope.target.section}.${scope.target.paragraph}` } : {}) } : null);
+      const excerpt = scope ? scope.text.replace(/\s+/g, " ").trim().slice(0, 120) : undefined;
       setChat((prev) => [...prev, { role: "user", text: request, ...(excerpt ? { scope: excerpt } : {}) }, { role: "assistant", text: "", tools: [] }]);
-      await bridge.clearMarks().catch(() => undefined);
       const [f] = await Promise.all([bridge.foreignChanges().catch(() => -1), skill.refreshContext()]);
       foreign = f;
       const r = await runAgent({
@@ -145,7 +143,7 @@ export function AgentChat() {
       <div ref={listRef} className="flex flex-col gap-2.5" style={{ maxHeight: "52vh", overflowY: "auto" }} aria-live="polite">
         {chat.length === 0 && (
           <div className="flex flex-col gap-1.5">
-            <p className="kd-small kd-muted">열린 문서를 말로 고칩니다. 바꾼 곳은 쪽 위에 노랗게 표시되고, 요청 하나를 통째로 되돌릴 수 있습니다. 편집기에서 글을 골라 두고 보내면 그 부분만 고칩니다.</p>
+            <p className="kd-small kd-muted">열린 문서를 말로 고칩니다. 바꾼 곳으로 커서가 가고, 요청 하나를 통째로 되돌릴 수 있습니다. 고칠 문단에 커서를 두고 보내면 그 문단에 대한 요청으로 봅니다.</p>
             <div className="flex flex-wrap gap-1.5">
               {EXAMPLES.map((x) => <button key={x} type="button" className="kd-chip" onClick={() => setPrompt(x)}>{x}</button>)}
             </div>
@@ -153,7 +151,7 @@ export function AgentChat() {
         )}
         {chat.map((e, i) => (
           <div key={i} className={e.role === "user" ? "kd-inset p-2.5" : "flex flex-col gap-1.5"}>
-            {e.scope && <p className="kd-small kd-muted">고른 글: "{e.scope}"</p>}
+            {e.scope && <p className="kd-small kd-muted">고른 곳이 든 문단: "{e.scope}"</p>}
             {e.tools && e.tools.length > 0 && (
               <ul className="flex flex-col gap-0.5">
                 {e.tools.map((t, k) => <li key={k} className="kd-small" style={{ color: t.isError ? "var(--color-warning)" : "var(--color-text-muted)" }}>{t.isError ? "· 못 함: " : "· "}{t.summary}</li>)}

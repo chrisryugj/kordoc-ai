@@ -6,7 +6,7 @@
  * - 외부 웹폰트 끔(RHWP_DISABLE_EXTERNAL_WEBFONTS=1) — 폐쇄망. 글꼴은 레포 assets/fonts(OFL) 동봉
  * - 서비스워커·예제 문서 제거 — 앱 안 임시 포트에서 도는 페이지라 캐시가 쌓이기만 한다
  * - 앱 쪽 중계 페이지(node-sidecar/editor-host)와 SDK(@rhwp/editor) 를 같은 출처에 함께 둔다
- * - 편집기 AI 의 도구인 앱 플러그인(node-sidecar/studio-plugin/agent-plugin.mjs)을 스튜디오에 함께 빌드한다(scripts/rhwp-patches.mjs)
+ * - 편집기 AI 플러그인(node-sidecar/studio-plugin/kordoc-ai-plugin.mjs·kordoc-ai-ops.mjs)을 스튜디오에 함께 빌드한다(scripts/rhwp-patches.mjs)
  *
  * 사용: node scripts/build-rhwp-studio.mjs      (레포 루트에서. 결과가 있으면 버전이 같을 때 건너뜀)
  *       node scripts/build-rhwp-studio.mjs --force
@@ -16,15 +16,17 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { AGENT_PLUGIN_FILE, PLUGIN_ALLOW_FILE, applyPluginAllow, missingPluginHooks } from './rhwp-patches.mjs';
+import { AI_PLUGIN_FILES, ALLOW_FILE, allowAiPlugin } from './rhwp-patches.mjs';
 
 const RHWP_VERSION = '0.8.7'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
-const PLUGIN_SRC = resolve('node-sidecar', 'studio-plugin', 'agent-plugin.mjs');
+const PLUGIN_DIR = resolve('node-sidecar', 'studio-plugin');
 const force = process.argv.includes('--force');
 // 플러그인은 스튜디오 번들에 들어가니, 플러그인·패치가 바뀌면 다시 빌드한다
-const pluginHash = createHash('sha256').update(readFileSync(PLUGIN_SRC)).update(readFileSync(resolve('scripts', 'rhwp-patches.mjs'))).digest('hex').slice(0, 16);
+const hash = createHash('sha256').update(readFileSync(resolve('scripts', 'rhwp-patches.mjs')));
+for (const f of AI_PLUGIN_FILES) hash.update(readFileSync(join(PLUGIN_DIR, f)));
+const pluginHash = hash.digest('hex').slice(0, 16);
 
 const versionFile = join(OUT, 'version.json');
 const built = existsSync(versionFile) ? JSON.parse(readFileSync(versionFile, 'utf-8')) : null;
@@ -69,21 +71,19 @@ for (const f of ['rhwp.js', 'rhwp_bg.wasm', 'rhwp.d.ts', 'rhwp_bg.wasm.d.ts']) c
 const studioDir = join(src, 'rhwp-studio');
 for (const f of ['rhwp.js', 'rhwp_bg.wasm']) cpSync(join(pkgDir, f), join(studioDir, 'public', f));
 
-// 3) 앱 플러그인 — 소스는 캐시돼 다시 쓰이니, 허용 목록 패치는 원본으로 되돌린 뒤 건다
-const missing = missingPluginHooks((f) => (existsSync(join(studioDir, f)) ? readFileSync(join(studioDir, f), 'utf-8') : null));
-if (missing.length) throw new Error(`[rhwp-studio] ${RHWP_VERSION} 에 앱 플러그인이 쓰는 이름이 없습니다 (scripts/rhwp-patches.mjs):\n  ${missing.join('\n  ')}`);
-run('git', ['checkout', '--', `rhwp-studio/${PLUGIN_ALLOW_FILE}`], src);
-const mainPath = join(studioDir, PLUGIN_ALLOW_FILE);
-writeFileSync(mainPath, applyPluginAllow(readFileSync(mainPath, 'utf-8')));
-cpSync(PLUGIN_SRC, join(studioDir, 'src', AGENT_PLUGIN_FILE));
+// 3) 편집기 AI 플러그인 — 소스는 캐시돼 다시 쓰이니, 허용 목록 패치는 원본으로 되돌린 뒤 건다
+run('git', ['checkout', '--', `rhwp-studio/${ALLOW_FILE}`], src);
+const mainPath = join(studioDir, ALLOW_FILE);
+writeFileSync(mainPath, allowAiPlugin(readFileSync(mainPath, 'utf-8')));
+for (const f of AI_PLUGIN_FILES) cpSync(join(PLUGIN_DIR, f), join(studioDir, 'src', f));
 
 // 4) 빌드
 run(npm, ['ci', '--no-audit', '--no-fund'], studioDir);
 rmSync(join(studioDir, 'dist'), { recursive: true, force: true });
 run(process.execPath, [join('node_modules', 'vite', 'bin', 'vite.js'), 'build', '--base=./'], studioDir, { RHWP_DISABLE_EXTERNAL_WEBFONTS: '1' });
 // 캐시 소스는 원본으로 되돌린다 (다음 빌드·패치 시험이 원본에 건다)
-run('git', ['checkout', '--', `rhwp-studio/${PLUGIN_ALLOW_FILE}`], src);
-rmSync(join(studioDir, 'src', AGENT_PLUGIN_FILE), { force: true });
+run('git', ['checkout', '--', `rhwp-studio/${ALLOW_FILE}`], src);
+for (const f of AI_PLUGIN_FILES) rmSync(join(studioDir, 'src', f), { force: true });
 
 // 5) 가지치기
 const dist = join(studioDir, 'dist');

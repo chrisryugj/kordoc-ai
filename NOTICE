@@ -31,7 +31,7 @@ https://github.com/google/skia/tree/main/modules/canvaskit: BSD-3-Clause
 
 ---
 
-이음오피스 (IeumOffice) — 한글 문서 저장 보정 · 편집기 AI 도구 · 구독 계정(Claude Code·Codex) 연결
+이음오피스 (IeumOffice) — 한글 문서 저장 보정 · 구독 계정(Claude Code·Codex) 연결 (우리 코드로 다시 짜는 중, .claude/plans/independence.md)
 https://github.com/pblsketch/openoffice (GenOffice 포크): Apache License 2.0
 GenOffice, Copyright 2026 Mainfunc, Inc. This product includes software developed at Mainfunc, Inc.
 그 저장소(커밋 9bda9ac)에서 옮겨 온 것 (바꾼 곳은 각 파일 머리에 적었다):
@@ -46,10 +46,7 @@ GenOffice, Copyright 2026 Mainfunc, Inc. This product includes software develope
 그 저장소(커밋 a907a88c)에서 옮겨 온 것:
 - node-sidecar/src/core/hwp-save/{hwp5-file,section-tails,field-kinds,tracked-changes,tab-widths}.ts
   — rhwp 저장에서 빠지는 바탕쪽·메모·수식 캡션 되붙이기, 메모 필드 종류·새 탭 폭 되돌리기, 변경 추적 문서를 지금 내용으로 열기
-- node-sidecar/studio-plugin/agent-plugin.mjs(.d.mts) — 편집기 안에서 AI 도구를 실행하는 rhwp-studio 플러그인
-- src/lib/hwp-agent/skill.ts·labels.ts — 편집기 AI 의 도구 정의·지시문·활동 문구 (웹 읽기 도구는 뺐다)
-- scripts/rhwp-patches.mjs 의 플러그인 허용·스튜디오 이름 점검 목록, node-sidecar/src/core/ai/agent-step.ts 의 구조화 응답 방식·문구
-- 시험: node-sidecar/tests/{hwp-save-*,agent-plugin*,agent-hwp-skill}.test.ts, 시험 문서 node-sidecar/tests/fixtures/nested-form.hwp
+- 시험: node-sidecar/tests/hwp-save-*.test.ts
 라이선스 전문: licenses/IeumOffice-Apache-2.0.txt
 
 ---

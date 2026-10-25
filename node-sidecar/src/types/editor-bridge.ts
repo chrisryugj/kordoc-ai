@@ -61,7 +61,7 @@ export interface EditorOps {
   chrome: [{ menu?: boolean; toolbar?: boolean; statusbar?: boolean }, { ok: boolean }];
   /** 변경 확인(changed 이벤트) 켜기·끄기 — 편집 화면이 안 보이면 끈다. 켜면 바로 한 번 확인한다 */
   watch: [{ on: boolean }, { ok: boolean }];
-  /** 편집기 AI 도구 — 스튜디오 안 앱 플러그인(node-sidecar/studio-plugin/agent-plugin.mjs)의 메서드를 부른다.
+  /** 편집기 AI 도구 — 스튜디오 안 AI 플러그인(node-sidecar/studio-plugin/kordoc-ai-plugin.mjs)의 메서드를 부른다.
    *  변경 하나는 편집기 실행 취소 한 단계. 처음 부를 때 플러그인을 올린다 */
   agent: [{ method: string; args: unknown[] }, { result: unknown }];
 }

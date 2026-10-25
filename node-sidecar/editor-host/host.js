@@ -22,14 +22,13 @@ const target = parentOrigin && parentOrigin !== 'null' ? parentOrigin : '*';
 const send = (msg, transfer = []) => window.parent.postMessage(msg, target, transfer);
 
 const FS = '\u0002';
-/** 스튜디오 안 앱 플러그인 (scripts/rhwp-patches.mjs 가 허용 목록에 넣는다) */
-const AGENT_PLUGIN = 'kordoc-agent';
+/** 편집기 AI 플러그인 (scripts/rhwp-patches.mjs 가 허용 목록에 넣는다, 표면은 studio-plugin/kordoc-ai-plugin.mjs) */
+const AGENT_PLUGIN = 'kordoc-ai';
 const AGENT_METHODS = new Set([
-  'foreignChanges', 'readText', 'findText', 'replaceText', 'replaceAllText', 'insertParagraphs', 'deleteParagraph', 'insertTable',
-  'formatText', 'formatParagraph', 'listTables', 'readTable', 'fillCells', 'addTableLines', 'removeTableLines', 'deleteTable',
-  'reveal', 'selection', 'replaceSelection', 'formatSelection', 'listFields', 'fillField', 'insertToc', 'refreshToc',
-  'listNotes', 'insertNote', 'editNote', 'deleteNote', 'measureTabs', 'clearMarks', 'listStyles', 'formatCells', 'mergeCells',
-  'splitCell', 'undo',
+  'outline', 'readTable', 'find', 'styles', 'readStyle', 'fields',
+  'replace', 'setParagraph', 'insertParagraphs', 'deleteParagraphs', 'fillCells', 'addRows', 'removeRows', 'insertTable',
+  'formatText', 'formatParagraphs', 'applyStyle', 'createStyle', 'editStyle', 'fillField',
+  'foreignChanges', 'undo', 'reveal',
 ]);
 let agentLoaded = null;
 const enc = new TextEncoder();
