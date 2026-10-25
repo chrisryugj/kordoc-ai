@@ -1,7 +1,7 @@
 /**
  * 한글 편집기 화면 검증 — 한컴 단축키와 복구 사본
- *  - 메뉴에 새 명령(쪽 번호 매기기·거꾸로 찾기·날짜/시간 문자열)과 한컴 키 글자
- *  - Ctrl+K,D 날짜 넣기 · Ctrl+Y 한 줄 지우기 · Ctrl+N,P 쪽 번호 매기기(패치한 엔진의 쪽 번호 개체)
+ *  - 메뉴에 새 명령(한 줄 지우기·날짜/시간 문자열·보통 모양)과 한컴 키 글자
+ *  - Ctrl+K,D 날짜 넣기 · Ctrl+Y 한 줄 지우기 · Ctrl+M,R 빨강 글자 · Ctrl+N,T 표 만들기 대화상자
  *  - 고친 채 30초 안에 복구 사본이 생기고, 저장하지 않고 앱이 꺼진 뒤 홈에서 되살리면 고친 내용으로 열린다
  *  - 되살린 문서를 저장하면 저장 창 없이 원래 파일에 들어가고(.bak) 사본은 지워진다
  *
@@ -69,10 +69,10 @@ try {
   await sleep(2000);
   const studio = studioOf(page);
   const menu = await studio.evaluate(() => ({
-    items: ['kordoc:page-number', 'kordoc:find-backward', 'kordoc:insert-date'].map((id) => !!document.querySelector(`.md-item[data-cmd="${id}"]`)),
+    items: ['ext:kordoc-delete-line', 'ext:kordoc-date', 'ext:kordoc-normal-shape'].map((id) => !!document.querySelector(`.md-item[data-cmd="${id}"]`)),
     center: document.querySelector('.md-item[data-cmd="format:align-center"] .md-shortcut')?.textContent ?? '',
   }));
-  check('메뉴에 쪽 번호 매기기·거꾸로 찾기·날짜/시간 문자열', menu.items.every(Boolean), JSON.stringify(menu.items));
+  check('메뉴에 한 줄 지우기·날짜/시간 문자열·보통 모양', menu.items.every(Boolean), JSON.stringify(menu.items));
   // 맥에선 스튜디오가 Ctrl 을 ⌘ 기호로 보인다
   check('가운데 정렬 키 글자가 한컴 키(Ctrl+Shift+C)', /Ctrl\+Shift\+C|⌘⇧C/.test(menu.center), menu.center);
 
@@ -89,14 +89,28 @@ try {
   await page.keyboard.press('Enter');
   await page.keyboard.type('DELETE-ME');
   await sleep(200);
+  // 문단 수는 스튜디오 공개 자동화에 시험용 명령을 하나 걸어 읽는다
+  const paraCount = () => studio.evaluate(() => {
+    const a = window.rhwpStudio.automation;
+    if (!window.__kdSvc) { a.registerCommand({ id: 'ext:e2e-services', label: 'e2e', execute: (sv) => { window.__kdSvc = sv; } }); a.execute('ext:e2e-services'); }
+    return window.__kdSvc.wasm.getParagraphCount(0);
+  });
+  const before = await paraCount();
   await page.keyboard.down('Control'); await page.keyboard.press('KeyY'); await page.keyboard.up('Control');
   await sleep(500);
-  // Ctrl+N,P → 쪽 번호 매기기 대화상자 → 확인
-  await chord(page, 'KeyN', 'KeyP');
-  const dlg = await studio.evaluate(() => [...document.querySelectorAll('.dialog-title')].map((e) => e.textContent).join('|'));
-  check('Ctrl+N,P 가 쪽 번호 매기기를 연다', dlg.includes('쪽 번호 매기기'), dlg);
-  await studio.evaluate(() => [...document.querySelectorAll('.dialog-btn-primary')].find((b) => b.offsetParent !== null)?.click());
-  await sleep(800);
+  const after = await paraCount();
+  check('Ctrl+Y 는 줄과 그 문단 나눔까지 지운다 (문단 하나 줄어듦)', after === before - 1, `${before} → ${after}`);
+  // Ctrl+M,R → 이어 치는 글이 빨강
+  await chord(page, 'KeyM', 'KeyR');
+  await page.keyboard.type('RED-TEXT');
+  await sleep(300);
+  // Ctrl+N,T → 표 만들기 대화상자 (닫기)
+  await chord(page, 'KeyN', 'KeyT');
+  // 표 만들기는 줄·칸을 고르는 격자 창부터 뜬다 (body 에 붙는 맨 위 고정 층)
+  const grid = await studio.evaluate(() => [...document.body.children].some((e) => e.style.zIndex === '9998'));
+  check('Ctrl+N,T 가 표 만들기 격자 창을 연다', grid);
+  await page.keyboard.press('Escape');
+  await sleep(500);
   await ui.shot(join(OUT, '01-edited.png'));
 
   // 복구 사본 (편집기 입력이 멈추면 첫 사본은 몇 초 안에)
@@ -138,7 +152,9 @@ try {
   const today = new Date();
   check('저장한 파일에 고친 글과 Ctrl+K,D 날짜', text.includes('KEEP-ME') && text.includes(`${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`), text.slice(0, 80));
   check('Ctrl+Y 로 지운 줄은 없음', !text.includes('DELETE-ME'));
-  check('쪽 번호 개체가 들어감', /<hp:pageNum\b/.test(xml));
+  const head = await zip.file('Contents/header.xml').async('string');
+  const red = [...head.matchAll(/<hh:charPr id="(\d+)"[^>]*textColor="#FF0000"/g)].map((m) => m[1]);
+  check('Ctrl+M,R 로 친 글이 빨강', red.some((id) => new RegExp(`charPrIDRef="${id}"[^>]*>\\s*<hp:t>RED-TEXT`).test(xml)), red.join(','));
   check('덮어쓰기 전 원본은 .bak', existsSync(`${DOC}.bak`));
   check('저장 뒤 복구 사본 지워짐', recoveryFiles().length === 0, recoveryFiles().join(','));
   await page.evaluate(() => document.querySelector('.kd-nav-item[data-screen="home"]')?.click());

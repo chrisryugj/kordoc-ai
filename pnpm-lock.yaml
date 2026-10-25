@@ -18,8 +18,8 @@ importers:
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.4)
       '@rhwp/core':
-        specifier: file:vendor/rhwp-core
-        version: file:vendor/rhwp-core
+        specifier: 0.8.7
+        version: 0.8.7
       '@tauri-apps/api':
         specifier: ^2.9.1
         version: 2.10.1
@@ -526,8 +526,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@rhwp/core@file:vendor/rhwp-core':
-    resolution: {directory: vendor/rhwp-core, type: directory}
+  '@rhwp/core@0.8.7':
+    resolution: {integrity: sha512-qgNpY9aclCvy9D7cPnpuplu42kUFZCCPhdjAS5HBso4Z4XeHG3uchYdUleQBoas/zEuwfJ7H4/ulepqdL/LXDA==}
 
   '@rolldown/pluginutils@1.0.0-rc.3':
     resolution: {integrity: sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==}
@@ -1989,7 +1989,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@rhwp/core@file:vendor/rhwp-core': {}
+  '@rhwp/core@0.8.7': {}
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 

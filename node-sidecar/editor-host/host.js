@@ -12,6 +12,7 @@
  *   편집기 안 Ctrl/⌘+S 는 save_request 로 앱에 넘긴다(스튜디오는 같은 출처 iframe 이라 키를 먼저 본다).
  */
 import { createStudio } from './sdk/index.js';
+import { installHangulKeys } from './hangul-keys.js';
 
 const params = new URLSearchParams(location.search);
 const parentOrigin = params.get('parent') || '';
@@ -28,7 +29,7 @@ const AGENT_METHODS = new Set([
   'formatText', 'formatParagraph', 'listTables', 'readTable', 'fillCells', 'addTableLines', 'removeTableLines', 'deleteTable',
   'reveal', 'selection', 'replaceSelection', 'formatSelection', 'listFields', 'fillField', 'insertToc', 'refreshToc',
   'listNotes', 'insertNote', 'editNote', 'deleteNote', 'measureTabs', 'clearMarks', 'listStyles', 'formatCells', 'mergeCells',
-  'splitCell', 'readStyle', 'createStyle', 'editStyle', 'undo',
+  'splitCell', 'undo',
 ]);
 let agentLoaded = null;
 const enc = new TextEncoder();
@@ -360,11 +361,10 @@ function hideTimings(win) {
     const version = await fetch('./version.json').then((r) => r.json()).catch(() => ({ studio: 'unknown' }));
     studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'] });
     forwardSaveKey(studio.element.contentWindow);
+    // 한컴 한글 단축키 (스튜디오 자동화로 명령을 부른다). 못 걸어도 편집은 된다
+    try { installHangulKeys(studio.element.contentWindow); } catch (e) { console.warn('[host] 한컴 단축키를 걸지 못했습니다', e); }
     try { hideTimings(studio.element.contentWindow); } catch { /* 상태 줄 다듬기는 덤 */ }
     document.getElementById('boot').remove();
-    // 앱 플러그인은 처음부터 올린다: AI 를 부르기 전에도 도구 줄의 스타일 목록을 문서에 맞추고 한컴 키를 건다
-    agentLoaded = studio.plugins.load(AGENT_PLUGIN);
-    agentLoaded.catch(() => { agentLoaded = null; });
     send({ kd: 'event', type: 'ready', studioVersion: version.studio });
   } catch (err) {
     document.getElementById('boot').textContent = `한글 편집기를 열지 못했습니다: ${err?.message || err}`;

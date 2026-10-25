@@ -1,16 +1,14 @@
 // 이음오피스(IeumOffice, https://github.com/pblsketch/openoffice, Apache-2.0, Copyright 2026 Mainfunc, Inc.)의
-// apps/hwp/src/renderer/ai/hwp-skill.ts(커밋 a907a88c, 스타일·저장 안 됨 알림·스타일 목록은 63e2a636)에서 옮겼다. 바꾼 것: 가져오기 경로, 다국어 키 → 한국어 문구(labels.ts),
+// apps/hwp/src/renderer/ai/hwp-skill.ts(커밋 a907a88c)에서 옮겼다. 바꾼 것: 가져오기 경로, 다국어 키 → 한국어 문구(labels.ts),
 // 웹 페이지 읽기 도구(read_url)와 그 지시 삭제(폐쇄망 앱이라 밖으로 나가는 도구를 두지 않는다), 앱 이름.
 import type { AgentSkill, AgentToolCall, AgentToolDef, ToolExecution } from './types'
 import type {
   AgentCellText,
   AgentMatch,
-  AgentNoSuchStyle,
   AgentParagraphFormat,
   AgentPlace,
   AgentPlaceRefusal,
   AgentSegment,
-  AgentStyleKind,
   AgentTableCell,
   AgentTableLinesRefusal,
   AgentTableSummary,
@@ -96,8 +94,7 @@ const SYSTEM_PROMPT = [
   '- Add new paragraphs next to an existing one, in the body or inside a table cell, or at the end of the document (insert_paragraphs). Remove a paragraph (delete_paragraph).',
   '- Add a table of plain-text cells, with a header row when the first row names the columns (insert_table).',
   '- Work on the tables that are already there: list them (list_tables), read one cell by cell (read_table), write text into its cells, many at once (fill_cells), add or remove rows and columns (add_to_table, remove_from_table), and remove a whole table (delete_table).',
-  '- Change formatting: bold, italic, underline, strikethrough, font, font size, text colour, highlight and the character style of a piece of text (format_text); alignment, line spacing, first-line indent, margins, space above and below and the paragraph style of a paragraph, and the character formatting of a whole paragraph (format_paragraph); the background colour of table cells (format_cells).',
-  '- Work with the styles of the document: see what one looks like (read_style), add a paragraph or character style (create_style), and change a style: its name, the style that follows it and its look (edit_style).',
+  '- Change formatting: bold, italic, underline, strikethrough, font, font size, text colour and highlight of a piece of text (format_text); alignment, line spacing, first-line indent, margins, space above and below and the paragraph style of a paragraph, and the character formatting of a whole paragraph (format_paragraph); the background colour of table cells (format_cells).',
   '- Merge table cells into one (merge_cells; their text goes into it, one cell after another) or split a cell into several, or a merged cell back (split_cell). Read the table first: rows and columns count as read_table shows them.',
   '- Fill the form fields of the document (list_fields, fill_field). In Hangul these are called 누름틀. A field is picked by its number in list_fields, because several fields often share one name.',
   '- Make a table of contents (차례, 목차) from the headings you pick, with their page numbers, and write its page numbers again after the document changed (insert_toc, refresh_toc).',
@@ -105,8 +102,7 @@ const SYSTEM_PROMPT = [
   '',
   '## What they cannot do',
   '- You cannot change numbering, borders or the page layout, and you cannot add or change pictures. A note cannot be put inside a table cell.',
-  '- A table inside a cell of another table can be read, filled and removed, but its cells cannot be coloured, merged or split, it cannot get or lose rows and columns, and the alignment, spacing and paragraph style of its paragraphs cannot be changed. Its text can still be formatted, character styles included.',
-  '- You cannot remove a style. The user can do that in the style dialog of the editor (F6).',
+  '- A table inside a cell of another table can be read, filled and removed, but its cells cannot be coloured, merged or split, it cannot get or lose rows and columns, and the alignment and spacing of its paragraphs cannot be changed.',
   '- One piece of text is always one line: a line break inside a text argument is refused. Several paragraphs are several strings in one insert_paragraphs call.',
   '- When the user asks for something the tools cannot do, say so plainly instead of approximating it.',
   '',
@@ -153,14 +149,7 @@ const SYSTEM_PROMPT = [
   '- For emphasis prefer bold. Use colour and highlight only when the user asks for them.',
   '- To take formatting away, pass false (bold, italic, underline, strikethrough) or "none" (highlight, cell background).',
   '- For a font prefer one the document already uses, or one every Korean Windows PC has (맑은 고딕, 바탕, 돋움, 굴림, 궁서); a font the PC lacks is shown in another one.',
-  '- A paragraph style (the "Paragraph styles" line of the context) sets the look the document defines for that kind of paragraph; prefer it to setting the same things one by one. A character style (the "Character styles" line) does the same for a piece of text, for example a term or an emphasis; apply it with char_style.',
-  '',
-  '## Styles',
-  '- Add or change a style only when the user asks for one, or asks for a look to use again across the document. Then make the style and apply it with format_paragraph or format_selection (style), or format_text (char_style).',
-  '- A new style starts from the look of based_on (바탕글 when not given): pass only what should differ. Base it on the style of the paragraphs it is for. Give it the name the user uses; a paragraph style is followed by itself unless next_style says otherwise.',
-  '- read_style shows what a style looks like before you change it, in the units the format tools take.',
-  '- Changing a style changes every paragraph that uses it, in tables, text boxes, headers, footers and notes too. What a paragraph has set differently from its style (for example its alignment) stays, and the rest follows the style, as in Hangul. Changing a character style changes the text it was applied to; that text keeps its look when the style of its paragraph changes.',
-  '- When a tool says a paragraph kept formatting of its own under a style, the properties it had set differently from its former style stayed and the rest follows the new style. If the user wants the plain look of the style, read it with read_style and pass those properties in the same call.',
+  '- A paragraph style (the "Paragraph styles" line of the context) sets the look the document defines for that kind of paragraph; prefer it to setting the same things one by one.',
   '',
   '## Editing rules',
   '- Text you pass to find or anchor must match the document exactly: letters, spaces and punctuation. Copy it from what you read; never retype it from memory.',
@@ -193,10 +182,6 @@ const TEXT_FORMAT_SCHEMA = {
     description: 'highlight colour as #RRGGBB, or "none" to remove a highlight',
   },
   font: { type: 'string', description: 'font name, for example 맑은 고딕' },
-  char_style: {
-    type: 'string',
-    description: 'name of a character style of the document; set before the other properties',
-  },
 }
 
 /** The paragraph formatting a format tool takes, as schema properties. */
@@ -216,13 +201,6 @@ const PARAGRAPH_FORMAT_SCHEMA = {
 
 /** Paragraph styles named in the context at most. */
 const CONTEXT_MAX_STYLES = 40
-
-/** The look a style is made or changed with: the format properties without styles. */
-const STYLE_LOOK_SCHEMA = (() => {
-  const { char_style: _char, ...text } = TEXT_FORMAT_SCHEMA
-  const { style: _style, ...paragraph } = PARAGRAPH_FORMAT_SCHEMA
-  return { ...paragraph, ...text }
-})()
 
 /** Cells one read_table answer holds at most (the editor's own limit), as the model is told. */
 const READ_TABLE_HINT = 600
@@ -430,62 +408,6 @@ const TOOLS: AgentToolDef[] = [
         ...PARAGRAPH_FORMAT_SCHEMA,
         ...TEXT_FORMAT_SCHEMA,
       },
-    },
-  },
-  {
-    name: 'read_style',
-    description:
-      'Show one style of the document: whether it is a paragraph or a character style, its English name, the style that follows it, and its look in the units the format tools take.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'the style name, or its English name' },
-      },
-      required: ['name'],
-    },
-  },
-  {
-    name: 'create_style',
-    description:
-      'Add a style to the document. It starts from the look of based_on and takes the properties you pass over that. A character style takes character properties only. The new style is not applied to anything: apply it with the format tools.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'name of the new style' },
-        english_name: { type: 'string' },
-        kind: {
-          type: 'string',
-          enum: ['paragraph', 'character'],
-          description: 'default paragraph',
-        },
-        based_on: {
-          type: 'string',
-          description: 'a style whose look it starts from; default 바탕글',
-        },
-        next_style: {
-          type: 'string',
-          description:
-            'paragraph style of the paragraph after one of this style (Enter); default the new style itself',
-        },
-        ...STYLE_LOOK_SCHEMA,
-      },
-      required: ['name'],
-    },
-  },
-  {
-    name: 'edit_style',
-    description:
-      'Change a style of the document: its name, English name, next style, and its look (only the properties you pass). Paragraphs that use it change with it, as the Styles rules say.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'the style to change, by name or English name' },
-        new_name: { type: 'string' },
-        english_name: { type: 'string' },
-        next_style: { type: 'string', description: 'a paragraph style; paragraph styles only' },
-        ...STYLE_LOOK_SCHEMA,
-      },
-      required: ['name'],
     },
   },
   {
@@ -847,7 +769,6 @@ function formatArgs(call: AgentToolCall): AgentParagraphFormat {
     ['margin_right', 'marginRight'],
     ['space_before', 'spacingBefore'],
     ['space_after', 'spacingAfter'],
-    ['char_style', 'charStyle'],
   ] as const) {
     const value = call.input[from]
     if (value !== undefined && value !== null) format[to] = value
@@ -880,9 +801,6 @@ function describeFormat(
   }
   if (format.font !== undefined) parts.push(`${label('aiFmtFont')} ${format.font}`)
   if (format.style !== undefined) parts.push(`${label('aiFmtStyle')} ${format.style}`)
-  if (format.charStyle !== undefined) {
-    parts.push(`${label('aiFmtCharStyle')} ${format.charStyle}`)
-  }
   for (const [key, name] of [
     ['indent', 'aiFmtIndent'],
     ['marginLeft', 'aiFmtMarginLeft'],
@@ -979,40 +897,9 @@ const NO_FORMAT_HELP =
 const cellList = (cells: { row: number; col: number }[]): string =>
   cells.map((cell) => `${cell.row}.${cell.col}`).join(', ')
 
-/** Why a call found no style by the name it was given, with the styles of that kind there are. */
-function noSuchStyle(result: AgentNoSuchStyle): string {
-  const kind = result.kind === 'any' ? '' : `${result.kind} `
-  if (result.styles.length === 0) {
-    return `Nothing was changed: the document has no ${kind}styles. Make one with create_style if the user wants one.`
-  }
-  return `Nothing was changed: the document has no ${kind}style by that name. Its ${kind}styles: ${result.styles.join(', ')}.`
-}
-
-const STYLE_EXISTS_HELP =
-  'Nothing was changed: a style already has that name (or that English name). Use edit_style to change that style, or pick another name.'
-const STYLE_STRINGS_HELP =
-  'english_name, new_name, kind, based_on and next_style must be strings when given; kind is "paragraph" or "character".'
-
-/** The optional string arguments `keys` of a style call, null for the absent ones; null when one is not a string. */
-function styleStrings<K extends string>(
-  call: AgentToolCall,
-  keys: readonly K[],
-): Record<K, string | null> | null {
-  const out = {} as Record<K, string | null>
-  for (const key of keys) {
-    const value = call.input[key]
-    if (value === undefined || value === null) out[key] = null
-    else if (typeof value === 'string') out[key] = value
-    else return null
-  }
-  return out
-}
-
-/** What a run of format calls says about paragraphs that kept their own look under a style. */
-const keptOwnLookNote = (count: number | undefined): string =>
-  count
-    ? ` ${count === 1 ? 'The paragraph' : `${count} paragraphs`} took the style but kept the paragraph formatting ${count === 1 ? 'it' : 'they'} had set differently from ${count === 1 ? 'its' : 'their'} former style; the rest follows the style. Read the style with read_style and pass its properties if the user wants its plain look.`
-    : ''
+/** Why a style was not applied, with the styles the document has. */
+const noSuchStyle = (styles: string[]): string =>
+  `Nothing was changed: the document has no paragraph style by that name. Its paragraph styles: ${styles.join(', ')}.`
 const WHERE_HELP =
   'where must be "after", "before" or "end"; with "after" and "before" an anchor text is needed.'
 
@@ -1085,7 +972,6 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
         textArg(call, 'find') ??
           textArg(call, 'text') ??
           textArg(call, 'anchor') ??
-          textArg(call, 'name') ??
           (typeof call.input.field === 'number'
             ? `#${call.input.field}`
             : typeof call.input.table === 'number'
@@ -1288,7 +1174,6 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
           format,
         )
         if (!result.ok) {
-          if (result.reason === 'no_such_style') return bad(call, noSuchStyle(result))
           return bad(
             call,
             result.reason === 'ambiguous'
@@ -1323,11 +1208,11 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
           format,
         )
         if (!result.ok) {
-          if (result.reason === 'no_such_style') return bad(call, noSuchStyle(result))
+          if (result.reason === 'no_such_style') return bad(call, noSuchStyle(result.styles))
           return bad(
             call,
             result.reason === 'unsupported_place'
-              ? 'Nothing was changed: the paragraph properties and paragraph style of that paragraph cannot be set here (it is inside an equation, or in a table inside another table). Its character formatting, character styles included, can still be changed with format_text.'
+              ? 'Nothing was changed: the paragraph properties of that paragraph cannot be set here (it is inside an equation, or in a table inside another table). Its character formatting can still be changed with format_text.'
               : placeRefusal(result),
           )
         }
@@ -1339,7 +1224,7 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
           place: result.place,
         })
         return {
-          output: `Formatted the paragraph${result.inTable ? ' in the table cell' : ''}.${keptOwnLookNote(result.keptOwnLook)}`,
+          output: `Formatted the paragraph${result.inTable ? ' in the table cell' : ''}.`,
           mutated: true,
           summary: label('aiToolFormat', { text: quote(find) }),
         }
@@ -1426,13 +1311,13 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
         const text = selection.map((segment) => segment.text).join(' ⏎ ')
         const result = await bridge.formatSelection(selection, format)
         if (!result.ok) {
-          if (result.reason === 'no_such_style') return bad(call, noSuchStyle(result))
+          if (result.reason === 'no_such_style') return bad(call, noSuchStyle(result.styles))
           return bad(
             call,
             result.reason === 'changed'
               ? SELECTION_CHANGED_HELP
               : result.reason === 'unsupported_place'
-                ? 'Nothing was changed: the paragraph properties and paragraph style of those paragraphs cannot be set here (they are in a table inside another table). Their character formatting, character styles included, can still be changed.'
+                ? 'Nothing was changed: the paragraph properties of those paragraphs cannot be set here (they are in a table inside another table). Their character formatting can still be changed.'
                 : HAS_OBJECTS_HELP,
           )
         }
@@ -1444,7 +1329,7 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
           place: result.place,
         })
         return {
-          output: `Formatted the selected text (${result.count} paragraph(s)).${keptOwnLookNote(result.keptOwnLook)}`,
+          output: `Formatted the selected text (${result.count} paragraph(s)).`,
           mutated: true,
           summary: label('aiToolFormat', { text: quote(text) }),
         }
@@ -1609,99 +1494,6 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
             : 'Split the cell; the text stays in the first of the new cells.',
           mutated: true,
           summary: label('aiToolSplitCell', { table: table as number }),
-        }
-      }
-      case 'read_style': {
-        const name = textArg(call, 'name')
-        if (!name) return bad(call, 'name must be a style name')
-        const result = await bridge.readStyle(name)
-        if (!result.ok) return bad(call, noSuchStyle(result))
-        const { ok: _ok, name: found, ...style } = result
-        return {
-          output: `Style "${found}": ${JSON.stringify(style)}`,
-          summary: label('aiToolStyleRead', { name: quote(found) }),
-        }
-      }
-      case 'create_style': {
-        const name = textArg(call, 'name')
-        if (!name) return bad(call, 'name must be the name of the new style')
-        const strings = styleStrings(call, ['english_name', 'kind', 'based_on', 'next_style'])
-        if (!strings) return bad(call, STYLE_STRINGS_HELP)
-        const format = formatArgs(call)
-        const result = await bridge.createStyle({
-          name,
-          englishName: strings.english_name,
-          kind: strings.kind as AgentStyleKind | null,
-          basedOn: strings.based_on,
-          nextStyle: strings.next_style,
-          format: Object.keys(format).length > 0 ? format : null,
-        })
-        if (!result.ok) {
-          return bad(
-            call,
-            result.reason === 'style_exists' ? STYLE_EXISTS_HELP : noSuchStyle(result),
-          )
-        }
-        deps.onChange({
-          kind: 'format',
-          from: `${label('aiFmtStyle')} ${result.name}`,
-          to: [label('aiStyleNew'), describeFormat(format, label)].filter(Boolean).join(' · '),
-          count: 1,
-        })
-        return {
-          output: `Added the ${result.kind} style "${result.name}". It is not applied to anything yet: apply it with ${result.kind === 'character' ? 'format_text (char_style)' : 'format_paragraph (style)'}.`,
-          mutated: true,
-          summary: label('aiToolStyleCreate', { name: quote(result.name) }),
-        }
-      }
-      case 'edit_style': {
-        const name = textArg(call, 'name')
-        if (!name) return bad(call, 'name must be the name of the style to change')
-        const strings = styleStrings(call, ['new_name', 'english_name', 'next_style'])
-        if (!strings) return bad(call, STYLE_STRINGS_HELP)
-        const format = formatArgs(call)
-        if (
-          !strings.new_name &&
-          !strings.english_name &&
-          !strings.next_style &&
-          Object.keys(format).length === 0
-        ) {
-          return bad(
-            call,
-            'Name at least one thing to change: new_name, english_name, next_style or a property of its look.',
-          )
-        }
-        const result = await bridge.editStyle(name, {
-          name: strings.new_name,
-          englishName: strings.english_name,
-          nextStyle: strings.next_style,
-          format: Object.keys(format).length > 0 ? format : null,
-        })
-        if (!result.ok) {
-          return bad(
-            call,
-            result.reason === 'style_exists' ? STYLE_EXISTS_HELP : noSuchStyle(result),
-          )
-        }
-        const changed = [
-          strings.new_name ? `${label('aiStyleRename')} ${strings.new_name}` : '',
-          strings.next_style ? `${label('aiFmtNextStyle')} ${strings.next_style}` : '',
-          describeFormat(format, label),
-        ]
-        deps.onChange({
-          kind: 'format',
-          from: `${label('aiFmtStyle')} ${name}`,
-          to: changed.filter(Boolean).join(' · ') || (strings.english_name ?? ''),
-          count: 1,
-        })
-        const reach =
-          result.kind === 'character'
-            ? ' Text this style was applied to changed with it.'
-            : ' Every paragraph that uses it changed with it, in tables, text boxes, headers, footers and notes too; what a paragraph had set differently from the style stayed.'
-        return {
-          output: `Changed the ${result.kind} style "${result.name}".${Object.keys(format).length > 0 ? reach : ''}`,
-          mutated: true,
-          summary: label('aiToolStyleEdit', { name: quote(result.name) }),
         }
       }
       case 'format_cells': {
@@ -2178,18 +1970,10 @@ export function createHwpSkill(deps: HwpSkillDeps): HwpSkill {
             : notes.count === 0
               ? 'Footnotes and endnotes: none.'
               : `Footnotes and endnotes: ${footnotes} footnote(s), ${notes.count - footnotes} endnote(s) (list_notes shows them; the text below does not).`,
-          ...(styles
-            ? (
-                [
-                  ['Paragraph styles', styles.paragraph],
-                  ['Character styles', styles.character],
-                ] as const
-              )
-                .filter(([, names]) => names.length > 0)
-                .map(
-                  ([title, names]) =>
-                    `${title}: ${names.slice(0, CONTEXT_MAX_STYLES).join(', ')}${names.length > CONTEXT_MAX_STYLES ? ', …' : ''}`,
-                )
+          ...(styles && styles.length > 0
+            ? [
+                `Paragraph styles: ${styles.slice(0, CONTEXT_MAX_STYLES).join(', ')}${styles.length > CONTEXT_MAX_STYLES ? ', …' : ''}`,
+              ]
             : []),
           whole
             ? 'Text (complete):'

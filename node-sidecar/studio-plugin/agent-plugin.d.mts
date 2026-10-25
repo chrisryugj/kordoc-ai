@@ -1,5 +1,5 @@
 // 이음오피스(IeumOffice, https://github.com/pblsketch/openoffice, Apache-2.0, Copyright 2026 Mainfunc, Inc.)의
-// apps/hwp/studio-plugin/agent-plugin.d.mts(커밋 a907a88c, 스타일·저장 안 됨 알림·스타일 목록은 63e2a636)에서 옮겼다. 바꾼 것: 플러그인·명령 이름(ieum → kordoc).
+// apps/hwp/studio-plugin/agent-plugin.d.mts(커밋 a907a88c)에서 옮겼다. 바꾼 것: 플러그인·명령 이름(ieum → kordoc).
 // 판단 근거는 그 저장소의 결정 기록 0022(AI 편집은 편집기 안 플러그인으로, 개체를 잃는 변경은 하지 않는다)·0026(탭 폭).
 export declare const AGENT_PLUGIN_ID: 'kordoc-agent'
 
@@ -90,8 +90,6 @@ export interface AgentTextFormat {
   highlight?: string
   /** font name; one the document lacks is added to its fonts */
   font?: string
-  /** a character style of the document, by its name (listStyles); set before the rest */
-  charStyle?: string
 }
 
 /** Formatting of a whole paragraph: its own properties, and character formatting for all its text. */
@@ -111,81 +109,12 @@ export interface AgentParagraphFormat extends AgentTextFormat {
   style?: string
 }
 
-/** A call named a style the document does not have; `styles` are the ones of that kind it has. */
+/** A format named a paragraph style the document does not have; `styles` are the ones it has. */
 export interface AgentNoSuchStyle {
   ok: false
   reason: 'no_such_style'
-  /** the kind of style that was looked for; any: a style of either kind */
-  kind: 'paragraph' | 'character' | 'any'
   styles: string[]
 }
-
-/** The styles of the document by name. */
-export interface AgentStyleNames {
-  paragraph: string[]
-  character: string[]
-}
-
-export type AgentStyleKind = 'paragraph' | 'character'
-
-/** What a style looks like, in the units the format calls take; paragraph properties for a paragraph style only. */
-export interface AgentStyleLook {
-  font: string
-  size: number
-  bold: boolean
-  italic: boolean
-  underline: boolean
-  strikethrough: boolean
-  color: string
-  align?: string
-  lineSpacing?: number
-  indent?: number
-  marginLeft?: number
-  marginRight?: number
-  spacingBefore?: number
-  spacingAfter?: number
-}
-
-export type AgentReadStyleResult =
-  | {
-      ok: true
-      name: string
-      englishName: string
-      kind: AgentStyleKind
-      /** the paragraph style that follows a paragraph of this one (paragraph styles) */
-      nextStyle?: string
-      look: AgentStyleLook
-    }
-  | AgentNoSuchStyle
-
-/** The look of a style: formatting without styles. */
-export type AgentStyleFormat = Omit<AgentParagraphFormat, 'style' | 'charStyle'>
-
-export interface AgentNewStyle {
-  name: string
-  englishName?: string | null
-  /** paragraph when not given */
-  kind?: AgentStyleKind | null
-  /** the style whose look it starts from; 바탕글 when not given */
-  basedOn?: string | null
-  /** the paragraph style that follows; the new style itself when not given */
-  nextStyle?: string | null
-  format?: AgentStyleFormat | null
-}
-
-export interface AgentStyleChanges {
-  /** a new name */
-  name?: string | null
-  englishName?: string | null
-  nextStyle?: string | null
-  format?: AgentStyleFormat | null
-}
-
-export type AgentStyleResult =
-  | { ok: true; name: string; kind: AgentStyleKind }
-  /** another style already has the name */
-  | { ok: false; reason: 'style_exists' }
-  | AgentNoSuchStyle
 
 /** A place in a table, rows and columns from 1. */
 export interface AgentCellPlace {
@@ -226,18 +155,9 @@ export type AgentFormatTextResult =
       count: number
       matches?: AgentMatch[]
     }
-  | AgentNoSuchStyle
 
 export type AgentFormatParagraphResult =
-  | {
-      ok: true
-      inTable: boolean
-      place: AgentPlace
-      /** 1 when the paragraph took the style's name but kept its own look (as in formatSelection) */
-      keptOwnLook?: number
-    }
-  | AgentPlaceRefusal
-  | AgentNoSuchStyle
+  { ok: true; inTable: boolean; place: AgentPlace } | AgentPlaceRefusal | AgentNoSuchStyle
 
 /** One table of the document, as listTables lists it. */
 export interface AgentTableSummary {
@@ -365,16 +285,7 @@ export type AgentReplaceSelectionResult =
   | { ok: false; reason: 'has_objects'; count: number }
 
 export type AgentFormatSelectionResult =
-  | {
-      ok: true
-      count: number
-      place: AgentPlace
-      /**
-       * paragraphs that took the style's name but kept their own look: the editor keeps a
-       * paragraph's own paragraph formatting whole when it differs from its former style's
-       */
-      keptOwnLook?: number
-    }
+  | { ok: true; count: number; place: AgentPlace }
   | { ok: false; reason: 'changed' | 'unsupported_place' }
   | { ok: false; reason: 'has_objects'; count: number }
   | AgentNoSuchStyle
@@ -454,29 +365,6 @@ export type AgentFileCommand = 'save' | 'saveAs' | 'pdf' | 'print'
 
 /** The event those items fire on the editor's window; `detail` is the AgentFileCommand. */
 export declare const FILE_COMMAND_EVENT: 'kordoc:file-command'
-
-/** The parts of the editor toolbar's style list (a select element) syncStyleList uses. */
-export interface StyleListElement {
-  readonly options: ArrayLike<{ value: string; textContent: string | null }>
-  selectedIndex: number
-  value: string
-  replaceChildren(...nodes: unknown[]): void
-  readonly ownerDocument: {
-    createElement(name: 'option'): { value: string; textContent: string | null }
-  }
-}
-
-/**
- * Fill the editor toolbar's style list with the document's styles when they differ from what
- * it shows, keeping the number shown where a style still has it. True when it was refilled.
- */
-export declare function syncStyleList(
-  select: StyleListElement,
-  styles: { id: number; name: string }[],
-): boolean
-
-/** The event the plugin fires on the editor's window when the unsaved state changes; `detail` is the new state. */
-export declare const DIRTY_EVENT: 'kordoc:dirty-changed'
 
 export type AgentNoteKind = 'footnote' | 'endnote'
 
@@ -647,10 +535,7 @@ export interface AgentPluginSurface {
   editNote(note: number, text: string): AgentEditNoteResult
   deleteNote(note: number): AgentDeleteNoteResult
   measureTabs(spots: AgentTabSpot[]): { tabs: (AgentTabMeasure | null)[] }
-  listStyles(): AgentStyleNames
-  readStyle(name: string): AgentReadStyleResult
-  createStyle(spec: AgentNewStyle): AgentStyleResult
-  editStyle(name: string, changes: AgentStyleChanges): AgentStyleResult
+  listStyles(): string[]
   /** pages for printing from `from`, as many as are drawn in about two seconds */
   printPages(from: number): AgentPrintPages
   mergeCells(table: number, from: AgentCellPlace, to: AgentCellPlace): AgentMergeCellsResult
