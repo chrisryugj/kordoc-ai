@@ -157,6 +157,27 @@ describe('고치기', () => {
     expect(ops.readStyle(doc, { name: '바탕글' }).bold).toBe(false);
   });
 
+  it('각주: 낱말 바로 뒤에 번호를 달고 글을 넣는다, 저장해도 남는다, 모호하거나 없는 자리는 거절', () => {
+    const doc = blank(['전자정부법에 따라 추진한다', '둘째 문단']);
+    expect(ops.insertFootnote(doc, { id: '0.0', after: '전자정부법', text: '「전자정부법」 제1조' })).toMatchObject({ id: '0.0', number: 1 });
+    ops.insertFootnote(doc, { id: '0.1', text: '문단 끝 각주' });
+    for (const fmt of ['hwp', 'hwpx'] as const) {
+      const again = reopen(doc, fmt);
+      // 문단의 컨트롤 가운데 각주인 것 (구역 첫 문단엔 구역·단 정의가 앞에 있다)
+      const notes = [0, 1].map((p) => {
+        for (let c = 0; c < 6; c++) { try { return JSON.parse(again.getFootnoteInfo(0, p, c)).texts.join('').trim(); } catch { /* 각주 아님 */ } }
+        return null;
+      });
+      expect(notes, fmt).toEqual(['「전자정부법」 제1조', '문단 끝 각주']);
+    }
+    // 본문 글은 그대로 (각주 번호는 글자가 아니다)
+    expect(text(doc, '0.0')).toBe('전자정부법에 따라 추진한다');
+    expect(() => ops.insertFootnote(doc, { id: '0.0', after: '없는 글', text: 'x' })).toThrow(/찾지 못했습니다/);
+    const twice = blank(['법 법']);
+    expect(() => ops.insertFootnote(twice, { id: '0.0', after: '법', text: 'x' })).toThrow(/여러 곳/);
+    expect(() => ops.insertFootnote(twice, { id: '0.0', text: 'a\nb' })).toThrow(/줄바꿈/);
+  });
+
   it('스타일 만들기·고치기·걸기, 저장해도 남는다', () => {
     const doc = blank(['제목', '본문']);
     ops.createStyle(doc, { name: '보고서 제목', based_on: '바탕글', bold: true, size_pt: 18, align: 'center' });

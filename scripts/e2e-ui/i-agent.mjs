@@ -41,6 +41,7 @@ function reply(body) {
         { tool: 'insert_table', args: { after: target, rows: [['항목', '목표'], ['처리 시간', '삼십 퍼센트 줄임']] } },
         { tool: 'create_style', args: { name: '강조 문단', based_on: '바탕글', bold: true } },
         { tool: 'apply_style', args: { ids: [target], style: '강조 문단' } },
+        { tool: 'insert_footnote', args: { id: target, after: '반복 문서 업무', text: '2026년 상반기 자체 조사' } },
       ],
     };
   }
@@ -100,6 +101,8 @@ try {
   check('표가 들어감', (await count('삼십 퍼센트 줄임')) >= 1);
   const styleAt = await probe(`(w) => { const r = w.getStyleAt(0, ${Number(target.split('.')[1])}); return (typeof r === 'string' ? JSON.parse(r) : r).name; }`);
   check('스타일을 만들어 걸었다', styleAt === '강조 문단', styleAt);
+  const note = await probe(`(w) => { for (let c = 0; c < 8; c++) { try { const r = w.getFootnoteInfo(0, ${Number(target.split('.')[1])}, c); return (typeof r === 'string' ? JSON.parse(r) : r).texts.join('').trim(); } catch {} } return ''; }`);
+  check('각주를 넣었다 (낱말 뒤 · 각주 글)', note === '2026년 상반기 자체 조사' && activity.includes('각주 1 넣음'), note);
 
   // 되돌리기 한 번에 요청 전으로
   await ui.click('되돌리기');

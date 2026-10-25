@@ -24,6 +24,7 @@ const SYSTEM = [
   "3. 표 칸은 fill_cells, 줄은 add_rows·remove_rows, 새 표는 insert_table.",
   "4. 모양은 format_text·format_paragraphs, 문서에 같은 모양이 여러 번 필요하면 스타일(create_style·apply_style).",
   "5. 서식의 빈칸(누름틀)은 list_fields 로 이름을 보고 fill_field 로 채웁니다.",
+  "6. 근거·출처를 달 땐 insert_footnote 로 그 낱말 뒤에 각주를 넣습니다.",
   "",
   "지킬 것:",
   "- 사용자가 주지 않은 사실(날짜·금액·이름·번호)을 지어내지 마세요. 모르면 물어봅니다.",
@@ -89,6 +90,11 @@ export const TOOLS: AgentToolDef[] = [
     inputSchema: obj({ name: { type: "string" }, new_name: { type: "string" }, ...charFmt, ...paraFmt }, ["name"]),
   },
   { name: "fill_field", description: "서식의 빈칸(누름틀) 하나를 채웁니다.", inputSchema: obj({ name: { type: "string" }, value: { type: "string" } }, ["name", "value"]) },
+  {
+    name: "insert_footnote",
+    description: "본문 문단에 각주를 넣습니다. after 는 문단 안의 글(그 바로 뒤에 각주 번호가 붙음, 문단 안에서 한 곳이어야 함). 비우면 문단 끝. text 는 각주 글 한 문단.",
+    inputSchema: obj({ id, after: { type: "string" }, text: { type: "string" } }, ["id", "text"]),
+  },
 ];
 
 /** 도구 이름 → 플러그인 연산·문서를 바꾸는가·활동 줄 */
@@ -113,6 +119,7 @@ const RUN: Record<string, { op: keyof AgentBridge; mutates?: boolean; say: (a: R
   create_style: { op: "createStyle", mutates: true, say: (a) => `스타일 "${a.name}" 만듦` },
   edit_style: { op: "editStyle", mutates: true, say: (a) => `스타일 "${a.name}" 고침` },
   fill_field: { op: "fillField", mutates: true, say: (a) => `빈칸 "${a.name}" 채움` },
+  insert_footnote: { op: "insertFootnote", mutates: true, say: (a, r) => `문단 ${a.id} 각주 ${r.number ?? ""} 넣음` },
 };
 
 /** 결과 글: 모델이 읽기 쉬운 짧은 꼴 */

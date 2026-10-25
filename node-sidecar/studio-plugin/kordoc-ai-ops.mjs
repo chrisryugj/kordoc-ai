@@ -226,6 +226,27 @@ export function setParagraph(doc, { id, text }) {
   return { id };
 }
 
+/** 각주: 본문 문단의 글 after 바로 뒤(없으면 문단 끝)에 각주 번호를 달고 각주 글을 넣는다 */
+export function insertFootnote(doc, { id, after, text }) {
+  const p = parsePara(id);
+  checkPara(doc, p);
+  if (typeof text !== 'string' || !text.trim()) fail('각주 글(text)이 없습니다.');
+  if (/\n/.test(text)) fail('각주 글에 줄바꿈을 넣지 마세요. 한 문단으로 씁니다.');
+  if (text.length > 500) fail('각주 글은 500자까지 넣을 수 있습니다.');
+  const body = paraText(doc, p.sec, p.para);
+  let offset = body.length;
+  if (after !== undefined && after !== '') {
+    const at = body.indexOf(String(after));
+    if (at < 0) fail(`문단 ${id} 에서 "${after}" 를 찾지 못했습니다. read_document 로 문단 글을 확인하세요.`);
+    if (body.indexOf(String(after), at + 1) >= 0) fail(`문단 ${id} 에 "${after}" 가 여러 곳 있습니다. 더 길게 적어 한 곳을 가리키세요.`);
+    offset = at + String(after).length;
+  }
+  const r = j(doc.insertFootnote(p.sec, p.para, offset));
+  if (!r?.ok) fail('각주를 넣지 못했습니다.');
+  doc.insertTextInFootnote(p.sec, r.paraIdx ?? p.para, r.controlIdx, 0, 0, text);
+  return { id, number: r.footnoteNumber };
+}
+
 /** 문단 뒤에 새 문단들 (앞 문단 모양을 이어받는다) */
 export function insertParagraphs(doc, { after, texts }) {
   const p = parsePara(after);

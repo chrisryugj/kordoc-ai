@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { TOOLS, createHwpSkill } from "./tools";
 import type { AgentBridge } from "./bridge";
@@ -21,6 +22,20 @@ describe("tools", () => {
     const { bridge } = fakeBridge();
     const { skill } = createHwpSkill({ bridge });
     for (const n of names) expect((await skill.executeTool({ id: "x", name: n, input: {} })).summary).not.toMatch(/모르는 도구/);
+  });
+
+  it("도구가 부르는 편집기 연산은 중계 페이지 허용 목록과 플러그인에 모두 있다", async () => {
+    const { bridge, calls } = fakeBridge();
+    const { skill } = createHwpSkill({ bridge });
+    for (const t of TOOLS) await skill.executeTool({ id: "x", name: t.name, input: {} });
+    const ops = [...new Set(calls.map(([name]) => name))];
+    const host = readFileSync(new URL("../../../node-sidecar/editor-host/host.js", import.meta.url), "utf-8");
+    const allowed = /AGENT_METHODS = new Set\(\[([\s\S]*?)\]\)/.exec(host)?.[1] ?? "";
+    const plugin = readFileSync(new URL("../../../node-sidecar/studio-plugin/kordoc-ai-plugin.mjs", import.meta.url), "utf-8");
+    for (const op of ops) {
+      expect(allowed, `host.js AGENT_METHODS 에 ${op}`).toContain(`'${op}'`);
+      expect(plugin, `kordoc-ai-plugin.mjs 에 ${op}`).toMatch(new RegExp(`'${op}'|\\b${op}:`));
+    }
   });
 
   it("고치기 도구는 바뀐 곳을 알리고, 거절은 오류로 모델에 돌려준다", async () => {

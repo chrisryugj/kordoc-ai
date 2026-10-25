@@ -27,7 +27,7 @@ const AGENT_PLUGIN = 'kordoc-ai';
 const AGENT_METHODS = new Set([
   'outline', 'readTable', 'find', 'styles', 'readStyle', 'fields',
   'replace', 'setParagraph', 'insertParagraphs', 'deleteParagraphs', 'fillCells', 'addRows', 'removeRows', 'insertTable',
-  'formatText', 'formatParagraphs', 'applyStyle', 'createStyle', 'editStyle', 'fillField',
+  'formatText', 'formatParagraphs', 'applyStyle', 'createStyle', 'editStyle', 'fillField', 'insertFootnote',
   'foreignChanges', 'undo', 'reveal',
 ]);
 let agentLoaded = null;

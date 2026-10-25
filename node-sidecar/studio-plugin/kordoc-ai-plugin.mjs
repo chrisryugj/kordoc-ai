@@ -18,7 +18,7 @@ const WRITES = {
   replace: '찾아 바꾸기', setParagraph: '문단 고치기', insertParagraphs: '문단 넣기', deleteParagraphs: '문단 지우기',
   fillCells: '표 칸 채우기', addRows: '표 줄 넣기', removeRows: '표 줄 지우기', insertTable: '표 넣기',
   formatText: '글자 모양', formatParagraphs: '문단 모양', applyStyle: '스타일 적용', createStyle: '스타일 만들기',
-  editStyle: '스타일 고치기', fillField: '누름틀 채우기',
+  editStyle: '스타일 고치기', fillField: '누름틀 채우기', insertFootnote: '각주 넣기',
 };
 
 export const aiPlugin = {

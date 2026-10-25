@@ -28,6 +28,7 @@ export interface AgentBridge {
   createStyle(a: Record<string, unknown>): Out<{ name: string; kind: string }>;
   editStyle(a: Record<string, unknown>): Out<{ name: string }>;
   fillField(a: Record<string, unknown>): Out<{ name: string }>;
+  insertFootnote(a: Record<string, unknown>): Out<{ id: Place; number: number }>;
   foreignChanges(): Promise<number>;
   undo(count: number, since: number): Promise<{ ok: boolean; reason?: string }>;
   reveal(place: Place): Promise<boolean>;
