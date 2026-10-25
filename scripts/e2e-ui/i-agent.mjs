@@ -101,8 +101,9 @@ try {
   check('표가 들어감', (await count('삼십 퍼센트 줄임')) >= 1);
   const styleAt = await probe(`(w) => { const r = w.getStyleAt(0, ${Number(target.split('.')[1])}); return (typeof r === 'string' ? JSON.parse(r) : r).name; }`);
   check('스타일을 만들어 걸었다', styleAt === '강조 문단', styleAt);
-  const note = await probe(`(w) => { for (let c = 0; c < 8; c++) { try { const r = w.getFootnoteInfo(0, ${Number(target.split('.')[1])}, c); return (typeof r === 'string' ? JSON.parse(r) : r).texts.join('').trim(); } catch {} } return ''; }`);
-  check('각주를 넣었다 (낱말 뒤 · 각주 글)', note === '2026년 상반기 자체 조사' && activity.includes('각주 1 넣음'), note);
+  const note = await probe(`(w) => { for (let c = 0; c < 8; c++) { try { const r = w.getFootnoteInfo(0, ${Number(target.split('.')[1])}, c); return (typeof r === 'string' ? JSON.parse(r) : r).texts.join(''); } catch {} } return ''; }`);
+  // 글은 번호 자리 뒤에: 앞에 엔진의 빈칸, 뒤엔 빈칸 없음 (뒤에 남으면 번호가 글 뒤로 밀린 것)
+  check('각주를 넣었다 (낱말 뒤 · 번호 뒤에 각주 글)', note.trim() === '2026년 상반기 자체 조사' && note === note.trimEnd() && activity.includes('각주 1 넣음'), JSON.stringify(note));
 
   // 되돌리기 한 번에 요청 전으로
   await ui.click('되돌리기');

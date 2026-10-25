@@ -9,7 +9,7 @@ type Out<T> = Promise<T | Err>;
 /** 플러그인 표면 (연산 인자·결과는 kordoc-ai-ops.mjs) */
 export interface AgentBridge {
   outline(a?: { from?: number; count?: number }): Out<{ total: number; from: number; blocks: Array<{ id: Place; text: string; tables?: Array<{ id: Place; rows: number; cols: number }> }> }>;
-  readTable(a: { table: Place }): Out<{ table: Place; rows: number; cols: number; cells: Array<Array<string | null>> }>;
+  readTable(a: { table: Place }): Out<{ table: Place; rows: number; cols: number; cells: Array<Array<string | null>>; nested?: Array<{ row: number; col: number; table: Place; rows: number; cols: number }> }>;
   find(a: { text: string }): Out<{ count: number; matches: Array<{ at: Place; cell?: number; offset: number }> }>;
   styles(): Out<Array<{ id: number; name: string; englishName: string; kind: "para" | "char" }>>;
   readStyle(a: { name: string }): Out<Record<string, unknown>>;

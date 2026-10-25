@@ -130,6 +130,14 @@ describe('고치기', () => {
     expect(ops.outline(doc).blocks.map((b: { text: string }) => b.text)).toEqual(['새 제목', '나', '다']);
   });
 
+  it('수식 스크립트 안에서 찾은 글은 찾기·바꾸기에서 뺀다 (그 자리를 문단 글에 적용하면 앞 글이 지워진다)', () => {
+    const doc = blank(['가나다라마바사']);
+    doc.insertEquation(0, 0, 7, 'TOKEN', 1000, 0);
+    expect(ops.find(doc, { text: 'TOKEN' }).count).toBe(0);
+    expect(() => ops.replace(doc, { find: 'TOKEN', replace: 'X' })).toThrow(/찾지 못했습니다/);
+    expect(text(doc, '0.0')).toBe('가나다라마바사');
+  });
+
   it('바꿀 글의 줄바꿈·없는 표·잘못된 줄 수는 거절', () => {
     const doc = blank(['가']);
     expect(() => ops.replace(doc, { find: '가', replace: 'a\nb' })).toThrow(/줄바꿈/);
@@ -193,14 +201,20 @@ describe('고치기', () => {
       const again = reopen(doc, fmt);
       // 문단의 컨트롤 가운데 각주인 것 (구역 첫 문단엔 구역·단 정의가 앞에 있다)
       const notes = [0, 1].map((p) => {
-        for (let c = 0; c < 6; c++) { try { return JSON.parse(again.getFootnoteInfo(0, p, c)).texts.join('').trim(); } catch { /* 각주 아님 */ } }
+        for (let c = 0; c < 6; c++) { try { return JSON.parse(again.getFootnoteInfo(0, p, c)).texts.join(''); } catch { /* 각주 아님 */ } }
         return null;
       });
-      expect(notes, fmt).toEqual(['「전자정부법」 제1조', '문단 끝 각주']);
+      // 글은 번호 자리(앞 칸) 뒤에 붙는다: 글 뒤에 빈칸이 남으면 번호가 글 뒤로 밀린 것
+      expect(notes.map((n) => n?.trim()), fmt).toEqual(['「전자정부법」 제1조', '문단 끝 각주']);
+      expect(notes.every((n) => n === n?.trimEnd()), fmt).toBe(true);
     }
     // 본문 글은 그대로 (각주 번호는 글자가 아니다)
     expect(text(doc, '0.0')).toBe('전자정부법에 따라 추진한다');
     expect(() => ops.insertFootnote(doc, { id: '0.0', after: '없는 글', text: 'x' })).toThrow(/찾지 못했습니다/);
+    // 확장 한자(두 단위 글자) 뒤 낱말: 엔진 글자 자리는 코드 포인트
+    const wide = blank(['𠀀𠀁 법령 근거 끝']);
+    ops.insertFootnote(wide, { id: '0.0', after: '법령', text: '근거' });
+    expect(JSON.parse(wide.getControlTextPositions(0, 0)).at(-1)).toBe(5);
     const twice = blank(['법 법']);
     expect(() => ops.insertFootnote(twice, { id: '0.0', after: '법', text: 'x' })).toThrow(/여러 곳/);
     expect(() => ops.insertFootnote(twice, { id: '0.0', text: 'a\nb' })).toThrow(/줄바꿈/);

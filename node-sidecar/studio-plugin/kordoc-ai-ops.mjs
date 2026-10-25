@@ -207,9 +207,12 @@ function nestedTableId(h) {
 }
 
 /** 글 찾기 (본문·표 칸) */
+/** 찾기 결과 가운데 글로 고칠 수 있는 것: 수식 스크립트 안에서 찾은 것은 뺀다 (그 자리는 문단 글 위치가 아니다) */
+const textHits = (doc, text) => j(doc.searchAllText(text, false, true)).filter((h) => h.equationControl === undefined);
+
 export function find(doc, { text }) {
   if (!text) fail('찾을 글이 비었습니다.');
-  const hits = j(doc.searchAllText(text, false, true));
+  const hits = textHits(doc, text);
   return {
     count: hits.length,
     matches: hits.slice(0, 30).map((h) => (h.cellPath
@@ -260,7 +263,7 @@ export function fields(doc) {
 export function replace(doc, { find: text, replace: by = '', occurrence, all = false }) {
   if (!text) fail('바꿀 글이 비었습니다.');
   if (/\n/.test(by)) fail('바꿀 글에 줄바꿈을 넣지 마세요. 새 문단은 insert_paragraphs 로 넣습니다.');
-  const hits = j(doc.searchAllText(text, false, true));
+  const hits = textHits(doc, text);
   if (!hits.length) fail(`"${text}" 를 찾지 못했습니다.`);
   let targets;
   if (all) targets = hits;
@@ -307,16 +310,21 @@ export function insertFootnote(doc, { id, after, text }) {
   if (/\n/.test(text)) fail('각주 글에 줄바꿈을 넣지 마세요. 한 문단으로 씁니다.');
   if (text.length > 500) fail('각주 글은 500자까지 넣을 수 있습니다.');
   const body = paraText(doc, p.sec, p.para);
-  let offset = body.length;
+  // 엔진 글자 자리는 코드 포인트로 센다 (확장 한자 같은 두 단위 글자)
+  const chars = (str) => [...str].length;
+  let offset = chars(body);
   if (after !== undefined && after !== '') {
     const at = body.indexOf(String(after));
     if (at < 0) fail(`문단 ${id} 에서 "${after}" 를 찾지 못했습니다. read_document 로 문단 글을 확인하세요.`);
     if (body.indexOf(String(after), at + 1) >= 0) fail(`문단 ${id} 에 "${after}" 가 여러 곳 있습니다. 더 길게 적어 한 곳을 가리키세요.`);
-    offset = at + String(after).length;
+    offset = chars(body.slice(0, at)) + chars(String(after));
   }
   const r = j(doc.insertFootnote(p.sec, p.para, offset));
   if (!r?.ok) fail('각주를 넣지 못했습니다.');
-  doc.insertTextInFootnote(p.sec, r.paraIdx ?? p.para, r.controlIdx, 0, 0, text);
+  const at = r.paraIdx ?? p.para;
+  // 새 각주의 첫 문단은 엔진이 넣은 앞 칸·자동 번호 자리로 시작한다: 그 뒤(문단 끝)에 글을 넣어야 번호 뒤에 붙는다
+  const lead = j(doc.getFootnoteInfo(p.sec, at, r.controlIdx))?.texts?.[0] ?? '';
+  doc.insertTextInFootnote(p.sec, at, r.controlIdx, 0, chars(lead), text);
   return { id, number: r.footnoteNumber };
 }
 

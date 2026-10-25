@@ -52,7 +52,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 export const TOOLS: AgentToolDef[] = [
   { name: "read_document", description: "문서의 본문 문단(자리와 글)과 표 목록을 읽습니다. 긴 문서는 from 으로 이어 읽습니다.", inputSchema: obj({ from: { type: "integer", description: "몇 번째 문단부터(0부터)" } }) },
   { name: "read_table", description: "표 하나의 칸 글을 행·열 격자로 읽습니다. 병합 칸은 왼쪽 위 자리에 글, 나머지 자리는 null. 칸 안에 표가 있으면 그 표 자리도 알려 줍니다.", inputSchema: obj({ table }, ["table"]) },
-  { name: "find_text", description: "본문과 표 칸에서 글을 찾아 자리를 돌려줍니다.", inputSchema: obj({ text: { type: "string" } }, ["text"]) },
+  { name: "find_text", description: "본문과 표 칸에서 글을 찾아 자리를 돌려줍니다. 표 칸이면 at 은 표 자리(칸 안의 표 포함), cell 은 칸 번호(행·열이 아님: 행·열은 read_table 로 확인).", inputSchema: obj({ text: { type: "string" } }, ["text"]) },
   { name: "list_styles", description: "문서의 스타일 목록 (문단 스타일·글자 스타일).", inputSchema: obj({}) },
   { name: "read_style", description: "스타일 하나의 모양(글꼴·크기·정렬 등).", inputSchema: obj({ name: { type: "string" } }, ["name"]) },
   { name: "list_fields", description: "서식의 빈칸(누름틀) 이름과 지금 값.", inputSchema: obj({}) },
