@@ -13,7 +13,7 @@ import { getSettings } from './infra/config.js';
 import { syncOfflineEnv } from './infra/net-guard.js';
 import { seedBundledModels } from './core/system/index.js';
 import { setWorkerEntry } from './infra/worker.js';
-import { sweepStaleTempDirs } from './infra/llm/subscription/process.js';
+import { sweepStaleTempDirs } from './infra/llm/subscription/program.js';
 
 /** 짝 없는 서로게이트(글을 글자 중간에서 자른 확장 한자·이모지)를 U+FFFD 로 — Rust(serde_json)가 그 응답을 버려 호출이 시간 초과까지 멈춘다 */
 const wellFormed = (_k: string, v: unknown): unknown => (typeof v === 'string' ? (v as string & { toWellFormed(): string }).toWellFormed() : v);

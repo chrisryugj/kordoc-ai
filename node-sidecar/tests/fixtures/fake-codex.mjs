@@ -1,75 +1,80 @@
 #!/usr/bin/env node
-// 가짜 Codex app-server (JSON-RPC, 줄 단위) — 실제 codex 대신 시험에서 띄운다.
-// FAKE_CODEX_MODE: ok · apikey · signedout · mcp · nostatus · usage · noprofile · hang · toolitem · imageview · noinit · oldcodex · toolong · server
-// FAKE_LOG: 받은 인자·요청을 JSON 줄로 남길 파일
-import { appendFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+// 시험용 가짜 Codex (실제 codex 는 구독 사용량을 쓴다). 공식 CLI 의 `exec --json` 줄 모양만 흉내 낸다.
+// FAKE_CODEX_MODE: ok · oldcodex(셸 기능 없음) · stuck(셸 기능이 안 꺼짐) · toolitem · usage · toolong · signedout · server · badflag · hang
+//   · todo(계획 항목) · empty · linger(끝 알림 뒤 안 끝남) · slowfeatures(기능 확인이 0.5초)
+// FAKE_CODEX_AUTH: chatgpt(기본) · apikey · out  (`login status` 의 답)
+// FAKE_LOG: 기록 파일 (없으면 임시 폴더의 kordoc-fake-codex.jsonl)
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+const args = process.argv.slice(2);
 const mode = process.env.FAKE_CODEX_MODE ?? 'ok';
-const log = (entry) => { if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${JSON.stringify(entry)}\n`); };
+const logFile = process.env.FAKE_LOG ?? join(tmpdir(), 'kordoc-fake-codex.jsonl');
+const log = (e) => appendFileSync(logFile, `${JSON.stringify(e)}\n`);
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
-log({ kind: 'start', pid: process.pid, args: process.argv.slice(2), cwd: process.cwd(), env: { OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? null, CODEX_API_KEY: process.env.CODEX_API_KEY ?? null } });
+const watched = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'NODE_OPTIONS', 'KORDOC_SECRET'];
+log({ kind: 'run', pid: process.pid, args, cwd: process.cwd(), env: Object.fromEntries(watched.map((k) => [k, process.env[k] ?? null])) });
 
-const rl = createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  const m = JSON.parse(line);
-  log({ kind: 'rpc', method: m.method, params: m.params, id: m.id, result: m.result, error: m.error });
-  if (m.id === undefined || m.method === undefined) return;
-  const reply = (result) => out({ id: m.id, result });
-  switch (m.method) {
-    case 'initialize': return mode === 'noinit' ? undefined : reply({ userAgent: 'fake' });
-    case 'account/read':
-      if (mode === 'apikey') return reply({ account: { type: 'apiKey' }, requiresOpenaiAuth: true });
-      if (mode === 'signedout') return reply({ account: null, requiresOpenaiAuth: true });
-      return reply({ account: { type: 'chatgpt', planType: 'plus', email: 'kim@example.com' }, requiresOpenaiAuth: true });
-    case 'config/read': {
-      // 실제 Codex 처럼 받은 -c 덮어쓰기를 설정에 반영한다 (oldcodex: shell_tool 이름을 모르는 낮은 버전)
-      const config = { mcp_servers: { github: { command: 'gh-mcp' } }, features: { shell_tool: true, unified_exec: true, view_image: true }, web_search: null };
-      const argv = process.argv.slice(2);
-      for (let i = 0; i < argv.length; i++) {
-        if (argv[i] !== '-c') continue;
-        const [k, v] = argv[i + 1].split('=');
-        if (k.startsWith('features.') && !(mode === 'oldcodex' && k === 'features.shell_tool')) config.features[k.slice(9)] = v === 'true';
-        if (k === 'web_search') config.web_search = JSON.parse(v);
-      }
-      if (mode === 'oldcodex') delete config.features.shell_tool;
-      return reply({ config });
-    }
-    case 'model/list': return reply({ data: [{ id: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex', isDefault: true }, { id: 'gpt-5.5-mini', displayName: 'Mini' }, { id: 'hidden-one', hidden: true }], nextCursor: null });
-    case 'thread/start': {
-      const profile = m.params?.config?.default_permissions;
-      if (mode === 'noprofile') return reply({ thread: { id: profile ? 'thread-profile' : 'thread-ro' }, activePermissionProfile: null });
-      // 시험은 프로세스가 둘이 들 수 있어 서버 요청 하나를 끼워 본다 (거절로 답해야 함)
-      out({ id: 'srv-1', method: 'item/commandExecution/requestApproval', params: { threadId: 'thread-1' } });
-      return reply({ thread: { id: 'thread-1' }, activePermissionProfile: profile ? { id: profile } : null });
-    }
-    case 'thread/delete': return reply({});
-    case 'mcpServerStatus/list':
-      if (mode === 'nostatus') return reply({ data: [{ name: 'github', tools: {} }], nextCursor: null });
-      return reply({ data: [{ name: 'github', runtimeStatus: mode === 'mcp' ? 'ready' : 'disabled', tools: mode === 'mcp' ? { search: {} } : {} }], nextCursor: null });
-    case 'turn/start': {
-      reply({ turn: { id: 'turn-1' } });
-      if (mode === 'hang') return;
-      const threadId = m.params.threadId;
-      const n = (method, params) => out({ method, params: { threadId, turnId: 'turn-1', ...params } });
-      n('turn/started', { turn: { id: 'turn-1' } });
-      if (mode === 'usage') {
-        out({ method: 'account/rateLimits/updated', params: { rateLimits: { primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 1800 } } } });
-        n('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: 'usage limit', codexErrorInfo: 'usageLimitExceeded' } } });
-        return;
-      }
-      if (mode === 'toolitem') { n('item/started', { item: { type: 'commandExecution', command: 'type C:\\secret.txt' } }); return; }
-      if (mode === 'imageview') { n('item/started', { item: { type: 'imageView', path: 'C:\\secret.png' } }); return; }
-      if (mode === 'toolong') { n('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: 'too long', codexErrorInfo: 'contextWindowExceeded' } } }); return; }
-      if (mode === 'server') { n('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: 'x', codexErrorInfo: { responseStreamConnectionFailed: { httpStatusCode: 502 } } } } }); return; }
-      const text = m.params.outputSchema ? '{"a":"1"}' : '안녕하세요';
-      n('item/agentMessage/delta', { delta: text.slice(0, 2) });
-      n('item/completed', { item: { type: 'agentMessage', text } });
-      n('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-      return;
-    }
-    case 'turn/interrupt': return reply({});
-    default: return out({ id: m.id, error: { code: -32601, message: 'unknown' } });
+const FEATURES = ['shell_tool', 'unified_exec', 'view_image', 'apps', 'plugins', 'fast_mode'];
+if (args[0] === '--version') { process.stdout.write('codex-cli 0.157.0\n'); process.exit(0); }
+if (args[0] === 'login' && args[1] === 'status') {
+  const auth = process.env.FAKE_CODEX_AUTH ?? 'chatgpt';
+  process.stderr.write(auth === 'out' ? 'Not logged in\n' : auth === 'apikey' ? 'Logged in using an API key - sk-proj-***ABCD\n' : 'Logged in using ChatGPT\n');
+  process.exit(auth === 'out' ? 1 : 0);
+}
+if (args[0] === 'features' && args[1] === 'list') {
+  if (mode === 'slowfeatures') await new Promise((r) => setTimeout(r, 500));
+  const off = new Set(args.flatMap((a, i) => (args[i - 1] === '--disable' ? [a] : [])));
+  const names = mode === 'oldcodex' ? FEATURES.filter((f) => f !== 'shell_tool') : [...FEATURES, 'search_tool'];
+  for (const f of names) {
+    const on = f === 'search_tool' ? false : (mode === 'stuck' && f === 'shell_tool') || f === 'unified_exec' || !off.has(f);
+    process.stdout.write(`${f.padEnd(40)} ${f === 'search_tool' ? 'removed' : 'stable'}             ${on}\n`);
+  }
+  process.exit(0);
+}
+if (args[0] === 'debug' && args[1] === 'models') {
+  out({ models: [
+    { slug: 'gpt-test-mini', display_name: 'Test Mini', visibility: 'list', priority: 5 },
+    { slug: 'gpt-hidden', display_name: 'Hidden', visibility: 'hide', priority: 1 },
+    { slug: 'gpt-test', display_name: 'Test', visibility: 'list', priority: 2 },
+  ] });
+  process.exit(0);
+}
+if (args[0] !== 'exec') process.exit(2);
+if (mode === 'badflag') { process.stderr.write("error: unexpected argument '--ignore-rules' found\n"); process.exit(2); }
+
+const value = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
+const schemaFile = value('--output-schema');
+const images = args.flatMap((a, i) => (args[i - 1] === '--image' ? [a] : []));
+let input = '';
+process.stdin.setEncoding('utf-8');
+process.stdin.on('data', (d) => { input += d; });
+process.stdin.on('end', () => {
+  log({ kind: 'stdin', text: input, schema: schemaFile ? readFileSync(schemaFile, 'utf-8') : null, images: images.map((f) => ({ path: f, exists: existsSync(f) })) });
+  out({ type: 'thread.started', thread_id: 't-1' });
+  out({ type: 'turn.started' });
+  const failed = (message) => out({ type: 'turn.failed', error: { message } });
+  switch (mode) {
+    case 'toolitem': out({ type: 'item.started', item: { id: 'i1', type: 'command_execution', command: 'ls /' } }); return setInterval(() => {}, 1000);
+    case 'hang': return setInterval(() => {}, 1000);
+    case 'usage': return failed("You've hit your usage limit. Try again later.");
+    case 'toolong': return failed('Your input exceeds the context window of this model (input 140123 tokens, status 400).');
+    case 'empty': out({ type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: '' } }); return out({ type: 'turn.completed' });
+    case 'linger': out({ type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: '안녕하세요' } }); out({ type: 'turn.completed' }); return setInterval(() => {}, 1000);
+    case 'todo':
+      out({ type: 'item.updated', item: { id: 'i0', type: 'todo_list', items: [{ text: '요약', completed: false }] } });
+      out({ type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: '안녕하세요' } });
+      return out({ type: 'turn.completed' });
+    case 'server': return failed('unexpected status 500 Internal Server Error');
+    case 'signedout':
+      out({ type: 'error', message: 'Reconnecting... 1/5 (unexpected status 401 Unauthorized)' });
+      return failed('unexpected status 401 Unauthorized: Missing bearer or basic authentication in header');
+    default:
+      out({ type: 'item.completed', item: { id: 'i0', type: 'error', message: 'Code Mode is unavailable' } });
+      out({ type: 'item.completed', item: { id: 'i1', type: 'reasoning', text: '생각' } });
+      out({ type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: '확인하겠습니다.' } });
+      out({ type: 'item.completed', item: { id: 'i3', type: 'agent_message', text: schemaFile ? '{"a":"1"}' : '안녕하세요' } });
+      out({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } });
   }
 });
-rl.on('close', () => process.exit(0));

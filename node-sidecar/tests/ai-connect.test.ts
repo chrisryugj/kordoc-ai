@@ -23,9 +23,9 @@ import { ask, contextCharBudget, getProvider } from '../src/infra/llm/index.js';
 import { findLocalServers } from '../src/infra/llm/local-servers.js';
 import { aiStatus, listServerModels } from '../src/core/ai/status.js';
 import { subscriptionModels, subscriptionStatus } from '../src/core/ai/connect.js';
-import { clearLoginCache } from '../src/infra/llm/subscription/status.js';
+import { forgetLogins } from '../src/infra/llm/subscription/login.js';
 import { toAiError } from '../src/core/errors.js';
-import { CliRunError } from '../src/infra/llm/subscription/messages.js';
+import { SubscriptionError } from '../src/infra/llm/subscription/errors.js';
 
 const root = mkdtempSync(join(tmpdir(), 'kordoc-ai-connect-'));
 process.env.KORDOC_AI_DATA_DIR = join(root, 'data');
@@ -150,7 +150,7 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
 
   it('허용하면 인터넷 AI 로 보고 보내기 전에 개인정보를 가린다(system 까지). 통신 기록에 프로그램 이름으로 남는다', async () => {
     await useClaude({ allow_subscription: true });
-    clearLoginCache();
+    forgetLogins();
     expect(aiStatus()).toMatchObject({ provider: 'claude-code', configured: true, is_cloud: true });
     const sent = netLogSnapshot().external_sent;
     const r = await ask({ system: '담당자 전화 010-9876-5432 로 안내', messages: [{ role: 'user', content: '민원인 주민번호 900101-1234567, 전화 010-1234-5678 확인' }], signal: signal(), stream: false });
@@ -161,7 +161,8 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     expect(userLine).toContain('민원인 주민번호');
     expect(userLine).not.toContain('1234567');
     expect(userLine).not.toContain('1234-5678');
-    expect(lines.find((l) => l.includes('initialize'))).not.toContain('9876-5432');
+    expect(entries().filter((e) => e.kind === 'system').at(-1)!.text).toContain('담당자 전화');
+    expect(entries().filter((e) => e.kind === 'system').at(-1)!.text).not.toContain('9876-5432');
     expect(netLogSnapshot().external_sent).toBe(sent + 1);
     expect(netLogSnapshot().entries[0]).toMatchObject({ host: 'api.anthropic.com (Claude Code)', external: true, allowed: true });
   });
@@ -190,7 +191,7 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
   it('상태 확인: 설정한 프로그램 위치로 ready, 계정 이메일은 싣지 않는다', async () => {
     await useClaude({ allow_subscription: true });
     const { statuses } = await subscriptionStatus({ provider: 'claude-code' });
-    expect(statuses).toEqual([{ provider: 'claude-code', state: 'ready', version: '2.1.300', plan: 'max', login_command: 'claude', path: FAKE_CLAUDE }]);
+    expect(statuses).toEqual([{ provider: 'claude-code', state: 'ready', version: '2.1.302', plan: 'max', login_command: 'claude', path: FAKE_CLAUDE }]);
   });
 
   it('기관이 allow_subscription 을 false 로 고정하면 막혔다고 알리고 상태 확인도 띄우지 않는다', async () => {
@@ -209,7 +210,7 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
   it('구독 오류 문장은 화면 오류 변환(toAiError)을 지나도 그대로다', () => {
     for (const kind of ['signed-out', 'metered', 'not-installed', 'needs-update', 'rate-limit', 'overloaded', 'server-error', 'network', 'too-long', 'bad-request', 'timeout', 'unsafe-tools', 'failed'] as const) {
       for (const p of ['claude-code', 'codex'] as const) {
-        const e = new CliRunError(kind, p, undefined, { seconds: 180, resetsAt: Date.now() + 3600_000 });
+        const e = new SubscriptionError(kind, p, { seconds: 180, resetsAt: Date.now() + 3600_000, why: '까닭' });
         expect((toAiError(e) as Error).message).toBe(e.message);
         expect(e.message).not.toMatch(/[—–]/); // 화면 문장에 줄표 금지
       }

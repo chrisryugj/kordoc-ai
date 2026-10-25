@@ -11,9 +11,9 @@ import { assertProgramEgress } from '../../infra/net-guard.js';
 import { listClaudeCodeModels, type CliModel } from '../../infra/llm/claude-code.js';
 import { listCodexModels } from '../../infra/llm/codex.js';
 import { findLocalServers } from '../../infra/llm/local-servers.js';
-import { locateSubscriptionProgram } from '../../infra/llm/subscription/locate.js';
-import { LOGIN_COMMAND, PROGRAM_LABEL, type SubscriptionProviderId } from '../../infra/llm/subscription/messages.js';
-import { detectSubscriptionLogin } from '../../infra/llm/subscription/status.js';
+import { LOGIN_COMMAND, PROGRAM_LABEL, type SubscriptionProviderId } from '../../infra/llm/subscription/errors.js';
+import { checkLogin } from '../../infra/llm/subscription/login.js';
+import { findProgram } from '../../infra/llm/subscription/program.js';
 
 const PROVIDERS: SubscriptionProviderId[] = ['claude-code', 'codex'];
 const EGRESS: Record<SubscriptionProviderId, [string, string]> = {
@@ -39,16 +39,16 @@ function blocked(): Pick<SubscriptionStatus, 'state' | 'message'> | null {
 const cliPath = (p: SubscriptionProviderId) => getSettings().ai[p === 'codex' ? 'codex' : 'claude_code'].cli_path;
 
 async function statusOf(provider: SubscriptionProviderId, signal: AbortSignal): Promise<SubscriptionStatus> {
-  const program = await locateSubscriptionProgram(provider, { configuredPath: cliPath(provider) }).catch(() => null);
+  const program = await findProgram(provider, { configured: cliPath(provider) }).catch(() => null);
   const base = { provider, login_command: LOGIN_COMMAND[provider] };
-  if (!program) return (await detectSubscriptionLogin(provider, { locate: async () => null })) as SubscriptionStatus;
+  if (!program) return checkLogin(provider, null);
   const path = program.entry;
   if (!getSettings().ai.allow_subscription) {
     // 허용 전에는 띄우지 않는다: 설치돼 있다는 것만
     return { ...base, state: 'installed', path, message: `${PROGRAM_LABEL[provider]}가 설치돼 있습니다. 문서 보내기를 허용하고 저장하면 로그인 상태를 확인합니다.` };
   }
   assertProgramEgress(...EGRESS[provider]);
-  return { ...(await detectSubscriptionLogin(provider, { locate: async () => program, signal })), path };
+  return { ...(await checkLogin(provider, program, { signal })), path };
 }
 
 export async function subscriptionStatus(params: { provider?: unknown }, signal: AbortSignal = new AbortController().signal): Promise<{ statuses: SubscriptionStatus[] }> {

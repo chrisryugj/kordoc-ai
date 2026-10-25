@@ -1,83 +1,92 @@
 #!/usr/bin/env node
-// 가짜 Claude Code — 실제 claude 대신 시험에서 띄운다 (구독 사용량을 쓰지 않게).
-// FAKE_CLAUDE_MODE: ok · tools · early · auth · ratelimit · hang · old · exit · permission
-// FAKE_CLAUDE_AUTH: subscription(기본) · apikey · out — `auth status --json` 의 답
-// FAKE_LOG: 받은 인자·환경·stdin 줄을 JSON 줄로 남길 파일
-// FAKE_LOG 가 없으면(앱이 자식 환경을 허용 목록으로 걸러 못 받을 때) 임시 폴더의 kordoc-fake-claude.jsonl 에 남긴다
-import { appendFileSync } from 'node:fs';
+// 시험용 가짜 Claude Code (실제 claude 는 구독 사용량을 쓴다). 공식 CLI 의 stream-json 출력 모양만 흉내 낸다.
+// FAKE_CLAUDE_MODE: ok · tools · mcp · early · permission · apikey · nokeysrc · auth · retry · toolong · ratelimit · hang · old · exit
+//   · noinit(시작 보고 없이 답) · linger(답 뒤 안 끝남) · servertool · userevent · empty
+// FAKE_CLAUDE_AUTH: subscription(기본) · apikey · out  (`auth status --json` 의 답)
+// FAKE_CLAUDE_REPLY: ok 의 답 글
+// FAKE_LOG: 기록 파일. 없으면(앱이 자식 환경을 허용 목록으로 걸러 못 받을 때) 임시 폴더의 kordoc-fake-claude.jsonl
+import { appendFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? 'ok';
 const logFile = process.env.FAKE_LOG ?? join(tmpdir(), 'kordoc-fake-claude.jsonl');
-const log = (entry) => appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
+const log = (e) => appendFileSync(logFile, `${JSON.stringify(e)}\n`);
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
-log({ kind: 'run', args });
+const watched = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'NODE_OPTIONS', 'KORDOC_SECRET', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'];
+log({ kind: 'run', pid: process.pid, args, cwd: process.cwd(), env: Object.fromEntries(watched.map((k) => [k, process.env[k] ?? null])) });
 
-if (args[0] === '--version') { process.stdout.write('2.1.300 (Claude Code)\n'); process.exit(0); }
+if (args[0] === '--version') { process.stdout.write('2.1.302 (Claude Code)\n'); process.exit(0); }
 if (args[0] === 'auth' && args[1] === 'status') {
   const auth = process.env.FAKE_CLAUDE_AUTH ?? 'subscription';
-  if (auth === 'out') out({ loggedIn: false });
-  else if (auth === 'apikey') out({ loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty', email: 'kim@example.com', orgName: '가온시청' });
-  else out({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max', email: 'kim@example.com', orgName: '가온시청' });
-  process.exit(0);
+  const body = auth === 'out' ? { loggedIn: false, authMethod: 'none' }
+    : auth === 'apikey' ? { loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty', email: 'kim@example.com' }
+    : { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: 'kim@example.com', orgName: '가온시청', subscriptionType: 'max' };
+  process.stdout.write(JSON.stringify(body, null, 2));
+  process.exit(body.loggedIn ? 0 : 1);
 }
-
-log({ kind: 'start', pid: process.pid, args, cwd: process.cwd(), env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? null, OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? null, DISABLE_AUTOUPDATER: process.env.DISABLE_AUTOUPDATER ?? null, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ?? null, NODE_OPTIONS: process.env.NODE_OPTIONS ?? null, KORDOC_SECRET: process.env.KORDOC_SECRET ?? null } });
-
 if (mode === 'old') { process.stderr.write("error: unknown option '--restricted'\n"); process.exit(1); }
 if (mode === 'exit') process.exit(3);
 
-const rl = createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  log({ kind: 'stdin', line });
-  const msg = JSON.parse(line);
-  if (msg.type === 'control_request' && msg.request.subtype === 'initialize') {
-    out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { models: [
-      { value: 'default', displayName: 'Default (recommended)', resolvedModel: 'claude-opus-5-5' },
-      { value: 'sonnet', displayName: 'Sonnet' },
-      { value: '--evil', displayName: 'Bad' },
-    ], account: { email: 'kim@example.com' } } } });
-    if (mode === 'early') out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '먼저' } } });
-    return;
-  }
-  if (msg.type !== 'user') return;
-  if (mode === 'hang') return;
-  out({ type: 'system', subtype: 'init', tools: mode === 'tools' ? ['Bash', 'Read'] : [], mcp_servers: [] });
-  if (mode === 'tools') return;
-  if (mode === 'permission') { out({ type: 'control_request', request_id: 'p1', request: { subtype: 'can_use_tool', tool_name: 'Bash' } }); return; }
-  if (mode === 'auth') {
-    out({ type: 'assistant', error: 'authentication_failed', message: { content: [{ type: 'text', text: 'Invalid API key · Please run /login (kim@example.com)' }] } });
-    out({ type: 'result', subtype: 'success', is_error: true, result: 'Invalid API key' });
-    return;
-  }
-  if (mode === 'ratelimit') {
-    out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600 } });
-    out({ type: 'assistant', error: 'rate_limit', message: { content: [{ type: 'text', text: 'limit reached' }] } });
-    out({ type: 'result', subtype: 'success', is_error: true, result: 'limit reached' });
-    return;
-  }
-  if (mode === 'retry') {
-    // 첫 시도가 도중에 끊기고 다시 보낸 답 (API 재시도) — 결과는 두 번째 답이어야 한다
-    out({ type: 'stream_event', event: { type: 'message_start' } });
-    for (const piece of ['첫 시도', '가 끊김']) out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } } });
-    out({ type: 'stream_event', event: { type: 'message_start' } });
-    for (const piece of ['다시 ', '쓴 답입니다']) out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } } });
-    out({ type: 'result', subtype: 'success', is_error: false, result: '다시 쓴 답입니다', stop_reason: 'end_turn' });
-    return;
-  }
-  if (mode === 'toolong') {
-    out({ type: 'assistant', error: 'invalid_request', message: { content: [{ type: 'text', text: 'Prompt is too long' }] } });
-    out({ type: 'result', subtype: 'success', is_error: true, result: 'Prompt is too long', api_error_status: 400 });
-    return;
-  }
-  const text = process.env.FAKE_CLAUDE_REPLY ?? '안녕하세요';
-  out({ type: 'stream_event', event: { type: 'message_start' } });
-  for (const piece of text.match(/.{1,2}/gsu) ?? []) out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: piece } } });
-  out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '속생각' } } });
-  out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, result: text, stop_reason: 'end_turn' });
+const sysFile = args[args.indexOf('--system-prompt-file') + 1];
+log({ kind: 'system', text: readFileSync(sysFile, 'utf-8') });
+
+let input = '';
+process.stdin.setEncoding('utf-8');
+process.stdin.on('data', (d) => { input += d; });
+process.stdin.on('end', () => {
+  for (const line of input.split('\n').filter(Boolean)) log({ kind: 'stdin', line });
+  respond();
 });
-rl.on('close', () => { log({ kind: 'stdin-closed' }); process.exit(0); });
+
+const init = (over = {}) => out({ type: 'system', subtype: 'init', tools: [], mcp_servers: [], apiKeySource: 'none', model: 'claude-test', ...over });
+const delta = (text, type = 'text_delta') => out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type, [type === 'text_delta' ? 'text' : 'thinking']: text } } });
+const fail = (error, text, status = null) => {
+  out({ type: 'assistant', error, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  out({ type: 'result', subtype: 'success', is_error: true, result: text, api_error_status: status });
+};
+const hang = () => setInterval(() => {}, 1000);
+
+function respond() {
+  switch (mode) {
+    case 'tools': init({ tools: ['Bash', 'Read'] }); return hang();
+    case 'nokeysrc': out({ type: 'system', subtype: 'init', tools: [], mcp_servers: [] }); return hang();
+    case 'noinit': out({ type: 'result', subtype: 'success', is_error: false, result: '시작 보고 없는 답' }); return;
+    case 'servertool': init(); out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', name: 'web_search' } } }); return hang();
+    case 'userevent': init(); out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'x' }] } }); return hang();
+    case 'empty': init(); out({ type: 'result', subtype: 'success', is_error: false, result: '' }); return;
+    case 'linger': init(); out({ type: 'result', subtype: 'success', is_error: false, result: '안녕하세요' }); return hang();
+    case 'mcp': init({ mcp_servers: [{ name: 'github', status: 'connected' }] }); return hang();
+    case 'early': out({ type: 'assistant', message: { content: [{ type: 'text', text: '먼저' }] } }); init(); return hang();
+    case 'permission': init(); out({ type: 'control_request', request_id: '1', request: { subtype: 'can_use_tool', tool_name: 'Bash' } }); return hang();
+    case 'apikey': init({ apiKeySource: 'ANTHROPIC_API_KEY' }); return hang();
+    case 'hang': init(); return hang();
+    case 'auth': init(); process.stderr.write('account kim@example.com\n'); fail('authentication_failed', 'Not logged in · Please run /login'); return;
+    case 'toolong': init(); fail('invalid_request', 'Prompt is too long', 400); return;
+    case 'ratelimit':
+      init();
+      out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600 } });
+      fail('rate_limit', "You've hit your limit", 429);
+      return;
+    case 'retry':
+      init();
+      out({ type: 'stream_event', event: { type: 'message_start' } });
+      delta('앞 시도');
+      out({ type: 'stream_event', event: { type: 'message_start' } });
+      delta('다시 쓴 답입니다');
+      out({ type: 'result', subtype: 'success', is_error: false, result: '다시 쓴 답입니다' });
+      return;
+    default: {
+      const reply = process.env.FAKE_CLAUDE_REPLY ?? '안녕하세요';
+      init();
+      out({ type: 'stream_event', event: { type: 'message_start' } });
+      delta('생각 중', 'thinking_delta');
+      const half = Math.ceil(reply.length / 2);
+      delta(reply.slice(0, half));
+      delta(reply.slice(half));
+      out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: reply }] } });
+      out({ type: 'result', subtype: 'success', is_error: false, result: reply });
+    }
+  }
+}
