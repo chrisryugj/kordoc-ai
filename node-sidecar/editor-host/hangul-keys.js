@@ -80,6 +80,41 @@ export const SINGLES = [
   [false, true, true, 'c', 'ext:kordoc-normal-shape'],
 ];
 
+/**
+ * 표 단축키 (도움말 "표 내부에 커서를 둔 상태"·"셀 블록 상태"): [자리, Ctrl, Shift, Alt, 글쇠, 명령].
+ * 자리 cell = 표 칸 안(셀 블록 포함), block = F5 셀 블록에서만, object = 표를 개체로 고른 상태(칸 안에서 Esc).
+ * 표 밖에서는 같은 키가 원래 일을 한다(Ctrl+Enter 쪽 나누기 등).
+ */
+export const TABLE_KEYS = [
+  // 쉬운 계산식: 지금 칸에 맨 왼쪽(맨 위)부터 바로 앞(위) 칸까지의 합·평균·곱
+  ...[['h', 'row-sum'], ['v', 'col-sum'], ['j', 'row-avg'], ['b', 'col-avg'], ['k', 'row-product'], ['n', 'col-product']]
+    .map(([k, id]) => ['cell', true, true, false, k, `ext:kordoc-easy-${id}`]),
+  ['block', true, true, false, 'a', 'table:block-avg'], // 블록 평균
+  ['block', true, true, false, 'p', 'table:block-product'], // 블록 곱
+  ['object', false, false, false, 'p', 'format:object-properties'], // 개체 속성
+  ['object', false, false, false, 'l', 'format:object-properties'], // 선 모양
+  ['object', false, false, false, 'c', 'format:object-properties'], // 배경
+  ['object', true, false, false, 'e', 'edit:delete'], // 지우기
+  ['cell', true, false, false, 'enter', 'table:insert-row-below'], // 줄 추가
+  ['cell', true, false, false, 'backspace', 'table:delete-row'], // 줄 지우기
+  ['cell', false, false, true, 'insert', 'table:insert-row-col'], // 줄/칸 추가하기
+  ['cell', true, false, false, 'tab', 'ext:kordoc-cell-tab'], // 표 안에서 탭
+  ['block', false, false, false, 'enter', 'ext:kordoc-cell-edit'], // 편집 상태로
+  ['block', false, true, false, 'escape', 'ext:kordoc-table-exit'], // 표 빠져나가기
+  ['block', true, false, false, 'e', 'ext:kordoc-cell-clear'], // 셀 내용 지우기
+  ['block', false, false, false, 'f7', 'ext:kordoc-select-col'], // 칸 전체
+  ['block', false, false, false, 'f8', 'ext:kordoc-select-row'], // 줄 전체
+  // 셀 높이를 같게: rhwp 0.8.7 조판은 한 줄 높이를 바꾸면 다른 줄 높이도 따라 변해 맞출 수 없다.
+  // 스튜디오 명령 자리(지금은 꺼짐)로 보내 글자가 칸에 들어가지 않게만 한다
+  ['block', false, false, false, 'h', 'table:cell-height-equal'],
+  ['block', false, false, false, 'w', 'ext:kordoc-cell-width-equal'], // 셀 너비를 같게
+  ['block', false, false, false, 'p', 'table:cell-props'], // 표/셀 속성
+  ['block', false, false, false, 'l', 'table:border-each'], // 각 셀마다 적용: 테두리
+  ['block', false, false, false, 'c', 'ext:kordoc-bg-each'], // 각 셀마다 적용: 배경
+  ['block', false, false, false, 'b', 'table:border-one'], // 하나의 셀처럼 적용: 테두리
+  ['block', false, false, false, 'f', 'ext:kordoc-bg-one'], // 하나의 셀처럼 적용: 배경
+];
+
 /** 메뉴에 보일 한컴 키 글자 (스튜디오가 다른 키를 적어 둔 명령) */
 export const MENU_LABELS = {
   'format:align-center': 'Ctrl+Shift+C',
@@ -102,6 +137,9 @@ export const MENU_LABELS = {
   'insert:bookmark': 'Ctrl+K,B',
   'insert:field': 'Ctrl+K,E',
   'edit:redo': 'Ctrl+Shift+Z',
+  'table:insert-row-below': 'Ctrl+Enter',
+  'table:delete-row': 'Ctrl+Backspace',
+  'table:insert-row-col': 'Alt+Insert',
 };
 
 /** 겹글쇠를 기다리는 동안 눌려도 무시하는 글쇠 (Process 는 입력기가 받은 진짜 글쇠라 여기 없다) */
@@ -118,11 +156,21 @@ export function keyName(e) {
 /**
  * 키 하나를 판정한다 (순수 함수, 시험용). state.chord 는 기다리는 겹글쇠의 첫 글쇠.
  * 돌려주는 것: { chord } 첫 글쇠를 받음 · { commands, params? } 실행할 명령(앞에서부터 되는 것) ·
- * { swallow: true } 겹글쇠 둘째 자리의 모르는 글쇠(문서에 들어가지 않게 삼킴) · null 스튜디오에 맡김
+ * { swallow: true } 겹글쇠 둘째 자리의 모르는 글쇠(문서에 들어가지 않게 삼킴) · null 스튜디오에 맡김.
+ * where: 커서 자리 { cell: 표 칸 안, block: F5 셀 블록, object: 표 선택, nested: 중첩 표 칸 안 }
  */
-export function resolveKey(e, state, mac = false) {
+export function resolveKey(e, state, mac = false, where = {}) {
   const name = keyName(e);
   const ctrl = e.ctrlKey || (mac && e.metaKey);
+  // 중첩 표 칸의 Ctrl+Enter: 스튜디오의 줄 명령은 바깥 표만 움직이고 그냥 두면 쪽 나누기가 돼 바깥 문단이 갈린다. 삼킨다
+  if (!state.chord && where.nested && name === 'enter' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) return { swallow: true };
+  if (!state.chord && (where.cell || where.block || where.object)) {
+    for (const [at, c, s, a, key, command] of TABLE_KEYS) {
+      if (!where[at]) continue;
+      // 표 키의 Ctrl 은 맥에서도 Control 만 (⌘+Backspace 줄 시작까지 지우기 같은 맥 키를 지킨다)
+      if (key === name && !!c === (e.ctrlKey && !e.metaKey) && !!s === e.shiftKey && !!a === e.altKey) return { commands: [command] };
+    }
+  }
   if (state.chord) {
     // 첫 글쇠를 누른 채 반복된 것·Ctrl 따위는 둘째 글쇠가 아니다
     if (MODIFIERS.has(e.key) || e.repeat) return { wait: true };
@@ -180,6 +228,118 @@ function deleteLine(ih, wasm, toEnd) {
   if (ih.hasSelection()) ih.performDelete();
 }
 
+/** 편집 입력 칸에 스튜디오 키를 보낸다 (스튜디오가 원래 하는 일을 그대로 시킬 때) */
+function sendKey(doc, key, shiftKey = false) {
+  doc.querySelector('textarea[aria-label="문서 편집 입력"]')?.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, shiftKey, bubbles: true, cancelable: true }));
+}
+
+/** F5 셀 블록을 지금 칸이 든 줄 전체(row)나 칸 전체(col)로 넓힌다 */
+function selectLine(s, which) {
+  const ih = s.getInputHandler();
+  const cur = ih?.cursor;
+  const ctx = ih?.getCellTableContext?.();
+  const at = cur?.getCellSelectionFocus?.();
+  if (!ctx || !at || !cur.setCellSelectionAnchor) return;
+  if (which === 'row') { cur.setCellSelectionAnchor(at.row, 0); cur.setCellSelectionFocus(at.row, ctx.colCount - 1); }
+  else { cur.setCellSelectionAnchor(0, at.col); cur.setCellSelectionFocus(ctx.rowCount - 1, at.col); }
+  ih.updateCellSelection?.();
+}
+
+/**
+ * 셀 너비를 같게(W). HWP 표는 칸(열)마다 너비가 하나라(스튜디오는 그래서 이 명령을 비워 뒀다)
+ * 고른 칸들이 걸친 칸(열) 전체를 그 평균 너비로 맞춘다. 범위 경계를 넘는 합친 셀이 있으면 하지 않는다.
+ * cells: { i, col, colSpan, width } (HWPUNIT)
+ */
+export function equalWidthDeltas(cells, lo, hi) {
+  const widths = [];
+  for (let k = lo; k <= hi; k++) widths.push(cells.find((c) => c.col === k && c.colSpan === 1)?.width);
+  if (hi <= lo || widths.some((v) => !v)) return null;
+  const target = widths.reduce((a, b) => a + b, 0) / widths.length;
+  const out = [];
+  for (const c of cells) {
+    const to = c.col + c.colSpan - 1;
+    if (to < lo || c.col > hi) continue;
+    if (c.col < lo || to > hi) return null; // 경계를 넘는 합친 셀
+    const d = Math.round(target * c.colSpan - c.width);
+    if (d) out.push({ cellIdx: c.i, widthDelta: d });
+  }
+  return out;
+}
+
+function equalWidths(s) {
+  const ih = s.getInputHandler();
+  const cur = ih?.cursor;
+  const ctx = ih?.getCellTableContext?.();
+  const r = ih?.getSelectedCellRange?.();
+  // Ctrl+클릭으로 뺀 칸이 있으면 하지 않는다 (스튜디오 블록 계산식과 같게)
+  if (!ctx || !r || ih.hasExcludedCellSelection?.() || !ih.executeOperation) return;
+  const P = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+  const w = s.wasm;
+  const n = P(w.getTableDimensions(ctx.sec, ctx.ppi, ctx.ci)).cellCount;
+  const cells = [];
+  for (let i = 0; i < n; i++) cells.push({ i, ...P(w.getCellInfo(ctx.sec, ctx.ppi, ctx.ci, i)), width: P(w.getCellProperties(ctx.sec, ctx.ppi, ctx.ci, i)).width });
+  const deltas = equalWidthDeltas(cells, r.startCol, r.endCol);
+  if (!deltas?.length) return;
+  const pos = ih.getCursorPosition();
+  ih.executeOperation({
+    kind: 'snapshot',
+    operationType: 'cellWidthEqual',
+    // 스튜디오의 엔진 다리는 배열을 받아 스스로 JSON 으로 바꾼다
+    operation: (wasm) => { wasm.resizeTableCells(ctx.sec, ctx.ppi, ctx.ci, deltas); return pos; },
+  });
+}
+
+/** 칸(열) 번호 → 계산식 칸 이름 글자 (0 → A, 26 → AA) */
+export function colName(n) {
+  let s = '';
+  for (let k = n + 1; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(65 + ((k - 1) % 26)) + s;
+  return s;
+}
+
+/** 쉬운 계산식의 식: 가로는 같은 줄 맨 왼쪽~바로 앞 칸, 세로는 같은 칸 맨 위~바로 위 칸. 앞 칸이 없으면 null */
+export function easyFormula(row, col, kind) {
+  const [dir, fn] = kind.split('-');
+  const name = { sum: 'SUM', avg: 'AVERAGE', product: 'PRODUCT' }[fn];
+  if (dir === 'row') return col > 0 ? `=${name}(A${row + 1}:${colName(col - 1)}${row + 1})` : null;
+  return row > 0 ? `=${name}(${colName(col)}1:${colName(col)}${row})` : null;
+}
+
+function easyCalc(s, kind) {
+  const ih = s.getInputHandler();
+  const ctx = ih?.getCellTableContext?.();
+  const p = ih?.getCursorPosition?.();
+  if (!ctx || !p || p.cellIndex === undefined || (ctx.cellPath?.length ?? 0) > 1 || !ih.executeOperation) return;
+  const P = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+  const { row, col } = P(s.wasm.getCellInfo(ctx.sec, ctx.ppi, ctx.ci, p.cellIndex));
+  const formula = easyFormula(row, col, kind);
+  if (!formula) return;
+  ih.executeOperation({
+    kind: 'snapshot',
+    operationType: 'easyFormula',
+    operation: (wasm) => { wasm.evaluateTableFormula(ctx.sec, ctx.ppi, ctx.ci, row, col, formula, true); return p; },
+  });
+}
+
+/** 셀 테두리/배경 창을 배경 탭으로 연다 (스튜디오 창은 늘 테두리 탭으로 열린다) */
+function openBackground(s, doc, command) {
+  doc.defaultView?.rhwpStudio?.automation?.execute(command, undefined, { allowDialog: true });
+  const tab = [...doc.querySelectorAll('.dialog-tab[data-tab="background"]')].find((b) => b.offsetParent);
+  tab?.click();
+}
+
+/** 표 빠져나가기: 셀 블록을 풀고 표 바로 뒤로 커서를 옮긴다 */
+function exitTable(s, doc) {
+  const ih = s.getInputHandler();
+  const ctx = ih?.getCellTableContext?.();
+  if (!ctx) return;
+  sendKey(doc, 'Escape');
+  const at = s.wasm.getControlTextPositions(ctx.sec, ctx.ppi)[ctx.ci];
+  if (at === undefined) return;
+  ih.cursor.exitCellSelectionMode?.();
+  // 글 위치는 개체를 세지 않는다: 표 자리가 곧 표 바로 뒤
+  ih.moveCursorTo({ sectionIndex: ctx.sec, paragraphIndex: ctx.ppi, charOffset: at });
+}
+
 /** 날짜/시간 문자열: 한컴 기본 꼴 "2026년 10월 25일" */
 export const dateText = (d = new Date()) => `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
 
@@ -206,6 +366,25 @@ function extCommands(doc) {
       },
     },
   ];
+  const inCell = (ctx) => editable(ctx);
+  out.push(
+    { id: 'ext:kordoc-cell-tab', label: '표 안에서 탭', shortcutLabel: 'Ctrl+Tab', canExecute: inCell, execute: () => typeText(doc, '\t') },
+    { id: 'ext:kordoc-cell-edit', label: '셀 편집 상태로', shortcutLabel: 'Enter', canExecute: inCell, execute: () => sendKey(doc, 'Escape') },
+    { id: 'ext:kordoc-cell-clear', label: '셀 내용 지우기', shortcutLabel: 'Ctrl+E', canExecute: inCell, execute: () => sendKey(doc, 'Delete') },
+    { id: 'ext:kordoc-table-exit', label: '표 빠져나가기', shortcutLabel: 'Shift+Esc', canExecute: inCell, execute: (s) => exitTable(s, doc) },
+    { id: 'ext:kordoc-select-col', label: '칸 전체 고르기', shortcutLabel: 'F7', canExecute: inCell, execute: (s) => selectLine(s, 'col') },
+    { id: 'ext:kordoc-select-row', label: '줄 전체 고르기', shortcutLabel: 'F8', canExecute: inCell, execute: (s) => selectLine(s, 'row') },
+    ...['row-sum', 'col-sum', 'row-avg', 'col-avg', 'row-product', 'col-product'].map((kind) => ({
+      id: `ext:kordoc-easy-${kind}`,
+      label: { 'row-sum': '가로 합계', 'col-sum': '세로 합계', 'row-avg': '가로 평균', 'col-avg': '세로 평균', 'row-product': '가로 곱', 'col-product': '세로 곱' }[kind],
+      shortcutLabel: `Ctrl+Shift+${{ 'row-sum': 'H', 'col-sum': 'V', 'row-avg': 'J', 'col-avg': 'B', 'row-product': 'K', 'col-product': 'N' }[kind]}`,
+      canExecute: inCell,
+      execute: (s) => easyCalc(s, kind),
+    })),
+    { id: 'ext:kordoc-bg-each', label: '각 셀마다 적용: 배경', shortcutLabel: 'C', canExecute: inCell, execute: (s) => openBackground(s, doc, 'table:border-each') },
+    { id: 'ext:kordoc-bg-one', label: '하나의 셀처럼 적용: 배경', shortcutLabel: 'F', canExecute: inCell, execute: (s) => openBackground(s, doc, 'table:border-one') },
+    { id: 'ext:kordoc-cell-width-equal', label: '셀 너비를 같게', shortcutLabel: 'W', canExecute: inCell, execute: (s) => equalWidths(s) },
+  );
   for (const [c, [name, color]] of Object.entries(TEXT_COLORS)) {
     out.push({ id: `ext:kordoc-color-${c}`, label: `${name} 글자 색`, shortcutLabel: `Ctrl+M,${c.toUpperCase()}`, canExecute: editable, execute: (s) => s.eventBus.emit('format-char', { textColor: color }) });
   }
@@ -228,6 +407,28 @@ export function installHangulKeys(win) {
     for (const s of doc.querySelectorAll(`.md-item[data-cmd="${id}"] .md-shortcut`)) s.textContent = label;
   }
 
+  // 커서가 표 칸·셀 블록에 있는지는 편집기 서비스에 묻는다 (자동화 명령이 받는 서비스를 한 번 받아 둔다)
+  let services = null;
+  try {
+    auto.registerCommand({ id: 'ext:kordoc-where', label: '커서 자리 읽기', execute: (s) => { services = s; } });
+    auto.execute('ext:kordoc-where');
+  } catch { /* 같은 창에 두 번 걸 때 */ }
+  const where = () => {
+    const ih = services?.getInputHandler?.();
+    if (!ih) return {};
+    const cur = ih.cursor;
+    // 머리말·꼬리말·각주를 편집하는 동안에도 본문 커서는 칸에 남아 있다: 그때는 표 키를 쓰지 않는다
+    if (cur?.isInHeaderFooter?.() || cur?.isInFootnote?.()) return {};
+    const p = ih.getCursorPosition();
+    const ctx = ih.getCellTableContext?.();
+    // 본문의 한 겹 표 칸만. 글상자(cellIndex 0 + isTextBox)·캡션(65534)·중첩 표는 스튜디오 기본 동작을 둔다
+    // (스튜디오의 줄·칸 명령은 바깥 표 번호로 움직여 안쪽 표 대신 바깥 표를 바꾼다)
+    const nested = !!ctx && (ctx.cellPath?.length ?? 1) > 1;
+    const table = !!ctx && !nested && !p.isTextBox && p.cellIndex !== undefined && p.cellIndex < 65534;
+    const object = !!ih.isInTableObjectSelection?.();
+    return { cell: table && !object, block: table && !!ih.isInCellSelectionMode?.(), object, nested: nested && !object };
+  };
+
   const state = { chord: null };
   /** 문서 편집 입력 칸 (스튜디오의 숨은 textarea). 대화상자·도구 줄 입력 칸의 키는 스튜디오에 맡긴다 */
   const isEditBox = (t) => t?.getAttribute?.('aria-label') === '문서 편집 입력';
@@ -248,7 +449,7 @@ export function installHangulKeys(win) {
 
   win.addEventListener('keydown', (e) => {
     if (!isEditBox(e.target)) { state.chord = null; return; }
-    const r = resolveKey(e, state, mac);
+    const r = resolveKey(e, state, mac, where());
     if (!r || r.wait) return;
     e.preventDefault();
     e.stopImmediatePropagation();

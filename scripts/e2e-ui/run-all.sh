@@ -32,6 +32,11 @@ mkdir -p "$W/out-i-agent"
 KORDOC_DATA="$W/data-i-agent" node scripts/e2e-ui/i-agent.mjs --port 7729 --out "$W/out-i-agent" > "$W/i-agent.log" 2>&1 || fail=1
 echo "== i-agent $(grep -E '통과' "$W/i-agent.log" | tail -1)"
 grep -E '^FAIL' "$W/i-agent.log" | head -8
+# 한글 편집기 표 단축키: 중계기를 스스로 띄운다
+mkdir -p "$W/out-j-table"
+KORDOC_DATA="$W/data-j-table" node scripts/e2e-ui/j-table-keys.mjs --port 7730 --out "$W/out-j-table" > "$W/j-table.log" 2>&1 || fail=1
+echo "== j-table $(grep -E '통과' "$W/j-table.log" | tail -1)"
+grep -E '^FAIL' "$W/j-table.log" | head -8
 # 한글 편집기: 중계기를 스스로 두 번 띄운다(앱이 꺼졌다 다시 켜짐)
 mkdir -p "$W/out-h-editor"
 KORDOC_DATA="$W/data-h-editor" node scripts/e2e-ui/h-editor.mjs --port 7728 --out "$W/out-h-editor" > "$W/h-editor.log" 2>&1 || fail=1
