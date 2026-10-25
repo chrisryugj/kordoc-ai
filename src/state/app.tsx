@@ -36,7 +36,12 @@ export type AutoRunKind = "summarize" | "redact" | "precheck";
 export interface WorkbenchFocus { path: string; page?: number; tool?: ToolId; run?: AutoRunKind }
 export interface BatchStart { paths: string[]; task?: BatchTaskId; autoRun?: boolean }
 export type DraftKind = "reply" | "complaint" | "minutes" | "onepage" | "press" | "memo";
-export interface CreateStart { path?: string; route?: "library" | "blank" | "ai" | "convert"; kind?: DraftKind; markdown?: string; references?: string[]; recover?: { title?: string; working?: boolean } }
+export interface AgentTask { text: string; label: string }
+export interface CreateStart {
+  path?: string; route?: "library" | "blank" | "ai" | "convert"; kind?: DraftKind; markdown?: string; references?: string[]; recover?: { title?: string; working?: boolean };
+  /** 편집기로 연 뒤 편집기 AI 에 바로 시킬 요청 (결재 전 점검 지적 고치기). label 은 대화창에 보일 짧은 말 */
+  agentTask?: AgentTask;
+}
 export interface AssistantStart { paths: string[]; tab?: "ask" | "rewrite"; text?: string }
 
 interface AppValue {

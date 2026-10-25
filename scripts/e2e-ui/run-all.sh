@@ -32,6 +32,11 @@ mkdir -p "$W/out-i-agent"
 KORDOC_DATA="$W/data-i-agent" node scripts/e2e-ui/i-agent.mjs --port 7729 --out "$W/out-i-agent" > "$W/i-agent.log" 2>&1 || fail=1
 echo "== i-agent $(grep -E '통과' "$W/i-agent.log" | tail -1)"
 grep -E '^FAIL' "$W/i-agent.log" | head -8
+# 결재 전 점검 → 편집기에서 AI로 고치기: 가짜 AI 서버와 중계기를 스스로 띄운다
+mkdir -p "$W/out-k-precheck-agent"
+KORDOC_DATA="$W/data-k-precheck-agent" node scripts/e2e-ui/k-precheck-agent.mjs --port 7732 --out "$W/out-k-precheck-agent" > "$W/k-precheck-agent.log" 2>&1 || fail=1
+echo "== k-precheck-agent $(grep -E '통과' "$W/k-precheck-agent.log" | tail -1)"
+grep -E '^FAIL' "$W/k-precheck-agent.log" | head -8
 # 한글 편집기 표 단축키: 중계기를 스스로 띄운다
 mkdir -p "$W/out-j-table"
 KORDOC_DATA="$W/data-j-table" node scripts/e2e-ui/j-table-keys.mjs --port 7730 --out "$W/out-j-table" > "$W/j-table.log" 2>&1 || fail=1

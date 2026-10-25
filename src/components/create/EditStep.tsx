@@ -1,6 +1,6 @@
 /** 2. 편집 — 내장 한글 편집기(rhwp-studio)가 가운데를 채우고, 오른쪽에 접이식 보조 패널 */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Loader2, PanelRightClose, PanelRightOpen, Redo2, Save, Undo2, FileWarning } from "lucide-react";
 import { useApp } from "../../state/app";
 import { useCreate } from "./session";
@@ -11,8 +11,10 @@ import { EditorAssist } from "./EditorAssist";
 
 export function EditStep({ visible }: { visible: boolean }) {
   const { toast } = useApp();
-  const { session, editorState, editorError, frameRef, frameSrc, busyText, call, setStep, canSave, saveBlock, saveCurrent, saving } = useCreate();
+  const { session, editorState, editorError, frameRef, frameSrc, busyText, call, setStep, canSave, saveBlock, saveCurrent, saving, agentTask } = useCreate();
   const [assistOpen, setAssistOpen] = useState(true);
+  // 편집기 AI 에 보낼 요청이 오면 보조 패널을 편다 (접혀 있으면 대화창이 없어 요청이 가지 않는다)
+  useEffect(() => { if (agentTask) setAssistOpen(true); }, [agentTask]);
   const ready = editorState === "ready";
 
   const history = (op: "undo" | "redo") => void call(op, {}).catch((e) => toast(errorText(e), "error"));

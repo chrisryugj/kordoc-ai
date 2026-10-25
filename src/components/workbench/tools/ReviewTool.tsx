@@ -1,7 +1,7 @@
 /** 검토 — 결재 전 한 번에 점검: 엔진의 빠른 검사(표기법·날짜와 요일·표 합계·끝. 표시·빈칸·개인정보)를 먼저 보이고,
  *  K팀장(AI)·법령 근거는 뒤에서 이어 붙인다. 고칠 수 있는 것은 서식 그대로 사본으로 고치고 그 사본을 다시 점검한다. */
 
-import { ChevronRight, ClipboardCheck, Eye, Wand2 } from "lucide-react";
+import { ChevronRight, ClipboardCheck, Eye, Sparkles, Wand2 } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import type { LintFinding, ReviewIssue, RpcResult } from "../../../lib/contract";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,7 @@ import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../../common/St
 import { Check } from "../../common/Field";
 import { isHangul } from "../../../lib/format";
 import { LawResults, lawReason, type LawCitation } from "./LawResults";
+import { precheckTask, sentPoints } from "../../../lib/hwp-agent/precheck-task";
 
 const SEV: Record<string, { label: string; tone: string }> = {
   error: { label: "고칠 것", tone: "err" },
@@ -22,7 +23,7 @@ const SEV: Record<string, { label: string; tone: string }> = {
 const ORDER = { error: 0, warning: 1, info: 2 } as const;
 
 /** 지적 한 건의 몸 — 갈래·쪽·설명·걸린 곳(낱말 단위)·바르게 고친 모양. 규칙 코드는 보이지 않는다 */
-type Shown = Pick<LintFinding, "severity" | "message"> & Partial<Pick<LintFinding, "category" | "page" | "context" | "excerpt" | "fix" | "suggestion">>;
+type Shown = Pick<LintFinding, "severity" | "message"> & Partial<Pick<LintFinding, "rule" | "category" | "page" | "context" | "excerpt" | "fix" | "suggestion">>;
 
 export function FindingBody({ f }: { f: Shown }) {
   const context = f.context ?? (f.excerpt && f.excerpt !== f.fix?.from ? f.excerpt : undefined);
@@ -133,7 +134,7 @@ export function keepFromSettings(org?: { phone?: string; fax?: string; person?: 
 }
 
 export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { onGoPage?: (page: number) => void; autoRun?: number }) {
-  const { ai, openSettings, settings, openDocs } = useApp();
+  const { ai, openSettings, settings, openDocs, startCreate } = useApp();
   const hangul = isHangul(info.format);
   const [munche, setMunche] = useState(false);
   /** 지금 점검한 문서 (고친 뒤엔 고친 사본) */
@@ -201,6 +202,8 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
   for (const x of items) counts[x.severity]++;
   const fixes = [...new Map(items.filter((x) => x.fix && x.key.startsWith("e-")).map((x) => [`${x.fix!.from}\u0000${x.fix!.to}`, x.fix!])).values()];
   const canFix = hangul && fixes.length > 0;
+  // 표기 지적을 한글 편집기에서 편집기 AI 가 찾아 고친다 (점검한 그 파일: 고친 사본이면 사본)
+  const toAgent = sentPoints(items);
   const fixedCopy = target !== doc.path;
 
   const jump = (x: Item) => {
@@ -213,6 +216,8 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
   const done = !!pre.result && !pre.busy;
   /** K팀장·법령 확인이 아직 돈다 — 이때 "고칠 것 0" 을 녹색으로 내면 다 본 것처럼 읽힌다 */
   const more = review.busy || law.busy;
+  // K팀장·법령 확인이 끝난 뒤에 (도는 중에 누르면 목록과 곳 수가 그 뒤에 바뀐다)
+  const canAgent = hangul && !!ai?.configured && toAgent.length > 0 && !more;
   return (
     <div className="flex flex-col gap-4">
       <p className="kd-small kd-muted text-pretty">
@@ -254,6 +259,16 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
                 <div><Button variant="secondary" onClick={runFix}><Wand2 size={14} /> 고칠 수 있는 것 모두 고치기</Button></div>
               )}
               <ErrorLine message={fix.error} />
+            </div>
+          )}
+
+          {canAgent && (
+            <div className="kd-inset flex flex-col gap-2 p-3">
+              <p className="kd-small text-pretty kd-num">
+                표기 지적 {toAgent.length}곳을 이 파일 그대로 한글 편집기로 열어 AI가 찾아 고칩니다. 날짜와 요일, 표 합계, 개인정보, 빈칸처럼 내용을 확인해야 하는 곳은 위 목록에서 직접 보세요.
+                바꾼 곳은 AI 대화 탭에서 한 번에 되돌릴 수 있고, 저장해야 파일에 들어갑니다.
+              </p>
+              <div><Button variant="secondary" onClick={() => startCreate({ path: target, agentTask: { text: precheckTask(items), label: `결재 전 점검의 표기 지적 ${toAgent.length}곳을 고쳐 주세요` } })}><Sparkles size={14} /> 편집기에서 AI로 고치기</Button></div>
             </div>
           )}
 

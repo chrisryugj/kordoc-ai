@@ -13,7 +13,7 @@ import { rpc, errorText } from "../../lib/rpc";
 import { b64ToBuffer, bytesToB64, pickSavePath } from "../../lib/native";
 import { baseName, dirName, extOf, joinPath, stem, suggestFileName } from "../../lib/format";
 import { RHWP_MAX_PAGES } from "../../lib/rhwp-preview";
-import { useApp } from "../../state/app";
+import { useApp, type AgentTask } from "../../state/app";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { onQuitGuard } from "../../lib/quit";
@@ -47,7 +47,9 @@ const FIELDS_LOST = "한글 편집기가 열리지 않아 채운 칸 값을 저�
 const OPEN_FAILED = "한글 편집기가 이 문서를 열지 못해 편집기를 닫았습니다. 고치지 않은 그대로 저장·출력하거나, 문서를 다시 열어 보세요.";
 const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 문서 화면에서 내용을 보세요.";
 
-type OpenOpts = { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean; recover?: boolean };
+export type PendingAgentTask = AgentTask & { seq: number };
+
+type OpenOpts = { title?: string; fields?: Record<string, string>; working?: boolean; existing?: boolean; recover?: boolean; agentTask?: AgentTask };
 
 /** 복구 사본을 쓰는 간격과, 입력이 멈춰야 하는 시간 (치는 중엔 내보내지 않는다) */
 const RECOVERY_EVERY_MS = 30_000;
@@ -64,6 +66,9 @@ interface CreateValue {
   docState: EditorDocState | null;
   /** 편집기에 문서를 새로 연 횟수 — 칸 목록 등은 이 값이 바뀔 때 다시 읽는다 */
   docSeq: number;
+  /** 이 문서를 연 뒤 편집기 AI 에 보낼 요청 (보낼 때 takeAgentTask 로 꺼내면 지워진다) */
+  agentTask: PendingAgentTask | null;
+  takeAgentTask: (seq: number) => PendingAgentTask | null;
   frameRef: React.RefObject<HTMLIFrameElement | null>;
   frameSrc: string;
   /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다). recover: 그 경로의 복구 사본을 연다 */
@@ -112,6 +117,17 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const [frameSrc, setFrameSrc] = useState("");
   const [busyText, setBusyText] = useState("");
   const [docSeq, setDocSeq] = useState(0);
+  const seqRef = useRef(0);
+  // 문서를 다 연 뒤 편집기 AI 에 한 번 보낼 요청 (결재 전 점검 지적 고치기). seq = 그 문서를 연 번호
+  const [agentTask, setAgentTask] = useState<PendingAgentTask | null>(null);
+  const agentTaskRef = useRef<PendingAgentTask | null>(null);
+  const putAgentTask = useCallback((t: PendingAgentTask | null) => { agentTaskRef.current = t; setAgentTask(t); }, []);
+  const takeAgentTask = useCallback((seq: number) => {
+    const t = agentTaskRef.current;
+    if (!t || t.seq !== seq) return null;
+    putAgentTask(null);
+    return t;
+  }, [putAgentTask]);
   const [saving, setSaving] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -340,6 +356,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     const format: "hwp" | "hwpx" = extOf(path) === "hwp" ? "hwp" : "hwpx";
     const fields = opts?.fields && Object.keys(opts.fields).length ? opts.fields : null;
     opening.current = true;
+    putAgentTask(null);
     recovery.current = { seq: -1, at: 0, busy: false, gen: recovery.current.gen + 1 };
     setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
@@ -367,7 +384,10 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const toOriginal = recover && !opts?.working;
       setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty || recover, ...(toOriginal ? { savedAt: Date.now() } : {}) } : s));
       if (recover) toast(toOriginal ? "저장하지 않았던 고친 내용으로 열었습니다. 저장하면 원래 파일에 들어갑니다." : "저장하지 않았던 초안을 되살렸습니다.", "info");
-      setDocSeq((n) => n + 1);
+      const seq = ++seqRef.current;
+      setDocSeq(seq);
+      // 다 연 뒤에야 건다: 앞 문서가 열려 있는 동안 요청이 앞 문서로 가지 않게
+      if (opts?.agentTask) putAgentTask({ seq, ...opts.agentTask });
     } catch (e) {
       if (!loaded && client.current) stopEditor(OPEN_FAILED);
       toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
@@ -416,9 +436,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const focusEditor = useCallback(() => frameRef.current?.focus(), []);
 
   const value = useMemo<CreateValue>(() => ({
-    step, setStep, session, editorState, editorError, docState, docSeq, frameRef, frameSrc,
+    step, setStep, session, editorState, editorError, docState, docSeq, agentTask, takeAgentTask, frameRef, frameSrc,
     openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText,
-  }), [step, session, editorState, editorError, docState, docSeq, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
+  }), [step, session, editorState, editorError, docState, docSeq, agentTask, takeAgentTask, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
 
   return (
     <Ctx.Provider value={value}>

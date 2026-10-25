@@ -36,7 +36,7 @@ const EXAMPLES = [
 
 export function AgentChat() {
   const { ai } = useApp();
-  const { call, editorState, docSeq, session } = useCreate();
+  const { call, editorState, docSeq, session, agentTask, takeAgentTask } = useCreate();
   const [chat, setChat] = useState<Entry[]>([]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,9 +70,20 @@ export function AgentChat() {
   }, [docSeq]);
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [chat]);
 
+  // 결재 전 점검에서 "편집기에서 AI로 고치기"로 열었으면 문서가 다 열린 뒤 그 요청을 한 번 보낸다
+  // 요청은 편집 세션이 갖고 있다가(그 문서를 다 연 번호와 함께) 여기서 꺼내면 지워진다: 패널을 접었다 펴도 다시 가지 않는다
+  useEffect(() => {
+    if (!agentTask || agentTask.seq !== docSeq || !ai?.configured || editorState !== "ready" || busy) return;
+    const t = takeAgentTask(docSeq);
+    if (t) void send(t.text, t.label);
+    // send 는 매번 새로 만들어진다: 요청·문서 번호·준비 상태에만 반응한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentTask, docSeq, ai?.configured, editorState, busy, takeAgentTask]);
+
   const patchLast = (fn: (e: Entry) => Entry) => setChat((prev) => (prev.length ? [...prev.slice(0, -1), fn(prev[prev.length - 1])] : prev));
 
-  const send = async (text: string) => {
+  /** label: 대화창에 보일 말 (모델에는 text 전체를 보낸다) */
+  const send = async (text: string, label?: string) => {
     const request = text.trim();
     if (!request || busy || editorState !== "ready") return;
     setError("");
@@ -88,7 +99,7 @@ export function AgentChat() {
       const scope = sel && !sel.collapsed && sel.text.trim() ? sel : null;
       skill.setSelection(scope ? { text: scope.text, ...(scope.target ? { at: `${scope.target.section}.${scope.target.paragraph}` } : {}) } : null);
       const excerpt = scope ? scope.text.replace(/\s+/g, " ").trim().slice(0, 120) : undefined;
-      setChat((prev) => [...prev, { role: "user", text: request, ...(excerpt ? { scope: excerpt } : {}) }, { role: "assistant", text: "", tools: [] }]);
+      setChat((prev) => [...prev, { role: "user", text: label ?? request, ...(excerpt ? { scope: excerpt } : {}) }, { role: "assistant", text: "", tools: [] }]);
       const [f] = await Promise.all([bridge.foreignChanges().catch(() => -1), skill.refreshContext()]);
       foreign = f;
       const r = await runAgent({

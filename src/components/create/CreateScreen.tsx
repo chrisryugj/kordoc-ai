@@ -73,7 +73,8 @@ function CreateBody({ active }: { active: boolean }) {
     handled.current = createIntent.nonce;
     const rec = createIntent.value.recover;
     // 홈의 "되살리기": 그 경로의 복구 사본으로 연다 (새로 쓰기 초안이었으면 초안 그대로)
-    void openInEditor(createIntent.value.path, rec ? { recover: true, title: rec.title, ...(rec.working ? { working: true } : { existing: true }) } : { existing: true });
+    const task = createIntent.value.agentTask;
+    void openInEditor(createIntent.value.path, rec ? { recover: true, title: rec.title, ...(rec.working ? { working: true } : { existing: true }) } : { existing: true, ...(task ? { agentTask: task } : {}) });
   }, [createIntent, openInEditor]);
 
   return (

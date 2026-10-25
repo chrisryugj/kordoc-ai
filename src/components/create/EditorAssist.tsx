@@ -208,6 +208,9 @@ function ReviewTab() {
 
 export function EditorAssist() {
   const [tab, setTab] = useState<Tab>("agent");
+  // 편집기 AI 에 보낼 요청이 오면 AI 대화 탭으로 (다른 탭이면 고치는 과정과 되돌리기가 안 보인다)
+  const { agentTask } = useCreate();
+  useEffect(() => { if (agentTask) setTab("agent"); }, [agentTask]);
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     const i = TABS.findIndex((t) => t.id === tab);
