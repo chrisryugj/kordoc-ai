@@ -8,12 +8,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { MessageSquarePlus, Send, Square, Undo2 } from "lucide-react";
 import { useApp } from "../../state/app";
-import { errorText, isAbort } from "../../lib/rpc";
+import { errorText, isAbort, rpc } from "../../lib/rpc";
+import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { Button } from "../ui/Button";
 import { ErrorLine, Note } from "../common/Status";
 import { useCreate } from "./session";
 import { createAgentBridge } from "../../lib/hwp-agent/bridge";
-import { createHwpSkill } from "../../lib/hwp-agent/tools";
+import { createHwpSkill, type OrgSource } from "../../lib/hwp-agent/tools";
 import { runAgent, type AgentEvent } from "../../lib/hwp-agent/loop";
 
 interface Entry {
@@ -48,14 +49,26 @@ export function AgentChat() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const bridge = useMemo(() => createAgentBridge(call), [call]);
+  // 우리 기관 문서 모음 — 모델이 "보고서"처럼 갈래 이름으로 물어도 프리셋 id 로 찾는다
+  const meta = useGongmunMeta();
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
+  const org = useMemo<OrgSource>(() => ({
+    kinds: async () => (await rpc("org_corpus_list", {})).kinds.map((k) => `${k.label} ${k.count}건`).join(", "),
+    reference: async (kind) => {
+      const id = metaRef.current?.presets.find((p) => p.id === kind || p.label === kind)?.id ?? kind;
+      return (await rpc("org_corpus_reference", { kind: id }))?.text ?? null;
+    },
+  }), []);
   const skill = useMemo(() => createHwpSkill({
     bridge,
+    org,
     onChange: (change) => {
       runChanges.current += 1;
       // 바뀐 곳으로 화면을 옮긴다 (문서 아래쪽 변경은 안 보이고 지나간다)
       if (change.place) void bridge.reveal(change.place).catch(() => undefined);
     },
-  }), [bridge]);
+  }), [bridge, org]);
 
   // 편집기에 다른 문서를 열기 시작하면 바로 멈춘다 (docSeq 는 다 연 뒤에 올라 그 사이 도구 호출이 새 문서로 갈 수 있다)
   useEffect(() => { ctrl.current?.abort(); }, [session?.path]);

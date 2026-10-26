@@ -41,6 +41,8 @@ export function registerDocumentWork(router: RpcRouter): void {
       preview_only: bool(p.preview_only),
       preview_pages: num(p.preview_pages),
       preview_hwpx: bool(p.preview_hwpx),
+      template_path: optPath(p.template_path),
+      slogan: str(p.slogan),
     }, signal);
   });
   reg('template_fields', (p) => templateFields({ template: str(p.template), path: optPath(p.path) }));

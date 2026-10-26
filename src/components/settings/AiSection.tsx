@@ -1,4 +1,4 @@
-/** 나. AI 연결 — 갈래: 이 PC 안(내장) · 이 PC의 로컬 모델 서버 · 기관 AI 서버 · 인터넷 AI 서비스(키) · 구독 계정(Claude Code·Codex) */
+/** 다. AI 연결 — 갈래: 이 PC 안(내장) · 이 PC의 로컬 모델 서버 · 기관 AI 서버 · 인터넷 AI 서비스(키) · 구독 계정(Claude Code·Codex) */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { BadgeCheck, Cloud, Cpu, HardDrive, Lock, PlugZap, RefreshCw, Save, Server } from "lucide-react";
@@ -105,7 +105,7 @@ export function AiSection() {
   });
 
   return (
-    <Section id="set-ai" mark="나." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 고르세요. 무엇을 고를지 모르겠으면 아래 고르는 법대로 하면 됩니다."
+    <Section id="set-ai" mark="다." title="AI 연결" sub="요약·초안·검토에 쓸 AI를 고르세요. 무엇을 고를지 모르겠으면 아래 고르는 법대로 하면 됩니다."
       aside={dirty ? <UnsavedBadge /> : undefined}>
       <ul className="kd-pickhow" aria-label="고르는 법">
         <li><b>인터넷이 막힌 PC</b>라면 이 PC 안에서</li>

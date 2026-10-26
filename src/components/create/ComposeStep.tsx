@@ -160,7 +160,7 @@ export function ComposeStep({ active }: { active: boolean }) {
       </div>
       <div className="kd-route-body">
         {/* 다음 동작은 바닥 고정 줄로 — 보이는 시작점만 그 자리에 그린다 */}
-        {visited.has("library") && <ActionBarSlot.Provider value={route === "library" ? barEl : null}><div hidden={route !== "library"} className="h-full"><TemplateLibrary onStyleSample={(p) => { go("ai"); setSeed({ levelsFrom: p, nonce: Date.now() }); }} /></div></ActionBarSlot.Provider>}
+        {visited.has("library") && <ActionBarSlot.Provider value={route === "library" ? barEl : null}><div hidden={route !== "library"} className="h-full"><TemplateLibrary onStyleSample={(p) => { go("ai"); setSeed({ levelsFrom: p, nonce: Date.now() }); }} onDraft={(preset) => { go("ai"); setSeed({ preset, nonce: Date.now() }); }} /></div></ActionBarSlot.Provider>}
         {visited.has("blank") && <ActionBarSlot.Provider value={route === "blank" ? barEl : null}><div hidden={route !== "blank"}><BlankStart /></div></ActionBarSlot.Provider>}
         {visited.has("ai") && <ActionBarSlot.Provider value={route === "ai" ? barEl : null}><div hidden={route !== "ai"} className="h-full"><DraftComposer seed={seed} onRoute={go} /></div></ActionBarSlot.Provider>}
         {visited.has("convert") && <ActionBarSlot.Provider value={route === "convert" ? barEl : null}><div hidden={route !== "convert"}><ConvertStart file={convertFile} setFile={setConvertFile} /></div></ActionBarSlot.Provider>}

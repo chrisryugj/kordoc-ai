@@ -1,4 +1,4 @@
-/** 서식 옵션 — 기관 서식·표지·결재란·목차·쪽 번호·끝 표시·견본 서식 학습 */
+/** 서식 옵션 — 기관 서식·표지·결재란·목차·쪽 번호·끝 표시·견본 서식 학습 (locked = 우리 기관 견본 서식 그대로라 쓰지 않을 때 그 까닭) */
 
 import { ChevronDown, FileUp, X } from "lucide-react";
 import { useGongmunMeta } from "../../hooks/useGongmunMeta";
@@ -33,10 +33,10 @@ function FilePick({ label, hint, value, onChange }: { label: string; hint: strin
   );
 }
 
-export function FormatOptions({ value, onChange, open, onToggle }: { value: FormatOpts; onChange: (v: FormatOpts) => void; open: boolean; onToggle: () => void }) {
+export function FormatOptions({ value, onChange, open, onToggle, locked }: { value: FormatOpts; onChange: (v: FormatOpts) => void; open: boolean; onToggle: () => void; locked?: string }) {
   const meta = useGongmunMeta();
   const set = <K extends keyof FormatOpts>(k: K, v: FormatOpts[K]) => onChange({ ...value, [k]: v });
-  const summary = [value.agency || "공통 서식", value.approval ? `결재 ${value.approval.split(",").filter((s) => s.trim()).length}칸` : "", value.cover ? "표지" : "", value.toc ? "목차" : "", value.levelsFrom ? "견본 학습" : ""].filter(Boolean).join(" · ");
+  const summary = locked ? "우리 기관 견본 서식 그대로" : [value.agency || "공통 서식", value.approval ? `결재 ${value.approval.split(",").filter((s) => s.trim()).length}칸` : "", value.cover ? "표지" : "", value.toc ? "목차" : "", value.levelsFrom ? "견본 학습" : ""].filter(Boolean).join(" · ");
 
   return (
     <section className="kd-fold" data-open={open}>
@@ -45,7 +45,8 @@ export function FormatOptions({ value, onChange, open, onToggle }: { value: Form
         <span className="kd-small kd-muted flex-1 text-left">{summary}</span>
         <ChevronDown size={16} className="kd-fold-chev" />
       </button>
-      {open && (
+      {open && locked && <div className="kd-fold-body"><p className="kd-small kd-muted">{locked}</p></div>}
+      {open && !locked && (
         <div className="kd-fold-body">
           <div className="kd-form-row">
             <SelectField label="기관 서식" value={value.agency} onChange={(v) => set("agency", v)}

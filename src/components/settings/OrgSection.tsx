@@ -8,6 +8,7 @@ import { rpc } from "../../lib/rpc";
 import { FILTERS, pickFiles } from "../../lib/native";
 import { baseName } from "../../lib/format";
 import { useGongmunMeta } from "../../hooks/useGongmunMeta";
+import { orgCorpusChanged } from "../../hooks/useOrgCorpus";
 import { Button } from "../ui/Button";
 import { Field, Section, SelectField, TextField } from "../common/Field";
 import { lockProps, useLocked } from "./PolicyLock";
@@ -66,7 +67,7 @@ export function OrgSection() {
   const save = async () => {
     setSaving(true);
     const ok = !!(await saveSettings({ org }));
-    if (ok) toast("내 기관 정보를 저장했습니다", "success");
+    if (ok) { toast("내 기관 정보를 저장했습니다", "success"); orgCorpusChanged(); } // 기안문 견본 표어는 기관 이름이 같을 때만
     setSaving(false);
     return ok;
   };

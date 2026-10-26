@@ -69,6 +69,10 @@ export function weekdayFindings(text: string): LintFinding[] {
 
 const TOTAL_LABEL = /^(합\s*계|총\s*계|총\s*합\s*계|계|총\s*액|합)$/;
 const SUBTOTAL_LABEL = /^(소\s*계)$/;
+/** 표 전체의 합 ("계" 는 합계 줄이 따로 있거나 둘째 칸에서 사업 이름 옆이면 무리의 소계) */
+const GRAND_LABEL = /^(합\s*계|총\s*계|총\s*합\s*계|총\s*액|합)$/;
+/** 2줄 머리의 연도 칸 ("| 계 | 2025 | 2026 |") 은 값이 아니다 */
+const YEAR_CELL = /^(?:19|20)\d{2}(?:년도?)?$/;
 /** 더해서는 안 되는 열 (비율·단가·번호·연도 등) */
 const NON_ADDITIVE = /비율|비중|%|％|단가|률|율|번호|연번|순번|순위|연도|년도|평균|증감|대비|코드|날짜|일자|기간|전화/;
 
@@ -147,18 +151,23 @@ function tablesOf(blocks: IRBlock[]): IRTable[] {
 
 const label = (s: string | null | undefined) => plainText(s ?? '').replace(/\s+/g, '');
 
-/** 한 줄(행 또는 열)의 합계 대조 — values 는 위에서부터 칸 글. 맞지 않으면 [기대값, 지금 값] */
-function compareSum(parts: Array<string | null>, total: string): { expected: string; got: string } | undefined {
+/** 한 줄(행 또는 열)의 합계 대조 — values 는 위에서부터 칸 글. ok = 맞음, 틀리면 [기대값, 지금 값], null = 견줄 수 없음(더할 칸이 하나뿐·숫자 아닌 칸) */
+function sumCheck(parts: Array<string | null>, total: string): { ok: true } | { ok: false; expected: string; got: string } | null {
   const t = cellNumber(total);
-  if (!t || !plainText(total).trim()) return undefined;
+  if (!t || !plainText(total).trim()) return null;
   const nums = parts.map((p) => (p === null ? undefined : cellNumber(p)));
   const real = parts.filter((p, i) => p !== null && nums[i] && plainText(p).replace(/[\s-–―]/g, '') !== '');
-  if (real.length < 2 || nums.some((n, i) => parts[i] !== null && !n)) return undefined;
+  if (real.length < 2 || nums.some((n, i) => parts[i] !== null && !n)) return null;
   const decimals = Math.max(t.decimals, ...nums.map((n) => n?.decimals ?? 0));
   const sum = nums.reduce((a, n) => a + (n?.value ?? 0), 0);
   const tol = decimals ? (10 ** -decimals) * Math.max(1, real.length) / 2 : 0;
-  if (Math.abs(sum - t.value) <= tol + 1e-9) return undefined;
-  return { expected: showNum(sum, decimals, total), got: plainText(total) };
+  if (Math.abs(sum - t.value) <= tol + 1e-9) return { ok: true };
+  return { ok: false, expected: showNum(sum, decimals, total), got: plainText(total) };
+}
+
+function compareSum(parts: Array<string | null>, total: string): { expected: string; got: string } | undefined {
+  const r = sumCheck(parts, total);
+  return r && !r.ok ? r : undefined;
 }
 
 /** 표 합계 — 합계·소계·계 행(맨 왼쪽 칸)과 합계 열(맨 위 칸) */
@@ -169,33 +178,55 @@ export function sumFindings(blocks: IRBlock[], markdown: string): Array<LintFind
     if (g.length < 3 || (g[0]?.length ?? 0) < 2) return;
     const cols = g[0].length;
     const head = g[0].map(label);
-    // 행 합계: 맨 왼쪽(또는 둘째) 칸이 합계·소계
-    const labelCol = (r: number) => [0, 1].find((c) => TOTAL_LABEL.test(label(g[r][c])) || SUBTOTAL_LABEL.test(label(g[r][c])));
-    let groupStart = 1;
-    for (let r = 1; r < g.length; r++) {
-      const lc = labelCol(r);
-      if (lc === undefined) continue;
-      const sub = SUBTOTAL_LABEL.test(label(g[r][lc]));
-      const rows: number[] = [];
-      for (let k = sub ? groupStart : 1; k < r; k++) {
-        const kl = labelCol(k);
-        if (kl !== undefined) continue; // 다른 합계·소계 행은 더하지 않는다 (소계 아래 칸을 그대로 더한다)
-        rows.push(k);
+    // 행 합계: 맨 왼쪽(또는 둘째) 칸이 합계·소계이고 그 뒤에 숫자 칸이 있는 줄. 숫자 칸이 없는 줄(2줄 머리의 "계 | 남 | 여"·"계 | 2025 | 2026")은 합계 줄도 더할 줄도 아니다
+    const valueCell = (v: string | null | undefined) => v != null && plainText(v).trim() !== '' && !YEAR_CELL.test(label(v)) && cellNumber(v) !== undefined;
+    const numeric = (r: number, from: number) => g[r].some((v, k) => k >= from && valueCell(v));
+    const labelCol = (r: number) => {
+      const c = [0, 1].find((k) => TOTAL_LABEL.test(label(g[r][k])) || SUBTOTAL_LABEL.test(label(g[r][k])));
+      return c !== undefined && numeric(r, c + 1) ? c : undefined;
+    };
+    const isData = (r: number) => labelCol(r) === undefined && numeric(r, 1);
+    const labelRows = g.map((_, r) => r).filter((r) => r > 0 && labelCol(r) !== undefined);
+    const hasGrand = labelRows.some((r) => GRAND_LABEL.test(label(g[r][labelCol(r)!])));
+    const isSub = (r: number, lc: number) => {
+      const t = label(g[r][lc]);
+      if (SUBTOTAL_LABEL.test(t)) return true;
+      // "계": 합계 줄이 따로 있으면 무리의 계, 둘째 칸에서 사업 이름 옆이면 그 사업의 계
+      return t === '계' && (hasGrand || (lc === 1 && label(g[r][0]) !== '' && !TOTAL_LABEL.test(label(g[r][0]))));
+    };
+    // 소계 자리는 표마다 하나: 첫 소계 앞(머리·맨 위 합계 다음)에 더할 줄이 있으면 무리 뒤(위 줄들의 합), 없으면 무리 앞(아래 줄들의 합)
+    const firstSub = labelRows.find((r) => isSub(r, labelCol(r)!));
+    const subAfter = firstSub === undefined || g.slice(1, firstSub).some((_, i) => isData(i + 1));
+    let prevSub = 0;
+    for (const r of labelRows) {
+      const lc = labelCol(r)!;
+      const sub = isSub(r, lc);
+      const rows = (from: number, to: number) => { const out: number[] = []; for (let k = from; k < to; k++) if (isData(k)) out.push(k); return out; };
+      const nextLabel = labelRows.find((k) => k > r) ?? g.length;
+      let dirs: Array<{ rows: number[]; word: string }>;
+      if (sub) dirs = subAfter ? [{ rows: rows(prevSub + 1, r), word: '위' }] : [{ rows: rows(r + 1, nextLabel), word: '아래' }];
+      else {
+        // 합계: 위에 더할 줄이 없으면 아래(머리 바로 아래 합계, 공문 관행), 아래에 없으면 위, 둘 다 있으면(가운데 합계) 어느 쪽이든 맞으면 통과
+        const above = rows(1, r);
+        const below = rows(r + 1, g.length);
+        dirs = above.length && below.length ? [{ rows: above, word: '위' }, { rows: below, word: '아래' }] : below.length ? [{ rows: below, word: '아래' }] : [{ rows: above, word: '위' }];
       }
       for (let c = lc + 1; c < cols; c++) {
         if (NON_ADDITIVE.test(head[c] ?? '')) continue;
         const total = g[r][c];
         if (total === null || total === undefined) continue;
-        const bad = compareSum(rows.map((k) => g[k][c]), total);
-        if (!bad) continue;
+        // 견줄 수 있는 쪽만 본다 (더할 칸이 하나뿐인 쪽을 통과로 세면 다른 쪽의 틀린 값이 가려진다)
+        const tried = dirs.map((d) => ({ word: d.word, res: sumCheck(d.rows.map((k) => g[k][c]), total) })).filter((t) => t.res !== null);
+        if (!tried.length || tried.some((t) => t.res!.ok)) continue;
+        const { res, word } = tried[0] as { res: { ok: false; expected: string; got: string }; word: string };
         out.push({
           rule: 'SUM_MISMATCH', severity: 'error', category: '표 합계', table: ti + 1,
-          message: `표 ${ti + 1}의 ${plainText(g[r][lc] ?? '합계')} 행${head[c] ? `(${plainText(g[0][c] ?? '')})` : ''}이 ${bad.got}인데, 위 칸을 더하면 ${bad.expected}입니다.`,
-          excerpt: bad.got, context: [plainText(g[r][lc] ?? ''), bad.got].join(' '),
-          fix: { from: bad.got, to: bad.expected },
+          message: `표 ${ti + 1}의 ${plainText(g[r][lc] ?? '합계')} 행${head[c] ? `(${plainText(g[0][c] ?? '')})` : ''}이 ${res.got}인데, ${word} 칸을 더하면 ${res.expected}입니다.`,
+          excerpt: res.got, context: [plainText(g[r][lc] ?? ''), res.got].join(' '),
+          fix: { from: res.got, to: res.expected },
         });
       }
-      if (sub) groupStart = r + 1;
+      if (sub) prevSub = r;
     }
     // 열 합계: 맨 위 칸이 합계·계인 열 = 같은 줄 왼쪽 숫자 칸의 합
     head.forEach((h, c) => {

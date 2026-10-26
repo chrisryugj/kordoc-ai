@@ -228,7 +228,8 @@ export function titleText(doc: HwpxDoc | null): string | undefined {
   return doc ? analyzeFrame(doc).titleText : undefined;
 }
 
-export async function extractStyle(path: string, signal?: AbortSignal): Promise<{ format: StyleFormat; warnings: string[]; bytes: Uint8Array }> {
+/** markdown = 갈래 짐작에 쓴 kordoc 글 (읽지 못했으면 본문 문단 글) */
+export async function extractStyle(path: string, signal?: AbortSignal): Promise<{ format: StyleFormat; warnings: string[]; bytes: Uint8Array; markdown: string }> {
   const bytes = await sampleBytes(path, signal);
   const doc = await readHwpx(bytes);
   const { body, front, title, headTable, frameTables, frontTables, warnings } = analyzeFrame(doc);
@@ -314,9 +315,10 @@ export async function extractStyle(path: string, signal?: AbortSignal): Promise<
     const name = org?.p.text.replace(/\s+/g, ' ').trim();
     if (name) head = { org: name.split(' ').every((t) => t.length === 1) ? name.replace(/ /g, '') : name };
     // 기관 표어: 머리 표에서 기관 이름보다 앞에 오는 작은 글 줄
-    const all = doc.paras.filter((p) => p.table === headTable.index && visible(p.text) > 5 && !HEAD_RE.test(p.text.trim()));
+    // (기관 이름은 "가 온 시" 처럼 짧아서 글자 수 조건은 표어 쪽에만)
+    const all = doc.paras.filter((p) => p.table === headTable.index && visible(p.text) && !HEAD_RE.test(p.text.trim()));
     const orgAt = org ? all.indexOf(org.p) : -1;
-    const slogan = orgAt > 0 ? all.slice(0, orgAt).find((p) => (modeOf(contentShapes(p, 0), shapeKey)?.pt ?? 99) < org!.s!.pt) : undefined;
+    const slogan = orgAt > 0 ? all.slice(0, orgAt).find((p) => visible(p.text) > 5 && (modeOf(contentShapes(p, 0), shapeKey)?.pt ?? 99) < org!.s!.pt) : undefined;
     if (slogan && head) head.slogan = slogan.text.replace(/\s+/g, ' ').trim();
   }
 
@@ -345,5 +347,5 @@ export async function extractStyle(path: string, signal?: AbortSignal): Promise<
   };
   format.summary = styleSummary(format);
   if (!markers.length) warnings.push('항목 기호(□ ○ 1. 가. 등)를 찾지 못했습니다. 문단 글꼴과 여백만 맞춥니다.');
-  return { format, warnings, bytes };
+  return { format, warnings, bytes, markdown: md };
 }

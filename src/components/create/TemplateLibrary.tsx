@@ -1,7 +1,7 @@
-/** 서식함 — 내장 표준 기안문 · 기관 시작 서식 · 내가 등록한 기관 서식(끌어다 놓아 등록) */
+/** 서식함 — 내장 표준 기안문 · 기관 시작 서식 · 우리 기관 견본(문서 모음의 갈래별 대표) · 내가 등록한 기관 서식(끌어다 놓아 등록) */
 
-import { useCallback, useEffect, useState } from "react";
-import { FilePlus2, Trash2, FileStack } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { FilePlus2, Trash2, FileStack, Sparkles } from "lucide-react";
 import type { TemplateAnalysis, TemplateEntry } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { useCreate, visibleField, workingFile } from "./session";
@@ -17,6 +17,32 @@ import { FillWizard } from "../fill/FillWizard";
 import { baseName } from "../../lib/format";
 import { ActionBar } from "./ActionBar";
 import { TemplateWrite } from "./TemplateWrite";
+import { useOrgCorpus, useOrgReference } from "../../hooks/useOrgCorpus";
+
+/** 우리 기관 견본 — 갈래의 대표 견본으로 AI 초안(구성·서식을 따름) 또는 견본 그대로 새로 쓰기 */
+function OrgDetail({ kind, onDraft }: { kind: string; onDraft: (preset: string) => void }) {
+  const { openSettings } = useApp();
+  const ref = useOrgReference(kind);
+  if (ref === undefined) return <Working label="우리 기관 견본을 읽는 중" />;
+  if (!ref) return <Note tone="info">이 갈래의 문서가 모음에서 빠졌습니다. 설정의 우리 기관 문서 모음에서 확인하세요.</Note>;
+  return (
+    <div className="kd-route-panel">
+      <div className="flex items-start gap-3">
+        <FormatBadge format="hwpx" />
+        <div className="min-w-0 flex-1">
+          <h2 className="kd-h2">우리 기관 {ref.label}</h2>
+          <p className="kd-small kd-muted mt-0.5">대표 견본 「{ref.exemplar.title}」 · 모음 {ref.count}건</p>
+        </div>
+        <button type="button" className="kd-link kd-small flex-none" onClick={() => openSettings("set-orgdocs")}>문서 모음</button>
+      </div>
+      <Note tone="info">AI 초안은 우리 기관 {ref.label}의 구성과 자주 쓰는 표현을 따르고, {ref.apply.template_path ? "대표 견본의 쪽·글꼴·표 서식 그대로 만듭니다" : "두문·결문은 공문 규격대로 만듭니다"}. 견본의 표·상자를 그대로 두고 내용만 바꾸려면 아래에서 쓰세요.</Note>
+      <TemplateWrite path={ref.exemplar.template_path} name={ref.exemplar.title} />
+      <ActionBar status={`우리 기관 ${ref.label} · ${ref.exemplar.title}`}>
+        <Button size="lg" onClick={() => onDraft(kind)}><Sparkles size={15} /> 이 갈래로 AI 초안</Button>
+      </ActionBar>
+    </div>
+  );
+}
 
 const GROUPS: Array<{ source: TemplateEntry["source"]; title: string }> = [
   { source: "builtin", title: "표준 기안문" },
@@ -123,9 +149,10 @@ function Detail({ entry, onStyleSample }: { entry: TemplateEntry; onStyleSample:
   );
 }
 
-export function TemplateLibrary({ onStyleSample }: { onStyleSample: (path: string) => void }) {
-  const { ready, registerDrop, dragTarget, toast } = useApp();
+export function TemplateLibrary({ onStyleSample, onDraft }: { onStyleSample: (path: string) => void; onDraft: (preset: string) => void }) {
+  const { ready, registerDrop, dragTarget, toast, openSettings } = useApp();
   const [list, setList] = useState<TemplateEntry[]>([]);
+  const org = useOrgCorpus();
   const [selId, setSelId] = useState<string>("");
   const [error, setError] = useState("");
 
@@ -157,15 +184,38 @@ export function TemplateLibrary({ onStyleSample }: { onStyleSample: (path: strin
   };
 
   const sel = list.find((t) => t.id === selId) ?? null;
+  const orgKind = selId.startsWith("org:") ? selId.slice(4) : "";
+  const orgGroup = (
+    <div className="mb-4">
+      <h3 className="kd-label px-2 pb-1">우리 기관 견본</h3>
+      {org?.kinds.length ? org.kinds.map((k) => (
+        <div key={k.kind} className="kd-tpl" aria-current={orgKind === k.kind ? "true" : undefined}>
+          <button type="button" className="kd-tpl-main" onClick={() => setSelId(`org:${k.kind}`)}>
+            <span className="kd-row-title block">{k.label}</span>
+            <span className="kd-row-desc block">{org.docs.find((d) => d.id === k.exemplar_id)?.title ?? "대표 견본"} · {k.count}건</span>
+          </button>
+        </div>
+      )) : (
+        <div className="kd-tpl-add">
+          <p className="kd-small kd-muted px-2">우리 기관 문서를 모아 두면 갈래마다 대표 견본이 여기 보이고, AI 초안이 그 구성과 서식을 따릅니다.</p>
+          <Button variant="ghost" size="sm" onClick={() => openSettings("set-orgdocs")}><FilePlus2 size={13} /> 문서 모음에 넣기</Button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="kd-library">
       <aside className="kd-library-list" data-drop="templates" data-over={dragTarget === "templates"} aria-label="서식 목록">
+        {/* 우리 기관 견본이 있으면 맨 위, 없으면 내 기관 서식 앞에 넣는 곳 안내 */}
+        {org?.kinds.length ? orgGroup : null}
         {GROUPS.map((g) => {
           const items = list.filter((t) => t.source === g.source);
           if (!items.length && g.source !== "user") return null;
           return (
-            <div key={g.source} className="mb-4">
+            <Fragment key={g.source}>
+            {g.source === "user" && !org?.kinds.length && orgGroup}
+            <div className="mb-4">
               <h3 className="kd-label px-2 pb-1">{g.title}</h3>
               {items.map((t) => (
                 <div key={t.id} className="kd-tpl" aria-current={t.id === selId ? "true" : undefined}>
@@ -185,12 +235,13 @@ export function TemplateLibrary({ onStyleSample }: { onStyleSample: (path: strin
                 </div>
               )}
             </div>
+            </Fragment>
           );
         })}
       </aside>
       <div className="kd-library-detail">
         <ErrorLine message={error} />
-        {sel ? <Detail key={sel.id} entry={sel} onStyleSample={onStyleSample} /> : (
+        {orgKind ? <OrgDetail key={selId} kind={orgKind} onDraft={onDraft} /> : sel ? <Detail key={sel.id} entry={sel} onStyleSample={onStyleSample} /> : (
           <Empty icon={<FileStack size={28} />} title="서식을 고르세요">왼쪽에서 서식을 고르면 칸을 채워 바로 편집기로 넘깁니다.</Empty>
         )}
       </div>

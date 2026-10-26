@@ -219,7 +219,8 @@ export interface RpcMethods {
   ai_chat: [{ paths: string[]; question: string; history?: ChatMessage[] }, { answer: string; citations: Citation[]; redacted: number; unsupported?: string[] }];
   /** 공문서 초안 — 결과 markdown 은 generate_hwpx 로 바로 넣을 수 있는 모양.
    *  kind: 'reply'(받은 공문에 회신 — references[0] 이 받은 공문) · 'complaint'(민원 답변) · 'minutes'(메모 → 회의록) · 'onepage'(긴 문서 → 한 장 보고) · 'press'(보도자료). 없으면 preset 을 따른 일반 초안 */
-  ai_draft: [{ instruction: string; preset?: string; kind?: 'reply' | 'complaint' | 'minutes' | 'onepage' | 'press' | 'memo'; references?: string[]; length?: 'short' | 'medium' | 'long' }, { markdown: string; redacted: number }];
+  /** org: 우리 기관 서식 묶음에 그 갈래 문서가 있으면 구성·표현을 따름 (기본 켬, false 면 끔). 결과 org = 따른 갈래·대표 문서 */
+  ai_draft: [{ instruction: string; preset?: string; kind?: 'reply' | 'complaint' | 'minutes' | 'onepage' | 'press' | 'memo'; references?: string[]; length?: 'short' | 'medium' | 'long'; org?: boolean }, { markdown: string; redacted: number; org?: { kind: string; label: string; title: string; count: number } }];
   /** gaejosik: 개조식으로 · narrative: 서술문으로 · public: 쉬운 공공언어로(행정 용어 순화) · press: 보도자료 문체 */
   ai_rewrite: [{ text: string; mode: 'polish' | 'concise' | 'formal' | 'plain' | 'expand' | 'english' | 'gaejosik' | 'narrative' | 'public' | 'press' | 'custom'; instruction?: string }, { text: string; redacted: number }];
   /** K팀장 검토 — AI 논리·숫자·날짜 검토 + 표기법 검사 결과를 함께 */
@@ -334,6 +335,17 @@ export interface RpcMethods {
   style_delete: [{ id: string }, boolean];
   /** 내용 문서(HWPX·HWP·PDF·워드·마크다운·글)를 그 서식으로 새 HWPX. "<원래 이름>_우리서식.hwpx" (덮어쓰지 않음) */
   style_apply: [{ source_paths: string[]; style_id?: string; sample_path?: string; output_dir?: string }, { results: BatchItemResult[]; output_dir: string; summary: string }];
+
+  // ── 우리 기관 서식 묶음 (methods/style.ts) ──
+  /** settle: 돌고 있는 넣기가 끝난 뒤의 목록 (멈춘 넣기도 그때까지 읽은 것은 넣는다) */
+  org_corpus_list: [{ settle?: boolean }, OrgCorpusView];
+  /** 한글 문서(HWP·HWPX)·폴더 넣기. 갈래는 서식 읽기로 정하고, 갈래마다 처음 넣은 문서가 대표 견본 */
+  org_corpus_add: [{ paths: string[] }, { added: number; skipped: Array<{ path: string; reason: string }>; corpus: OrgCorpusView }];
+  /** 갈래 바꾸기·대표 견본으로 정하기 */
+  org_corpus_set: [{ id: string; kind?: string; exemplar?: boolean }, OrgCorpusView];
+  org_corpus_remove: [{ id: string }, OrgCorpusView];
+  /** 갈래의 대표 견본·구성·표현과 generate_hwpx 에 더할 값. 그 갈래 문서가 없으면 null */
+  org_corpus_reference: [{ kind: string }, OrgReference | null];
 }
 
 export type RpcMethod = keyof RpcMethods;
@@ -638,6 +650,11 @@ export interface GenerateParams {
   preview_pages?: number;
   /** preview_only 와 함께: 쪽 그림 대신 만든 HWPX 를 base64 로 (화면이 rhwp 로 그려 출력과 같은 모양으로 보여 준다) */
   preview_hwpx?: boolean;
+  /** 견본 HWPX(HWP 는 HWPX 로 바꿔 씀) — kordoc 견본 모드: 쪽·글꼴·문단·표 서식이 견본 그대로.
+   *  agency·cover·toc·approval·page_numbers·end_mark·levels_from·profile_from 은 쓰지 않는다 (preset 은 표기 검사에만) */
+  template_path?: string;
+  /** 기안문 두문의 원훈·표어 */
+  slogan?: string;
 }
 
 export interface RedactResult {
@@ -845,4 +862,30 @@ export interface StyleEntry {
   summary: string;
   created_at: string;
   format: StyleFormat;
+}
+
+export interface OrgCorpusView {
+  /** 문서가 있는 갈래만 (공문 갈래 차례) */
+  kinds: Array<{ kind: string; label: string; count: number; exemplar_id?: string }>;
+  /** summary = 서식 한 줄 요약 (용지·글꼴·기호), missing = 앱 데이터의 사본이 지워졌다(견본·참고에서 빠짐, 다시 넣으면 됨) */
+  docs: Array<{ id: string; title: string; name: string; path: string; kind: string; summary: string; added_at: string; exemplar: boolean; missing: boolean }>;
+  /** 목록 파일이 깨져 새로 시작했을 때 한 번 */
+  notice?: string;
+}
+
+export interface OrgReference {
+  kind: string;
+  label: string;
+  /** 그 갈래 문서 수 */
+  count: number;
+  /** template_path = 앱 데이터에 둔 견본 사본(HWPX) */
+  exemplar: { id: string; title: string; name: string; template_path: string };
+  /** 대표 견본의 구성 뼈대 (제목·항목부호 줄) */
+  skeleton: string[];
+  /** 같은 갈래 둘 이상에 나온 줄 (숫자는 ○) */
+  phrases: string[];
+  /** generate_hwpx 에 더할 값 — 기안문은 단계 서식·표어(공문 규격 두문·결문 그대로), 그 밖은 견본 모드 */
+  apply: Pick<GenerateParams, 'template_path' | 'levels_from' | 'slogan'>;
+  /** AI 지시문에 넣는 글 (AI 초안·한글 편집기 AI 가 함께 쓴다) */
+  text: string;
 }

@@ -1,4 +1,4 @@
-/** 사. 법령 확인 — 법제처 Open API 아이디(OC) 넣기·연결 확인. 인터넷 PC에서만 대조하고, 폐쇄망 모드면 인용 찾기만 */
+/** 아. 법령 확인 — 법제처 Open API 아이디(OC) 넣기·연결 확인. 인터넷 PC에서만 대조하고, 폐쇄망 모드면 인용 찾기만 */
 
 import { useEffect, useState } from "react";
 import { PlugZap, Save } from "lucide-react";
@@ -36,7 +36,7 @@ export function LawSection() {
   });
 
   return (
-    <Section id="set-law" mark="사." title="법령 확인" sub="문서 속 「법령명」 제N조 인용을 법제처 현행 법령과 대조합니다."
+    <Section id="set-law" mark="아." title="법령 확인" sub="문서 속 「법령명」 제N조 인용을 법제처 현행 법령과 대조합니다."
       aside={changed ? <UnsavedBadge /> : undefined}>
       <div className="flex flex-col gap-4">
         {offline && <Note tone="info">폐쇄망 모드라 법제처에 묻지 않습니다. 문서 속 법령 인용을 찾는 것까지만 합니다.</Note>}

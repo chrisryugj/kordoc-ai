@@ -1,4 +1,4 @@
-/** 설정 — 내 기관 정보 · AI 연결 · 보안 · 엔진과 모델 · 저장과 연결 · 화면과 정보 · 법령 확인.
+/** 설정 — 내 기관 정보 · 우리 기관 문서 모음 · AI 연결 · 보안 · 엔진과 모델 · 저장과 연결 · 화면과 정보 · 법령 확인.
  *  저장 버튼이 있는 구획은 고친 채 두면 목차와 제목에 "저장 안 함"을 띄우고, 설정을 떠날 때 묻는다 */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { Note } from "../common/Status";
 import { OrgSection } from "./OrgSection";
+import { OrgDocsSection } from "./OrgDocsSection";
 import { AiSection } from "./AiSection";
 import { SecuritySection } from "./SecuritySection";
 import { EngineSection, StorageSection, AboutSection } from "./SystemSections";
@@ -16,12 +17,13 @@ import { DirtyContext, type DirtyEntry } from "./dirty";
 
 const INDEX = [
   { id: "set-org", mark: "가.", title: "내 기관 정보" },
-  { id: "set-ai", mark: "나.", title: "AI 연결" },
-  { id: "set-sec", mark: "다.", title: "보안" },
-  { id: "set-engine", mark: "라.", title: "엔진과 모델" },
-  { id: "set-store", mark: "마.", title: "저장과 연결" },
-  { id: "set-about", mark: "바.", title: "화면과 정보" },
-  { id: "set-law", mark: "사.", title: "법령 확인" },
+  { id: "set-orgdocs", mark: "나.", title: "우리 기관 문서 모음" },
+  { id: "set-ai", mark: "다.", title: "AI 연결" },
+  { id: "set-sec", mark: "라.", title: "보안" },
+  { id: "set-engine", mark: "마.", title: "엔진과 모델" },
+  { id: "set-store", mark: "바.", title: "저장과 연결" },
+  { id: "set-about", mark: "사.", title: "화면과 정보" },
+  { id: "set-law", mark: "아.", title: "법령 확인" },
 ];
 
 export function SettingsScreen({ active }: { active: boolean }) {
@@ -151,6 +153,7 @@ export function SettingsScreen({ active }: { active: boolean }) {
             {settings && (
               <DirtyContext.Provider value={markDirty}>
                 <OrgSection />
+                <OrgDocsSection />
                 <AiSection />
                 <SecuritySection active={active} />
                 <EngineSection />

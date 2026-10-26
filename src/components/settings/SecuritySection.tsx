@@ -1,5 +1,5 @@
 /**
- * 다. 보안 — 폐쇄망 모드, AI 처리 위치, 자동 마스킹, 이번 실행에서 인터넷으로 나간 요청 수,
+ * 라. 보안 — 폐쇄망 모드, AI 처리 위치, 자동 마스킹, 이번 실행에서 인터넷으로 나간 요청 수,
  * 최근 통신 기록, 사용 통계 전송 없음, 데이터 위치. 직접 눌러 확인하는 화면이라 있는 그대로 보여 준다.
  */
 
@@ -40,7 +40,7 @@ export function SecuritySection({ active }: { active: boolean }) {
   const zero = st?.external_sent === 0;
 
   return (
-    <Section id="set-sec" mark="다." title="보안" sub="이 앱이 문서를 어디로 보내는지 지금 상태 그대로 보여 줍니다."
+    <Section id="set-sec" mark="라." title="보안" sub="이 앱이 문서를 어디로 보내는지 지금 상태 그대로 보여 줍니다."
       aside={<Button variant="secondary" size="sm" onClick={() => void refresh()}><RefreshCw size={13} /> 다시 확인</Button>}>
       <ErrorLine message={error} />
       {st && (

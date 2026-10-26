@@ -64,7 +64,7 @@ export function registerAi(router: RpcRouter): void {
 
   reg('ai_draft', (p, signal) => {
     const q = p as RpcParams<'ai_draft'>;
-    return draftDocument({ instruction: String(q.instruction ?? ''), preset: str(q.preset), kind: q.kind, references: optPaths(q.references), length: q.length }, signal);
+    return draftDocument({ instruction: String(q.instruction ?? ''), preset: str(q.preset), kind: q.kind, references: optPaths(q.references), length: q.length, org: q.org !== false }, signal);
   }, { heavy: true });
 
   reg('ai_rewrite', (p, signal) => rewriteText({
@@ -113,6 +113,8 @@ export function registerAi(router: RpcRouter): void {
       approval: Array.isArray(q.approval) ? q.approval.map(String) : undefined,
       page_numbers: typeof q.page_numbers === 'boolean' ? q.page_numbers : undefined,
       end_mark: typeof q.end_mark === 'boolean' ? q.end_mark : undefined,
+      template_path: q.template_path ? validatePath(String(q.template_path)) : undefined,
+      slogan: str(q.slogan),
     }, signal);
   }, { heavy: true });
 

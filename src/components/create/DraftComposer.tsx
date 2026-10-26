@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, FileUp, Plus, Sparkles, Square, Undo2, X, FilePen } from "lucide-react";
-import type { LintFinding, PagePreview } from "../../lib/contract";
+import type { LintFinding, OrgReference, PagePreview } from "../../lib/contract";
 import { useApp, type DraftKind } from "../../state/app";
 import { useCreate, workingFile } from "./session";
 import { rpc, errorText, isAbort } from "../../lib/rpc";
@@ -16,9 +16,10 @@ import { pickFiles } from "../../lib/native";
 import { baseName, gongmunDate } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
 import { useGongmunMeta } from "../../hooks/useGongmunMeta";
+import { useOrgReference } from "../../hooks/useOrgCorpus";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
-import { Field, Seg, SelectField } from "../common/Field";
+import { Check, Field, Seg, SelectField } from "../common/Field";
 import { AiWhere } from "../common/AiGate";
 import { ErrorLine, StatusLine, Working } from "../common/Status";
 import { PageStack } from "../common/PageStack";
@@ -28,7 +29,7 @@ import { LintList } from "../workbench/tools/ReviewTool";
 import { FormatOptions, type FormatOpts } from "./FormatOptions";
 import { ActionBar } from "./ActionBar";
 
-export interface DraftSeed { kind?: DraftKind; references?: string[]; levelsFrom?: string; markdown?: string; nonce: number }
+export interface DraftSeed { kind?: DraftKind; references?: string[]; levelsFrom?: string; markdown?: string; preset?: string; nonce: number }
 
 const KINDS: Array<{ value: DraftKind | "general"; label: string; hint: string; ref?: string }> = [
   { value: "general", label: "일반 초안", hint: "예: 10월 24일 14시 3층 대회의실에서 전 직원 안전교육을 한다는 계획 보고서" },
@@ -50,8 +51,33 @@ const plainDraft = (md: string) => md
 
 const firstTitle = (md: string) => /^#\s+(.+)$/m.exec(md)?.[1]?.trim() ?? "새 공문서";
 
+/** 우리 기관 서식 줄 — 이 갈래 문서가 있으면 켜고 끄기, 없으면 넣는 곳 안내 */
+function OrgLine({ kind, refInfo, loaded, on, onChange, onManage, noAi, ownSample }: {
+  kind: string; refInfo: OrgReference | null; loaded: boolean; on: boolean; onChange: (v: boolean) => void; onManage: () => void; noAi?: boolean; ownSample?: boolean;
+}) {
+  if (!loaded) return null;
+  if (!refInfo) {
+    return (
+      <p className="kd-small kd-muted">
+        우리 기관 {kind} 문서를 넣어 두면 그 구성과 서식으로 씁니다. <button type="button" className="kd-link" onClick={onManage}>문서 넣기</button>
+      </p>
+    );
+  }
+  const a = refInfo.apply;
+  const form = ownSample ? "서식은 고른 견본의 글꼴 단계대로 만듭니다"
+    : a.template_path ? `「${refInfo.exemplar.title}」 서식(쪽·글꼴·표) 그대로 만듭니다`
+    : `두문·결문은 공문 규격대로${a.levels_from && a.slogan ? ", 글꼴 단계와 표어는 우리 문서대로" : a.levels_from ? ", 글꼴 단계는 우리 문서대로" : a.slogan ? ", 표어는 우리 문서대로" : ""} 만듭니다`;
+  return (
+    <div className="kd-inset kd-orgline">
+      <Check label={<>우리 기관 서식으로 <span className="kd-muted kd-small">({refInfo.label} {refInfo.count}건)</span></>} checked={on} onChange={onChange}
+        desc={on ? (noAi ? form : `구성과 자주 쓰는 표현을 따르고, ${form}`) : noAi ? "켜면 우리 기관 문서의 서식을 따릅니다" : "켜면 우리 기관 문서의 구성과 서식을 따릅니다"} />
+      <button type="button" className="kd-link kd-small flex-none" onClick={onManage}>문서 모음</button>
+    </div>
+  );
+}
+
 export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRoute?: (r: "library" | "blank") => void }) {
-  const { ai, settings, go, docs } = useApp();
+  const { ai, settings, go, docs, openSettings } = useApp();
   const { openInEditor } = useCreate();
   const meta = useGongmunMeta();
   // 갈래를 고르면 문서 갈래도 맞춘다 (대응표는 엔진 gongmun_meta 가 정본)
@@ -91,14 +117,31 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
   /** 마지막으로 한글 문서로 만든 글 — 이와 같으면 덮어써도 잃는 게 없다 */
   const made = useRef("");
 
+  /** 우리 기관 서식 묶음 — 이 갈래 문서가 있으면 초안은 그 구성·표현을, 만들 때는 그 서식을 (끌 수 있음) */
+  const orgRead = useOrgReference(preset);
+  const orgRef = orgRead && orgRead.kind === preset ? orgRead : null;
+  const [orgOn, setOrgOn] = useState(true);
+  const orgApply = orgOn && orgRef ? orgRef.apply : null;
+  /** 견본 모드: 쪽·글꼴·표가 견본 그대로라 서식 옵션은 쓰지 않는다. 서식함에서 고른 견본(글꼴 단계)이 있으면 그쪽이 앞선다 */
+  const orgTemplate = opts.levelsFrom ? "" : orgApply?.template_path ?? "";
+  /** 마지막 초안이 따른 우리 기관 문서 */
+  const [draftOrg, setDraftOrg] = useState<{ label: string; count: number } | null>(null);
+
   const k = KINDS.find((x) => x.value === kind)!;
-  const genParams = useMemo(() => ({
+  /** 서식 옵션만 (우리 기관 견본 없이) */
+  const baseParams = useMemo(() => ({
     markdown, preset, ...(opts.agency ? { agency: opts.agency } : {}),
     ...(opts.cover ? { cover: { org: opts.coverOrg, date: opts.coverDate } } : {}),
     toc: opts.toc, page_numbers: opts.pageNumbers, end_mark: opts.endMark,
     approval: opts.approval.split(",").map((s) => s.trim()).filter(Boolean),
     ...(opts.levelsFrom ? { levels_from: opts.levelsFrom } : {}), ...(opts.profileFrom ? { profile_from: opts.profileFrom } : {}),
   }), [markdown, preset, opts]);
+  const genParams = useMemo(() => (orgTemplate ? { markdown, preset, template_path: orgTemplate } : {
+    ...baseParams,
+    // 직접 고른 견본이 우리 기관 견본보다 앞선다
+    ...(!opts.levelsFrom && orgApply?.levels_from ? { levels_from: orgApply.levels_from } : {}),
+    ...(orgApply?.slogan ? { slogan: orgApply.slogan } : {}),
+  }), [markdown, preset, baseParams, opts.levelsFrom, orgTemplate, orgApply]);
 
   const pickKind = (kd: DraftKind | "general") => {
     setKind(kd);
@@ -107,7 +150,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
 
   /** 한 줄 맞춤 — 미리보기와 같은 옵션으로 재서 넘친 문단만 줄여 쓴다 */
   const fitLines = async (md: string, signal?: AbortSignal, ps = preset) => {
-    const f = await rpc("ai_fit_lines", { ...genParams, preset: ps, markdown: md }, { signal });
+    // 갈래를 막 바꾼 자리(시작값 자동 초안)면 우리 기관 견본은 앞 갈래 것이라 서식 옵션만으로 잰다
+    const f = await rpc("ai_fit_lines", { ...(ps === preset ? genParams : baseParams), preset: ps, markdown: md }, { signal });
     if (mdRef.current !== md) return; // 맞추는 사이 글을 고쳤으면 고친 글이 우선 (맞춘 결과는 버린다)
     setFit(f.changes.length || f.remaining ? { before: md, changes: f.changes, remaining: f.remaining } : null);
     setFitOpen(false);
@@ -120,12 +164,14 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
     refit.cancel();
     // 갈래를 넘겨받은 바로 그 자리(시작값)에서는 상태가 아직 안 바뀌었으니 여기서 맞춘다
     const ps = kd !== kind && kd !== "general" ? kindPreset(kd) : preset;
+    setDraftOrg(null);
     void draft.run(async ({ signal }) => {
       const r = await rpc("ai_draft", {
         instruction: instr.trim() || (kd === "reply" ? "받은 공문에 협조하겠다는 회신 공문을 써 줘" : kd === "memo" ? "" : "공문서 초안을 써 줘"),
-        preset: ps, length, references: rf, ...(kd !== "general" ? { kind: kd } : {}),
+        preset: ps, length, references: rf, ...(kd !== "general" ? { kind: kd } : {}), org: orgOn,
       }, { signal, onToken: (t) => setMarkdown((m) => m + t) });
       setMarkdown(r.markdown);
+      setDraftOrg(r.org ? { label: r.org.label, count: r.org.count } : null);
       mdRef.current = r.markdown;
       // 한 줄 맞춤은 초안을 먼저 보여 준 뒤 따로 (멈출 수 있고, 맞추는 동안 한글 문서로 만들어도 된다). 줄 맞춤은 덤: 안 되면 초안 그대로
       void refit.run(({ signal: s }) => fitLines(r.markdown, s, ps));
@@ -139,8 +185,10 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
     const autoDraft = !!(seed.kind && seed.references?.length && ai?.configured);
     const apply = () => {
       if (seed.kind) pickKind(seed.kind);
+      if (seed.preset) { setKind("general"); setPreset(seed.preset); setOrgOn(true); }
       if (seed.references) setRefs(seed.references);
       if (seed.markdown) { setMarkdown(seed.markdown); setFit(null); }
+      // 직접 고른 견본이 우리 기관 견본 서식보다 앞선다 (구성·표현은 그대로 따른다)
       if (seed.levelsFrom) { setOpts((o) => ({ ...o, levelsFrom: seed.levelsFrom! })); setOptsOpen(true); }
       if (autoDraft) runDraft("", seed.kind, seed.references);
     };
@@ -265,6 +313,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
                   : <Button onClick={() => runDraft()} disabled={!!k.ref && !refs.length}><Sparkles size={14} /> 초안 쓰기</Button>}
               </div>
               {k.ref && !refs.length && <p className="kd-small kd-muted">{k.ref}부터 붙이세요.</p>}
+              <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded={orgRead !== undefined} on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />
+              {draftOrg && !draft.busy && markdown.trim() && <StatusLine tone="ok">우리 기관 {draftOrg.label} {draftOrg.count}건의 구성을 따라 썼습니다</StatusLine>}
               <ErrorLine message={draft.error} />
             </>
           )}
@@ -305,7 +355,10 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
         </section>
         )}
 
-        {!deadEnd && <FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)} />}
+        {/* AI 없이 쓸 때는 우리 기관 서식 줄을 서식 옵션 위에 (AI 쪽 칸이 없어서) */}
+        {!deadEnd && !ai?.configured && orgRef && <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded noAi on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />}
+        {!deadEnd && <FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)}
+          locked={orgTemplate ? `우리 기관 견본 「${orgRef?.exemplar.title}」 서식 그대로 만들어 이 옵션은 쓰지 않습니다. 옵션을 쓰려면 위에서 '우리 기관 서식으로'를 끄세요.` : undefined} />}
 
         {!deadEnd && <ActionBar error={make.error} busy={make.busy && <Working label="한글 문서로 만드는 중" />}
           status={draft.busy ? <StatusLine tone="busy">AI가 초안을 쓰는 중</StatusLine>

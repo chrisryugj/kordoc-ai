@@ -25,6 +25,7 @@ const SYSTEM = [
   "4. 모양은 format_text·format_paragraphs, 문서에 같은 모양이 여러 번 필요하면 스타일(create_style·apply_style).",
   "5. 서식의 빈칸(누름틀)은 list_fields 로 이름을 보고 fill_field 로 채웁니다.",
   "6. 근거·출처를 달 땐 insert_footnote 로 그 낱말 뒤에 각주를 넣습니다.",
+  "7. 우리 기관 방식대로 쓰거나 다시 짜라는 요청이면 org_format 으로 그 갈래 문서의 구성과 자주 쓰는 표현을 먼저 봅니다.",
   "",
   "지킬 것:",
   "- 사용자가 주지 않은 사실(날짜·금액·이름·번호)을 지어내지 마세요. 모르면 물어봅니다.",
@@ -95,7 +96,18 @@ export const TOOLS: AgentToolDef[] = [
     description: "본문 문단에 각주를 넣습니다. after 는 문단 안의 글(그 바로 뒤에 각주 번호가 붙음, 문단 안에서 한 곳이어야 함). 비우면 문단 끝. text 는 각주 글 한 문단.",
     inputSchema: obj({ id, after: { type: "string" }, text: { type: "string" } }, ["id", "text"]),
   },
+  {
+    name: "org_format",
+    description: "우리 기관 문서 모음에서 한 갈래(기안문·보고서·계획서 등) 문서의 구성 뼈대(장·항목 차례와 부호)와 자주 쓰는 표현을 가져옵니다. kind 를 비우면 모음에 있는 갈래를 알려 줍니다.",
+    inputSchema: obj({ kind: { type: "string", description: "갈래 이름 (예: 보고서, 기안문)" } }),
+  },
 ];
+
+/** 우리 기관 문서 모음 (앱이 넘긴다) — kinds: 있는 갈래 한 줄, reference: 그 갈래의 AI 용 글(없으면 null) */
+export interface OrgSource {
+  kinds: () => Promise<string>;
+  reference: (kind: string) => Promise<string | null>;
+}
 
 /** 도구 이름 → 플러그인 연산·문서를 바꾸는가·활동 줄 */
 const RUN: Record<string, { op: keyof AgentBridge; mutates?: boolean; say: (a: Record<string, unknown>, r: Record<string, unknown>) => string }> = {
@@ -137,7 +149,18 @@ function render(tool: string, r: unknown): string {
 /** 했다고 말하는 말투 (도구 없이 이렇게 답하면 한 번 되묻는다) */
 const CLAIMS = /(바꿨|바꾸었|고쳤|넣었|지웠|채웠|적용했|만들었|수정했|추가했|삭제했)습니다/;
 
-export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: { tool: string; place?: string }) => void }) {
+/** 편집기가 아니라 앱이 실행하는 도구 */
+async function runOrgFormat(org: OrgSource | undefined, input: Record<string, unknown>): Promise<ToolExecution> {
+  if (!org) return { output: "우리 기관 문서 모음을 쓸 수 없습니다.", summary: "우리 기관 문서 모음 없음", isError: true };
+  const kind = typeof input.kind === "string" ? input.kind.trim() : "";
+  const kinds = await org.kinds();
+  if (!kind) return { output: kinds ? `우리 기관 문서 모음: ${kinds}. kind 로 하나를 고르세요.` : "우리 기관 문서 모음이 비어 있습니다.", summary: "우리 기관 문서 갈래 확인" };
+  const text = await org.reference(kind);
+  if (!text) return { output: `우리 기관 문서 모음에 ${kind} 문서가 없습니다.${kinds ? ` 있는 갈래: ${kinds}` : ""}`, summary: `우리 기관 ${kind} 없음` };
+  return { output: text, summary: `우리 기관 ${kind} 구성 확인` };
+}
+
+export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: { tool: string; place?: string }) => void; org?: OrgSource }) {
   const { bridge } = deps;
   let context = "";
   let selection: { text: string; at?: string } | null = null;
@@ -151,6 +174,7 @@ export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: 
       return CLAIMS.test(text) ? "문서를 바꾸는 도구를 실제로 부르지 않았습니다. 말한 변경을 도구로 하거나, 하지 못했다면 하지 못했다고 답하세요." : null;
     },
     async executeTool(call: AgentToolCall): Promise<ToolExecution> {
+      if (call.name === "org_format") return runOrgFormat(deps.org, call.input ?? {});
       const spec = RUN[call.name];
       if (!spec) return { output: `모르는 도구입니다: ${call.name}`, summary: `모르는 도구 ${call.name}`, isError: true };
       const fn = bridge[spec.op] as (a: Record<string, unknown>) => Promise<unknown>;
@@ -171,10 +195,11 @@ export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: 
     setSelection(s: { text: string; at?: string } | null) { selection = s?.text ? s : null; },
     /** 요청마다 문서 문맥을 새로 읽는다 (앞부분 문단·스타일·빈칸) */
     async refreshContext() {
-      const [o, st, fl] = await Promise.all([
+      const [o, st, fl, kinds] = await Promise.all([
         bridge.outline({ count: CONTEXT_PARAS }).catch(() => null),
         bridge.styles().catch(() => null),
         bridge.fields().catch(() => null),
+        deps.org?.kinds().catch(() => "") ?? Promise.resolve(""),
       ]);
       const parts: string[] = [];
       if (o && !isErr(o)) {
@@ -187,6 +212,7 @@ export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: 
         if (chars.length) parts.push(`글자 스타일: ${chars.join(", ")}`);
       }
       if (fl && !isErr(fl) && fl.length) parts.push(`빈칸(누름틀): ${fl.map((f) => `${f.name}${f.value ? `="${f.value}"` : ""}`).join(", ")}`);
+      if (kinds) parts.push(`우리 기관 문서 모음: ${kinds} (갈래의 구성과 표현은 org_format)`);
       if (selection) parts.push(`사용자의 커서가 있는 문단${selection.at ? ` ${selection.at}` : ""}: "${selection.text}"\n요청이 어디를 가리키는지 분명하지 않으면 이 문단으로 봅니다.`);
       context = parts.join("\n\n");
     },

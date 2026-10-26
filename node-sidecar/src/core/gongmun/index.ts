@@ -4,8 +4,10 @@
  * 둘 다 (경로·수정 시각·크기) 로 캐시 — 작성실은 입력할 때마다 부르니 같은 견본을 다시 재지 않는다.
  */
 
+import { existsSync } from 'node:fs';
 import { stat, readFile, writeFile } from 'node:fs/promises';
 import { rhwpCompat } from './rhwp-compat.js';
+import { rhwpConvert } from '../render/rhwp.js';
 import {
   AGENCY_COMMON_NAME, BUILTIN_TEMPLATES, PRESET_ALIAS, agencyNames, extractClickHereFields, hwpxToProfile,
   incompatibleGongmunWarnings, markdownToHwpx, muncheLintWarnings, readBuiltinTemplate, renderDocument,
@@ -165,17 +167,61 @@ export function officialFrame(md: string, org = getSettings().org): { markdown: 
   return { markdown: body, docHead: head, ...(docFoot ? { docFoot } : {}) };
 }
 
+const templateCache = fileCache<Uint8Array>(8);
+
+/** 견본 HWPX 바이트 (HWP 는 rhwp 로 HWPX 로 바꿔 캐시) */
+function templateBytes(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const fmt = formatOf(path);
+  if (fmt !== 'hwpx' && fmt !== 'hwp') throw new Error('견본은 한글 문서(HWPX·HWP)만 됩니다. 우리 기관에서 쓴 한글 파일을 고르세요.');
+  // 우리 기관 문서 모음의 사본(앱 데이터)이 지워졌으면 사용자가 본 적 없는 파일 이름 대신 할 일을 알린다
+  if (!existsSync(path) && /[\\/]org-corpus[\\/]files[\\/]/.test(path)) {
+    throw new Error('우리 기관 견본 사본이 지워졌습니다. 설정 › 우리 기관 문서 모음에서 그 문서를 빼고 다시 넣으세요.');
+  }
+  return templateCache(path, async () => {
+    const raw = new Uint8Array(await readFile(path));
+    return fmt === 'hwpx' ? raw : rhwpConvert(raw, 'hwpx', signal);
+  });
+}
+
+/** kordoc 견본 모드 — 서식은 견본이 정하므로 공문 옵션은 쓰지 않는다. 경고의 "template:" 머리는 뗀다 */
+async function fromTemplate(md: string, path: string, warnings: string[], signal?: AbortSignal): Promise<ArrayBuffer> {
+  const template = await templateBytes(path, signal);
+  signal?.throwIfAborted();
+  const genWarnings: string[] = [];
+  const buf = await markdownToHwpx(md, { template, warnings: genWarnings });
+  warnings.push(...genWarnings.map((w) => w.replace(/^template:\s*/, '')));
+  return buf;
+}
+
 export async function generateHwpx(p: GenerateParams, signal?: AbortSignal): Promise<{ output_path?: string; warnings: string[]; lint: LintFinding[]; preview?: PagePreview[]; preview_hwpx_b64?: string }> {
   const md = p.markdown ?? '';
   if (!md.trim()) throw new Error('본문이 비어 있습니다. 내용을 적으세요.');
   const preset = presetOf(p.preset);
   const warnings: string[] = [];
+  const buf = p.template_path ? await fromTemplate(md, p.template_path, warnings, signal) : await fromPreset(md, preset, p, warnings, signal);
+  if (usesGaejosikMunche(preset)) warnings.push(...muncheLintWarnings(md, 5));
+  // 끝 표시는 엔진이 붙이므로 원고 단위 규칙("끝." 누락 등)은 빼고 검사
+  const lint = lintText(md, { document: false });
+  const clean = [...new Set(warnings.map(cleanMessage))];
+
+  if (p.preview_only) {
+    // 화면이 rhwp 로 그릴 HWPX — 저장본과 같은 다듬기(rhwpCompat)를 거쳐 편집기·PDF 와 같은 모양으로
+    if (p.preview_hwpx) return { warnings: clean, lint, preview_hwpx_b64: Buffer.from(await rhwpCompat(buf)).toString('base64') };
+    return { warnings: clean, lint, preview: await previewPages(buf, p.preview_pages ?? 2) };
+  }
+  const outPath = outputFile({ output_path: p.output_path, name: `${safeFileName(firstHeading(md) ?? '', '공문서')}.hwpx` });
+  await writeFile(outPath, Buffer.from(await rhwpCompat(buf)));
+  return { output_path: outPath, warnings: clean, lint };
+}
+
+/** 공문 프리셋 모드 — 갈래·기관 서식·견본 단계 서식·표 서식·표지·결재란 */
+async function fromPreset(md: string, preset: GongmunPreset, p: GenerateParams, warnings: string[], signal?: AbortSignal): Promise<ArrayBuffer> {
   const gongmun: GongmunOptions = { preset, autoFit: { ...AUTO_FIT } };
   let body = md;
   if (preset === 'official') {
     const frame = officialFrame(indentAttachments(md));
     body = frame.markdown;
-    if (frame.docHead) gongmun.docHead = frame.docHead;
+    if (frame.docHead) gongmun.docHead = { ...frame.docHead, ...(p.slogan?.trim() ? { slogan: p.slogan.trim() } : {}) };
     if (frame.docFoot) gongmun.docFoot = frame.docFoot;
   }
   if (p.agency?.trim()) gongmun.agency = checkAgency(p.agency);
@@ -196,20 +242,8 @@ export async function generateHwpx(p: GenerateParams, signal?: AbortSignal): Pro
   if (gongmun.levels) {
     warnings.push(...unknownFontWarnings(Object.fromEntries(Object.entries(gongmun.levels).map(([d, s]) => [`${Number(d) + 1}단계`, s.font]))));
   }
-  if (usesGaejosikMunche(preset)) warnings.push(...muncheLintWarnings(md, 5));
   const genWarnings: string[] = [];
   const buf = await markdownToHwpx(body, { gongmun, ...(profile ? { profile } : {}), warnings: genWarnings });
   warnings.push(...genWarnings);
-  // 끝 표시는 엔진이 붙이므로 원고 단위 규칙("끝." 누락 등)은 빼고 검사
-  const lint = lintText(md, { document: false });
-  const clean = [...new Set(warnings.map(cleanMessage))];
-
-  if (p.preview_only) {
-    // 화면이 rhwp 로 그릴 HWPX — 저장본과 같은 다듬기(rhwpCompat)를 거쳐 편집기·PDF 와 같은 모양으로
-    if (p.preview_hwpx) return { warnings: clean, lint, preview_hwpx_b64: Buffer.from(await rhwpCompat(buf)).toString('base64') };
-    return { warnings: clean, lint, preview: await previewPages(buf, p.preview_pages ?? 2) };
-  }
-  const outPath = outputFile({ output_path: p.output_path, name: `${safeFileName(firstHeading(md) ?? '', '공문서')}.hwpx` });
-  await writeFile(outPath, Buffer.from(await rhwpCompat(buf)));
-  return { output_path: outPath, warnings: clean, lint };
+  return buf;
 }

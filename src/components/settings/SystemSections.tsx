@@ -1,4 +1,4 @@
-/** 라. 엔진과 모델 · 마. 저장과 연결(저장 위치·우클릭 메뉴·AI 도구 연결) · 바. 화면과 정보 */
+/** 마. 엔진과 모델 · 바. 저장과 연결(저장 위치·우클릭 메뉴·AI 도구 연결) · 사. 화면과 정보 */
 
 import { useCallback, useEffect, useState } from "react";
 import { Activity, BarChart3, FileText, FolderInput, FolderOpen, MousePointerClick, Plug, Stethoscope } from "lucide-react";
@@ -46,7 +46,7 @@ export function EngineSection() {
   ] : [];
 
   return (
-    <Section id="set-engine" mark="라." title="엔진과 모델" sub="문제가 생기면 엔진 점검을 눌러 어느 단계에서 막히는지 확인하세요.">
+    <Section id="set-engine" mark="마." title="엔진과 모델" sub="문제가 생기면 엔진 점검을 눌러 어느 단계에서 막히는지 확인하세요.">
       <dl className="kd-dl kd-dl-wide">
         {rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
       </dl>
@@ -137,7 +137,7 @@ export function StorageSection() {
   const isMac = shell?.kind === "quick-action";
 
   return (
-    <Section id="set-store" mark="마." title="저장과 연결">
+    <Section id="set-store" mark="바." title="저장과 연결">
       <Field label="저장 위치" hint="바꾼 문서를 담을 폴더. 비우면 원본 파일 옆에 저장합니다.">
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <FolderOpen size={14} className="kd-muted flex-none" />
@@ -215,7 +215,7 @@ export function AboutSection() {
     }
   };
   return (
-    <Section id="set-about" mark="바." title="화면과 정보">
+    <Section id="set-about" mark="사." title="화면과 정보">
       <Field label="화면 밝기">
         <Seg<ThemePref> label="화면 밝기" value={theme} onChange={setTheme} options={[{ value: "light", label: "밝게" }, { value: "dark", label: "어둡게" }, { value: "system", label: "컴퓨터 설정대로" }]} />
       </Field>

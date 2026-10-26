@@ -68,6 +68,23 @@ describe("tools", () => {
     expect(ctx).toContain('사용자의 커서가 있는 문단 0.0: "제목"');
   });
 
+  it("org_format — 앱의 우리 기관 문서 모음에서 갈래 구성을 가져오고, 문맥에 있는 갈래를 알린다 (편집기 연산은 안 부름)", async () => {
+    const { bridge, calls } = fakeBridge({ outline: { total: 0, from: 0, blocks: [] }, styles: [], fields: [] });
+    const asked: string[] = [];
+    const org = { kinds: async () => "보고서 2건", reference: async (k: string) => { asked.push(k); return k === "보고서" ? "우리 기관 보고서 2건에서 뽑은 구성" : null; } };
+    const h = createHwpSkill({ bridge, org });
+    expect((await h.skill.executeTool({ id: "1", name: "org_format", input: {} })).output).toContain("보고서 2건");
+    expect(await h.skill.executeTool({ id: "2", name: "org_format", input: { kind: "보고서" } })).toMatchObject({ output: "우리 기관 보고서 2건에서 뽑은 구성", summary: "우리 기관 보고서 구성 확인" });
+    const none = await h.skill.executeTool({ id: "3", name: "org_format", input: { kind: "보도자료" } });
+    expect(none.output).toContain("있는 갈래: 보고서 2건");
+    expect(asked).toEqual(["보고서", "보도자료"]);
+    await h.refreshContext();
+    expect(h.skill.buildContext!()).toContain("우리 기관 문서 모음: 보고서 2건");
+    expect(calls.map(([n]) => n).sort()).toEqual(["fields", "outline", "styles"]);
+    const bare = createHwpSkill({ bridge });
+    expect(await bare.skill.executeTool({ id: "4", name: "org_format", input: { kind: "보고서" } })).toMatchObject({ isError: true });
+  });
+
   it("도구 없이 고쳤다고 말하면 한 번 되묻는다", () => {
     const { skill } = createHwpSkill({ bridge: fakeBridge().bridge });
     expect(skill.verifyResponse!("제목을 바꿨습니다.", [])).toMatch(/도구를 실제로/);

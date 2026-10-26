@@ -1,7 +1,7 @@
-/** 첫 실행 — 내 기관 정보와 AI 연결을 한 번 받는다 (나중에 설정에서 바꿀 수 있음) */
+/** 첫 실행 — 내 기관 정보(+ 선택: 우리 기관 문서 폴더)와 AI 연결을 한 번 받는다 (나중에 설정에서 바꿀 수 있음) */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronRight, Cloud, Cpu, FlaskConical, Server, Sparkles } from "lucide-react";
+import { ChevronRight, Cloud, Cpu, FlaskConical, FolderPlus, Server, Sparkles } from "lucide-react";
 import type { AiProviderId, Settings } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { writePref } from "../../lib/recent";
@@ -13,7 +13,9 @@ import { SelectField, Switch, TextField } from "../common/Field";
 import { RouteTile, routeOf, type Route } from "../settings/AiSection";
 import { firstChatModel } from "../settings/LocalServerPanel";
 import { lockProps, useLocked } from "../settings/PolicyLock";
-import { invokeCmd, rpc } from "../../lib/rpc";
+import { errorText, invokeCmd, rpc } from "../../lib/rpc";
+import { pickFolder } from "../../lib/native";
+import { addSummary, orgCorpusChanged } from "../../hooks/useOrgCorpus";
 import { useStartSample } from "../home/HomeSamples";
 
 export function FirstRunWizard() {
@@ -42,6 +44,25 @@ export function FirstRunWizard() {
   const [cloud, setCloud] = useState<"gemini" | "anthropic">(saved === "anthropic" ? "anthropic" : "gemini");
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
+  /** 우리 기관 문서 모음에 넣은 것 (선택) — "보고서 3건 · 기안문 2건" */
+  const [orgDocs, setOrgDocs] = useState("");
+  const [orgBusy, setOrgBusy] = useState(false);
+  const [orgError, setOrgError] = useState("");
+  const putOrgDocs = async () => {
+    const dir = await pickFolder();
+    if (!dir) return;
+    setOrgBusy(true);
+    setOrgError("");
+    try {
+      const r = await rpc("org_corpus_add", { paths: [dir] });
+      setOrgDocs(r.corpus.kinds.map((k) => `${k.label} ${k.count}건`).join(" · "));
+      if (!r.added) setOrgError(r.skipped.length ? addSummary(r) : "그 폴더에 한글 문서(HWP·HWPX)가 없습니다.");
+      orgCorpusChanged();
+    } catch (e) {
+      setOrgError(errorText(e));
+    }
+    setOrgBusy(false);
+  };
   /** 저장이 실패했다 — 저장하지 않고 닫을 길을 연다 (앱이 마법사에 갇히지 않게) */
   const [saveFailed, setSaveFailed] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -170,6 +191,14 @@ export function FirstRunWizard() {
                 </div>
                 <p className="kd-small kd-muted mt-3">팩스·주소·결재선·관인 그림은 설정의 내 기관 정보에서 넣습니다.</p>
               </details>
+              <div className="kd-inset mt-4 flex items-center gap-3 px-3 py-2.5">
+                <span className="min-w-0 flex-1">
+                  <span className="kd-row-title block">우리 기관 문서 (선택)</span>
+                  <span className="kd-row-desc block" style={{ textWrap: "balance" }}>{orgDocs ? `모음: ${orgDocs}` : "결재가 끝난 보고서·기안문이 든 폴더를 넣으면 AI 초안과 새 문서가 우리 기관 서식을 따릅니다."}</span>
+                  {orgError && <span className="block mt-1"><StatusLine tone="warn">{orgError}</StatusLine></span>}
+                </span>
+                <Button variant="secondary" size="sm" disabled={orgBusy} onClick={() => void putOrgDocs()}><FolderPlus size={13} /> {orgBusy ? "읽는 중" : "폴더 넣기"}</Button>
+              </div>
               <p className="kd-small kd-muted mt-3">이 PC에만 저장합니다.</p>
             </>
           )}
@@ -214,6 +243,7 @@ export function FirstRunWizard() {
               <p className="kd-text">준비됐습니다. 홈에서 문서를 넣거나 자주 하는 일을 누르면 됩니다. 처음이면 예제 문서로 한 번 해 보세요.</p>
               <dl className="kd-dl kd-dl-wide mt-2">
                 <div><dt>기관</dt><dd>{[org.name, org.dept, org.person].filter(Boolean).join(" · ") || "나중에 넣기"}</dd></div>
+                {orgDocs && <div><dt>우리 기관 문서</dt><dd>{orgDocs}</dd></div>}
                 <div><dt>AI</dt><dd>
                   <StatusLine tone={aiReady ? "ok" : route === "none" ? "muted" : "warn"}>{aiReady ? "AI 바로 쓸 수 있음" : route === "none" ? "AI 없이 시작" : "AI는 아직 준비 안 됨"}</StatusLine>
                   <span className="kd-small kd-muted block">{aiReady ? aiWhere : aiTodo}</span>

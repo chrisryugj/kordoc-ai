@@ -7,6 +7,7 @@
 import { lintGongmunText, lintMuncheText, normalizeGongmunPreset, usesGaejosikMunche, type GongmunPreset } from 'kordoc';
 import { ask, contextCharBudget, parseJsonLoose, type JsonSchema } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
+import { orgCorpusReference } from '../org-corpus/index.js';
 import { condense } from './condense.js';
 import { loadDocs, selectPassages, type LoadedDoc } from './docs.js';
 import {
@@ -22,6 +23,8 @@ export interface DraftParams {
   kind?: DraftKind;
   references?: string[];
   length?: 'short' | 'medium' | 'long';
+  /** 우리 기관 서식 묶음의 그 갈래 구성·표현을 따른다 (문서가 있을 때) */
+  org?: boolean;
 }
 
 const ROLE = '당신은 한국 행정기관·공공기관·기업의 문서 작성을 돕는 공문서 작성 전문가입니다. 지시와 참고 문서를 바탕으로 바로 결재에 올릴 수 있는 초안을 씁니다.';
@@ -121,7 +124,7 @@ export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefin
   return { text: `${head}${body}`.trim(), redacted };
 }
 
-export async function draftDocument(params: DraftParams, signal: AbortSignal): Promise<{ markdown: string; redacted: number }> {
+export async function draftDocument(params: DraftParams, signal: AbortSignal): Promise<{ markdown: string; redacted: number; org?: { kind: string; label: string; title: string; count: number } }> {
   const instruction = (params.instruction ?? '').trim();
   const kind = params.kind && params.kind in KIND_GUIDE ? params.kind : undefined;
   if (kind === 'memo' && !instruction && !params.references?.length) throw new Error('정리할 메모를 붙여 넣거나 메모 파일을 붙이세요.');
@@ -135,8 +138,10 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
 
   const docs = params.references?.length ? await loadDocs(params.references, signal) : [];
   const org = orgContext();
+  const orgRef = params.org ? await orgCorpusReference(preset, signal) : null;
+  const orgForm = orgRef?.text ?? '';
   const budget = await contextCharBudget({ reserveTokens: maxTokens, signal });
-  const room = Math.max(1000, budget - system.length - instruction.length - org.length - 400);
+  const room = Math.max(1000, budget - system.length - instruction.length - org.length - orgForm.length - 400);
   const refs = await referenceText(docs, kind, instruction, room, signal);
   let redacted = refs.redacted;
   // 회신의 관련 번호·수신은 받은 공문에서 정해진다 — 요약 전 원문에서 뽑아 따로 주고, 초안이 다르게 쓰면 바로잡는다.
@@ -156,6 +161,7 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
       : `[작성 지시]\n${instruction || '참고 문서를 바탕으로 초안을 쓰세요.'}`,
     `[오늘 날짜]\n${todayText()}`,
     org ? `[내 기관 정보]\n${org}` : '',
+    orgForm ? `[우리 기관 문서 구성]\n${orgForm}` : '',
     received ? `[받은 공문 번호]\n${received.ref}` : '',
     received?.recipient ? `[회신 받을 곳]\n${received.recipient}` : '',
     refs.text ? `[참고 문서]\n${refs.text}` : '',
@@ -178,5 +184,8 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
     if (lintErrors(fixed, preset).length < errors.length) markdown = fixed;
   }
   sendProgress({ current: 3, total: 3, message: '초안 완료' });
-  return { markdown: escapeLineDates(markdown), redacted };
+  return {
+    markdown: escapeLineDates(markdown), redacted,
+    ...(orgRef ? { org: { kind: orgRef.kind, label: orgRef.label, title: orgRef.exemplar.title, count: orgRef.count } } : {}),
+  };
 }
