@@ -3,7 +3,7 @@
  * 예제 문장은 앱에 든 합성 예제(가상의 가온시)를 함께 붙여 처음 쓰는 사람도 한 번 눌러 해 볼 수 있다.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpenText, MessageSquarePlus } from "lucide-react";
 import { useApp } from "../../state/app";
 import { rpc } from "../../lib/rpc";
@@ -30,10 +30,19 @@ function sampleSuggestions(s: Samples | null): Suggestion[] {
 }
 
 export function HomeAgent() {
-  const { ready, openDocs } = useApp();
+  const { ready, openDocs, workIntent } = useApp();
   const [paths, setPaths] = useState<string[]>([]);
   const [samples, setSamples] = useState<Samples | null>(null);
   const agent = useWorkAgent(paths);
+  const handled = useRef(0);
+
+  // 문서 화면의 "AI 에게 시키기": 그 문서를 붙여 두고 입력창으로
+  useEffect(() => {
+    if (!workIntent || workIntent.nonce === handled.current) return;
+    handled.current = workIntent.nonce;
+    setPaths((cur) => [...new Set([...cur, ...workIntent.value.paths])]);
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".kd-home-ask .kd-ask-input")?.focus());
+  }, [workIntent]);
 
   useEffect(() => {
     if (ready) void rpc("samples_list", {}).then(setSamples, () => setSamples(null));

@@ -1,0 +1,50 @@
+# OSV-Scanner 무시 목록 (공공 GitLab push 보안스캔 · scripts/contest-gate.mjs 저장소 관문 공용, Cargo.lock 대상)
+#
+# 고칠 판이 있는 것은 판을 올려 지웠다(2026-11-03: tauri 2.12.5, 알림 플러그인 2.8.0, tokio·anyhow·event-listener·serde_with).
+# 아래는 고칠 판이 없거나, 상위 크레이트가 옛 판을 고정해 이 레포에서 바꿀 수 없는 전이 의존이다.
+# 하나같이 직접 의존이 아니고, 대부분 정보성 권고(관리 중단·unsound)이며 알려진 공격 경로가 우리 앱에 닿지 않는다.
+# 상위 크레이트가 갈아타면 항목을 지운다. (2026-11-03 점검)
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0057"
+reason = "fxhash: 관리 중단(정보성). tauri-utils → kuchikiki → selectors 의 빌드 시점 HTML 파서 전이 의존, 실행 파일 경로 아님. 고친 판 없음"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0097"
+reason = "rand 0.7: 사용자 로거와 rand::rng() 를 함께 쓸 때만 unsound. phf_generator 0.8(selectors 의 build-dependency)이 고정, 빌드 시점에만 쓰임. 고친 판은 0.8.6 이상이라 범위 밖"
+
+[[IgnoredVulns]]
+id = "GHSA-cq8v-f236-94qc"
+reason = "RUSTSEC-2026-0097 과 같은 권고(rand 0.7, 빌드 시점 전이 의존)"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0194"
+reason = "quick-xml 0.38: 중복 속성 검사 시간. tauri → plist 가 앱 자신의 Info.plist 만 읽고 쓴다(남이 준 XML 아님). 고친 판 0.41 은 plist 가 아직 받지 않음"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0195"
+reason = "quick-xml 0.38: NsReader 이름공간 선언 할당. plist(앱 자신의 Info.plist) 전이 의존이라 외부 입력이 닿지 않음. 고친 판 0.41 은 plist 가 아직 받지 않음"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0429"
+reason = "glib 0.18: Iterator 구현 unsound. Linux 트레이(gtk3·libappindicator) 전이 의존으로 tauri 2 가 고정, Windows·macOS 빌드에는 링크되지 않음"
+
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+reason = "RUSTSEC-2024-0429 과 같은 권고(glib 0.18, Linux gtk3 전이 의존)"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+reason = "proc-macro-error: 관리 중단(정보성). glib-macros(Linux gtk3) 의 컴파일 시점 매크로 전이 의존"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+reason = "zvariant: 관리 중단(정보성). Linux D-Bus(zbus) 전이 의존: 알림 플러그인·single-instance 의 Linux 구현, Windows·macOS 빌드에는 링크되지 않음"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+reason = "zbus_names: 관리 중단(정보성). Linux D-Bus(zbus) 전이 의존"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+reason = "zvariant_derive: 관리 중단(정보성). Linux D-Bus(zbus) 전이 의존"

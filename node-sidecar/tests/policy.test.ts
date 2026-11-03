@@ -119,7 +119,7 @@ describe('적용 순서: 기본값 < defaults < 사용자 값 < locked', () => {
   });
 
   it('고정된 비밀값(api_key)도 화면으로 보낼 때는 가린다', () => {
-    writePolicy({ version: 1, locked: { ai: { openai: { api_key: 'sk-gaon-internal-0001' } } } });
+    writePolicy({ version: 1, locked: { ai: { openai: { api_key: 'sk-gaon-internal-0001' } } } }); // gitleaks:allow (시험용 가짜 키)
     expect(reload().ai.openai.api_key).toBe('sk-gaon-internal-0001');
     const shown = maskSecrets(getSettings());
     expect(shown.ai.openai.api_key).toBe('sk-g****');
@@ -145,7 +145,7 @@ describe('update_settings', () => {
   });
 
   it('RPC: get_settings 는 policy 를 붙이고 키를 가린다, update_settings 는 실제 적용된 설정을 돌려준다', async () => {
-    writePolicy({ version: 1, notice: '정보통신과', locked: { privacy: { offline: true }, ai: { openai: { api_key: 'sk-gaon-internal-0001' } } } });
+    writePolicy({ version: 1, notice: '정보통신과', locked: { privacy: { offline: true }, ai: { openai: { api_key: 'sk-gaon-internal-0001' } } } }); // gitleaks:allow (시험용 가짜 키)
     reload();
     const router = new RpcRouter();
     registerSystem(router);

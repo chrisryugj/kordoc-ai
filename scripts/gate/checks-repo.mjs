@@ -21,8 +21,11 @@ const SECRETS = [
   ['npm 토큰', /npm_[A-Za-z0-9]{36}/],
   ['HuggingFace 토큰', /hf_[A-Za-z0-9]{34}/],
 ];
-/** 시험용 가짜 값으로 알려진 줄 (허용) */
-const ALLOW = /(fake|dummy|example|test|placeholder|가짜|xxxx)/i;
+/** Gitleaks 와 같은 허용 표시만 본다 (단어로 봐주면 GitLab 이 거부한다: 실측 test 파일의 가짜 키 5곳) */
+const ALLOW = /gitleaks:allow/;
+/** Gitleaks generic-api-key 에 가깝게: 키 이름 + 대입 + 10자 넘는 값, 값의 엔트로피가 3.5 넘으면 */
+const GENERIC = /(?:api[_-]?key|apikey|secret|token|passwd|password|credential|access[_-]?key)[\w.-]{0,20}["'`\s]{0,3}(?::|=|=>|:=)[\s"'`=]{0,5}([\w.=+/-]{10,150})/gi;
+const entropy = (s) => { const n = new Map(); for (const c of s) n.set(c, (n.get(c) ?? 0) + 1); let h = 0; for (const k of n.values()) { const p = k / s.length; h -= p * Math.log2(p); } return h; };
 
 export async function repoChecks() {
   secretScan();
@@ -56,6 +59,14 @@ function secretScan() {
     if (!line || ALLOW.test(line)) continue;
     const k = SECRETS.find(([, r]) => r.test(line));
     if (k) hits.push(`작업 폴더 ${k[0]}: ${line.slice(0, 90)}`);
+  }
+  // 일반 API 키 규칙은 GitLab 처럼 올릴 트리(추적 파일)만: 키 이름에 대입한 값이 길고 무작위해 보이면
+  const generic = git(['grep', '-I', '-n', '-i', '-P', '(api[_-]?key|apikey|secret|token|passwd|password|credential|access[_-]?key)']).stdout ?? '';
+  for (const line of generic.split('\n')) {
+    if (!line || ALLOW.test(line) || /\.(md|lock|ya?ml)\:|pnpm-lock|package-lock/.test(line)) continue;
+    for (const m of line.matchAll(GENERIC)) {
+      if (entropy(m[1]) > 3.5 && /\d/.test(m[1]) && /[a-z]/i.test(m[1])) { hits.push(`일반 키(Gitleaks generic-api-key 꼴): ${line.slice(0, 110)}`); break; }
+    }
   }
   record(A, '비밀값 없음 (커밋 이력 전체 + 작업 폴더)', hits.length ? 'FAIL' : 'PASS', [...new Set(hits)].slice(0, 8).join('\n'));
 }
@@ -129,15 +140,24 @@ async function osvScan() {
     record(A, 'OSV (lockfile 전체: npm·pnpm·Cargo)', 'WARN', `OSV 에 묻지 못함: ${e.message}`);
     return;
   }
+  // lockfile 과 같은 폴더(또는 위 폴더)의 osv-scanner.toml [[IgnoredVulns]] — GitLab 의 OSV-Scanner 도 읽는다(Docufinder 에서 통과 확인)
+  const ignores = git(['ls-files', '-z']).stdout.split('\0').filter((f) => f.endsWith('osv-scanner.toml')).map((f) => ({
+    dir: f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '',
+    ids: new Set([...readFileSync(join(ROOT, f), 'utf-8').matchAll(/^\s*id\s*=\s*"([^"]+)"/gm)].map((m) => m[1])),
+  }));
+  const ignored = (id, file) => ignores.some((g) => file.startsWith(g.dir) && g.ids.has(id));
   const rows = [];
+  let skipped = 0;
   for (const [id, where] of vulns) {
+    const live = where.filter((p) => !ignored(id, p.file));
+    if (!live.length) { skipped++; continue; }
     const v = await (await fetch(`https://api.osv.dev/v1/vulns/${id}`)).json().catch(() => ({}));
     const sev = String(v.database_specific?.severity ?? '').toUpperCase() || (v.severity?.length ? 'CVSS' : '모름');
-    rows.push({ id, sev, pkgs: where.map((p) => `${p.name}@${p.version} (${p.file})`) });
+    rows.push({ id, sev, pkgs: live.map((p) => `${p.name}@${p.version} (${p.file})`) });
   }
-  const bad = rows.filter((r) => ['CRITICAL', 'HIGH'].includes(r.sev));
+  // GitLab 은 등급과 상관없이 하나라도 있으면 거부한다 (실측: LOW 1건·RUSTSEC 정보성 권고로 push 거부)
   const detail = rows.map((r) => `${r.sev} ${r.id} ${r.pkgs[0]}${r.pkgs.length > 1 ? ` 외 ${r.pkgs.length - 1}` : ''}`).join('\n');
-  record(A, `OSV (lockfile ${pkgs.length}개 패키지: npm·pnpm·Cargo)`, bad.length ? 'FAIL' : rows.length ? 'WARN' : 'PASS', detail || '알려진 취약점 없음');
+  record(A, `OSV (lockfile ${pkgs.length}개 패키지, 무시 목록 ${skipped}건 뺌)`, rows.length ? 'FAIL' : 'PASS', rows.length ? `${rows.length}건:\n${detail}` : '알려진 취약점 없음');
 }
 
 function vulnScan() {

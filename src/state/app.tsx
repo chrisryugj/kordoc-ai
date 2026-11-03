@@ -70,6 +70,9 @@ interface AppValue {
   startCompare: (old?: string, next?: string) => void;
   assistantIntent: Intent<AssistantStart> | null;
   askAbout: (a: AssistantStart) => void;
+  /** 홈 "무엇을 할까요?" 에 이 파일들을 붙여 두고 간다 (문서 화면의 AI 에게 시키기) */
+  workIntent: Intent<{ paths: string[] }> | null;
+  askWork: (w: { paths: string[] }) => void;
   createIntent: Intent<CreateStart> | null;
   startCreate: (c: CreateStart) => void;
   pdfIntent: Intent<PdfStart> | null;
@@ -117,6 +120,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const [batchIntent, setBatchIntent] = useState<Intent<BatchStart> | null>(null);
   const [compareIntent, setCompareIntent] = useState<Intent<{ old?: string; new?: string }> | null>(null);
   const [assistantIntent, setAssistantIntent] = useState<Intent<AssistantStart> | null>(null);
+  const [workIntent, setWorkIntent] = useState<Intent<{ paths: string[] }> | null>(null);
   const [createIntent, setCreateIntent] = useState<Intent<CreateStart> | null>(null);
   const [pdfIntent, setPdfIntent] = useState<Intent<PdfStart> | null>(null);
   const [recent, setRecent] = useState<RecentDoc[]>(loadRecent);
@@ -230,6 +234,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     batchIntent, startBatch: (b) => { setBatchIntent(intent(b)); setScreen("batch"); },
     compareIntent, startCompare: (o, n) => { setCompareIntent(intent({ old: o, new: n })); setScreen("compare"); },
     assistantIntent, askAbout: (a) => { setAssistantIntent(intent(a)); setScreen("assistant"); },
+    workIntent, askWork: (w) => { setWorkIntent(intent(w)); setScreen("home"); },
     createIntent, startCreate: (c) => { setCreateIntent(intent(c)); setScreen("create"); },
     pdfIntent, startPdf: (p) => { setPdfIntent(intent(p)); setScreen("pdf"); },
     recent, clearRecent: () => { setRecent([]); saveRecent([]); },
@@ -238,7 +243,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     badges, setBadge, firstRun, setFirstRun,
     settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard,
   }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
-    docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, createIntent, pdfIntent, recent,
+    docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, workIntent, createIntent, pdfIntent, recent,
     theme, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

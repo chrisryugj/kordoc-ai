@@ -140,7 +140,7 @@ export async function findVersions(path: string, signal?: AbortSignal): Promise<
 
   const notes: string[] = [];
   const finals = versions.filter((v) => v !== latest && isFinal(v.markers));
-  if (finals.length) notes.push(`이름에 "최종"이 붙은 ${finals.map((v) => v.name).join(', ')} 보다 ${latest.name} 을(를) 더 나중에 고쳤습니다.`);
+  if (finals.length) notes.push(`이름에 "최종"이 붙은 ${finals.map((v) => v.name).join(', ')} 보다 더 나중에 고친 판이 있습니다: ${latest.name}`);
   const tIdx = versions.findIndex((v) => v.target);
   if (tIdx < versions.length - 1) notes.push(`고른 문서보다 나중에 고친 판이 ${versions.length - 1 - tIdx}개 있습니다.`);
   if (latest.change && latest.change.removed > latest.change.added * 2 && latest.change.removed >= 5) notes.push(`가장 최근 판은 바로 앞 판보다 ${latest.change.removed}줄이 빠졌습니다. 지운 것이 맞는지 확인하세요.`);

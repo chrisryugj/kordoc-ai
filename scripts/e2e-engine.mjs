@@ -172,13 +172,13 @@ function defineChecks(f, sc) {
     return r.steps.map((s) => `${s.name} ${s.ms}ms`).join(', ');
   });
   check('system', '설정 저장·키 가림·폐쇄망 토글', async () => {
-    await sc.call('update_settings', { settings: { org: { name: '가온시', dept: '행정지원과', person: '홍길동', phone: '000-111-2222', approval_line: ['주무관', '팀장', '과장'] }, ai: { gemini: { api_key: 'AIzaSECRET123456' } } } });
+    await sc.call('update_settings', { settings: { org: { name: '가온시', dept: '행정지원과', person: '홍길동', phone: '000-111-2222', approval_line: ['주무관', '팀장', '과장'] }, ai: { gemini: { api_key: 'AIzaSECRET123456' } } } }); // gitleaks:allow (시험용 가짜 키)
     const s = await sc.call('get_settings');
     assert(s.org.name === '가온시' && s.org.approval_line.length === 3, 'org 저장 안 됨');
     assert(s.ai.gemini.api_key.includes('****') && !s.ai.gemini.api_key.includes('SECRET'), '키가 가려지지 않음');
     await sc.call('update_settings', { settings: { ai: { gemini: { api_key: s.ai.gemini.api_key } } } }); // 가린 값 되돌림 방지 확인
     const raw = JSON.parse(readFileSync(join(sc.dataDir, 'settings.json'), 'utf-8'));
-    assert(raw.ai.gemini.api_key === 'AIzaSECRET123456', '가린 키가 원래 키를 덮어씀');
+    assert(raw.ai.gemini.api_key === 'AIzaSECRET123456', '가린 키가 원래 키를 덮어씀'); // gitleaks:allow (시험용 가짜 키)
     return '기관 정보 저장, 키 가림·역전파 차단 확인';
   });
   check('system', 'scan_paths', async () => {

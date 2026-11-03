@@ -85,7 +85,7 @@ describe('이 PC 의 로컬 모델 서버', () => {
   });
 
   it('모델 불러오기는 그 칸(local)에 저장된 키를 저장된 주소에만 쓴다', async () => {
-    await updateSettings({ ai: { local: { base_url: `${plain.url}/v1`, api_key: 'local-key-1234', model: 'local-model' } } });
+    await updateSettings({ ai: { local: { base_url: `${plain.url}/v1`, api_key: 'local-key-1234', model: 'local-model' } } }); // gitleaks:allow (시험용 가짜 키)
     expect(await listServerModels({ slot: 'local' }, signal())).toEqual({ models: ['local-model'] });
     expect(plain.requests.at(-1)!.headers.authorization).toBe('Bearer local-key-1234');
     await listServerModels({ slot: 'local', base_url: `${ollama.url}/v1` }, signal());

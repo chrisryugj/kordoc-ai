@@ -1,7 +1,11 @@
 /** 문서(작업대) — 연 문서 목록 · 쪽 미리보기 · 도구 패널(읽기·고치기·검토·내보내기) */
 
 import { useEffect, useState } from "react";
-import { FileUp, FilePen, FileStack, PanelLeftClose, PanelLeftOpen, X, BookOpenText, Reply } from "lucide-react";
+import { FileUp, FilePen, FileStack, PanelLeftClose, PanelLeftOpen, X, BookOpenText, Reply, Sparkles, History } from "lucide-react";
+import { VersionsDialog } from "../agent/VersionsDialog";
+
+/** 최종본 찾기를 보일 형식 (core/versions 의 갈래와 같음) */
+const VERSIONABLE = new Set(["hwp", "hwp3", "hwpx", "hwpml", "docx", "pdf", "xls", "xlsx", "pptx"]);
 import { useApp } from "../../state/app";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
@@ -13,8 +17,9 @@ import { pickFiles } from "../../lib/native";
 import { FORMAT_KIND, fileSize, isHangul, num, stem } from "../../lib/format";
 
 export function WorkbenchScreen({ active }: { active: boolean }) {
-  const { docs, activePath, setActive, closeDoc, openDocs, registerDrop, dragTarget, setBadge, startCreate, startPdf } = useApp();
+  const { docs, activePath, setActive, closeDoc, openDocs, registerDrop, dragTarget, setBadge, startCreate, startPdf, askWork } = useApp();
   const [listOpen, setListOpen] = useState(true);
+  const [ver, setVer] = useState<string | null>(null);
   const current = docs.find((d) => d.path === activePath) ?? null;
   // 쪽 그림 일꾼(rhwp WASM)·쪽 그림은 지금 문서와 바로 전 문서만 들고 있는다 (연 문서마다 남지 않게)
   const [prevPath, setPrevPath] = useState<string | null>(null);
@@ -35,6 +40,7 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
+      <VersionsDialog path={ver} onClose={() => setVer(null)} />
       <ScreenHeader
         title={current ? current.name : "문서"}
         sub={sub}
@@ -46,7 +52,9 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
               : <Button variant="secondary" onClick={reply}><Reply size={15} /> 회신 쓰기</Button>)}
             {current && isHangul(current.format) && !info?.encrypted && <Button variant="secondary" onClick={() => startCreate({ path: current.path })}><FilePen size={15} /> 한글 편집기로 열기</Button>}
             {current?.format === "pdf" && <Button variant="secondary" onClick={() => startPdf({ paths: [current.path] })}><FileStack size={15} /> 쪽 정리·나누기</Button>}
-            <Button variant="secondary" onClick={open}><FileUp size={15} /> 문서 열기</Button>
+            {current && <Button variant="secondary" onClick={() => askWork({ paths: [current.path] })}><Sparkles size={15} /> AI 에게 시키기</Button>}
+            {current && VERSIONABLE.has(current.format) && <Button variant="ghost" onClick={() => setVer(current.path)}><History size={15} /> 최종본 찾기</Button>}
+            <Button variant="ghost" onClick={open}><FileUp size={15} /> 문서 열기</Button>
           </>
         )}
       />

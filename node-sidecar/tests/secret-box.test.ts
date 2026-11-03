@@ -26,7 +26,7 @@ describe('secret-box', () => {
   it('키가 있으면 settings.json 에 암호문, 읽으면 평문', async () => {
     useKey(KEY);
     reload();
-    await updateSettings({ ai: { gemini: { api_key: 'AIza-secret-123' } } });
+    await updateSettings({ ai: { gemini: { api_key: 'AIza-secret-123' } } }); // gitleaks:allow (시험용 가짜 키)
     expect(file()).not.toContain('AIza-secret-123');
     expect(file()).toContain('enc:v1:');
     reload();

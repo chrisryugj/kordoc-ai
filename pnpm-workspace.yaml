@@ -7,3 +7,5 @@ overrides:
   nanoid@<3.3.16: ^3.3.16
   browserslist: ^4.28.7
   source-map-js: ^1.2.2
+  '@babel/core@7.29.0': 7.29.6
+  esbuild@0.28.0: 0.28.1
