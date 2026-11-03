@@ -188,13 +188,13 @@ function remapSection(xml: string, maps: Maps): string {
   return out;
 }
 
-interface Manifest {
+export interface Manifest {
   xml: string;
   items: Array<{ id: string; href: string; attrs: string }>;
   spine: string[];
 }
 
-function readManifest(xml: string): Manifest {
+export function readManifest(xml: string): Manifest {
   const items = [...xml.matchAll(/<opf:item\s([^>]*?)\/>/g)].map((m) => ({
     id: /\bid="([^"]*)"/.exec(m[1])?.[1] ?? '',
     href: /\bhref="([^"]*)"/.exec(m[1])?.[1] ?? '',
@@ -204,7 +204,7 @@ function readManifest(xml: string): Manifest {
   return { xml, items, spine };
 }
 
-const sectionHrefs = (m: Manifest) => m.spine.map((id) => m.items.find((i) => i.id === id)).filter((i) => i && /section\d+\.xml$/i.test(i.href)).map((i) => i!.href);
+export const sectionHrefs = (m: Manifest) => m.spine.map((id) => m.items.find((i) => i.id === id)).filter((i) => i && /section\d+\.xml$/i.test(i.href)).map((i) => i!.href);
 
 export interface MergeHwpxResult {
   bytes: Uint8Array;

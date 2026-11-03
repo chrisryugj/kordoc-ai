@@ -110,6 +110,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "seal",
     "search_files",
     "security_status",
+    "split_hangul",
     "split_pdf",
     "style_apply",
     "style_delete",

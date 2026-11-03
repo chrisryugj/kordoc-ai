@@ -1,10 +1,11 @@
 /** 파일 수합 — 마크다운 병합 또는 서식 유지 수합 */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename, extname } from 'node:path';
+import { dirname, basename, extname, join } from 'node:path';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import { mergeHwpx } from './hwpx-merge.js';
+import { splitHwpx, type SplitMode } from './hwpx-split.js';
 import { rhwpConvert, tooBigForRhwp } from '../render/rhwp.js';
 import { parseBytes } from '../converter/index.js';
 import { concatDocx } from './concat-docx.js';
@@ -51,6 +52,28 @@ async function mergeHangul(params: MergeFilesParams, signal: AbortSignal): Promi
     failed_files: failed,
     ...(merged.warnings.length ? { warnings: merged.warnings } : {}),
   };
+}
+
+/** 한글 문서 나누기 — 구역·강제 쪽 나눔마다 서식 그대로 HWPX 여러 개로 (HWP 는 HWPX 로 바꿔서). 원본은 그대로 */
+export async function splitHangul(p: { path: string; output_dir: string; mode?: SplitMode }, signal: AbortSignal): Promise<{ output_dir: string; output_files: string[]; sections: number; page_breaks: number }> {
+  const ext = extname(p.path).toLowerCase();
+  if (ext !== '.hwp' && ext !== '.hwpx') throw new Error('한글 문서(HWP·HWPX)만 나눌 수 있습니다.');
+  sendProgress({ current: 0, total: 2, message: `${basename(p.path)} 읽는 중` });
+  let bytes: Uint8Array = new Uint8Array(await readFile(p.path));
+  if (ext === '.hwp') bytes = await rhwpConvert(bytes, 'hwpx', signal);
+  signal.throwIfAborted();
+  sendProgress({ current: 1, total: 2, message: '서식 그대로 나누는 중' });
+  const r = await splitHwpx(bytes, p.mode ?? 'auto');
+  await mkdir(p.output_dir, { recursive: true });
+  const stem = basename(p.path, extname(p.path));
+  const width = String(r.parts.length).length;
+  const output_files: string[] = [];
+  for (const [i, part] of r.parts.entries()) {
+    const out = join(p.output_dir, `${stem}_${String(i + 1).padStart(width, '0')}.hwpx`);
+    await writeFile(out, part);
+    output_files.push(out);
+  }
+  return { output_dir: p.output_dir, output_files, sections: r.sections, page_breaks: r.pageBreaks };
 }
 
 export async function mergeFiles(

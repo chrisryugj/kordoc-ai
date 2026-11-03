@@ -49,6 +49,12 @@ export function TaskOptions({ task, opts, set }: {
         </>
       )}
       {task === "merge" && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
+      {task === "hwpsplit" && (
+        <>
+          <Field label="나누는 곳"><Seg label="나누는 곳" value={opts.splitMode} onChange={(v) => set({ splitMode: v })} options={[{ value: "auto", label: "알아서" }, { value: "section", label: "구역마다" }, { value: "pagebreak", label: "쪽 나눔마다" }]} /></Field>
+          <p className="kd-small kd-muted">알아서: 여러 문서를 합친 파일처럼 구역이 여럿이면 구역마다, 하나면 쪽을 강제로 나눈 곳(Ctrl+Enter)마다 나눕니다. 서식은 그대로이고 결과는 한글 문서(HWPX)입니다.</p>
+        </>
+      )}
       {task === "pdftools" && <p className="kd-small kd-muted">시작을 누르면 넣은 파일을 PDF 작업 화면에 놓습니다. 한글·워드·그림도 PDF로 바꿔 넣습니다.</p>}
       {task === "shrink" && <ShrinkOptions value={opts.shrink} onChange={(shrink) => set({ shrink })} />}
       {task === "collect" && <GatherOptions opts={opts} set={set} />}

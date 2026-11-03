@@ -377,6 +377,7 @@ const handlers: Handlers = {
   watch_stop: (p) => { const i = watchers.findIndex((w) => w.id === p.id); if (i >= 0) watchers.splice(i, 1); return true; },
   watch_list: () => watchers.map((w) => ({ ...w })),
   merge_files: async (p) => { await wait(600); return { output_path: p.output_path, file_count: p.files.length }; },
+  split_hangul: async (p) => { await wait(500); const dir = p.output_dir ?? joinPath(DOCS_DIR, `${stem(p.path)}_나누기`); return { output_dir: dir, output_files: [1, 2].map((n) => joinPath(dir, `${stem(p.path)}_${n}.hwpx`)), sections: 2, page_breaks: 0 }; },
   split_pdf: async (p) => { await wait(500); return { output_files: [1, 2, 3].map((n) => joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_${n}.pdf`)), output_dir: p.output_dir }; },
   pdf_page_count: () => ({ page_count: 12 }),
   pdf_extract_pages: async (p) => { await wait(400); return { output_path: p.output_path, extracted_pages: 3, total_pages: 12 }; },

@@ -64,6 +64,9 @@ pub const ACTIONS: &[Action] = &[
     Action { only: &[".pdf", ".hwp", ".hwpx", ".docx"], mac: true, ..act("shrink", "PDF 용량 줄이기", true) },
     Action { only: &[".pdf", ".hwp", ".hwpx"], ..act("pdfimages", "쪽마다 그림으로 저장", true) },
     Action { skip: &[".hwpx"], folder: Some("모두 한글 문서(HWPX)로"), sep: true, mac: true, ..act("hwpx", "한글 문서(HWPX)로 바꾸기", true) },
+    // 한글 문서 합치기·나누기 (서식 그대로, 결과는 HWPX): 여러 개 골라 합치기 · 구역·강제 쪽 나눔마다 나누기
+    Action { only: HANGUL, folder: Some("한글 문서 하나로 합치기 (이름 차례)"), mac: true, ..act("hwpmerge", "한글 문서 하나로 합치기", true) },
+    Action { only: HANGUL, ..act("hwpsplit", "한글 문서 나누기 (구역·쪽 나눔마다)", true) },
     Action { folder: Some("개인정보 모두 가리기"), mac: true, ..act("redact", "개인정보 가리기", true) },
     Action { skip: IMAGES, ..act("tables", "표를 엑셀로 뽑기", true) },
     Action { ..act("convert", "글(마크다운)로 바꾸기", true) },
@@ -74,7 +77,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "3";
+const MENU_VERSION: &str = "4";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -836,11 +839,13 @@ mod tests {
         let ids = |ext: &str| file_actions(ext).map(|a| a.id).collect::<Vec<_>>();
         assert_eq!(
             ids(".hwp"),
-            ["ask", "versions", "open", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "shrink", "pdfimages", "hwpx", "redact", "tables", "convert", "summarize", "compare"]
+            ["ask", "versions", "open", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "shrink", "pdfimages", "hwpx", "hwpmerge", "hwpsplit", "redact", "tables", "convert", "summarize", "compare"]
         );
         // PDF 는 PDF로 저장 없이 나누기, 한글 문서에는 HWPX 로 바꾸기 없음, 그림은 표·비교·편집기 없음
         assert!(!ids(".pdf").contains(&"pdf") && ids(".pdf").contains(&"pdfsplit") && !ids(".pdf").contains(&"edit"));
         assert!(!ids(".hwpx").contains(&"hwpx"));
+        // 한글 합치기·나누기는 한글 문서에만
+        assert!(ids(".hwpx").contains(&"hwpsplit") && !ids(".pdf").contains(&"hwpmerge") && !ids(".docx").contains(&"hwpsplit"));
         let png = ids(".png");
         assert!(png.contains(&"pdfmerge") && png.contains(&"pdfwork") && !png.contains(&"tables") && !png.contains(&"compare") && !png.contains(&"pdfsplit"));
         // 폴더에만 있는 것은 파일 메뉴에 없다

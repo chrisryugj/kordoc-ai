@@ -26,6 +26,7 @@ export const TASKS: TaskDef[] = [
   { id: "bundle", group: "결재 합본", title: "합본 PDF", desc: "본문과 붙임까지 PDF 한 권으로", min: 1 },
   { id: "shrink", group: "결재 합본", title: "PDF 용량 줄이기", desc: "첨부 한도에 맞게 그림을 줄여 용량을 낮춥니다. 글자는 그대로", min: 1, skips: ["md", "txt", "csv", "image"] },
   { id: "merge", group: "결재 합본", title: "한 문서로 합치기", desc: "한글·워드 문서를 하나로 이어 붙이기", min: 2 },
+  { id: "hwpsplit", group: "결재 합본", title: "한글 문서 나누기", desc: "구역이나 쪽 나눔마다 서식 그대로 여러 파일로", min: 1, accepts: ["hwp", "hwpx"] },
   { id: "pdftools", group: "결재 합본", title: "PDF 나누기·쪽 뽑기", desc: "PDF 작업 화면에서 쪽을 보며 나누기·뽑기·순서·돌리기", min: 1 },
   { id: "print", group: "결재 합본", title: "한꺼번에 인쇄", desc: "고른 프린터로 바로 보냅니다", min: 1 },
   { id: "compare", group: "신구대조표", title: "신구대조표 만들기", desc: "고치기 전과 후 문서를 견줘 표로", min: 0 },
@@ -66,6 +67,8 @@ export interface BatchOpts {
   styleId: string;
   /** PDF 용량 줄이기: 첨부 한도·정도·쪽을 그림으로 */
   shrink: ShrinkChoice;
+  /** 한글 나누기: 알아서(구역이 여럿이면 구역마다, 하나면 쪽 나눔마다)·구역마다·쪽 나눔마다 */
+  splitMode: "auto" | "section" | "pagebreak";
 }
 
 export const DEFAULT_OPTS: BatchOpts = {
@@ -88,6 +91,7 @@ export const DEFAULT_OPTS: BatchOpts = {
   printer: "",
   styleId: "",
   shrink: DEFAULT_SHRINK,
+  splitMode: "auto",
 };
 
 export function accepts(def: TaskDef, f: DocFormat): boolean {

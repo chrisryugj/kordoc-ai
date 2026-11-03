@@ -14,7 +14,7 @@ import type { ToastType } from "../components/ui/Toast";
 export type Screen = "home" | "inbox" | "workbench" | "create" | "pdf" | "batch" | "compare" | "assistant" | "settings" | "impact";
 export type ToolId = "info" | "export" | "ai" | "review" | "redact" | "edit" | "tables" | "seal" | "shrink";
 export type BatchTaskId =
-  | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "bundle" | "pdftools" | "collect" | "extract"
+  | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "hwpsplit" | "bundle" | "pdftools" | "collect" | "extract"
   | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy" | "shrink";
 export type ThemePref = "light" | "dark" | "system";
 

@@ -18,7 +18,7 @@ import { lintDoc, lintFix } from '../../core/gongmun/lint.js';
 import { redact, redactBatch } from '../../core/redact/index.js';
 import { patchDocument, seal, validateHwpxFile } from '../../core/hwpx-tools/index.js';
 import { watchList, watchStart, watchStop } from '../../core/watch/index.js';
-import { mergeFiles, splitPdf, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
+import { mergeFiles, splitPdf, splitHangul, extractPdfPages, getPdfPageCount } from '../../core/merge/index.js';
 import { pdfCompose, pdfOpen, pdfThumbs, pdfToImages } from '../../core/pdf-pages/index.js';
 import { printFiles, listPrinters } from '../../core/print/index.js';
 import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
@@ -118,6 +118,12 @@ export function registerDocuments(router: RpcRouter): void {
     const file = reqPath(p.input_path);
     const output_dir = optPath(p.output_dir) ?? uniquePath(join(outputDir({ source: file }), `${stemOf(file)}_분리`));
     return splitPdf({ file, output_dir, mode: oneOf(p.mode, ['each', 'range'] as const), ranges: str(p.ranges) }, signal);
+  }, { heavy: true });
+  // 한글 나누기: 구역·강제 쪽 나눔마다 서식 그대로 HWPX 여러 개 (결과 폴더 <이름>_나누기)
+  reg('split_hangul', (p, signal) => {
+    const file = reqPath(p.path);
+    const output_dir = optPath(p.output_dir) ?? uniquePath(join(outputDir({ source: file }), `${stemOf(file)}_나누기`));
+    return splitHangul({ path: file, output_dir, mode: oneOf(p.mode, ['auto', 'section', 'pagebreak'] as const) }, signal);
   }, { heavy: true });
   reg('pdf_page_count', (p) => getPdfPageCount(reqPath(p.input_path)));
   reg('pdf_extract_pages', (p, signal) => {

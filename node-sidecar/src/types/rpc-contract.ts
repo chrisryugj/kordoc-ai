@@ -154,6 +154,7 @@ export interface RpcMethods {
   watch_list: [Record<string, never>, Array<{ id: string; dir: string; out_dir: string; format: string; processed: number; started_at: string }>];
   merge_files: [{ files: string[]; output_path?: string; mode?: 'native' | 'markdown' }, unknown];
   split_pdf: [{ input_path: string; output_dir?: string; mode?: 'each' | 'range'; ranges?: string }, unknown];
+  split_hangul: [{ path: string; output_dir?: string; mode?: 'auto' | 'section' | 'pagebreak' }, { output_dir: string; output_files: string[]; sections: number; page_breaks: number }];
   pdf_page_count: [{ input_path: string }, { page_count: number }];
   pdf_extract_pages: [{ input_path: string; pages: string; mode?: 'include' | 'exclude'; output_path?: string }, unknown];
   /** PDF 작업 화면: 넣은 파일을 쪽 단위 원본으로. PDF 가 아니면(그림·한글·워드 …) 임시 PDF 로 바꾼다 */

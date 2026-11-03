@@ -108,6 +108,11 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
         if (!r.output_path) return { note: r.note };
         return { output: r.output_path, note: r.under_target === false ? `${shrinkSummary(r)}. 한도를 아직 넘습니다` : shrinkSummary(r) };
       })) };
+    case "hwpsplit":
+      return { kind: "files", ...(await eachFile(env, async (f) => {
+        const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: joinPath(opts.outDir, `${stem(f.name)}_나누기`) } : {}) }, { signal });
+        return { output: r.output_dir, note: `${r.output_files.length}개로 나눔` };
+      })) };
     case "ocr":
       return { kind: "files", ...(await eachFile(env, async (f) => {
         const r = await rpc("ocr", { input_path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.md`) } : {}) }, { signal });
