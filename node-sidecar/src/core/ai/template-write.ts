@@ -11,7 +11,7 @@ import { dirname } from 'node:path';
 import { gongmunGate, parse, patchHwpx, type GongmunGateFinding } from 'kordoc';
 import { ask, contextCharBudget } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
-import { openRhwp } from '../render/rhwp.js';
+import { rhwpConvert } from '../render/rhwp.js';
 import { outputFile, stemOf } from '../output/index.js';
 import { loadDocs } from './docs.js';
 import { fixLines, referenceText } from './draft.js';
@@ -60,16 +60,11 @@ const SYSTEM = [
 const OLE = [0xd0, 0xcf, 0x11, 0xe0];
 const isOle = (b: Uint8Array) => OLE.every((x, i) => b[i] === x);
 
-/** 견본 바이트를 HWPX 로 (HWP 는 rhwp 로 바꾼다) */
+/** 견본 바이트를 HWPX 로 (HWP 는 앱 공용 변환: kordoc 먼저, 안 되면 rhwp) */
 async function templateHwpx(path: string): Promise<{ bytes: Uint8Array; converted: boolean }> {
   const bytes: Uint8Array = await readFile(path);
   if (!isOle(bytes)) return { bytes, converted: false };
-  const doc = (await openRhwp(bytes)) as unknown as { exportHwpx(): Uint8Array; free?(): void };
-  try {
-    return { bytes: doc.exportHwpx(), converted: true };
-  } finally {
-    doc.free?.();
-  }
+  return { bytes: await rhwpConvert(bytes, 'hwpx'), converted: true };
 }
 
 /** 줄 하나만 고치면 되는 지적인가 (장 구성처럼 문서 전체를 봐야 하는 지적은 사람에게 보인다) */

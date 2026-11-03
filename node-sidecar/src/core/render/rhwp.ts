@@ -115,12 +115,23 @@ export async function* rhwpPages(bytes: Uint8Array, password?: string, signal?: 
   }
 }
 
-/** HWP·HWPX → HWPX·HWP (서식 그대로). 큰 문서는 작업자에서 */
+/** HWP·HWPX → HWPX·HWP (서식 그대로). 큰 문서는 작업자에서.
+ *  HWP 5 → HWPX 는 kordoc 변환이 먼저다: 공공 HWP 67개 실측(2026-11-03, 한/글 2024 저장본이 정답)에서 둘 다 한글에서 다 열렸고,
+ *  서식 일치는 kordoc 0.997·rhwp 0.980, rhwp 는 번호 모양(1.→①)·서식 잠금·필드 매개변수를 바꿨다. kordoc 이 못 바꾸면 rhwp 로 */
 export async function rhwpConvert(bytes: Uint8Array, to: 'hwpx' | 'hwp', signal?: AbortSignal): Promise<Uint8Array> {
   return bytes.length < WORKER_BYTES ? convertHere(bytes, to) : runJob<Uint8Array>('rhwp-convert', { bytes, to }, { signal }).result;
 }
 
+const OLE = [0xd0, 0xcf, 0x11, 0xe0];
+
 async function convertHere(bytes: Uint8Array, to: 'hwpx' | 'hwp'): Promise<Uint8Array> {
+  if (to === 'hwpx' && OLE.every((x, i) => bytes[i] === x)) {
+    try {
+      return await (await import('kordoc')).hwpToHwpx(bytes);
+    } catch (err) {
+      logger.warn(`[convert] kordoc HWP→HWPX 를 못 해 rhwp 로: ${err instanceof Error ? err.message : err}`);
+    }
+  }
   const doc = (await openRhwp(bytes)) as unknown as { exportHwpx(): Uint8Array; exportHwp(): Uint8Array; free?(): void };
   try {
     return to === 'hwp' ? doc.exportHwp() : doc.exportHwpx();

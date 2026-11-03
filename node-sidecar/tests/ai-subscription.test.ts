@@ -404,6 +404,7 @@ describe('프로그램 찾기·환경·임시 폴더', () => {
 afterAll(async () => {
   const logs = Array.from({ length: logN }, (_, i) => join(work, `log-${i + 1}.jsonl`));
   const pids = [...new Set(logs.flatMap((f) => readLog(f).filter((e) => e.kind === 'run').map((e) => e.pid!)))];
-  for (const pid of pids) expect(await gone(pid, 3000)).toBe(true);
+  // PC 가 바쁘면(다른 빌드와 함께 돌 때) Windows 는 끈 프로세스를 치우는 데 3초를 넘긴다 (실측) → 10초까지 기다린다
+  for (const pid of pids) expect(await gone(pid, 10_000)).toBe(true);
   rmSync(work, { recursive: true, force: true });
 });
