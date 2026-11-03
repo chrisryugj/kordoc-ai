@@ -1,7 +1,7 @@
 /** 저장소 관문 — 공공 GitLab 은 push 마다 Gitleaks·Semgrep·OSV·Trivy 를 돌려 하나라도 걸리면 push 를 통째로 거부한다.
  *  올리기 전에 여기서 먼저: 비밀값(커밋 이력 전체) · 의존성 취약점 · 문서보안(DRM)으로 암호화·깨진 파일 · 라이선스 고지 */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, SIDECAR, record } from './lib.mjs';
 
@@ -31,6 +31,10 @@ export async function repoChecks() {
   await osvScan();
   const notices = ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'].filter((f) => !existsSync(join(ROOT, f)));
   record(A, '라이선스·제3자 고지 파일', notices.length ? 'FAIL' : 'PASS', notices.length ? `없음: ${notices.join(', ')}` : '');
+  // 셸 따옴표 실수로 생긴 파일("$(grep", "k.toUpperCase()" 같은 빈 파일)이 올라가지 않게 (실측: 한 번 올라갔다 지움)
+  const tracked = git(['ls-files', '-z']).stdout.split('\0').filter(Boolean);
+  const junk = tracked.filter((f) => /[$`'"{}]|^[+~]|[+~]]$/.test(f.split('/').pop()) || (existsSync(join(ROOT, f)) && statSync(join(ROOT, f)).size === 0 && !/(^|\/)\.(gitkeep|keep)$|__init__\.py$/.test(f)));
+  record(A, '이상한 이름·빈 파일 없음', junk.length ? 'FAIL' : 'PASS', junk.slice(0, 10).join(', '));
   const dirty = git(['status', '--porcelain']).stdout.trim();
   record(A, '커밋 안 한 변경 없음', dirty ? 'WARN' : 'PASS', dirty.split('\n').slice(0, 5).join(' | '));
 }
