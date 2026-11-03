@@ -3,6 +3,8 @@
 #   앞서 필요: node scripts/build-sidecar.mjs, 화면 서버(node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 --strictPort)
 #   사용: bash scripts/e2e-ui/run-all.sh [작업 폴더]   (기본: 임시 폴더)
 cd "$(dirname "$0")/../.." || exit 1
+# 시험 중 엔진이 사용자 화면에 한글·탐색기 창을 띄우지 않게 (open_file·reveal_file)
+export KORDOC_AI_NO_LAUNCH=1
 W=${1:-$(mktemp -d -t kordoc-e2e)}
 mkdir -p "$W"
 fail=0

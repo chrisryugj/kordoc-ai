@@ -16,6 +16,11 @@ import { optPath, registrar, reqPath, reqPaths, strList } from './params.js';
 
 /** 탐색기·Finder·기본 앱 실행 — 윈도 explorer 는 성공해도 종료 코드 1 을 자주 내므로 결과를 따지지 않는다 */
 function launch(cmd: string, args: string[]): Promise<boolean> {
+  // 화면 시험·시연 녹화: 사용자 화면에 한글·탐색기 창을 띄우지 않는다 (실측: 녹화 중 AI 가 open_result 를 불러 사용자의 한글에 결과가 열림)
+  if (process.env.KORDOC_AI_NO_LAUNCH === '1') {
+    logger.info(`[open] KORDOC_AI_NO_LAUNCH: ${cmd} 를 띄우지 않음`);
+    return Promise.resolve(true);
+  }
   return new Promise((resolve) => {
     execFile(cmd, args, { windowsHide: false }, (err) => {
       const code = (err as { code?: unknown } | null)?.code;

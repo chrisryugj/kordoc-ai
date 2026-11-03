@@ -115,7 +115,7 @@ export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogPro
         {/* Hero */}
         <p className="ts-xs mb-3" style={{ color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
           연결하면 <strong>Claude Code, Codex, Claude, Cursor, VS Code</strong> 등에서 이 앱의 &apos;일 시키기&apos;와 같은 도구로
-          한글·PDF·엑셀 문서를 읽고, 공문을 쓰고, 서식을 채우고, 점검·가리기·PDF 까지 할 수 있습니다. 결과는 늘 새 파일이고 원본은 그대로입니다.
+          한글·PDF·엑셀 문서를 읽고, 공문을 쓰고, 서식을 채우고, 점검·가리기·PDF 만들기까지 할 수 있습니다. 결과는 늘 새 파일이고 원본은 그대로입니다.
         </p>
 
         {/* Tabs */}
