@@ -1,7 +1,7 @@
 /** 버전 찾기·최종본 찾기 (core/versions) — 실제 HWPX 판들을 만들어 고친 차례·최종 판정·짚을 것 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { mkdirSync, utimesSync } from 'node:fs';
+import { copyFileSync, mkdirSync, utimesSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { call, setupEnv } from './doc-helpers.js';
 import { splitName } from '../src/core/versions/index.js';
@@ -62,5 +62,23 @@ describe('find_versions', () => {
     expect(r.versions).toHaveLength(1);
     expect(r.notes).toContain('같은 문서의 다른 판을 찾지 못했습니다.');
     await expect(call('find_versions', { path: join(dir, 'a.png') })).rejects.toThrow(/한글·워드·PDF/);
+  }, 60_000);
+});
+
+describe('형식만 다른 같은 이름 (판이 아님)', () => {
+  // 실측: 받은 공문 HWPX 의 문서 카드가 같은 폴더의 같은 이름 PDF 를 "다른 판 · 최종으로 보이는 것" 으로 짚었다
+  it('같은 폴더의 같은 이름 PDF 는 다른 판으로 세지 않는다 (예제 받은 공문 짝)', async () => {
+    const sub = join(dir, '..', '받은공문');
+    mkdirSync(sub, { recursive: true });
+    const src = join(__dirname, '..', 'samples', '1-받은공문_도민체육대회 참가 협조 요청');
+    const hwpx = join(sub, '참가 협조 요청.hwpx');
+    const pdf = join(sub, '참가 협조 요청.pdf');
+    copyFileSync(`${src}.hwpx`, hwpx);
+    copyFileSync(`${src}.pdf`, pdf);
+    utimesSync(hwpx, at(14), at(14));
+    utimesSync(pdf, at(15), at(15));
+    const r = (await call('find_versions', { path: hwpx })) as VersionsResult;
+    expect(r.versions.map((v) => basename(v.path))).toEqual(['참가 협조 요청.hwpx']);
+    expect(r.latest).toBe(hwpx);
   }, 60_000);
 });

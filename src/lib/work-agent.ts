@@ -36,7 +36,13 @@ export async function createWorkSkill(deps: { files: () => string[]; onFiles: (f
         deps.onFiles(r.files);
       }
       if (r.saved_min) deps.onSaved?.(r.saved_min);
-      return { output: r.output, summary: r.summary, ...(r.isError ? { isError: true } : {}), ...(r.files?.length ? { mutated: true } : {}) };
+      // 경로를 잘못 옮겨 적어 못 찾으면 쓸 수 있는 전체 경로를 알려 다시 고르게 한다 (추측해 바꿔 넣지는 않는다)
+      // 실측: Gemma 4 E4B 가 방금 만든 문서를 점검하며 경로 대신 "[New…" 를 넣음
+      const known = [...new Set([...deps.files(), ...outputs])];
+      const output = r.isError && /찾을 수 없습니다/.test(r.output) && known.length
+        ? `${r.output}\n쓸 수 있는 파일 (이 전체 경로를 그대로 넣으세요):\n${known.map((f) => `- ${f}`).join("\n")}`
+        : r.output;
+      return { output, summary: r.summary, ...(r.isError ? { isError: true } : {}), ...(r.files?.length ? { mutated: true } : {}) };
     },
   };
 }

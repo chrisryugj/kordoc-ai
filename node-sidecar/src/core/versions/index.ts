@@ -105,7 +105,11 @@ export async function findVersions(path: string, signal?: AbortSignal): Promise<
   const myBody = await bodyOf(target, signal);
 
   // 이름이 닮은 것부터, 같은 폴더의 같은 갈래는 이름이 달라도(통째로 이름을 바꾼 판) 최근 것 몇 개를 본문으로 견준다
-  const same = all.filter((p) => p !== target && FAMILY[formatOf(p)] === family);
+  // 같은 폴더의 똑같은 이름(확장자만 다름)은 한 판을 다른 형식으로 저장한 것이라 판으로 세지 않는다
+  // (실측: 받은 공문 HWPX 의 카드가 짝 PDF 를 "최종으로 보이는 것" 으로 짚음)
+  const stemOf = (p: string) => join(dirname(p), basename(p, extname(p))).normalize('NFC').toLowerCase();
+  const myStem = stemOf(target);
+  const same = all.filter((p) => p !== target && FAMILY[formatOf(p)] === family && stemOf(p) !== myStem);
   const scored = await Promise.all(same.map(async (p) => ({ p, st: await stat(p), name: dice(me.core, splitName(p).core) })));
   scored.sort((a, b) => b.name - a.name || b.st.mtimeMs - a.st.mtimeMs);
   const toRead = scored.filter((c) => c.name >= 0.5 || dirname(c.p) === dirname(target)).slice(0, MAX_PARSE);
