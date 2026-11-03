@@ -24,10 +24,11 @@ const SECRETS = [
 /** 시험용 가짜 값으로 알려진 줄 (허용) */
 const ALLOW = /(fake|dummy|example|test|placeholder|가짜|xxxx)/i;
 
-export function repoChecks() {
+export async function repoChecks() {
   secretScan();
   drmScan();
   vulnScan();
+  await osvScan();
   const notices = ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.txt'].filter((f) => !existsSync(join(ROOT, f)));
   record(A, '라이선스·제3자 고지 파일', notices.length ? 'FAIL' : 'PASS', notices.length ? `없음: ${notices.join(', ')}` : '');
   const dirty = git(['status', '--porcelain']).stdout.trim();
@@ -80,6 +81,59 @@ function drmScan() {
   const untracked = git(['ls-files', '--others', '--exclude-standard']).stdout.split('\n').filter((f) => /\.pLDH$/i.test(f));
   record(A, '문서보안(DRM) 암호화·깨진 파일 없음', bad.length ? 'FAIL' : untracked.length ? 'WARN' : 'PASS',
     bad.length ? bad.slice(0, 8).join('\n') : untracked.length ? `커밋 안 된 DRM 사본: ${untracked.join(', ')} (올리지 말 것)` : `${files.length}개 파일`);
+}
+
+/** 레포의 lockfile 세 개(엔진 npm·화면 pnpm·Rust Cargo)를 GitLab 이 쓰는 OSV 데이터베이스에 그대로 묻는다 */
+function lockPackages() {
+  const out = [];
+  const npmLock = JSON.parse(readFileSync(join(SIDECAR, 'package-lock.json'), 'utf-8'));
+  for (const [k, v] of Object.entries(npmLock.packages ?? {})) {
+    if (!k || !v.version) continue;
+    out.push({ eco: 'npm', name: v.name ?? k.split('node_modules/').pop(), version: v.version, file: 'node-sidecar/package-lock.json' });
+  }
+  const pnpm = readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf-8').split(/\r?\n/);
+  let inPkgs = false;
+  for (const l of pnpm) {
+    if (/^packages:/.test(l)) { inPkgs = true; continue; }
+    if (/^\S/.test(l)) inPkgs = false;
+    const m = inPkgs && /^ {2}'?(@?[^@\s'(]+)@([0-9][^\s'(:]*)/.exec(l);
+    if (m) out.push({ eco: 'npm', name: m[1], version: m[2], file: 'pnpm-lock.yaml' });
+  }
+  const cargo = join(ROOT, 'src-tauri', 'Cargo.lock');
+  if (existsSync(cargo)) {
+    for (const block of readFileSync(cargo, 'utf-8').split('[[package]]').slice(1)) {
+      const name = /name = "([^"]+)"/.exec(block)?.[1];
+      const version = /version = "([^"]+)"/.exec(block)?.[1];
+      if (name && version && /source = "registry/.test(block)) out.push({ eco: 'crates.io', name, version, file: 'src-tauri/Cargo.lock' });
+    }
+  }
+  const seen = new Set();
+  return out.filter((p) => { const k = `${p.eco}:${p.name}@${p.version}`; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+async function osvScan() {
+  const pkgs = lockPackages();
+  const vulns = new Map();
+  try {
+    for (let i = 0; i < pkgs.length; i += 500) {
+      const chunk = pkgs.slice(i, i + 500);
+      const r = await fetch('https://api.osv.dev/v1/querybatch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: chunk.map((p) => ({ package: { name: p.name, ecosystem: p.eco }, version: p.version })) }) });
+      if (!r.ok) throw new Error(`OSV ${r.status}`);
+      (await r.json()).results.forEach((res, j) => { for (const v of res.vulns ?? []) vulns.set(v.id, [...(vulns.get(v.id) ?? []), chunk[j]]); });
+    }
+  } catch (e) {
+    record(A, 'OSV (lockfile 전체: npm·pnpm·Cargo)', 'WARN', `OSV 에 묻지 못함: ${e.message}`);
+    return;
+  }
+  const rows = [];
+  for (const [id, where] of vulns) {
+    const v = await (await fetch(`https://api.osv.dev/v1/vulns/${id}`)).json().catch(() => ({}));
+    const sev = String(v.database_specific?.severity ?? '').toUpperCase() || (v.severity?.length ? 'CVSS' : '모름');
+    rows.push({ id, sev, pkgs: where.map((p) => `${p.name}@${p.version} (${p.file})`) });
+  }
+  const bad = rows.filter((r) => ['CRITICAL', 'HIGH'].includes(r.sev));
+  const detail = rows.map((r) => `${r.sev} ${r.id} ${r.pkgs[0]}${r.pkgs.length > 1 ? ` 외 ${r.pkgs.length - 1}` : ''}`).join('\n');
+  record(A, `OSV (lockfile ${pkgs.length}개 패키지: npm·pnpm·Cargo)`, bad.length ? 'FAIL' : rows.length ? 'WARN' : 'PASS', detail || '알려진 취약점 없음');
 }
 
 function vulnScan() {

@@ -30,7 +30,9 @@ for (const name of STAGED_EXTERNALS) {
 rmSync(STAGE, { recursive: true, force: true });
 rmSync(TARGET, { recursive: true, force: true });
 mkdirSync(STAGE, { recursive: true });
-writeFileSync(join(STAGE, 'package.json'), JSON.stringify({ name: 'kordoc-sidecar-natives', private: true, dependencies: deps }, null, 2));
+// 보안 강제 판(overrides)은 설치본에도 똑같이 — 레포 lockfile 만 고치면 설치본에는 취약한 판이 실린다
+const { overrides } = JSON.parse(readFileSync('package.json', 'utf-8'));
+writeFileSync(join(STAGE, 'package.json'), JSON.stringify({ name: 'kordoc-sidecar-natives', private: true, dependencies: deps, ...(overrides ? { overrides } : {}) }, null, 2));
 console.log('[stage] 설치:', Object.entries(deps).map(([k, v]) => `${k}@${v}`).join(' '));
 
 const npm = process.env.npm_execpath && process.env.npm_execpath.endsWith('.js')

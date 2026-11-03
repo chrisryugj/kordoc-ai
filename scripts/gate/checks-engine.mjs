@@ -21,8 +21,8 @@ function sandbox(settings) {
   for (const d of [data, out, home]) mkdirSync(d, { recursive: true });
   cpSync(SAMPLES, docs, { recursive: true });
   writeFileSync(join(data, 'settings.json'), JSON.stringify({ org: ORG, ...settings(out) }));
-  // 홈을 임시로: 기본 결과 폴더(문서/KorDoc AI 결과)가 사용자 PC 를 어지럽히지 않게
-  return { base, data, out, home, docs, env: { USERPROFILE: home, HOME: home } };
+  // 홈은 기본 저장 위치 검사(defaultOutput)에서만 임시로 바꾼다: 홈을 바꾸면 Edge 가 200초 멈췄다 실패한다(실측)
+  return { base, data, out, home, docs, env: {}, homeEnv: { USERPROFILE: home, HOME: home } };
 }
 
 export async function engineChecks({ models = [] }) {
@@ -91,7 +91,9 @@ async function toolSweep() {
       if (name === 'write_document' && r.files?.[0]) written = r.files[0];
       for (const f of r.files ?? []) if (!f.startsWith(s.out)) outside.push(`${name}: ${f}`);
       const status = r.isError ? (want === 'ok' ? 'FAIL' : 'WARN') : 'PASS';
-      record(A, `도구 ${name}`, status, r.isError ? r.output : r.summary, Date.now() - t0);
+      // 심사위원이 누르고 기다리는 시간: 한 도구가 30초를 넘으면 경고 (PDF 가 대체 경로로 빠져도 여기서 보인다)
+      const slow = !r.isError && Date.now() - t0 > 30_000;
+      record(A, `도구 ${name}`, slow ? 'WARN' : status, `${r.isError ? r.output : r.summary}${slow ? ' (30초 넘음)' : ''}`, Date.now() - t0);
     }
     record(A, '결과 파일은 모두 결과 폴더 안', outside.length ? 'FAIL' : 'PASS', outside.join('\n'));
     const after = hashTree(s.docs);
@@ -107,9 +109,10 @@ async function toolSweep() {
 /** 출력 폴더를 안 정한 새 설치: 결과가 원본 옆이 아니라 (임시 홈의) KorDoc AI 결과 */
 async function defaultOutput() {
   const s = sandbox(() => ({}));
-  const e = startEngine({ dataDir: s.data, env: s.env });
+  const e = startEngine({ dataDir: s.data, env: s.homeEnv });
   try {
-    const r = await e.call('agent_tool_run', { name: 'make_pdf', input: { path: P(s, REPORT) } }, 240_000);
+    // Chromium 을 쓰지 않는 도구로 (홈을 바꾼 채 Edge 를 띄우면 멈춘다)
+    const r = await e.call('agent_tool_run', { name: 'extract_tables', input: { path: P(s, REPORT) } }, 240_000);
     const f = r.files?.[0] ?? '';
     const ok = !!f && !f.startsWith(s.docs) && f.includes('KorDoc AI 결과');
     record(A, '새 설치 기본 저장 위치 = KorDoc AI 결과 (원본 옆 아님)', ok ? 'PASS' : 'FAIL', f || r.output);

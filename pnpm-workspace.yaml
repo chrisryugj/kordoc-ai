@@ -1,3 +1,9 @@
 onlyBuiltDependencies:
   - esbuild
   - canvas
+# 보안 강제 판 — 공공 GitLab 의 OSV 스캔이 lockfile 전체(개발 도구 포함)를 본다 (scripts/contest-gate.mjs 저장소 관문)
+overrides:
+  postcss: ^8.5.12
+  nanoid@<3.3.16: ^3.3.16
+  browserslist: ^4.28.7
+  source-map-js: ^1.2.2

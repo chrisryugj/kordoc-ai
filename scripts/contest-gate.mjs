@@ -29,7 +29,7 @@ const t0 = Date.now();
 console.log(`출품 관문 ${final ? '(최종)' : '(개발)'} 시작\n`);
 if (want('code')) codeChecks({ final });
 if (want('engine')) await engineChecks({ models });
-if (want('repo')) repoChecks();
+if (want('repo')) await repoChecks();
 if (want('docs')) await docChecks({ final });
 
 const n = (s) => results.filter((r) => r.status === s).length;
