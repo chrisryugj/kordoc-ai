@@ -247,6 +247,12 @@ export interface RpcMethods {
   /** 장평·자간으로도 마지막 줄이 몇 글자 넘치는 문단만 AI 가 줄여 쓴다 — generate_hwpx 와 같은 옵션 */
   ai_fit_lines: [GenerateParams, { markdown: string; changes: Array<{ before: string; after: string }>; remaining: number }];
 
+  // ── 작업 에이전트 (methods/agent.ts, core/agent-tools) ──
+  /** 지시문과 도구 목록. 같은 목록을 MCP(번들 --mcp)도 쓴다 (앱 전용 도구는 빼고) */
+  agent_tools: [Record<string, never>, { system: string; tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }];
+  /** 도구 하나 실행 — 결과는 늘 새 파일(원본·기존 파일을 덮지 않음). files = 만든 파일 */
+  agent_tool_run: [{ name: string; input: Record<string, unknown> }, { output: string; summary: string; isError?: boolean; files?: string[] }];
+
   // ── 직장인 문서 작업 묶음 (methods/documents.ts — A) ──
   /** PDF·워드·스캔본·엑셀 → 고칠 수 있는 한글(HWPX). 레이아웃 그대로가 아니라 글·표를 다시 조판 */
   /** preset: 'auto' 면 문서 모양을 보고 갈래를 고른다(확실하지 않으면 꾸밈 없이). style = 실제로 쓴 서식 */

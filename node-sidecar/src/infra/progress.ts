@@ -10,7 +10,12 @@ import type { ProgressData } from '../types/index.js';
 /** id = JSON-RPC id(Rust 가 매김), stream = 프론트가 params.__stream 으로 붙인 호출 표지 */
 export const requestContext = new AsyncLocalStorage<{ id: number | string | null; stream?: string }>();
 
+/** MCP 로 뜬 엔진은 stdout 이 MCP 통신 전용이라 앱 알림(진행률·AI 토큰)을 내지 않는다 */
+let muted = false;
+export function muteNotifications(): void { muted = true; }
+
 export function sendNotification(method: string, params: Record<string, unknown>): void {
+  if (muted) return;
   const notification: JsonRpcNotification = { jsonrpc: '2.0', method, params };
   // 짝 없는 서로게이트는 U+FFFD 로 (main.ts writeResponse 와 같은 이유)
   process.stdout.write(JSON.stringify(notification, (_k, v: unknown) => (typeof v === 'string' ? (v as string & { toWellFormed(): string }).toWellFormed() : v)) + '\n');

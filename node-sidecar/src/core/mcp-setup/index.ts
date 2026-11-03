@@ -1,23 +1,34 @@
-/** MCP 원클릭 — AI 클라이언트에 kordoc MCP 서버 등록
+/** MCP 원클릭 — PC 의 AI 에이전트에 KorDoc AI MCP 서버('kordoc-ai') 등록
  *
- * npx 없이 동봉 Node(process.execPath) + 동봉 kordoc/dist/mcp.js 절대 경로로 등록한다 (폐쇄망 PC 에서도 동작).
+ * npx 없이 동봉 Node(process.execPath) + 이 엔진 번들 + --mcp 로 등록한다 (폐쇄망 PC 에서도 동작).
+ * 도구는 앱의 'AI에게 일 시키기'와 같은 목록(core/agent-tools). 예전 판이 등록한 'kordoc'(앱에 든 kordoc/dist/mcp.js)은 지운다.
  * 폐쇄망 모드면 KORDOC_OFFLINE=1, root_dir 을 주면 KORDOC_ROOT(그 폴더 밖 파일 차단), 앱이 받아 둔 OCR 모델을 같이 쓰게 KORDOC_MODEL_CACHE.
  * 설정 파일에 주석(JSONC)이 있으면 주석을 뺀 채 다시 쓰므로 원본을 `.kordoc-backup` 으로 남긴다.
- * 읽을 수 없는 설정 파일은 덮어쓰지 않는다 (사용자 설정 보호).
+ * 읽을 수 없는 설정 파일은 덮어쓰지 않는다 (사용자 설정 보호). Codex 는 TOML 이라 우리 서버 표만 바꿔 쓴다.
  */
 
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { McpEnv } from '../../types/rpc-contract.js';
 import { getSettings } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
 import { kordocMcpPath } from '../kordoc-cli.js';
 import { modelCacheDir } from '../system/index.js';
 
-type Key = 'mcpServers' | 'servers' | 'context_servers';
-interface ClientDef { id: string; name: string; configPath: string; key: Key; probes: string[] }
+type Key = 'mcpServers' | 'servers' | 'context_servers' | 'toml';
+/** probeOnly: 설정 파일의 위 폴더가 늘 있어(홈) 설치 여부를 probes 로만 본다 */
+interface ClientDef { id: string; name: string; configPath: string; key: Key; probes: string[]; probeOnly?: boolean }
+
+export const SERVER_NAME = 'kordoc-ai';
+
+/** MCP 로 띄울 엔진 진입 파일 — 설치본은 이 번들 자신(dist/bundle.mjs). 소스·tsc 출력에서 개발할 땐 레포의 dist/bundle.mjs */
+export function engineEntryPath(): string {
+  const self = fileURLToPath(import.meta.url);
+  return /bundle\.mjs$/.test(self) ? self : resolve(dirname(self), '..', '..', '..', 'dist', 'bundle.mjs');
+}
 
 function clientDefs(): ClientDef[] {
   const home = homedir();
@@ -27,6 +38,8 @@ function clientDefs(): ClientDef[] {
   const local = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
   const userCfg = win ? appData : mac ? join(home, 'Library', 'Application Support') : join(home, '.config');
   return [
+    { id: 'claude-code', name: 'Claude Code', key: 'mcpServers', configPath: join(home, '.claude.json'), probes: [join(home, '.claude')], probeOnly: true },
+    { id: 'codex', name: 'Codex', key: 'toml', configPath: join(home, '.codex', 'config.toml'), probes: [join(home, '.codex')] },
     { id: 'claude-desktop', name: 'Claude Desktop', key: 'mcpServers', configPath: join(userCfg, 'Claude', 'claude_desktop_config.json'),
       probes: win ? [join(local, 'AnthropicClaude'), join(local, 'Programs', 'claude-desktop')] : mac ? ['/Applications/Claude.app'] : [] },
     { id: 'cursor', name: 'Cursor', key: 'mcpServers', configPath: join(home, '.cursor', 'mcp.json'),
@@ -79,25 +92,85 @@ async function readConfig(path: string): Promise<{ data: Record<string, unknown>
   }
 }
 
+const serverArgs = (): string[] => [engineEntryPath(), '--mcp'];
+
 function serverEntry(key: Key, env: Record<string, string>): Record<string, unknown> {
   const command = process.execPath;
-  const args = [kordocMcpPath()];
+  const args = serverArgs();
   const withEnv = Object.keys(env).length ? { env } : {};
   if (key === 'servers') return { type: 'stdio', command, args, ...withEnv };
   if (key === 'context_servers') return { command: { path: command, args, ...withEnv } };
   return { command, args, ...withEnv };
 }
 
+/** 예전 판 앱이 등록한 kordoc 항목 (앱에 든 kordoc/dist/mcp.js) — 사용자가 따로 등록한 kordoc(npx 등)은 둔다 */
+function isOldAppEntry(v: unknown): boolean {
+  const e = v as { args?: unknown; command?: { args?: unknown } } | undefined;
+  const args = Array.isArray(e?.args) ? e.args : Array.isArray(e?.command?.args) ? e.command.args : [];
+  return typeof args[0] === 'string' && resolve(args[0]) === resolve(kordocMcpPath());
+}
+
+/** TOML 표 머리 [a.b]·[[a.b]] — 값 줄의 배열("[1, 2],")·여러 줄 배열 조각과 가르려고 ] 뒤에는 주석만 허용 */
+const TOML_HEADER = /^\s*\[\[?\s*([^[\]=]+?)\s*\]\]?\s*(#.*)?$/;
+const TOML_KEY = /^\s*([A-Za-z0-9_\-.'" ]+?)\s*=/;
+const tomlParts = (k: string) => k.split('.').map((s) => s.trim().replace(/^(["'])(.*)\1$/, '$2'));
+const isOurs = (parts: string[]) => parts[0] === 'mcp_servers' && parts[1] === SERVER_NAME;
+
+/** Codex config.toml 에서 우리 서버를 뺀 줄들 — [mcp_servers.kordoc-ai] 표(하위 표 포함, 머리 뒤 주석·따옴표 키),
+ *  [mcp_servers] 안의 kordoc-ai = { … } 인라인 표·점 키, 맨 위의 mcp_servers.kordoc-ai.… 점 키 */
+function stripTomlServer(text: string): { kept: string[]; found: boolean } {
+  const kept: string[] = [];
+  let table: string[] = [];
+  let skipping = false;
+  let found = false;
+  for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+    const head = TOML_HEADER.exec(line);
+    if (head) {
+      table = tomlParts(head[1]);
+      skipping = isOurs(table);
+      found ||= skipping;
+      if (!skipping) kept.push(line);
+      continue;
+    }
+    if (skipping) continue;
+    const key = TOML_KEY.exec(line);
+    if (key && isOurs([...table, ...tomlParts(key[1])])) { found = true; continue; }
+    kept.push(line);
+  }
+  return { kept, found };
+}
+
+/** Codex config.toml: 우리 서버를 빼고 끝에 새로 붙인다. JSON 문자열은 TOML 기본 문자열과 같은 꼴이라 그대로 쓴다 */
+export function withTomlServer(text: string, env: Record<string, string>): string {
+  const keep = stripTomlServer(text).kept;
+  while (keep.length && !keep[keep.length - 1].trim()) keep.pop();
+  const q = (s: string) => JSON.stringify(s);
+  const block = [
+    `[mcp_servers.${SERVER_NAME}]`,
+    `command = ${q(process.execPath)}`,
+    `args = [${serverArgs().map(q).join(', ')}]`,
+    ...(Object.keys(env).length ? [`env = { ${Object.entries(env).map(([k, v]) => `${k} = ${q(v)}`).join(', ')} }`] : []),
+  ];
+  return `${keep.length ? `${keep.join('\n')}\n\n` : ''}${block.join('\n')}\n`;
+}
+
+/** 사용자 원래 설정을 한 번만 남긴다 (두 번째 등록부터 앱이 고친 것으로 덮이지 않게) */
+async function backupOnce(path: string): Promise<void> {
+  const bak = `${path}.kordoc-backup`;
+  if (!existsSync(bak)) await copyFile(path, bak);
+}
+
+async function isConfigured(c: ClientDef): Promise<boolean> {
+  if (!existsSync(c.configPath)) return false;
+  if (c.key === 'toml') return stripTomlServer(await readFile(c.configPath, 'utf-8')).found;
+  const servers = (await readConfig(c.configPath)).data[c.key];
+  return !!servers && typeof servers === 'object' && SERVER_NAME in (servers as object);
+}
+
 export async function detectMcpEnv(): Promise<McpEnv> {
   const clients = await Promise.all(clientDefs().map(async (c) => {
-    const installed = existsSync(c.configPath) || existsSync(dirname(c.configPath)) || c.probes.some((p) => existsSync(p));
-    let configured = false;
-    try {
-      const servers = (await readConfig(c.configPath)).data[c.key];
-      configured = !!servers && typeof servers === 'object' && 'kordoc' in (servers as object);
-    } catch {
-      /* 못 읽는 설정 — 등록 안 된 것으로 */
-    }
+    const installed = c.probes.some((p) => existsSync(p)) || (!c.probeOnly && (existsSync(c.configPath) || existsSync(dirname(c.configPath))));
+    const configured = await isConfigured(c).catch(() => false); // 못 읽는 설정 — 등록 안 된 것으로
     return { id: c.id, name: c.name, installed, configured, config_path: c.configPath };
   }));
   return { clients };
@@ -107,6 +180,7 @@ export async function installMcpConfig(ids: string[], rootDir?: string): Promise
   const env: Record<string, string> = { KORDOC_MODEL_CACHE: modelCacheDir() };
   if (getSettings().privacy.offline) env.KORDOC_OFFLINE = '1';
   if (rootDir) env.KORDOC_ROOT = rootDir;
+  if (!existsSync(engineEntryPath())) throw new Error('엔진 번들(dist/bundle.mjs)이 없어 등록할 수 없습니다. 개발 중이면 node scripts/build-sidecar.mjs 로 먼저 만드세요.');
   const defs = clientDefs();
   const installed: string[] = [];
   const failed: Array<{ client: string; error: string }> = [];
@@ -117,14 +191,21 @@ export async function installMcpConfig(ids: string[], rootDir?: string): Promise
       continue;
     }
     try {
-      const { data, hadComments } = await readConfig(c.configPath);
-      const servers = data[c.key] && typeof data[c.key] === 'object' ? (data[c.key] as Record<string, unknown>) : {};
-      servers.kordoc = serverEntry(c.key, env);
-      data[c.key] = servers;
       await mkdir(dirname(c.configPath), { recursive: true });
-      if (hadComments) await copyFile(c.configPath, `${c.configPath}.kordoc-backup`);
-      await writeFile(c.configPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
-      logger.info(`[mcp-setup] ${c.name}: kordoc MCP 등록 → ${c.configPath}`);
+      if (c.key === 'toml') {
+        const old = existsSync(c.configPath) ? await readFile(c.configPath, 'utf-8') : '';
+        if (old) await backupOnce(c.configPath);
+        await writeFile(c.configPath, withTomlServer(old, env), 'utf-8');
+      } else {
+        const { data, hadComments } = await readConfig(c.configPath);
+        const servers = data[c.key] && typeof data[c.key] === 'object' ? (data[c.key] as Record<string, unknown>) : {};
+        if (isOldAppEntry(servers.kordoc)) delete servers.kordoc;
+        servers[SERVER_NAME] = serverEntry(c.key, env);
+        data[c.key] = servers;
+        if (hadComments) await backupOnce(c.configPath);
+        await writeFile(c.configPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+      }
+      logger.info(`[mcp-setup] ${c.name}: ${SERVER_NAME} MCP 등록 → ${c.configPath}`);
       installed.push(id);
     } catch (err) {
       failed.push({ client: id, error: err instanceof Error ? err.message : String(err) });

@@ -71,7 +71,8 @@ export function checkArgs(tool: AgentToolDef, args: unknown): string | undefined
   if (missing.length) return `${tool.name} 에 꼭 필요한 인자가 빠졌습니다: ${missing.join(', ')}`;
   for (const [k, v] of Object.entries(a)) {
     const want = schema.properties?.[k]?.type;
-    if (!want || v === undefined) continue;
+    // 선택 인자의 null 은 '안 줌' (작은 모델이 빈 칸을 null 로 채운다. 필수 인자의 null 은 위에서 거른다)
+    if (!want || v === undefined || v === null) continue;
     const ok = want === 'array' ? Array.isArray(v) : want === 'integer' ? Number.isInteger(v) : want === 'object' ? typeof v === 'object' && !Array.isArray(v) : typeof v === want;
     if (!ok) return `${tool.name} 의 ${k} 는 ${want} 여야 합니다.`;
   }

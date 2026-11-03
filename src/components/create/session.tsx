@@ -259,12 +259,13 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     [session, settings?.org.dept],
   );
 
-  const saveDir = !session ? "" : session.existing || session.savedAt ? dirName(session.path) : settings?.convert.output_dir ?? "";
+  // 원본 보호: 사용자가 연 기존 파일은 처음 저장할 때 산출 폴더의 "이름_수정" 이 기본값 (원본을 덮으려면 저장 창에서 직접 고른다)
+  const saveDir = !session ? "" : session.savedAt ? dirName(session.path) : settings?.convert.output_dir || (session.existing ? dirName(session.path) : "");
 
   const ensureSaved = useCallback(async () => {
     if (!session) return null;
     if (!(await syncDirty()) && session.savedAt) return session.path;
-    const name = `${suggestedName || stem(session.name)}.${session.format}`;
+    const name = `${session.existing ? `${stem(session.name)}_수정` : suggestedName || stem(session.name)}.${session.format}`;
     const target = await pickSavePath(saveDir ? joinPath(saveDir, name) : name, [{ name: "한글 문서", extensions: [session.format] }]);
     if (!target) return null;
     return saveTo(target);
@@ -380,10 +381,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       if (fields) await ed.call("put_fields", { values: fields });
       // 연 뒤 상태를 직접 확인한다 (칸을 넣었으면 디스크 파일과 달라졌다)
       const st = await ed.call("state", {}).catch(() => null);
-      // 되살린 사본은 디스크 파일과 다르다. 사용자 파일이면 저장이 저장 창 없이 원래 파일로 간다 (처음 덮어쓸 때 .bak)
-      const toOriginal = recover && !opts?.working;
-      setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty || recover, ...(toOriginal ? { savedAt: Date.now() } : {}) } : s));
-      if (recover) toast(toOriginal ? "저장하지 않았던 고친 내용으로 열었습니다. 저장하면 원래 파일에 들어갑니다." : "저장하지 않았던 초안을 되살렸습니다.", "info");
+      // 되살린 사본은 디스크 파일과 다르다. 원본 보호: 사용자 파일이어도 저장은 저장 창(기본값 산출 폴더의 "이름_수정")으로
+      setSession((s) => (s && s.path === path ? { ...s, withFields: false, dirty: s.dirty || !!st?.dirty || recover } : s));
+      if (recover) toast(opts?.working ? "저장하지 않았던 초안을 되살렸습니다." : "저장하지 않았던 고친 내용으로 열었습니다. 저장하면 원본은 두고 새 파일로 저장합니다.", "info");
       const seq = ++seqRef.current;
       setDocSeq(seq);
       // 다 연 뒤에야 건다: 앞 문서가 열려 있는 동안 요청이 앞 문서로 가지 않게

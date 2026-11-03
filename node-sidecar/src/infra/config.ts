@@ -37,7 +37,8 @@ export const DEFAULT_SETTINGS: Settings = {
     name: '', dept: '', position: '', person: '', phone: '', fax: '', email: '', address: '', homepage: '',
     approval_line: [], agency: '', seal_image: '', doc_number_prefix: '',
   },
-  convert: { output_dir: '', ocr: 'auto' },
+  // 결과는 원본과 다른 폴더에 (원본 보호). 사용자가 비우면(설정의 "원래대로") 원본 옆
+  convert: { output_dir: join(existsSync(join(homedir(), 'Documents')) ? join(homedir(), 'Documents') : homedir(), 'KorDoc AI 결과'), ocr: 'auto' },
   general: { log_level: 'info' },
   impact: { baselines: {} },
   law: { oc: '' },

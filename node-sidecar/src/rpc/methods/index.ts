@@ -10,6 +10,7 @@ import { registerInbox } from './inbox.js';
 import { registerLaw } from './law.js';
 import { registerReview } from './review.js';
 import { registerStyle } from './style.js';
+import { registerAgent } from './agent.js';
 
 export function registerAllMethods(router: RpcRouter): void {
   registerSystem(router);
@@ -21,4 +22,5 @@ export function registerAllMethods(router: RpcRouter): void {
   registerLaw(router);
   registerReview(router);
   registerStyle(router);
+  registerAgent(router);
 }

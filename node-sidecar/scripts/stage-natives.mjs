@@ -8,7 +8,7 @@
  * 사용: node scripts/stage-natives.mjs   (node-sidecar 에서, esbuild 다음)
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DROPPED_PACKAGES, STAGED_EXTERNALS } from './externals.mjs';
 
@@ -43,8 +43,14 @@ execFileSync(npm[0], [...npm[1], 'install', '--omit=dev', '--no-package-lock', '
   env: { ...process.env, ONNXRUNTIME_NODE_INSTALL: 'skip' },
 });
 
-// 이동
-renameSync(join(STAGE, 'node_modules'), TARGET);
+// 이동 — Windows 는 막 깐 파일을 백신·문서보안이 검사하는 동안 폴더 이름 바꾸기가 EPERM 으로 막힌다 → 잠깐씩 기다려 다시, 끝내 안 되면 복사
+for (let i = 0; ; i++) {
+  try { renameSync(join(STAGE, 'node_modules'), TARGET); break; } catch (e) {
+    if (e.code !== 'EPERM' && e.code !== 'EBUSY') throw e;
+    if (i === 8) { cpSync(join(STAGE, 'node_modules'), TARGET, { recursive: true }); break; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000 * (i + 1));
+  }
+}
 rmSync(STAGE, { recursive: true, force: true });
 
 // ── 가지치기 ──

@@ -16,6 +16,7 @@ import { AiGate, AiWhere } from "../common/AiGate";
 import { ChatThread } from "../common/ChatThread";
 import { Empty, ErrorLine } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
+import { WorkAgent } from "./WorkAgent";
 
 type Mode = "polish" | "concise" | "formal" | "plain" | "gaejosik" | "narrative" | "public" | "press" | "expand" | "english" | "custom";
 const MODES: Array<{ value: Mode; label: string }> = [
@@ -155,19 +156,21 @@ function Rewrite() {
 
 export function AssistantScreen({ active }: { active: boolean }) {
   const { assistantIntent } = useApp();
-  const [tab, setTab] = useState<"ask" | "rewrite">("ask");
+  const [tab, setTab] = useState<"work" | "ask" | "rewrite">("work");
   useEffect(() => { if (assistantIntent?.value.tab) setTab(assistantIntent.value.tab); }, [assistantIntent]);
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="물어보기" sub="문서를 붙여 놓고 묻거나, 쓴 글을 공문서답게 다듬습니다.">
+      <ScreenHeader title="물어보기" sub="말로 일을 시키거나, 문서를 붙여 놓고 묻거나, 쓴 글을 공문서답게 다듬습니다.">
         <div className="kd-tabs kd-head-tabs" role="tablist" aria-label="물어보기">
+          <button type="button" role="tab" className="kd-tab" aria-selected={tab === "work"} onClick={() => setTab("work")}>일 시키기</button>
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "ask"} onClick={() => setTab("ask")}>묻기</button>
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "rewrite"} onClick={() => setTab("rewrite")}>다듬기</button>
         </div>
       </ScreenHeader>
       <div className="kd-body kd-body-fixed">
         <AiGate>
+          <div hidden={tab !== "work"} className="h-full"><WorkAgent /></div>
           <div hidden={tab !== "ask"} className="h-full"><Ask /></div>
           <div hidden={tab !== "rewrite"} className="h-full"><Rewrite /></div>
         </AiGate>

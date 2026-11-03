@@ -91,10 +91,13 @@ export function listLocalLlmModels(): Array<{ path: string; name: string; size: 
     .map((name) => ({ path: join(dir, name), name, size: statSync(join(dir, name)).size }));
 }
 
+/** 앱 판 (릴리스 때 package.json·tauri.conf.json 과 함께 올린다) */
+export const APP_VERSION = '2.1.2';
+
 export function systemInfo() {
   const s = getSettings();
   return {
-    app_version: '2.1.2',
+    app_version: APP_VERSION,
     kordoc_version: VERSION,
     node_version: process.version,
     platform: `${process.platform}-${process.arch}`,

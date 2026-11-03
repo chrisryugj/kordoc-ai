@@ -11,7 +11,8 @@ import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
 import { syncOfflineEnv } from './infra/net-guard.js';
-import { seedBundledModels } from './core/system/index.js';
+import { APP_VERSION, seedBundledModels } from './core/system/index.js';
+import { runMcpServer } from './mcp/server.js';
 import { setWorkerEntry } from './infra/worker.js';
 import { sweepStaleTempDirs } from './infra/llm/subscription/program.js';
 
@@ -58,6 +59,9 @@ async function main(): Promise<void> {
 
   const router = new RpcRouter();
   registerAllMethods(router);
+
+  // 바깥 AI 에이전트용 MCP 서버로 뜬 경우 (install_mcp_config 가 등록한 명령: 동봉 Node + 이 번들 + --mcp)
+  if (process.argv.includes('--mcp')) { runMcpServer(router, APP_VERSION); return; }
 
   logger.info(`[main] KorDoc sidecar started (methods: ${router.listMethods().join(', ')})`);
 

@@ -13,7 +13,7 @@ const LEGACY = [
   'edit_open', 'edit_patch', 'edit_undo', 'edit_redo', 'edit_save', 'edit_close',
 ];
 
-const src = readFileSync('node-sidecar/src/types/rpc-contract.ts', 'utf-8');
+const src = readFileSync('node-sidecar/src/types/rpc-contract.ts', 'utf-8').replace(/\r\n/g, '\n'); // Windows 체크아웃은 CRLF
 const start = src.indexOf('export interface RpcMethods {');
 const end = src.indexOf('\n}\n', start);
 if (start < 0 || end < 0) throw new Error('RpcMethods 를 찾지 못했다');

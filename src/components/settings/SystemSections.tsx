@@ -138,11 +138,11 @@ export function StorageSection() {
 
   return (
     <Section id="set-store" mark="바." title="저장과 연결">
-      <Field label="저장 위치" hint="바꾼 문서를 담을 폴더. 비우면 원본 파일 옆에 저장합니다.">
+      <Field label="저장 위치" hint="만든 문서를 담을 폴더. 원본은 고치지 않고 결과는 늘 새 파일입니다. 원본 옆으로 하면 원본과 같은 폴더에 새 파일로 저장합니다.">
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <FolderOpen size={14} className="kd-muted flex-none" />
           <span className="kd-path flex-1">{settings!.convert.output_dir || "원본 파일 옆"}</span>
-          {settings!.convert.output_dir && <button type="button" className="kd-link kd-small" onClick={() => void saveSettings({ convert: { output_dir: "" } })}>원래대로</button>}
+          {settings!.convert.output_dir && <button type="button" className="kd-link kd-small" onClick={() => void saveSettings({ convert: { output_dir: "" } })}>원본 옆으로</button>}
           <button type="button" className="kd-link kd-small" onClick={() => void pickFolder().then((d) => { if (d) void saveSettings({ convert: { output_dir: d } }); })}>바꾸기</button>
         </div>
       </Field>

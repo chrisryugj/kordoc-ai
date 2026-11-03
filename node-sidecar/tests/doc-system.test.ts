@@ -7,6 +7,46 @@ import { fileURLToPath } from 'node:url';
 import { call, makePng, sample, setupEnv } from './doc-helpers.js';
 import { sendNotification } from '../src/infra/progress.js';
 import { ocrModelsReady } from '../src/core/system/index.js';
+import { kordocMcpPath } from '../src/core/kordoc-cli.js';
+import { withTomlServer } from '../src/core/mcp-setup/index.js';
+
+describe('withTomlServer (Codex config.toml)', () => {
+  const env = { A: '1' };
+  // 엔진 경로에도 kordoc-ai 가 들어 있어 표 머리만 센다
+  const ours = (t: string) => (t.match(/^\[mcp_servers\.kordoc-ai\]$/gm) ?? []).length;
+  it('머리 뒤 주석·작은따옴표·하위 표·인라인·점 키를 모두 빼고 한 번만 붙인다', () => {
+    const src = [
+      'model = "o4"',
+      'mcp_servers.kordoc-ai.command = "dotted-root"',
+      '',
+      "[mcp_servers.'kordoc-ai'] # 손으로 넣음",
+      'command = "old"',
+      'args = [',
+      '  ["nested"],',
+      '  "b",',
+      ']',
+      '[mcp_servers.kordoc-ai.env]',
+      'X = "1"',
+      '',
+      '[mcp_servers]',
+      'kordoc-ai = { command = "inline" }',
+      'other = { command = "keep-inline" }',
+      '',
+      '[mcp_servers.other2]',
+      'args = ["[x]"]',
+    ].join('\n');
+    const out = withTomlServer(src, env);
+    expect(out).toContain('model = "o4"');
+    expect(out).toContain('other = { command = "keep-inline" }');
+    expect(out).toContain('[mcp_servers.other2]\nargs = ["[x]"]');
+    expect(out).not.toMatch(/dotted-root|"old"|nested|"b",|X = "1"|inline" }\nother/);
+    expect(out).not.toContain('command = "inline"');
+    expect(ours(out)).toBe(1);
+    expect(out.trimEnd().endsWith('env = { A = "1" }')).toBe(true);
+    // 다시 돌려도 우리 표는 하나
+    expect(ours(withTomlServer(out, env))).toBe(1);
+  });
+});
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -37,33 +77,48 @@ describe('models_status·models_import', () => {
 });
 
 describe('detect_mcp_env·install_mcp_config (가짜 HOME)', () => {
-  it('동봉 Node + kordoc/dist/mcp.js 절대 경로, npx 없음, 주석 설정은 백업, 못 읽는 설정은 그대로', async () => {
+  it('동봉 Node + 엔진 번들 --mcp, npx 없음, 주석 설정은 백업, 못 읽는 설정은 그대로, 예전 kordoc 항목 정리, Codex TOML', async () => {
     const home = join(env.base, 'home');
     mkdirSync(join(home, '.zed'), { recursive: true });
     mkdirSync(join(home, '.gemini'), { recursive: true });
     writeFileSync(join(home, '.zed', 'settings.json'), '// Zed 설정\n{\n  "theme": "One Dark", // 주석\n  "vim_mode": true,\n}\n');
     writeFileSync(join(home, '.gemini', 'settings.json'), '{ 이건 JSON 이 아님');
+    mkdirSync(join(home, '.cursor'), { recursive: true });
+    writeFileSync(join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { kordoc: { command: 'node', args: [kordocMcpPath()] }, other: { command: 'x' } } }));
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    writeFileSync(join(home, '.codex', 'config.toml'), 'model = "o4"\n\n[mcp_servers.kordoc-ai]\ncommand = "old"\n\n[mcp_servers.kordoc-ai.env]\nA = "1"\n\n[mcp_servers.other]\ncommand = "keep"\n');
     const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, APPDATA: process.env.APPDATA };
     Object.assign(process.env, { HOME: home, USERPROFILE: home, APPDATA: join(home, 'AppData', 'Roaming') });
     try {
       const before = await call('detect_mcp_env');
       expect(before.clients.find((c: { id: string }) => c.id === 'cursor')).toMatchObject({ configured: false });
-      const r = await call('install_mcp_config', { clients: ['cursor', 'zed', 'gemini-cli', 'nope'], root_dir: env.work });
-      expect(r.installed.sort()).toEqual(['cursor', 'zed']);
+      const r = await call('install_mcp_config', { clients: ['cursor', 'zed', 'gemini-cli', 'codex', 'nope'], root_dir: env.work });
+      expect(r.installed.sort()).toEqual(['codex', 'cursor', 'zed']);
       expect(r.failed.map((f: { client: string }) => f.client).sort()).toEqual(['gemini-cli', 'nope']);
-      const cursor = JSON.parse(readFileSync(join(home, '.cursor', 'mcp.json'), 'utf-8')).mcpServers.kordoc;
+      const servers = JSON.parse(readFileSync(join(home, '.cursor', 'mcp.json'), 'utf-8')).mcpServers;
+      expect(Object.keys(servers).sort()).toEqual(['kordoc-ai', 'other']); // 예전 판이 등록한 kordoc 은 지움
+      const cursor = servers['kordoc-ai'];
       expect(cursor.command).toBe(process.execPath);
-      expect(cursor.args[0]).toMatch(/kordoc[\\/]dist[\\/]mcp\.js$/);
+      expect(cursor.args[0]).toMatch(/dist[\\/]bundle\.mjs$/);
+      expect(cursor.args[1]).toBe('--mcp');
       expect(existsSync(cursor.args[0])).toBe(true);
       expect(cursor.env.KORDOC_ROOT).toBe(env.work);
       expect(JSON.stringify(cursor)).not.toContain('npx');
       const zed = JSON.parse(readFileSync(join(home, '.zed', 'settings.json'), 'utf-8'));
       expect(zed.theme).toBe('One Dark');
-      expect(zed.context_servers.kordoc.command.path).toBe(process.execPath);
+      expect(zed.context_servers['kordoc-ai'].command.path).toBe(process.execPath);
+      const toml = readFileSync(join(home, '.codex', 'config.toml'), 'utf-8');
+      expect(toml).toContain('model = "o4"');
+      expect(toml).toContain('[mcp_servers.other]\ncommand = "keep"');
+      expect(toml).not.toMatch(/command = "old"|A = "1"/);
+      expect(toml.match(/\[mcp_servers\.kordoc-ai/g)).toHaveLength(1);
+      expect(toml).toContain(`args = [${JSON.stringify(cursor.args[0])}, "--mcp"]`);
+      expect(toml).toContain(`KORDOC_ROOT = ${JSON.stringify(env.work)}`);
       expect(existsSync(join(home, '.zed', 'settings.json.kordoc-backup'))).toBe(true);
       expect(readFileSync(join(home, '.gemini', 'settings.json'), 'utf-8')).toBe('{ 이건 JSON 이 아님');
       const after = await call('detect_mcp_env');
       expect(after.clients.find((c: { id: string }) => c.id === 'cursor')).toMatchObject({ configured: true });
+      expect(after.clients.find((c: { id: string }) => c.id === 'codex')).toMatchObject({ configured: true });
     } finally {
       for (const [k, v] of Object.entries(saved)) {
         if (v === undefined) delete process.env[k];

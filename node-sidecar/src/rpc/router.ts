@@ -75,6 +75,8 @@ export class RpcRouter {
     method: string,
     params: Record<string, unknown>,
     id?: number | string | null,
+    /** 엔진 안에서 부른 호출(작업 에이전트 도구)이 부른 쪽과 함께 멈추게 */
+    parent?: AbortSignal,
   ): Promise<{ result?: unknown; error?: { code: number; message: string } }> {
     // cancel은 특수 처리
     if (method === 'cancel') {
@@ -87,6 +89,10 @@ export class RpcRouter {
     }
 
     const ac = new AbortController();
+    if (parent) {
+      if (parent.aborted) ac.abort();
+      else parent.addEventListener('abort', () => ac.abort(), { once: true });
+    }
     const reqId = id ?? `__anon_${this.nextAnonymousId++}__`;
     this.active.set(reqId, ac);
     const stream = typeof params.__stream === 'string' ? params.__stream : undefined;

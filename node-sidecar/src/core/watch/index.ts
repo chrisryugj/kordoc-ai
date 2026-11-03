@@ -12,7 +12,7 @@ import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import type { DocFormat } from '../../types/rpc-contract.js';
-import { getSettings } from '../../infra/config.js';
+import { DEFAULT_SETTINGS, getSettings } from '../../infra/config.js';
 import { validatePath } from '../../infra/pathGuard.js';
 import { sendNotification } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
@@ -150,8 +150,11 @@ export async function watchStart(p: { dir: string; out_dir?: string; format?: Wa
   if (!st?.isDirectory()) throw new Error('감시할 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.');
   if ([...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 감시 중인 폴더입니다.');
   if (watchers.size >= MAX_WATCHERS) throw new Error(`폴더 감시는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 감시를 멈추세요.`);
+  // 사용자가 정한 출력 폴더가 있으면 그곳, 기본값(문서/KorDoc AI 결과)이면 감시 폴더 안 '변환 결과'
+  // (감시는 같은 원본의 결과를 덮어쓰므로 여러 감시가 한 기본 폴더를 함께 쓰면 같은 이름끼리 덮인다)
   const configured = getSettings().convert.output_dir?.trim();
-  const outDir = p.out_dir ?? (configured ? validatePath(configured) : join(p.dir, '변환 결과'));
+  const own = configured && configured !== DEFAULT_SETTINGS.convert.output_dir ? configured : '';
+  const outDir = p.out_dir ?? (own ? validatePath(own) : join(p.dir, '변환 결과'));
   await mkdir(outDir, { recursive: true });
 
   const id = randomUUID().slice(0, 8);

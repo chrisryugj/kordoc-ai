@@ -95,7 +95,7 @@ function pick(raw: Obj, shape: Obj, at: string, drop: (path: string, why: string
       if (Array.isArray(v) && v.every((x) => typeof x === 'string')) out[k] = [...v];
       else drop(path, '글자 목록이 아님');
     } else if (typeof v === 'string' && /dir$/.test(k) && isUncLike(v)) {
-      // 저장 위치를 공유 폴더(UNC)로 고정하면 모든 저장이 막힌다 → 그 값만 빼고 기본 위치(원본 옆)로
+      // 저장 위치를 공유 폴더(UNC)로 고정하면 모든 저장이 막힌다 → 그 값만 빼고 기본 위치(문서\KorDoc AI 결과)로
       drop(path, '네트워크 경로(UNC)는 쓸 수 없음: 드라이브 문자(Z:)로 연결한 폴더를 쓰세요');
     } else if (typeof v === typeof shape[k]) out[k] = v;
     else drop(path, `${KIND[typeof shape[k]]}여야 함`);
