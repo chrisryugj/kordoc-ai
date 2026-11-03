@@ -13,6 +13,7 @@ export function codeChecks({ final }) {
   step(A, '엔진 타입 검사', node, [join('node_modules', 'typescript', 'bin', 'tsc'), '--noEmit'], { cwd: SIDECAR });
   step(A, '화면 타입 검사', pnpm, ['exec', 'tsc', '--noEmit']);
   step(A, 'RPC 계약 ↔ Rust 허용 목록', node, ['scripts/sync-rpc-whitelist.mjs', '--check']);
+  tauriVersions(A);
   vitest(A, '엔진 시험 전체', SIDECAR);
   vitest(A, '화면 시험 전체', ROOT);
   step(A, '화면 빌드 (vite)', pnpm, ['exec', 'vite', 'build']);
@@ -79,6 +80,21 @@ function cssCollisions(area) {
   // 맨 앞 선택자가 다른 파일에도 있는 것 (@media 안 재정의는 같은 파일이면 괜찮다)
   const clash = [...owner].filter(([, s]) => s.size > 1).map(([c, s]) => `${c} (${[...s].join(', ')})`);
   record(area, '스타일 클래스 이름 충돌 없음', clash.length ? 'WARN' : 'PASS', clash.slice(0, 12).join('\n'));
+}
+
+/** tauri build 는 npm 패키지와 Rust crate 의 major.minor 가 다르면 멈춘다 (실측: 2.2.0 릴리스 CI 가 notification 2.3 ↔ 2.8 로 실패) */
+function tauriVersions(area) {
+  const lock = readFileSync(join(ROOT, 'src-tauri', 'Cargo.lock'), 'utf-8');
+  const crates = new Map([...lock.matchAll(/name = "(tauri(?:-plugin-[a-z-]+)?)"\r?\nversion = "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+  const mm = (v) => v.split('.').slice(0, 2).join('.');
+  const bad = [];
+  for (const [crate, ver] of crates) {
+    const pkg = join(ROOT, 'node_modules', '@tauri-apps', crate === 'tauri' ? 'api' : crate.replace('tauri-', ''), 'package.json');
+    if (!existsSync(pkg)) continue;
+    const npmVer = JSON.parse(readFileSync(pkg, 'utf-8')).version;
+    if (mm(npmVer) !== mm(ver)) bad.push(`${crate} ${ver} ↔ npm ${npmVer}`);
+  }
+  record(area, 'Tauri npm ↔ Rust 판 맞음 (major.minor)', bad.length ? 'FAIL' : 'PASS', bad.join('\n'));
 }
 
 /** dist/bundle.mjs 를 띄운 node 프로세스 (Windows 만: wmic 대신 PowerShell CIM) */

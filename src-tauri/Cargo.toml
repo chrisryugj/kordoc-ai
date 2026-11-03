@@ -27,7 +27,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri-plugin-deep-link = "=2.4.7"
 tauri-plugin-single-instance = { version = "=2.4.0", features = ["deep-link"] }
-tauri-plugin-notification = "2.3.3"
+tauri-plugin-notification = "~2.7"
 
 # Windows: 설정 파일의 API 키를 암호화할 앱 전용 키를 자격 증명 관리자(DPAPI)에 둔다 (secrets.rs)
 [target.'cfg(windows)'.dependencies]

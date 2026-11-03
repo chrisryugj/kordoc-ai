@@ -31,10 +31,15 @@ export async function docChecks({ final }) {
     if (!existsSync(f)) { record(A, `${d.kind} PDF`, miss, `없음: ${f}`); continue; }
     const pdf = await PDFDocument.load(readFileSync(f), { ignoreEncryption: true });
     const pages = pdf.getPages();
-    const a4 = pages.every((p) => { const { width: w, height: h } = p.getSize(); return Math.abs(Math.min(w, h) - 595.3) < 4 && Math.abs(Math.max(w, h) - 841.9) < 4; });
+    // 세로 A4 여야 한다: 한컴 PDF 저장은 양식의 인쇄 설정(모아 찍기)을 따라 가로 한 장에 두 쪽을 담기도 한다 (실측: 안내서 원본 PrintMethod=4)
+    const a4 = pages.every((p) => {
+      const { width, height } = p.getSize();
+      const [w, h] = p.getRotation().angle % 180 ? [height, width] : [width, height];
+      return Math.abs(w - 595.3) < 4 && Math.abs(h - 841.9) < 4;
+    });
     const inRange = pages.length >= d.pages[0] && pages.length <= d.pages[1];
     record(A, `${d.kind} 쪽수 ${d.pages[0]}~${d.pages[1]}쪽`, inRange ? 'PASS' : 'FAIL', `${pages.length}쪽`);
-    record(A, `${d.kind} A4`, a4 ? 'PASS' : 'FAIL');
+    record(A, `${d.kind} 세로 A4 (모아 찍기 아님)`, a4 ? 'PASS' : 'FAIL', a4 ? '' : pages.map((p) => { const s = p.getSize(); return `${Math.round(s.width)}×${Math.round(s.height)}`; }).join(', '));
     const text = readPdfText(f);
     if (!text) { record(A, `${d.kind} 글 읽기`, 'FAIL', 'kordoc 으로 글을 읽지 못함 (그림으로만 된 PDF?)'); continue; }
     const lost = d.must.filter((k) => !text.replace(/\s+/g, '').includes(k.replace(/\s+/g, '')));
