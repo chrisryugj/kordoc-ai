@@ -116,14 +116,15 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
   let listed = report.fileHits.length ? report.fileHits : report.hits;
   let keptCount = 0;
   if (p.keep?.length) {
-    const orig = await parse(await readFile(p.path));
+    // 되살리기 패치는 keep 출력으로 (틀 표 문서에서 기본 출력은 엔진이 거부). 원본·사본을 같은 출력으로 맞춘다
+    const orig = await parse(await readFile(p.path), { layoutTables: 'keep' });
     const forms = orig.success ? keptForms(orig.markdown, rules, maskChar, keep) : new Map();
     if (forms.size) {
       listed = dropKept(listed, forms);
       keptCount = [...forms.values()].reduce((a, f) => a + f.count, 0);
       // 가린 사본에서 남길 글을 되살린다 (본문·표 — 서식 그대로 패치)
       if (report.output && !report.output.toLowerCase().endsWith('.md')) {
-        const masked = await parse(await readFile(report.output));
+        const masked = await parse(await readFile(report.output), { layoutTables: 'keep' });
         if (masked.success) {
           let md = masked.markdown;
           for (const [form, f] of forms) md = md.split(form).join(f.orig);

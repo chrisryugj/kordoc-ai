@@ -14,6 +14,9 @@ export function codeChecks({ final }) {
   step(A, '화면 타입 검사', pnpm, ['exec', 'tsc', '--noEmit']);
   step(A, 'RPC 계약 ↔ Rust 허용 목록', node, ['scripts/sync-rpc-whitelist.mjs', '--check']);
   tauriVersions(A);
+  // CI 는 --frozen-lockfile 로 설치한다: package.json 만 고치고 lockfile 을 안 고치면 릴리스가 설치 단계에서 멈춘다 (실측)
+  step(A, '화면 lockfile ↔ package.json 맞음', pnpm, ['install', '--frozen-lockfile', '--lockfile-only']);
+  step(A, '엔진 lockfile ↔ package.json 맞음', process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--dry-run', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: SIDECAR });
   vitest(A, '엔진 시험 전체', SIDECAR);
   vitest(A, '화면 시험 전체', ROOT);
   step(A, '화면 빌드 (vite)', pnpm, ['exec', 'vite', 'build']);

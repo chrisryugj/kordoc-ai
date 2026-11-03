@@ -12,13 +12,16 @@ const CLAIMS = /(만들었|저장했|바꿨|바꾸었|채웠|가렸|합쳤|고�
 export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void }): Promise<AgentSkill> {
   const { system, tools } = await rpc("agent_tools", {});
   let made = 0;
+  // 이 대화에서 만든 파일: "이어서" 요청은 파일 이름만 말하므로 전체 경로를 맥락에 실어야 모델이 경로를 지어내지 않는다 (실측: Gemma 4 E4B 가 precheck 에 없는 경로를 넣음)
+  const outputs: string[] = [];
   return {
     systemPrompt: system,
     tools,
     buildContext() {
       made = 0;
       const files = deps.files();
-      return files.length ? `사용자가 붙인 파일·폴더:\n${files.map((f) => `- ${f}`).join("\n")}` : "사용자가 붙인 파일이 없습니다. 필요하면 파일을 붙여 달라고 하세요.";
+      const attached = files.length ? `사용자가 붙인 파일·폴더:\n${files.map((f) => `- ${f}`).join("\n")}` : "사용자가 붙인 파일이 없습니다. 필요하면 파일을 붙여 달라고 하세요.";
+      return outputs.length ? `${attached}\n\n이 대화에서 만든 파일 (도구에는 이 전체 경로를 그대로 넣으세요):\n${outputs.map((f) => `- ${f}`).join("\n")}` : attached;
     },
     verifyResponse(text: string, executed: ExecutedToolCall[]) {
       if (made > 0 || !executed.every((e) => e.ok)) return null;
@@ -27,7 +30,11 @@ export async function createWorkSkill(deps: { files: () => string[]; onFiles: (f
     async executeTool(call, signal): Promise<ToolExecution> {
       // 멈추면 엔진 안에서 돌던 작업도 함께 멈춘다
       const r = await rpc("agent_tool_run", { name: call.name, input: call.input ?? {} }, { signal });
-      if (r.files?.length) { made += r.files.length; deps.onFiles(r.files); }
+      if (r.files?.length) {
+        made += r.files.length;
+        for (const f of r.files) if (!outputs.includes(f)) outputs.push(f);
+        deps.onFiles(r.files);
+      }
       if (r.saved_min) deps.onSaved?.(r.saved_min);
       return { output: r.output, summary: r.summary, ...(r.isError ? { isError: true } : {}), ...(r.files?.length ? { mutated: true } : {}) };
     },

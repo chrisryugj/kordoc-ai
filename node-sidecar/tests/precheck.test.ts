@@ -76,7 +76,7 @@ describe('표 합계 (엔진)', () => {
     const made = await call('generate_hwpx', { markdown: md, preset: 'report', output_path: join(env.work, '사업비.hwpx') });
     const r = await call('precheck', { path: made.output_path });
     expect(r.items.filter((x: { rule: string }) => x.rule === 'SUM_MISMATCH')).toEqual([]);
-  });
+  }, 30000); // 표 여럿을 엔진 CLI 로 만들고 읽는다: 다른 프로그램이 CPU 를 쓰면 10초를 넘는다 (실측)
 
   it('맞는 합계·소계, 비율 열은 짚지 않는다', () => {
     const md = table([['구분', '인원', '비율'], ['가', '10', '25%'], ['나', '30', '75%'], ['소계', '40', '100%'], ['다', '5', ''], ['합계', '45', '']]);
@@ -186,4 +186,19 @@ describe('precheck·find_pages', () => {
     const pages = await call('find_pages', { path, texts: ['세부 계획 1부', '없는 글입니다'] });
     expect(pages.pages).toEqual([1, null]);
   }, 30000);
+});
+
+describe('공문 서식(틀 표) 문서 고치기', () => {
+  // 실측: 홈 "이어서 결재 전 점검" 에서 Gemma 가 만든 회신 기안문을 fix_notation 하자 엔진이
+  // "편집 마크다운이 기본(보이는 대로) 출력에서 나왔습니다 … 틀 표" 로 거부했다. 패치용 글은 keep 출력이어야 한다
+  it('generate_hwpx(official) 로 만든 문서도 점검 → lint_fix 가 서식 그대로 고친다', async () => {
+    const made = await call('generate_hwpx', { markdown: '# 도민체육대회 참가 회신\n\n1. 귀 기관의 협조 요청에 따라 아래와 같이 회신합니다.\n  가. 일시: 2026년 11월 2일(수) 14:00\n  나. 참가 인원: 20명  끝.', preset: 'official' });
+    const r = await call('precheck', { path: made.output_path });
+    const fixes = r.items.filter((f: { fix?: unknown }) => f.fix).map((f: { fix: { from: string; to: string } }) => f.fix);
+    expect(fixes.length).toBeGreaterThan(0);
+    const fixed = await call('lint_fix', { path: made.output_path, fixes });
+    expect(fixed.replaced).toBeGreaterThan(0);
+    const again = await call('precheck', { path: fixed.output_path });
+    expect(again.items.some((f: { category: string }) => f.category === '날짜와 요일')).toBe(false);
+  }, 60000);
 });

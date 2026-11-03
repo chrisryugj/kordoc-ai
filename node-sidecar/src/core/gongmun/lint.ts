@@ -223,7 +223,8 @@ export function replaceWords(text: string, from: string, to: string): { text: st
 export async function lintFix(p: { path: string; fixes: Array<{ from: string; to: string }>; output_path?: string }) {
   const fmt = formatOf(p.path);
   if (fmt !== 'hwpx' && fmt !== 'hwp') throw new Error('서식 그대로 고치기는 한글 문서(HWPX·HWP)만 됩니다.');
-  const r = await parse(await readFile(p.path));
+  // 패치할 글은 keep 출력이어야 한다: 공문 서식의 틀 표(테두리 없는 표)를 푼 기본 출력으로는 엔진이 원본 위치를 못 찾아 거부한다 (실측)
+  const r = await parse(await readFile(p.path), { layoutTables: 'keep' });
   if (!r.success) throw parseFailure(r, false);
   let md = r.markdown;
   let replaced = 0;
