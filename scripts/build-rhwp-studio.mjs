@@ -40,7 +40,8 @@ if (!force && built?.studio === RHWP_VERSION && built?.plugin === pluginHash) {
 const isWin = process.platform === 'win32';
 const npm = isWin ? 'npm.cmd' : 'npm';
 const run = (cmd, args, cwd, env = {}) =>
-  execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: isWin, env: { ...process.env, ...env } });
+  // 셸은 npm.cmd 에만: node.exe 경로("C:\Program Files\…")를 셸로 넘기면 공백에서 잘린다
+  execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: isWin && cmd.endsWith('.cmd'), env: { ...process.env, ...env } });
 
 const work = join(tmpdir(), `kordoc-rhwp-build-${RHWP_VERSION}`);
 const src = join(work, 'rhwp');

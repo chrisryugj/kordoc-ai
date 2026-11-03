@@ -101,7 +101,8 @@ function Shell() {
   // 자동으로 하지 않고 문서만 열어 둔다. 사용자가 요약하기를 눌러야 보낸다
   const runAction = useCallback((action: LinkAction, paths: string[]) => {
     if (isQuick(action)) { quick(action, paths); return; }
-    if (action === "open") openDocs(paths);
+    // ask·versions 는 Rust 가 문서 카드 창으로 연다. 여기 오는 건 카드를 못 띄운 경우 → 문서 화면으로
+    if (action === "open" || action === "ask" || action === "versions") openDocs(paths);
     else if (action === "tools") startBatch({ paths });
     else if (action === "edit") {
       startCreate({ path: paths[0] });

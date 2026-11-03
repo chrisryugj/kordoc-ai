@@ -49,6 +49,7 @@ function cases(s, written) {
     ['read_document', { path: P(s, REPORT) }, 'ok'],
     ['search_documents', { paths: [s.docs], query: '디지털' }, 'ok'],
     ['read_incoming_letter', { paths: [P(s, LETTER)] }, 'ok'],
+    ['find_versions', { path: P(s, REPORT) }, 'ok'],
     ['document_guide', { preset: 'official' }, 'ok'],
     ['org_format', {}, 'ok'],
     ['write_document', { markdown: '# 관문 시험 공문\n\n1. 관문 시험입니다.  끝.', preset: 'official' }, 'ok'],

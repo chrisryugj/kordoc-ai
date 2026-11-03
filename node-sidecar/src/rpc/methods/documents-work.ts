@@ -16,6 +16,7 @@ import { pdfShrink } from '../../core/pdf-shrink/index.js';
 import { collectFields, collectRun, extractImages } from '../../core/extract/index.js';
 import { collectGather, collectRoster } from '../../core/collect/gather.js';
 import { searchFiles } from '../../core/search/index.js';
+import { findVersions } from '../../core/versions/index.js';
 import { previewBytes, readFileB64, writeFileB64 } from '../../core/files/io.js';
 import { bool, num, oneOf, optPath, registrar, reqPath, reqPaths, str, strList } from './params.js';
 
@@ -83,6 +84,7 @@ export function registerDocumentWork(router: RpcRouter): void {
     output_dir: optPath(p.output_dir),
   }, signal), { heavy: true });
   reg('extract_images', (p, signal) => extractImages({ path: reqPath(p.path), output_dir: optPath(p.output_dir), allow_empty: bool(p.allow_empty) }, signal), { heavy: true });
+  reg('find_versions', (p, signal) => findVersions(reqPath(p.path), signal), { heavy: true });
   reg('search_files', (p, signal) => searchFiles({ paths: reqPaths(p.paths), query: String(p.query ?? ''), max_hits: num(p.max_hits) }, signal), { heavy: true });
   reg('collect_fields', (p, signal) => collectFields({ paths: reqPaths(p.paths) }, signal), { heavy: true });
   reg('collect_run', (p, signal) => collectRun({ paths: reqPaths(p.paths), fields: strList(p.fields) ?? [], output_path: optPath(p.output_path) }, signal), { heavy: true });

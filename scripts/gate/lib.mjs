@@ -19,12 +19,24 @@ export function record(area, name, status, detail = '', ms = 0) {
 }
 
 /** 명령 하나 — 끝 코드 0 이면 PASS. 마지막 출력 몇 줄을 detail 로 */
+/** Windows: Git Bash 에서 돌려도 Windows 기본 tar(System32)가 먼저 잡히게 — GNU tar 는 "C:\…" 를 원격 호스트로 읽는다(실측) */
+const PATH_KEY = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+export const childEnv = (extra = {}) => ({
+  ...process.env,
+  ...(process.platform === 'win32' ? { [PATH_KEY]: `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32;${process.env[PATH_KEY] ?? ''}` } : {}),
+  ...extra,
+  FORCE_COLOR: '0',
+});
+
 export function step(area, name, cmd, args, { cwd = ROOT, timeout = 15 * 60_000, env } = {}) {
   const t0 = Date.now();
-  const r = spawnSync(cmd, args, { cwd, timeout, encoding: 'utf-8', shell: process.platform === 'win32' && /\.cmd$/.test(cmd), env: { ...process.env, ...env, FORCE_COLOR: '0' } });
+  const r = spawnSync(cmd, args, { cwd, timeout, encoding: 'utf-8', shell: process.platform === 'win32' && /\.cmd$/.test(cmd), env: childEnv(env) });
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*m/g, '').trim();
-  const tail = out.split('\n').filter(Boolean).slice(-6).join('\n');
-  record(area, name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? tail.split('\n').pop() ?? '' : (r.error?.message ?? tail), Date.now() - t0);
+  const lines = out.split('\n').filter(Boolean);
+  const tail = lines.slice(-6).join('\n');
+  // 실패면 실패를 말하는 줄(✗·❌·error)을 먼저: 마지막 줄만 남기면 어느 단계인지 안 보인다 (실측: 스모크)
+  const bad = lines.filter((l) => /✗|❌|\bFAIL|\berror\b|Error:/i.test(l)).slice(0, 8).join('\n');
+  record(area, name, r.status === 0 ? 'PASS' : 'FAIL', r.status === 0 ? tail.split('\n').pop() ?? '' : (r.error?.message ?? (bad || tail)), Date.now() - t0);
   return { ok: r.status === 0, out };
 }
 

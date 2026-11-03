@@ -66,19 +66,26 @@ function finish(ok, reason) {
   if (settled) return;
   settled = true;
   clearTimeout(timer);
+  if (ok) console.log('[smoke] ✅ 엔진 셀프테스트 통과');
+  else {
+    console.error(`[smoke] ❌ ${reason}`);
+    if (err) console.error(`[smoke] stderr:\n${err.split('\n').slice(-40).join('\n')}`);
+  }
+  // 사이드카가 실제로 끝난 뒤에 나간다: SIGKILL 직후 process.exit 하면 Windows 에서 닫히는 중인 파이프 핸들 때문에
+  // libuv 가 "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) async.c" 로 이 스크립트를 죽인다(실측: 셀프테스트는 통과인데 끝 코드 127)
+  const done = () => {
+    try {
+      rmSync(stage, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      /* Windows EBUSY — 청소 실패는 판정과 무관 */
+    }
+    process.exitCode = ok ? 0 : 1;
+    setTimeout(() => process.exit(), 50).unref();
+  };
+  if (child.exitCode !== null || child.signalCode !== null) return done();
+  child.once('exit', done);
   child.kill('SIGKILL');
-  try {
-    rmSync(stage, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    /* Windows EBUSY — 청소 실패는 판정과 무관 */
-  }
-  if (ok) {
-    console.log('[smoke] ✅ 엔진 셀프테스트 통과');
-    process.exit(0);
-  }
-  console.error(`[smoke] ❌ ${reason}`);
-  if (err) console.error(`[smoke] stderr:\n${err.split('\n').slice(-40).join('\n')}`);
-  process.exit(1);
+  setTimeout(done, 5000).unref();
 }
 
 let selftestOk = false;

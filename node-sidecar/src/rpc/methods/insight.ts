@@ -5,7 +5,7 @@ import { usageReport, usageReset } from '../../infra/usage.js';
 import { netLogSnapshot } from '../../infra/net-guard.js';
 import { dataDir, getSettings } from '../../infra/config.js';
 import { aiConfigured, getProvider } from '../../infra/llm/index.js';
-import { cpSync, existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, utimesSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,14 +20,23 @@ function samplesList() {
   const src = bundledSamples();
   if (!src) throw new Error('예제 문서가 설치돼 있지 않습니다.');
   const dst = join(dataDir(), 'samples');
-  const srcIndex = JSON.parse(readFileSync(join(src, 'index.json'), 'utf-8')) as { version: number; note: string; scenarios: Array<{ id: string; title: string; description: string; files: string[] }> };
+  const srcIndex = JSON.parse(readFileSync(join(src, 'index.json'), 'utf-8')) as { version: number; note: string; scenarios: Array<{ id: string; title: string; description: string; files: string[]; hours_ago?: Record<string, number> }> };
   let fresh = true;
   try { fresh = JSON.parse(readFileSync(join(dst, 'index.json'), 'utf-8')).version !== srcIndex.version; } catch { /* 처음 */ }
-  if (fresh) cpSync(src, dst, { recursive: true });
+  if (fresh) {
+    cpSync(src, dst, { recursive: true });
+    // 판 묶음(최종본 찾기)은 고친 차례가 수정 시각이다. 설치·git 은 시각을 남기지 않아 복사할 때 다시 매긴다
+    for (const sc of srcIndex.scenarios) {
+      for (const [f, h] of Object.entries(sc.hours_ago ?? {})) {
+        const t = new Date(Date.now() - h * 3_600_000);
+        try { utimesSync(join(dst, f), t, t); } catch { /* 없는 파일은 목록에서 빠진다 */ }
+      }
+    }
+  }
   return {
     dir: dst,
     note: srcIndex.note,
-    scenarios: srcIndex.scenarios.map((sc) => ({ ...sc, files: sc.files.map((f) => join(dst, f)).filter((f) => existsSync(f)) })),
+    scenarios: srcIndex.scenarios.map(({ hours_ago: _h, ...sc }) => ({ ...sc, files: sc.files.map((f) => join(dst, f)).filter((f) => existsSync(f)) })),
   };
 }
 

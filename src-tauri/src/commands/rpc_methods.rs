@@ -44,6 +44,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "export_pdf",
     "extract_images",
     "find_pages",
+    "find_versions",
     "form_fill",
     "form_schema",
     "generate_hwpx",

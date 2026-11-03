@@ -89,6 +89,7 @@ pub fn run() {
             shell::shell_take_pending,
             shell::shell_show,
             shell::shell_quick_done,
+            shell::card_handoff,
             quit_app,
             quit_cancelled,
         ])
@@ -213,6 +214,8 @@ pub fn run() {
             }
             // 창이 초점을 받았다 = 사용자가 보고 있다 (빠른 동작 뒤 끄지 않는다)
             tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Focused(true), .. } if label == "main" => shell::mark_shown(),
+            // 문서 카드 창을 닫음 → 앱이 카드로 켜졌고 본창을 안 띄웠으면 끈다
+            tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } if label.starts_with("card-") => shell::card_closed(app),
             // 창 X → 트레이로 숨김 (완전 종료는 트레이 메뉴)
             tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { api, .. }, .. } if label == "main" => {
                 api.prevent_close();

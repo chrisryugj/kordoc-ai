@@ -13,7 +13,7 @@ import { canQuit } from "../lib/quit";
  */
 type PendingEvent = { event: "deep-link"; payload: string } | { event: "open-files"; payload: string[] };
 export const LINK_ACTIONS = [
-  "open", "tools", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "pdfsplit", "shrink", "pdfimages",
+  "ask", "versions", "open", "tools", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "pdfsplit", "shrink", "pdfimages",
   "hwpx", "redact", "tables", "convert", "summarize", "compare", "collect",
 ] as const;
 export type LinkAction = (typeof LINK_ACTIONS)[number];

@@ -273,6 +273,8 @@ export interface RpcMethods {
   /** 문서 속 그림만 폴더로 */
   /** allow_empty: 그림이 없으면 오류 대신 { count: 0, output_dir: '' } */
   extract_images: [{ path: string; output_dir?: string; allow_empty?: boolean }, { output_dir: string; count: number }];
+  /** 버전 찾기·최종본 찾기 — 같은 폴더·하위·바로 위 폴더에서 같은 문서의 판들을 고친 차례로 (core/versions) */
+  find_versions: [{ path: string }, VersionsResult];
   /** 여러 문서에서 낱말 찾기 (파싱 결과 캐시) */
   search_files: [{ paths: string[]; query: string; max_hits?: number }, { results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number }];
   /** 취합 — 같은 서식으로 받은 문서 여러 개 → 칸 이름 후보 */
@@ -324,7 +326,7 @@ export interface RpcMethods {
   /** 보안 상태: 폐쇄망 모드·AI 공급자·자동 마스킹·이번 실행에서 인터넷으로 나간 횟수·최근 통신 기록 */
   security_status: [Record<string, never>, SecurityStatus];
   /** 예제로 해 보기 — 합성 예제 문서(가상의 가온시)를 앱 데이터 폴더로 복사하고 시연 흐름별 경로를 돌려준다 */
-  samples_list: [Record<string, never>, { dir: string; note: string; scenarios: Array<{ id: 'reply' | 'collect' | 'redact' | 'summary'; title: string; description: string; files: string[] }> }];
+  samples_list: [Record<string, never>, { dir: string; note: string; scenarios: Array<{ id: 'reply' | 'collect' | 'redact' | 'summary' | 'versions'; title: string; description: string; files: string[] }> }];
 
   // ── 한글 편집기(rhwp) (methods/editor.ts — 리드) ──
   /** 내장 rhwp-studio 를 127.0.0.1 임시 포트로 띄움. 프론트는 host_url 을 iframe 으로 (프로토콜: types/editor-bridge.ts) */
@@ -868,6 +870,40 @@ export interface StyleEntry {
   summary: string;
   created_at: string;
   format: StyleFormat;
+}
+
+/** 버전 찾기 — 한 판 (core/versions) */
+export interface VersionEntry {
+  path: string;
+  name: string;
+  format: DocFormat;
+  size: number;
+  /** 고친 시각 (ms) */
+  modified: number;
+  chars: number;
+  /** 0~1: 이름에서 판 표시를 뗀 나머지가 닮은 정도 */
+  name_score: number;
+  /** 0~1: 본문 4글자 조각이 겹치는 정도 (짧은 쪽 기준) */
+  text_score: number;
+  /** 이름의 판 표시 (최종·수정·v3·(2)·날짜) */
+  markers: string[];
+  /** 바로 앞 판보다 더한 줄·뺀 줄 */
+  change?: { added: number; removed: number };
+  /** 사용자가 고른 문서 */
+  target: boolean;
+}
+
+export interface VersionsResult {
+  target: string;
+  /** 고친 차례 (오래된 것 → 최근) */
+  versions: VersionEntry[];
+  /** 최종으로 보이는 판 */
+  latest: string;
+  reasons: string[];
+  /** 짚어 줄 것 (이름의 '최종'보다 나중 판, 줄어든 최근 판 …) */
+  notes: string[];
+  /** 살펴본 문서 수 */
+  searched: number;
 }
 
 export interface OrgCorpusView {

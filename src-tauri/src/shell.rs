@@ -50,7 +50,10 @@ const fn act(id: &'static str, label: &'static str, quick: bool) -> Action {
 }
 
 pub const ACTIONS: &[Action] = &[
-    Action { mac: true, ..act("open", "앱에서 열기", false) },
+    // 문서 카드(작은 창): 이 문서로 무엇을 할지 말로 시키기 · 같은 문서의 판들과 최종본
+    Action { folder: Some("KorDoc AI 에게 맡기기…"), mac: true, ..act("ask", "KorDoc AI 에게 맡기기…", false) },
+    Action { skip: IMAGES, mac: true, ..act("versions", "최종본 찾기", false) },
+    Action { sep: true, mac: true, ..act("open", "앱에서 열기", false) },
     Action { files: false, folder: Some("서무 도구에서 열기"), ..act("tools", "서무 도구에서 열기", false) },
     Action { only: HANGUL, ..act("edit", "한글 편집기로 고치기", false) },
     Action { only: DOCS, ..act("precheck", "결재 전 점검", false) },
@@ -71,7 +74,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "2";
+const MENU_VERSION: &str = "3";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -333,7 +336,85 @@ fn all_quick(items: &[(String, String)]) -> bool {
     !items.is_empty() && items.iter().all(|(a, _)| is_quick(a))
 }
 
+/// 문서 카드로 여는 동작 (본창을 띄우지 않고 작은 창)
+pub fn is_card(a: &str) -> bool {
+    a == "ask" || a == "versions"
+}
+
+/// 카드 창이 본창보다 먼저 떴다 (꺼진 앱이 카드로 켜짐) → 마지막 카드를 닫으면 앱을 끈다
+static CARD_COLD: AtomicBool = AtomicBool::new(false);
+static CARD_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 문서 카드 창 — 화면은 같은 index.html 을 ?card=<동작·경로 JSON> 으로 연다 (src/card)
+pub fn open_card(app: &AppHandle, action: &str, paths: &[String]) {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if !SHOWN.load(Ordering::SeqCst) {
+        CARD_COLD.store(true, Ordering::SeqCst);
+    }
+    let label = format!("card-{}", CARD_SEQ.fetch_add(1, Ordering::SeqCst));
+    let q = serde_json::json!({ "action": action, "paths": paths }).to_string();
+    let url = format!("index.html?card={}", urlencoding::encode(&q));
+    let first = paths
+        .first()
+        .and_then(|p| std::path::Path::new(p).file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let more = if paths.len() > 1 { format!(" 외 {}개", paths.len() - 1) } else { String::new() };
+    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title(format!("KorDoc AI · {}{}", first, more))
+        .inner_size(520.0, 720.0)
+        .min_inner_size(420.0, 520.0)
+        .center()
+        .focused(true)
+        .build();
+    match built {
+        Ok(w) => {
+            let _ = w.set_focus();
+        }
+        Err(e) => {
+            // 카드를 못 띄우면 본창의 같은 일로 (앱에서 열기)
+            tracing::error!("문서 카드 창을 띄우지 못함: {}", e);
+            deliver(app, "open-files", paths.to_vec().into());
+            show_main(app);
+        }
+    }
+}
+
+/// 카드 창이 닫혔다: 앱이 카드로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드가 없으면 끈다
+pub fn card_closed(app: &AppHandle) {
+    use tauri::Manager;
+    if !CARD_COLD.load(Ordering::SeqCst) || SHOWN.load(Ordering::SeqCst) {
+        return;
+    }
+    if app.webview_windows().keys().any(|l| l.starts_with("card-")) {
+        return;
+    }
+    app.exit(0);
+}
+
+/// 카드 → 본창: "앱에서 이어서"·비교·편집기 등 본창의 동작으로 넘긴다 (우클릭 동작과 같은 길)
+#[tauri::command]
+pub fn card_handoff(app: AppHandle, action: String, paths: Vec<String>) -> Result<(), String> {
+    use tauri::Manager;
+    if !is_action(&action) || is_card(&action) {
+        return Err(format!("모르는 동작입니다: {}", action));
+    }
+    app.state::<ShellCollector>().push(&app, &action, paths);
+    Ok(())
+}
+
 fn flush(app: &AppHandle, items: Vec<(String, String)>) {
+    // 문서 카드 동작은 묶음마다 작은 창 하나 (본창은 띄우지 않는다)
+    let (cards, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|(a, _)| is_card(a));
+    for action in ["ask", "versions"] {
+        let paths: Vec<String> = cards.iter().filter(|(a, _)| a == action).map(|(_, p)| p.clone()).collect();
+        if !paths.is_empty() {
+            open_card(app, action, &paths);
+        }
+    }
+    if items.is_empty() {
+        return;
+    }
     let quick_only = all_quick(&items);
     // 동작별로 묶되 들어온 순서 유지
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
@@ -733,7 +814,7 @@ mod tests {
         let ids = |ext: &str| file_actions(ext).map(|a| a.id).collect::<Vec<_>>();
         assert_eq!(
             ids(".hwp"),
-            ["open", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "shrink", "pdfimages", "hwpx", "redact", "tables", "convert", "summarize", "compare"]
+            ["ask", "versions", "open", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "shrink", "pdfimages", "hwpx", "redact", "tables", "convert", "summarize", "compare"]
         );
         // PDF 는 PDF로 저장 없이 나누기, 한글 문서에는 HWPX 로 바꾸기 없음, 그림은 표·비교·편집기 없음
         assert!(!ids(".pdf").contains(&"pdf") && ids(".pdf").contains(&"pdfsplit") && !ids(".pdf").contains(&"edit"));
@@ -754,18 +835,21 @@ mod tests {
         let pdf = reg_root(&key(".pdf"));
         // 옛 항목이 남지 않게 지우고 다시
         assert!(s.contains(&format!("[-{pdf}]\r\n\r\n[{pdf}]\r\n\"MUIVerb\"=\"KorDoc AI\"")));
-        assert!(s.contains(&format!("[{pdf}\\shell\\01open]\r\n@=\"앱에서 열기\"\r\n\"MultiSelectModel\"=\"Player\"")));
-        assert!(!s.contains(&format!("{pdf}\\shell\\04pdf]")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\02versions]\r\n@=\"최종본 찾기\"")));
+        assert!(!s.contains(&format!("{pdf}\\shell\\06pdf]")));
         // 실행 줄: 경로 역슬래시·따옴표를 .reg 규칙대로
         assert!(s.contains(r#"@="\"C:\\Users\\홍 길동\\AppData\\Local\\KorDoc AI\\kordoc-ai.exe\" --shell pdfmerge \"%1\"""#));
         assert!(s.contains(&format!("\"KorDocMenu\"=\"{MENU_VERSION}\"")));
         // 무리 첫 항목 앞에 구분선 (맨 앞 항목에는 없음)
         let hwp = reg_root(&key(".hwp"));
-        assert!(s.contains(&format!("[{hwp}\\shell\\04pdfmerge]\r\n@=\"PDF 하나로 합치기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020")));
-        assert!(!s.contains(&format!("[{hwp}\\shell\\01open]\r\n@=\"앱에서 열기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"")));
+        assert!(s.contains(&format!("[{hwp}\\shell\\06pdfmerge]\r\n@=\"PDF 하나로 합치기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020")));
+        assert!(s.contains(&format!("[{hwp}\\shell\\03open]\r\n@=\"앱에서 열기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020")));
+        assert!(!s.contains(&format!("[{hwp}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"")));
         // 폴더: 아이콘 우클릭은 %1, 빈 곳 우클릭은 %V, 폴더 이름으로
         let bg = reg_root(FOLDER_KEYS[1].0);
-        assert!(s.contains(&format!("[{bg}\\shell\\01tools]\r\n@=\"서무 도구에서 열기\"")));
+        assert!(s.contains(&format!("[{bg}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"")));
+        assert!(s.contains(&format!("[{bg}\\shell\\02tools]\r\n@=\"서무 도구에서 열기\"")));
         assert!(s.contains("--shell pdfmerge \\\"%V\\\""));
         assert!(s.contains("@=\"PDF 하나로 합치기 (이름 차례)\""));
     }

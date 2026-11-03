@@ -16,7 +16,8 @@ let cachedChars = 0;
 const MAX_CHARS = 80_000_000;
 const MAX_ENTRIES = 500;
 
-async function textOf(path: string, signal?: AbortSignal): Promise<Entry> {
+/** 문서 글 (쪽 조각) — 수정 시각·크기가 같으면 캐시. 버전 찾기(core/versions)도 쓴다 */
+export async function textOf(path: string, signal?: AbortSignal): Promise<Entry> {
   const st = await stat(path);
   const key = `${st.mtimeMs}|${st.size}`;
   const hit = cache.get(path);

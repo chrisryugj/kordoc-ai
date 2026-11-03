@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "기본 권한 설정 (최소 권한 원칙)",
-  "windows": ["main"],
+  "windows": ["main", "card-*"],
   "permissions": [
     "core:default",
     "dialog:default",

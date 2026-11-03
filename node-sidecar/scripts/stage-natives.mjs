@@ -183,4 +183,6 @@ for (const name of STAGED_EXTERNALS) {
 const size = execFileSync(process.platform === 'win32' ? 'powershell' : 'du', process.platform === 'win32'
   ? ['-NoProfile', '-Command', `"{0:N0}MB" -f ((Get-ChildItem -Recurse '${TARGET}' | Measure-Object Length -Sum).Sum / 1MB)`]
   : ['-sh', TARGET]).toString().trim();
+// 끝까지 마쳤다는 표지 — 중간에 깨진 스테이징을 출품 관문이 새것으로 잘못 보지 않게 (scripts/gate/checks-code.mjs)
+writeFileSync(join(TARGET, '.staged'), `${new Date().toISOString()}\n${Object.entries(deps).map(([k, v]) => `${k}@${v}`).join('\n')}\n`);
 console.log(`[stage] ✅ ${Object.keys(deps).length}개 external 스테이징, 가지치기 ${pruned}곳 — ${size}`);

@@ -77,6 +77,20 @@ export const WORK_TOOLS: WorkTool[] = [
     },
   },
   {
+    name: 'find_versions',
+    description: '같은 문서의 여러 판(…_수정·…_최종·…_진짜최종·날짜 붙은 것)을 같은 폴더·하위·바로 위 폴더에서 찾아 고친 차례로 보여 주고, 최종으로 보이는 판과 그 까닭을 알려 줍니다. "최종본이 뭐야", "최신 버전 찾아 줘"에 씁니다.',
+    inputSchema: obj({ path }, ['path']),
+    async run(a, d) {
+      const r = await d('find_versions', { path: s(a.path) });
+      const when = (ms: number) => new Date(ms).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
+      const lines = r.versions.map((v, i) => `${i + 1}. ${v.name} · ${when(v.modified)}${v.change ? ` · 앞 판보다 +${v.change.added}줄 -${v.change.removed}줄` : ''}${v.path === r.latest ? '  ← 최종으로 보임' : ''}${v.target ? '  (고른 문서)' : ''}\n   ${v.path}`);
+      return {
+        output: `판 ${r.versions.length}개 (살펴본 문서 ${r.searched}개)\n${lines.join('\n')}\n최종으로 보는 까닭: ${r.reasons.join(', ')}${r.notes.length ? `\n짚을 것:\n${r.notes.map((n) => `- ${n}`).join('\n')}` : ''}`,
+        summary: `판 ${r.versions.length}개 · 최종 ${r.latest.split(/[\\/]/).pop()}`,
+      };
+    },
+  },
+  {
     name: 'read_incoming_letter',
     description: '받은 공문을 읽어 보낸 곳·문서번호·제목·요청 사항·기한을 뽑고 받은 공문 목록에 넣습니다.',
     inputSchema: obj({ paths }, ['paths']),
@@ -314,7 +328,8 @@ export const WORK_SYSTEM = [
   '- 원본 파일은 고치지 않습니다. 도구는 늘 새 파일을 만들고 그 경로를 알려 줍니다.',
   '- 사용자가 주지 않은 사실(날짜·금액·이름·번호)을 지어내지 말고 "○○"로 비우거나 물어봅니다.',
   '- 도구가 실패하면 까닭을 읽고 고쳐 다시 하거나, 할 수 없으면 그대로 알립니다.',
-  '- 끝나면 무엇을 만들었는지 파일 경로와 함께 짧게 한국어로 말합니다.',
+  '- 끝나면 무엇을 했는지 짧게 한국어로 말합니다. 만든 파일은 이름만 적습니다(경로는 화면이 결과 카드로 보여 주고, 경로의 역슬래시는 답을 깨뜨립니다).',
+  '- 사용자가 고칠 값(빈칸 ○○, 지난 기한 등)이 있으면 마지막에 한두 줄로 짚어 줍니다.',
 ].join('\n');
 
 /** 도구 목록 (MCP 는 앱 전용 도구를 뺀다) */

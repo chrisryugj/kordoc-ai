@@ -6,11 +6,12 @@ import { useApp } from "../../state/app";
 import { rpc } from "../../lib/rpc";
 import type { RpcResult } from "../../lib/contract";
 import { Button } from "../ui/Button";
+import { VersionsDialog } from "../agent/VersionsDialog";
 
 type Samples = RpcResult<"samples_list">;
 type Scenario = Samples["scenarios"][number];
 
-const MARK: Record<Scenario["id"], string> = { reply: "①", collect: "②", redact: "③", summary: "④" };
+const MARK: Record<Scenario["id"], string> = { reply: "①", collect: "②", redact: "③", summary: "④", versions: "⑤" };
 
 /** 예제 시나리오 하나 시작 — 홈 예제 목록과 첫 실행 "예제로 연습"이 같이 쓴다 */
 export function useStartSample() {
@@ -28,6 +29,8 @@ export function HomeSamples() {
   const { ready } = useApp();
   const [samples, setSamples] = useState<Samples | null>(null);
   const start = useStartSample();
+  // 최종본 찾기는 AI 없이 창에서 (판 계보·앞 판과 비교)
+  const [ver, setVer] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -52,12 +55,13 @@ export function HomeSamples() {
                   <span className="kd-row-desc block">{s.description}</span>
                 </span>
                 <span className="kd-row-aside">
-                  <Button variant="secondary" size="sm" onClick={() => start(s)}>해 보기</Button>
+                  <Button variant="secondary" size="sm" onClick={() => (s.id === "versions" ? setVer(s.files[0] ?? null) : start(s))}>해 보기</Button>
                 </span>
               </div>
             ))}
           </div>
           {samples.note && <p className="kd-small kd-muted mt-2">{samples.note}</p>}
+          <VersionsDialog path={ver} onClose={() => setVer(null)} />
         </>
       )}
     </section>
