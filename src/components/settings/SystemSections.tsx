@@ -175,7 +175,7 @@ export function StorageSection() {
           <Plug size={18} className="kd-muted mt-0.5 flex-none" />
           <span className="kd-row-main">
             <span className="kd-row-title block">다른 AI 프로그램과 연결 (MCP)</span>
-            <span className="kd-row-desc block">Claude Desktop·Cursor 같은 AI 프로그램이 이 앱의 문서 엔진으로 한글 문서를 읽게 합니다.</span>
+            <span className="kd-row-desc block">Claude Code·Codex·Claude·Cursor 같은 AI 프로그램이 이 앱과 같은 도구로 한글 문서를 읽고, 만들고, 점검하게 합니다.</span>
           </span>
           <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => setMcp(true)}>연결 설정</Button></span>
         </div>

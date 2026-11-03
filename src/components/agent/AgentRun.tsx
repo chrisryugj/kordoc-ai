@@ -97,7 +97,7 @@ export function AgentRun({ turns, onSend, busy }: { turns: AgentTurn[]; onSend: 
             )}
             {t.text && <p className="kd-job-say" data-err={t.state === "error"}>{plain(t.text)}</p>}
             {t.files.length > 0 && <div className="kd-results">{t.files.map((f) => <ResultCard key={f} path={f} />)}</div>}
-            {t.ms != null && t.state === "done" && <span className="kd-job-time">{Math.max(1, Math.round(t.ms / 1000))}초 걸림 · 도구 {t.steps.length}번{t.saved > 0 && <> · <b>손으로 하면 약 {t.saved >= 60 ? `${Math.round(t.saved / 6) / 10}시간` : `${Math.round(t.saved)}분`}</b> (가정치, 설정에서 바꿈)</>}</span>}
+            {t.ms != null && t.state === "done" && <span className="kd-job-time">{Math.max(1, Math.round(t.ms / 1000))}초 걸림 · 도구 {t.steps.length}번{t.saved > 0 && <> · <b>손으로 하면 약 {t.saved >= 60 ? `${Math.round(t.saved / 6) / 10}시간` : `${Math.round(t.saved)}분`}</b> (가정치, 효과 화면에서 바꿈)</>}</span>}
             {next.length > 0 && (
               <div className="kd-then">
                 <span className="kd-then-label">이어서</span>
