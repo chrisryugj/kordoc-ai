@@ -61,7 +61,7 @@ function cases(s, written) {
     ['compare_documents', { old_path: P(s, REPORT), new_path: P(s, LETTER) }, 'ok'],
     ['extract_tables', { path: P(s, REPORT) }, 'ok'],
     ['precheck', { path: P(s, REPORT) }, 'ok'],
-    ['fix_notation', { path: P(s, REPORT), fixes: [{ from: '디지털', to: '디지털' }] }, 'any'],
+    ['fix_notation', { path: P(s, REPORT), fixes: [{ from: '추진계획', to: '추진 계획' }] }, 'ok'], // 실제로 바꾸는 값이어야 패치(keep 출력)까지 본다
     ['check_law_citations', { path: P(s, REPORT) }, 'ok'],
     ['redact_personal_info', { path: P(s, CLAIM) }, 'ok'],
     ['make_pdf', { path: P(s, REPORT) }, 'ok'],
