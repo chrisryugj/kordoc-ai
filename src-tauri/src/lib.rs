@@ -116,8 +116,12 @@ pub fn run() {
             let first_urls: Vec<String> = Vec::new();
             let quick_start = first.as_ref().map(|(a, _)| shell::is_quick(a)).unwrap_or(false)
                 || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::parse_action_url(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
+            // 문서 카드(우클릭 "KorDoc AI 에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
+            let card_start = first.as_ref().map(|(a, _)| shell::is_card(a)).unwrap_or(false);
             if quick_start {
                 shell::mark_cold_quick();
+            } else if card_start {
+                // 카드 창은 묶음 뒤 open_card 가 띄운다. 마지막 카드를 닫으면 card_closed 가 앱을 끈다
             } else if cfg!(target_os = "macos") {
                 // macOS Finder 빠른 동작은 주소가 켜진 뒤(RunEvent::Opened)에 온다 → 잠깐 기다려 빠른 동작이 아니면 연다
                 let h = handle.clone();

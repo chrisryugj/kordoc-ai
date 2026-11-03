@@ -347,35 +347,57 @@ static CARD_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 문서 카드 창 — 화면은 같은 index.html 을 ?card=<동작·경로 JSON> 으로 연다 (src/card)
 pub fn open_card(app: &AppHandle, action: &str, paths: &[String]) {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
     if !SHOWN.load(Ordering::SeqCst) {
         CARD_COLD.store(true, Ordering::SeqCst);
     }
     let label = format!("card-{}", CARD_SEQ.fetch_add(1, Ordering::SeqCst));
+    build_card(app.clone(), label, action.to_string(), paths.to_vec(), 0);
+}
+
+/// 카드 창 설정: 본창 설정(tauri.conf)을 그대로 복제해 크기·주소·제목만 바꾼다.
+/// 웹뷰 옵션이 본창과 하나라도 다르면 WebView2 가 같은 데이터 폴더의 다른 설정 환경으로 보고
+/// 0x8007139F("올바른 상태가 아님")로 거부한다 (실측: 2.2.0 설치본에서 카드가 한 번도 안 뜨고 본창으로 넘어감)
+fn card_config(app: &AppHandle, label: &str, action: &str, paths: &[String]) -> tauri::utils::config::WindowConfig {
     let q = serde_json::json!({ "action": action, "paths": paths }).to_string();
-    let url = format!("index.html?card={}", urlencoding::encode(&q));
     let first = paths
         .first()
         .and_then(|p| std::path::Path::new(p).file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let more = if paths.len() > 1 { format!(" 외 {}개", paths.len() - 1) } else { String::new() };
-    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
-        .title(format!("KorDoc AI · {}{}", first, more))
-        .inner_size(520.0, 720.0)
-        .min_inner_size(420.0, 520.0)
-        .center()
-        .focused(true)
-        .build();
-    match built {
+    let mut c = app.config().app.windows.first().cloned().unwrap_or_default();
+    c.label = label.to_string();
+    c.url = tauri::WebviewUrl::App(format!("index.html?card={}", urlencoding::encode(&q)).into());
+    c.title = format!("KorDoc AI · {}{}", first, more);
+    c.width = 520.0;
+    c.height = 720.0;
+    c.min_width = Some(420.0);
+    c.min_height = Some(520.0);
+    c.center = true;
+    c.focus = true;
+    c.visible = true;
+    c
+}
+
+/// 카드 창 만들기. 웹뷰가 막 뜨는 중이면 잠깐 뒤 다시(최대 4번), 끝내 못 띄우면 본창의 같은 일로 (앱에서 열기)
+fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>, attempt: u64) {
+    use tauri::WebviewWindowBuilder;
+    let cfg = card_config(&app, &label, &action, &paths);
+    match WebviewWindowBuilder::from_config(&app, &cfg).and_then(|b| b.build()) {
         Ok(w) => {
             let _ = w.set_focus();
         }
+        Err(e) if attempt < 4 => {
+            tracing::warn!("문서 카드 창 다시 시도 {}: {}", attempt + 1, e);
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(400 * (attempt + 1))).await;
+                build_card(app, label, action, paths, attempt + 1);
+            });
+        }
         Err(e) => {
-            // 카드를 못 띄우면 본창의 같은 일로 (앱에서 열기)
             tracing::error!("문서 카드 창을 띄우지 못함: {}", e);
-            deliver(app, "open-files", paths.to_vec().into());
-            show_main(app);
+            deliver(&app, "open-files", paths.into());
+            show_main(&app);
         }
     }
 }
