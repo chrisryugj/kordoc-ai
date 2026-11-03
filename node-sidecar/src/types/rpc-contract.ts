@@ -251,7 +251,7 @@ export interface RpcMethods {
   /** 지시문과 도구 목록. 같은 목록을 MCP(번들 --mcp)도 쓴다 (앱 전용 도구는 빼고) */
   agent_tools: [Record<string, never>, { system: string; tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }];
   /** 도구 하나 실행 — 결과는 늘 새 파일(원본·기존 파일을 덮지 않음). files = 만든 파일 */
-  agent_tool_run: [{ name: string; input: Record<string, unknown> }, { output: string; summary: string; isError?: boolean; files?: string[] }];
+  agent_tool_run: [{ name: string; input: Record<string, unknown> }, { output: string; summary: string; isError?: boolean; files?: string[]; /** 손으로 할 때 걸릴 분(효과 집계 기준 가정치) */ saved_min?: number }];
 
   // ── 직장인 문서 작업 묶음 (methods/documents.ts — A) ──
   /** PDF·워드·스캔본·엑셀 → 고칠 수 있는 한글(HWPX). 레이아웃 그대로가 아니라 글·표를 다시 조판 */

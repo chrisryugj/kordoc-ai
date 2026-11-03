@@ -100,6 +100,16 @@ export function recordUsage(method: string, params: Params, result: unknown): vo
   scheduleSave();
 }
 
+/** 이 호출 하나로 아낀 시간(분, 가정치 — 설정 impact.baselines 로 바꿈). 작업 에이전트가 결과 옆에 보인다 */
+export function savedMinutes(method: string, params: Params, result: unknown): number {
+  const task = TASKS[method];
+  if (!task) return 0;
+  const n = task.count(params, result);
+  if (!n) return 0;
+  const custom = getSettings().impact?.baselines ?? {};
+  return n * (typeof custom[task.key] === 'number' ? custom[task.key] : task.baseline);
+}
+
 export interface UsageItem {
   key: string;
   label: string;

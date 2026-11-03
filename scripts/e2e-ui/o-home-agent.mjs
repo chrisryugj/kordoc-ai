@@ -98,6 +98,8 @@ try {
   check('결과 카드: 이름·원본 그대로·열기', card.includes('.hwpx') && card.includes('원본은 그대로') && card.includes('열기'), card.slice(0, 80));
   check('결과 파일이 결과 폴더에 실제로', !!made && made.startsWith(RESULTS) && existsSync(made), made);
   check('원본(받은 공문)은 바이트 그대로', sha(letter) === letterHash);
+  const took = await page.evaluate(() => document.querySelector('.kd-home-ask .kd-job-time')?.textContent ?? '');
+  check('결과 줄: 걸린 시간·손으로 하면 약 N분(가정치)', /초 걸림/.test(took) && /손으로 하면 약 \d+분/.test(took) && took.includes('가정치'), took);
 
   // 이어서: 결재 전 점검
   await ui.click('결재 전 점검', { exact: true, within: '.kd-home-ask .kd-then' });

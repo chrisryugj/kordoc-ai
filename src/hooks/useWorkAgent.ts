@@ -16,6 +16,8 @@ export interface AgentTurn {
   steps: AgentStep[];
   text: string;
   files: string[];
+  /** 손으로 하면 걸릴 분 (효과 집계 기준 가정치) */
+  saved: number;
   state: "running" | "done" | "stopped" | "error";
   startedAt: number;
   ms?: number;
@@ -38,11 +40,12 @@ export function useWorkAgent(paths: string[]) {
     const ac = new AbortController();
     ctrl.current = ac;
     const startedAt = Date.now();
-    setTurns((prev) => [...prev, { request, steps: [], text: "", files: [], state: "running", startedAt }]);
+    setTurns((prev) => [...prev, { request, steps: [], text: "", files: [], saved: 0, state: "running", startedAt }]);
     try {
       skill.current ??= await createWorkSkill({
         files: () => pathsRef.current,
         onFiles: (f) => patch((t) => ({ ...t, files: [...new Set([...t.files, ...f])] })),
+        onSaved: (m) => patch((t) => ({ ...t, saved: t.saved + m })),
       });
       const r = await runAgent({
         skill: skill.current,

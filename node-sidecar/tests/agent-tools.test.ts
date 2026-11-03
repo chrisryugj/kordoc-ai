@@ -34,6 +34,14 @@ describe('도구 정의', () => {
     expect(workToolDefs({ app: true }).map((t) => t.name)).toContain('open_result');
   });
 
+  it('agent_tool_run 은 손으로 할 때 걸릴 분(효과 집계 기준)을 함께 준다', async () => {
+    const r = await call('agent_tool_run', { name: 'write_document', input: { markdown: '# 시험 공문\n\n1. 시험입니다.  끝.', preset: 'official' } });
+    expect(r.isError).toBeFalsy();
+    expect(r.saved_min).toBe(30);
+    const read = await call('agent_tool_run', { name: 'document_guide', input: { preset: 'official' } });
+    expect(read.saved_min).toBeUndefined();
+  }, 60_000);
+
   it('agent_tools RPC 가 지시문과 앱용 목록을 준다', async () => {
     const r = await call('agent_tools');
     expect(r.system).toMatch(/원본 파일은 고치지 않습니다/);

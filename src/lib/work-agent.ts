@@ -9,7 +9,7 @@ import type { AgentSkill, ExecutedToolCall, ToolExecution } from "./hwp-agent/ty
 /** 만들었다고 말하는 말투 (파일을 만든 도구 없이 이렇게 답하면 한 번 되묻는다) */
 const CLAIMS = /(만들었|저장했|바꿨|바꾸었|채웠|가렸|합쳤|고쳤)습니다/;
 
-export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void }): Promise<AgentSkill> {
+export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void }): Promise<AgentSkill> {
   const { system, tools } = await rpc("agent_tools", {});
   let made = 0;
   return {
@@ -28,6 +28,7 @@ export async function createWorkSkill(deps: { files: () => string[]; onFiles: (f
       // 멈추면 엔진 안에서 돌던 작업도 함께 멈춘다
       const r = await rpc("agent_tool_run", { name: call.name, input: call.input ?? {} }, { signal });
       if (r.files?.length) { made += r.files.length; deps.onFiles(r.files); }
+      if (r.saved_min) deps.onSaved?.(r.saved_min);
       return { output: r.output, summary: r.summary, ...(r.isError ? { isError: true } : {}), ...(r.files?.length ? { mutated: true } : {}) };
     },
   };
