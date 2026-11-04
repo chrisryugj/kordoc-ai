@@ -10,7 +10,7 @@
 - [x] 회원가입, 비공개 프로젝트 kordoc-ai 만들기 (2026-11-03, gitlab.aigov.go.kr/chrisryugj/kordoc-ai)
 - [x] 시험 push 로 보안스캔(Gitleaks·Semgrep·OSV·Trivy) 통과 확인 (2026-11-03 49c1e3d 다섯 개 PASS)
 - [x] 설정 › 일반 › 주제(Topics)에 "2026년 공공 AI 대전환 챌린지_세션1_자유주제"(2026_challenge_session_1)
-- [x] 설치 파일(실행물)을 프로젝트에 등록하고 README 의 받는 곳 링크 확인 (2026-11-03 GitLab 릴리스 v2.2.0, 패키지 3개 SHA-256 일치)
+- [x] 설치 파일(실행물)을 프로젝트에 등록하고 README 의 받는 곳 링크 확인 (2026-11-04 GitLab 릴리스 v2.3.2, 패키지 3개 SHA-256 일치)
 - [ ] 마지막 push 뒤 수정 없음 확인 (자동 미러 다시 켜지 않음)
 
 ## 구동 확인
