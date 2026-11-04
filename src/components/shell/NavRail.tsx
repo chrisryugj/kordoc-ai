@@ -73,9 +73,9 @@ export function NavRail({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       : { tone: "busy", icon: <Loader2 size={13} className="kd-spin" />, text: "문서 엔진 켜는 중", short: "켜는 중" };
   const aiLine = !ai?.configured
     ? { icon: <Sparkles size={13} />, text: "AI 꺼짐 · 켜기", tone: "idle", short: "AI 꺼짐" }
-    : ai.is_cloud ? { icon: <Cloud size={13} />, text: ai.provider === "claude-code" || ai.provider === "codex" || ai.provider === "gemini-cli" ? "구독 계정 AI" : "외부 AI", tone: "warn", short: "AI" }
-    : ai.provider === "embedded" ? { icon: <Cpu size={13} />, text: "내장 AI", tone: "ok", short: "AI" }
-    : ai.provider === "local" ? { icon: <Server size={13} />, text: "이 PC의 모델 서버", tone: "ok", short: "AI" }
+    : ai.is_cloud ? { icon: <Cloud size={13} />, text: "외부 AI", tone: "warn", short: "AI" }
+    : ai.provider === "embedded" ? { icon: <Cpu size={13} />, text: "이 PC에서 · 내장 AI", tone: "ok", short: "AI" }
+    : ai.provider === "local" ? { icon: <Server size={13} />, text: "이 PC에서 · AI 프로그램", tone: "ok", short: "AI" }
     : { icon: <Server size={13} />, text: "기관 AI 서버", tone: "ok", short: "AI" };
 
   return (

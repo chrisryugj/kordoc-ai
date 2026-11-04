@@ -166,10 +166,17 @@ export function OutputStep({ active }: { active: boolean }) {
     void save.run(async () => {
       await applyGuides(p);
       // 저장하면 지금 문서 경로가 저장한 파일로 바뀐다: 같은 문서이니 파일 이름 칸을 제안 이름으로 되돌리지 않는다
+      // 저장이 실패하면 되돌린다 (그대로 두면 다음 문서 상태 변화 때 적어 둔 이름이 제안 이름으로 바뀐다)
+      const before = lastSession.current;
       lastSession.current = target;
-      const out = await saveTo(target, format);
-      lastSession.current = out;
-      return out;
+      try {
+        const out = await saveTo(target, format);
+        lastSession.current = out;
+        return out;
+      } catch (e) {
+        lastSession.current = before;
+        throw e;
+      }
     });
   })();
 

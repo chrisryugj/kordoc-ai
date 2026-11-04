@@ -12,6 +12,7 @@ import { FILTERS, pickFiles } from "../../lib/native";
 import { useTask } from "../../hooks/useTask";
 import { detectFileType } from "../../utils/fileType";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { Empty, ErrorLine, Note, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 import { TemplateForm, type FormField } from "./TemplateForm";
@@ -249,7 +250,9 @@ export function TemplateLibrary({ focus, onStyleSample, onDraft }: {
                     {t.source !== "starter" && <span className="kd-row-desc block">{t.has_fields ? `칸 ${t.field_count}개` : t.category}</span>}
                   </button>
                   {t.source === "user" && (
-                    <button type="button" className="kd-icon-btn" onClick={() => void remove(t)} aria-label={`${t.name} 서식함에서 빼기`}><Trash2 size={14} /></button>
+                    <ConfirmRemove ask="서식함에서 뺄까요?" verb="빼기" onConfirm={() => void remove(t)}>
+                      {(open) => <button type="button" className="kd-icon-btn" onClick={open} aria-label={`${t.name} 서식함에서 빼기`} data-tip="서식함에 넣어 둔 사본을 지웁니다. 처음 고른 원본 파일은 그대로 둡니다"><Trash2 size={14} /></button>}
+                    </ConfirmRemove>
                   )}
                 </div>
               ))}

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FolderOpen, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { SecurityStatus } from "../../lib/contract";
 import { useApp } from "../../state/app";
+import { useSectionMark } from "./marks";
 import { rpc, errorText } from "../../lib/rpc";
 import { num } from "../../lib/format";
 import { Button } from "../ui/Button";
@@ -15,8 +16,8 @@ import { ErrorLine } from "../common/Status";
 import { lockProps, useLocked } from "./PolicyLock";
 
 const WHERE: Record<string, string> = {
-  embedded: "이 PC 안 (내장 모델)", local: "이 PC의 로컬 모델 서버", openai: "기관 AI 서버", gemini: "외부 AI (Google Gemini)", anthropic: "외부 AI (Anthropic Claude)",
-  "claude-code": "구독 계정 (Claude Code 프로그램, Anthropic 서버)", codex: "구독 계정 (Codex 프로그램, OpenAI 서버)", none: "AI를 쓰지 않음",
+  embedded: "이 PC에서 · 내장 AI", local: "이 PC에서 · 켜 둔 AI 프로그램", openai: "기관 AI 서버", gemini: "외부 AI · Google API 키", anthropic: "외부 AI · Anthropic API 키",
+  "claude-code": "외부 AI · 구독 계정 (Claude Code, Anthropic 서버)", codex: "외부 AI · 구독 계정 (Codex, OpenAI 서버)", "gemini-cli": "외부 AI · 구독 계정 (Gemini CLI, Google 서버)", none: "AI를 쓰지 않음",
 };
 
 function clock(iso: string) {
@@ -25,6 +26,7 @@ function clock(iso: string) {
 }
 
 export function SecuritySection({ active }: { active: boolean }) {
+  const mark = useSectionMark("set-sec");
   const { settings, saveSettings } = useApp();
   const [st, setSt] = useState<SecurityStatus | null>(null);
   const [error, setError] = useState("");
@@ -40,7 +42,7 @@ export function SecuritySection({ active }: { active: boolean }) {
   const zero = st?.external_sent === 0;
 
   return (
-    <Section id="set-sec" mark="라." title="보안" sub="이 앱이 문서를 어디로 보내는지 지금 상태 그대로 보여 줍니다."
+    <Section id="set-sec" mark={mark} title="보안" sub="이 앱이 문서를 어디로 보내는지 지금 상태 그대로 보여 줍니다."
       aside={<Button variant="secondary" size="sm" onClick={() => void refresh()}><RefreshCw size={13} /> 다시 확인</Button>}>
       <ErrorLine message={error} />
       {st && (

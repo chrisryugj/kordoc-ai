@@ -108,6 +108,8 @@ function bodyRows(t: ScanTable, header: number): { blank: number[]; total: numbe
     const rest = texts.filter((x, k) => x && !(k === 0 && /^\d{1,3}\.?$/.test(x)));
     if (!rest.length) blank.push(i);
   }
+  // 합계가 아래(빈 줄 뒤)에 있으면 그 밑의 빈 줄은 서식의 여백·서명 줄: 영수증은 합계 위에만
+  if (total >= 0 && blank.some((b) => b < total)) return { blank: blank.filter((b) => b < total), total };
   return { blank, total };
 }
 
@@ -234,6 +236,15 @@ function setCell(xml: string, cell: ScanCell | undefined, text: string, edits: S
 }
 
 /** 서식에 값 넣기. values[i][field] = 그 줄의 칸 글, totals[field] = 합계 줄 값 */
+/** 서식 표의 합계 줄 자리 — 미리보기·복사 표를 저장 파일과 같은 차례로 (합계 줄이 없으면 none) */
+export async function templateTotalAt(templatePath: string): Promise<'top' | 'bottom' | 'none'> {
+  const at = await locate(await JSZip.loadAsync(await readFile(templatePath)));
+  if (!at) return 'none';
+  const { blank, total } = bodyRows(at.table, at.header);
+  if (total < 0) return 'none';
+  return blank.length && total > blank[0] ? 'bottom' : 'top';
+}
+
 export async function fillTemplate(templatePath: string, columns: Array<{ field: string }>, values: Array<Record<string, string>>, totals: Record<string, string>): Promise<{ bytes: Uint8Array; warnings: string[] }> {
   const zip = await JSZip.loadAsync(await readFile(templatePath));
   const warnings: string[] = [];

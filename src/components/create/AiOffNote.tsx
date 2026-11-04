@@ -11,7 +11,7 @@ export function AiOffNote({ children, extra }: { children: ReactNode; extra?: Re
     <div className="kd-create-aioff">
       <p className="kd-small kd-muted">{children}</p>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => openSettings("set-ai")} data-tip="설정의 AI 연결로 갑니다. 이 PC 안 모델이나 기관 AI 서버를 고를 수 있습니다"><Sparkles size={13} /> AI 켜기</Button>
+        <Button size="sm" onClick={() => openSettings("set-ai")} data-tip="설정 › AI 연결로 갑니다. 이 PC에서·기관 AI 서버·외부 AI 가운데 고릅니다"><Sparkles size={13} /> AI 켜기</Button>
         {extra}
       </div>
     </div>

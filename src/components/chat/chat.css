@@ -19,7 +19,7 @@
 .kd-chatlist-tag { flex: none; display: inline-flex; color: var(--color-text-muted); }
 .kd-chatlist-acts { display: none; flex: none; padding-right: 4px; }
 .kd-chatlist-item:hover .kd-chatlist-acts, .kd-chatlist-item:focus-within .kd-chatlist-acts { display: flex; }
-.kd-chatlist-act { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); cursor: pointer; }
+.kd-chatlist-act { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); cursor: pointer; }
 .kd-chatlist-act:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
 .kd-chatlist-act[data-danger="true"] { color: var(--color-error); }
 .kd-chatlist-item[data-mode="confirm"] { padding-left: 10px; background: var(--color-error-subtle); }

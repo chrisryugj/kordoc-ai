@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { TOOLS, createHwpSkill } from "./tools";
+import { TOOLS, createHwpSkill, paraText, tableText } from "./tools";
 import type { AgentBridge } from "./bridge";
 
 function fakeBridge(over: Partial<Record<keyof AgentBridge, unknown>> = {}) {
@@ -90,5 +90,23 @@ describe("tools", () => {
     expect(skill.verifyResponse!("제목을 바꿨습니다.", [])).toMatch(/도구를 실제로/);
     expect(skill.verifyResponse!("제목을 바꿨습니다.", [{ name: "replace_text", ok: true }])).toBeNull();
     expect(skill.verifyResponse!("무엇으로 바꿀까요?", [])).toBeNull();
+  });
+});
+
+describe("활동 줄의 자리 (내부 번호 대신 사람 말)", () => {
+  it("문단·표 자리를 몇째 문단으로, 고친 글은 앞 몇 자", () => {
+    expect(paraText("0.28")).toBe("29번째 문단");
+    expect(paraText("1.0")).toBe("2구역 1번째 문단");
+    expect(paraText(undefined)).toBe("문단");
+    expect(tableText("0.5.1")).toBe("6번째 문단의 표");
+    expect(tableText("0.5.1>0.0.0")).toBe("6번째 문단의 안쪽 표");
+  });
+
+  it("rewrite_paragraph 활동 줄에 0.28 같은 번호가 나오지 않는다", async () => {
+    const { bridge } = fakeBridge();
+    const { skill } = createHwpSkill({ bridge });
+    const r = await skill.executeTool({ id: "1", name: "rewrite_paragraph", input: { id: "0.28", text: "가. 일시: 2026. 11. 6.(금) 10:00~12:00" } });
+    expect(r.summary).toBe('29번째 문단 고침: "가. 일시: 2026. 11.…"');
+    expect(r.summary).not.toMatch(/0\.28/);
   });
 });

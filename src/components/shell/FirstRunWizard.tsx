@@ -84,7 +84,12 @@ export function FirstRunWizard() {
 
   useEffect(() => {
     if (step === 2) startRef.current?.focus();
-    else boxRef.current?.querySelector<HTMLElement>(".kd-wizard-body input:not(:disabled), .kd-wizard-body button:not(:disabled)")?.focus();
+    else {
+      // 고르기 묶음이 있으면 고른 칸에 초점(라디오 묶음 규칙), 없으면 첫 입력
+      const body = boxRef.current;
+      (body?.querySelector<HTMLElement>('.kd-wizard-body [role="radio"][aria-checked="true"]')
+        ?? body?.querySelector<HTMLElement>(".kd-wizard-body input:not(:disabled), .kd-wizard-body button:not(:disabled)"))?.focus();
+    }
   }, [step]);
   useEffect(() => { if (offline && (route === "cloud" || route === "subscription")) setRoute("embedded"); }, [offline, route]);
 

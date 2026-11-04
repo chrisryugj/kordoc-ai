@@ -217,7 +217,7 @@ export function PdfScreen({ active }: { active: boolean }) {
       const common = { source: b.files[0]?.path, ...(opts.outDir ? { output_dir: opts.outDir } : {}) };
       if (kind === "images") {
         // 이름 칸에 적은 이름이 있으면 그 이름으로 (<이름>_그림 폴더). 엔진은 source 의 이름·폴더를 쓴다
-        const typed = opts.name.trim().replace(/.pdf$/i, "");
+        const typed = opts.name.trim().replace(/\.pdf$/i, "");
         const source = typed && b.files[0] ? joinPath(dirName(b.files[0].path), `${typed}.pdf`) : common.source;
         const r = await rpc("pdf_to_images", { ...common, source, items: imageItems(b, keys), format: opts.imageFormat, dpi: opts.dpi }, { signal, onProgress });
         void notifySystem("KorDoc AI: PDF 작업 끝", `그림 ${r.files.length}장을 저장했습니다`);
@@ -392,7 +392,7 @@ export function PdfScreen({ active }: { active: boolean }) {
           {items.length > 0 && (
             <div className="kd-pdf-tools" role="toolbar" aria-label="쪽 다루기">
               <span className="kd-pdf-count" aria-live="polite">{picked ? <><b>{num(picked)}</b> / {num(items.length)}쪽 고름</> : <><b>{num(items.length)}</b>쪽 · 파일 {num(usedFiles.length)}개</>}</span>
-              <button type="button" className="kd-pdf-tool" onClick={pickMenu} aria-haspopup="menu"><ListChecks size={16} /><span className="kd-pdf-tool-label">{finding ? "빈 쪽 찾는 중" : "고르기"}</span></button>
+              <button type="button" className="kd-pdf-tool" onClick={pickMenu} aria-haspopup="menu" aria-label={finding ? "빈 쪽 찾는 중" : "고르기"}><ListChecks size={16} /><span className="kd-pdf-tool-label">{finding ? "빈 쪽 찾는 중" : "고르기"}</span></button>
               {spec != null && (
                 <form className="kd-pdf-row" onSubmit={(e) => { e.preventDefault(); applySpec(); }}>
                   <input className="kd-input" style={{ width: 120, height: 32 }} autoFocus value={spec} placeholder="1-3, 5" aria-label="고를 쪽 번호" onChange={(e) => setSpec(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setSpec(null); }} />
@@ -400,14 +400,14 @@ export function PdfScreen({ active }: { active: boolean }) {
                 </form>
               )}
               <span className="kd-sep" />
-              <button type="button" className="kd-pdf-tool" title={picked ? "고른 쪽을 왼쪽으로 (Shift+R)" : "모든 쪽을 왼쪽으로"} onClick={() => commit(rotate(boardRef.current, pickedOr(all), -90))}><RotateCcw size={16} /><span className="kd-pdf-tool-label">{picked ? "왼쪽으로" : "모두 왼쪽"}</span></button>
-              <button type="button" className="kd-pdf-tool" title={picked ? "고른 쪽을 오른쪽으로 (R)" : "모든 쪽을 오른쪽으로"} onClick={() => commit(rotate(boardRef.current, pickedOr(all), 90))}><RotateCw size={16} /><span className="kd-pdf-tool-label">{picked ? "오른쪽으로" : "모두 오른쪽"}</span></button>
-              <button type="button" className="kd-pdf-tool" data-danger="true" disabled={!picked} title="고른 쪽 지우기 (Delete)" onClick={() => doRemove(sel.keys)}><Trash2 size={16} /><span className="kd-pdf-tool-label">지우기</span></button>
-              <button type="button" className="kd-pdf-tool" disabled={!picked} title="고른 쪽 복제 (Ctrl+D)" onClick={() => commit(duplicate(boardRef.current, sel.keys))}><Copy size={16} /><span className="kd-pdf-tool-label">복제</span></button>
-              <button type="button" className="kd-pdf-tool" data-tip="고른 쪽 뒤에 빈 쪽을 넣습니다. 고른 쪽이 없으면 지금 쪽 뒤, 지금 쪽도 없으면 맨 뒤에 넣습니다." onClick={() => commit(insertBlank(boardRef.current, lastPicked()))}><FilePlus2 size={16} /><span className="kd-pdf-tool-label">빈 쪽</span></button>
+              <button type="button" className="kd-pdf-tool" title={picked ? "고른 쪽을 왼쪽으로 (Shift+R)" : "모든 쪽을 왼쪽으로"} aria-label={picked ? "왼쪽으로" : "모두 왼쪽"} onClick={() => commit(rotate(boardRef.current, pickedOr(all), -90))}><RotateCcw size={16} /><span className="kd-pdf-tool-label">{picked ? "왼쪽으로" : "모두 왼쪽"}</span></button>
+              <button type="button" className="kd-pdf-tool" title={picked ? "고른 쪽을 오른쪽으로 (R)" : "모든 쪽을 오른쪽으로"} aria-label={picked ? "오른쪽으로" : "모두 오른쪽"} onClick={() => commit(rotate(boardRef.current, pickedOr(all), 90))}><RotateCw size={16} /><span className="kd-pdf-tool-label">{picked ? "오른쪽으로" : "모두 오른쪽"}</span></button>
+              <button type="button" className="kd-pdf-tool" data-danger="true" disabled={!picked} title="고른 쪽 지우기 (Delete)" aria-label="지우기" onClick={() => doRemove(sel.keys)}><Trash2 size={16} /><span className="kd-pdf-tool-label">지우기</span></button>
+              <button type="button" className="kd-pdf-tool" disabled={!picked} title="고른 쪽 복제 (Ctrl+D)" aria-label="복제" onClick={() => commit(duplicate(boardRef.current, sel.keys))}><Copy size={16} /><span className="kd-pdf-tool-label">복제</span></button>
+              <button type="button" className="kd-pdf-tool" data-tip="고른 쪽 뒤에 빈 쪽을 넣습니다. 고른 쪽이 없으면 지금 쪽 뒤, 지금 쪽도 없으면 맨 뒤에 넣습니다." aria-label="빈 쪽" onClick={() => commit(insertBlank(boardRef.current, lastPicked()))}><FilePlus2 size={16} /><span className="kd-pdf-tool-label">빈 쪽</span></button>
               <button type="button" className="kd-pdf-tool" onClick={moreMenu} aria-haspopup="menu" aria-label="더 보기"><Ellipsis size={16} /></button>
               <span className="kd-sep" />
-              <button type="button" className="kd-pdf-tool" disabled={!past.current.length} title="되돌리기 (Ctrl+Z)" onClick={undo}><Undo2 size={16} /><span className="kd-pdf-tool-label">되돌리기</span></button>
+              <button type="button" className="kd-pdf-tool" disabled={!past.current.length} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" onClick={undo}><Undo2 size={16} /><span className="kd-pdf-tool-label">되돌리기</span></button>
               <button type="button" className="kd-pdf-tool" disabled={!future.current.length} title="다시 하기 (Ctrl+Shift+Z)" aria-label="다시 하기" onClick={redo}><Redo2 size={16} /></button>
             </div>
           )}

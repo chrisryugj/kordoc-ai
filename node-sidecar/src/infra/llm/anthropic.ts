@@ -6,7 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { assertAllowed } from '../net-guard.js';
-import type { ChatRequest, LlmProvider } from './types.js';
+import { httpError, type ChatRequest, type LlmProvider } from './types.js';
 
 const FALLBACK_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
 type ImageMime = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
@@ -55,6 +55,16 @@ export function createAnthropicProvider(cfg: { api_key: string; model: string },
       const final = await stream.finalMessage();
       if (final.stop_reason === 'refusal') throw new Error('Claude가 이 요청을 거절했습니다. 내용을 바꿔 다시 시도하세요.');
       return out;
+    },
+    /** 이 키로 쓸 수 있는 모델 (공식 Models API, 새것부터) */
+    async listModels(signal) {
+      if (!cfg.api_key) throw new Error('Claude API 키를 넣은 뒤 모델을 불러오세요.');
+      const url = 'https://api.anthropic.com/v1/models?limit=1000';
+      await assertAllowed(url);
+      const res = await fetch(url, { headers: { 'x-api-key': cfg.api_key, 'anthropic-version': '2023-06-01' }, signal: signal ?? AbortSignal.timeout(15_000), redirect: 'manual' });
+      if (!res.ok) throw await httpError(res, 'Anthropic');
+      const body = (await res.json()) as { data?: Array<{ id?: string }> };
+      return (body.data ?? []).map((m) => m.id ?? '').filter(Boolean);
     },
   };
 }

@@ -31,6 +31,18 @@
     "card": "9410",
     "items": 0
   },
+  "card-slip-issuer.png": {
+    "date": "2026-11-03",
+    "vendor": "바른사무",
+    "brn": "208-11-00334",
+    "total": 22000,
+    "vat": 2000,
+    "supply": 20000,
+    "payment": "카드",
+    "approval": "41005566",
+    "card": "4012",
+    "items": 0
+  },
   "simple.png": {
     "date": "2026-11-03",
     "vendor": "한결인쇄",

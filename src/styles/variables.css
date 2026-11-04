@@ -92,6 +92,13 @@
   --color-error-subtle: rgba(192, 38, 26, 0.06);
 
   --color-backdrop: rgba(16, 20, 26, 0.45);
+  /* 말풍선(툴팁) 면: 밝은 화면에선 먹색, 어두운 화면에선 바탕보다 한 단 밝게 (같은 색이면 바탕에 묻힌다) */
+  --color-tip-bg: #1F242B;
+  --color-tip-text: #F3F5F7;
+  --color-tip-border: transparent;
+  /* 문서 쪽(종이) 위 글자·괘선: 종이는 어두운 화면에서도 흰색이라 화면 밝기와 무관하게 고정 (옛 미색 회색 #8b8f86·#f4f2ec 대신) */
+  --color-paper-muted: #636C77;
+  --color-paper-line: #ECEEF1;
   --color-primary-rgb: 8, 119, 90;
   --color-primary-light: #12936F;
 
@@ -129,16 +136,16 @@
   --radius-xl: 14px;
   --radius-2xl: 18px;
 
-  /* 글자 크기 */
-  --text-2xs: 0.75rem;     /* 12 */
-  --text-xs: 0.8125rem;    /* 13 */
-  --text-sm: 0.875rem;     /* 14 */
-  --text-base: 0.9375rem;  /* 15 */
-  --text-md: 1rem;         /* 16 */
-  --text-lg: 1.25rem;      /* 20 */
-  --text-xl: 1.625rem;     /* 26 */
-  --text-2xl: 2rem;        /* 32 */
-  --text-hero: 2.5rem;
+  /* 글자 크기: Tailwind text-* 가 이 값을 그대로 쓴다(대화상자 제목 text-lg 등) → 아래 --fs-* 일곱 단계에 맞춘다 */
+  --text-2xs: 0.75rem;     /* 12 caption */
+  --text-xs: 0.8125rem;    /* 13 small */
+  --text-sm: 0.875rem;     /* 14 body */
+  --text-base: 1rem;       /* 16 h3 */
+  --text-md: 1rem;         /* 16 h3 */
+  --text-lg: 1.125rem;     /* 18 h2 (대화상자 제목) */
+  --text-xl: 1.375rem;     /* 22 h1 */
+  --text-2xl: 1.75rem;     /* 28 display */
+  --text-hero: 1.75rem;    /* 28 display */
 
   /* 겹 순서 */
   --z-sticky: 10;
@@ -220,6 +227,9 @@
   --color-error-subtle: rgba(240, 122, 110, 0.10);
 
   --color-backdrop: rgba(5, 7, 5, 0.62);
+  --color-tip-bg: #343A42;
+  --color-tip-text: #F3F5F7;
+  --color-tip-border: rgba(236, 238, 241, 0.10);
   --color-primary-rgb: 63, 207, 152;
 
   --color-file-hwp: #8FB8E3;

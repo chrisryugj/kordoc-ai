@@ -18,7 +18,7 @@ type Style = "standard" | "briefing" | "review" | "action";
 type Length = "short" | "medium" | "long";
 
 export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary: number; onGoPage: (page: number) => void }) {
-  const { toast, openDocs, askWork } = useApp();
+  const { toast, openDocs, askWork, uiMode } = useApp();
   const [style, setStyle] = useState<Style>("standard");
   const [length, setLength] = useState<Length>("medium");
   const [stream, setStream] = useState("");
@@ -30,7 +30,9 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
 
   const summarize = () => {
     setStream("");
-    void summary.run(({ signal }) => rpc("ai_summarize", { path: doc.path, style, length }, { signal, onToken: (t) => setStream((s) => s + t) }));
+    // 쉬운 화면은 갈래·길이 칸을 숨기므로 핵심·보통으로 (전체 화면에서 골라 둔 값을 몰래 쓰지 않게)
+    const easy = uiMode === "easy";
+    void summary.run(({ signal }) => rpc("ai_summarize", { path: doc.path, style: easy ? "standard" : style, length: easy ? "medium" : length }, { signal, onToken: (t) => setStream((s) => s + t) }));
   };
 
   useEffect(() => {

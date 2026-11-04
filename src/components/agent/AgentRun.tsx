@@ -31,15 +31,21 @@ const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)
 const LAYOUT = new Set(["hwp", "hwpx", "pdf"]);
 
 function Thumb({ path }: { path: string }) {
-  const [src, setSrc] = useState("");
   const fmt = formatOf(path);
+  // null: 첫 쪽 그림을 그리는 중 (뼈대), "": 그림 없음 (형식 표시)
+  const [src, setSrc] = useState<string | null>(() => (LAYOUT.has(fmt) ? null : ""));
   useEffect(() => {
-    if (!LAYOUT.has(fmt)) return;
+    if (!LAYOUT.has(fmt)) { setSrc(""); return; }
     let alive = true;
-    void rpc("render_pages", { path, pages: "1", max_width: 132 }).then((r) => { if (alive) setSrc(r.pages[0]?.data_url ?? ""); }, () => undefined);
+    setSrc(null);
+    void rpc("render_pages", { path, pages: "1", max_width: 132 }).then((r) => { if (alive) setSrc(r.pages[0]?.data_url ?? ""); }, () => { if (alive) setSrc(""); });
     return () => { alive = false; };
   }, [path, fmt]);
-  return <span className="kd-result-thumb" aria-hidden="true">{src ? <img src={src} alt="" /> : <FormatBadge format={fmt} />}</span>;
+  return (
+    <span className="kd-result-thumb" aria-hidden="true">
+      {src === null ? <span className="kd-skel" style={{ width: "100%", height: "100%" }} /> : src ? <img src={src} alt="" /> : <FormatBadge format={fmt} />}
+    </span>
+  );
 }
 
 export function ResultCard({ path }: { path: string }) {

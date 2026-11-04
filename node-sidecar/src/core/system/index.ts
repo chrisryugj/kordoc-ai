@@ -92,7 +92,7 @@ export function listLocalLlmModels(): Array<{ path: string; name: string; size: 
 }
 
 /** 앱 판 (릴리스 때 package.json·tauri.conf.json 과 함께 올린다) */
-export const APP_VERSION = '2.3.1';
+export const APP_VERSION = '2.3.2';
 
 export function systemInfo() {
   const s = getSettings();

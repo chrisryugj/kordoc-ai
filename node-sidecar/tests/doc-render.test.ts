@@ -124,6 +124,8 @@ describe.skipIf(!hasBrowser)('export_pdf·bundle_pdf (Chromium 필요)', () => {
     writeFileSync(bad, 'broken');
     const r = await call('bundle_pdf', { paths: [LETTER_HWPX, LETTER_PDF, img, bad], watermark: '대외비', page_numbers: true });
     expect(r.page_count).toBe(3);
+    // 기본 이름: <첫 이름>_외N건_합본 (우클릭 하나로 합치기·서무 도구와 같은 꼴)
+    expect(r.output_path).toMatch(/_외3건_합본\.pdf$/);
     expect(r.failed).toHaveLength(1);
     expect(r.failed[0].path).toBe(bad);
     expect((await PDFDocument.load(readFileSync(r.output_path))).getPageCount()).toBe(3);
@@ -181,13 +183,13 @@ describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
     expect(again.output_files.every((f: string) => f.startsWith(again.output_dir))).toBe(true);
   });
 
-  it('PDF 나누기 output_dir 는 상위 폴더: 그 안에 <이름>_분리', async () => {
+  it('PDF 나누기 output_dir 는 상위 폴더: 그 안에 <이름>_나누기 (한글 나누기와 같은 이름)', async () => {
     const parent = join(env.base, 'PDF 나눈 결과');
     const two = await call('merge_files', { files: [LETTER_PDF, LETTER_PDF], mode: 'native', output_path: join(env.work, '두쪽.pdf') });
     const a = await call('split_pdf', { input_path: two.output_path, output_dir: parent });
-    expect(a.output_dir).toBe(join(parent, '두쪽_분리'));
+    expect(a.output_dir).toBe(join(parent, '두쪽_나누기'));
     const b = await call('split_pdf', { input_path: two.output_path, output_dir: parent });
-    expect(b.output_dir).toBe(join(parent, '두쪽_분리 (2)'));
+    expect(b.output_dir).toBe(join(parent, '두쪽_나누기 (2)'));
   });
 
   it('깨진 PDF 나누기는 할 일이 있는 한국어 (영어 원문 없음)', async () => {
@@ -200,9 +202,9 @@ describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
     }
   });
 
-  it('마크다운 합치기', async () => {
+  it('마크다운 합치기: 기본 이름은 <첫 이름>_외N건_합본', async () => {
     const r = await call('merge_files', { files: [LETTER_HWPX, FORM] });
-    expect(r.output_path).toMatch(/_병합\.md$/);
+    expect(r.output_path).toMatch(/_외1건_합본\.md$/);
     expect(readFileSync(r.output_path, 'utf-8')).toContain('총무과');
   });
 });

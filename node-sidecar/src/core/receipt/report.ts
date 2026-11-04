@@ -1,7 +1,8 @@
 /** 지출조서 만들기 — 줄들 → 클립보드용 TSV·HTML 표, 저장하면 HWPX (기본 서식 또는 등록한 기관 서식)
  *
  * 기본 서식: 제목 "지출조서", 기관·부서·작성일 한 줄, 표(연번 | 지출일자 | 거래처 | 사업자등록번호 | 적요(품목) | 금액 | 결제방법 | 비고).
- * 합계 줄은 머리줄 바로 아래(공문 표 관행). 금액은 천 단위 쉼표. 기관 서식이면 그 표의 칸 차례·이름을 따른다.
+ * 합계 줄은 머리줄 바로 아래(공문 표 관행). 금액은 천 단위 쉼표. 기관 서식이면 그 표의 칸 차례·이름·합계 줄 자리를 따른다
+ * (미리보기·복사 표도 저장 파일과 같은 차례).
  */
 
 import { existsSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { markdownToHwpx } from 'kordoc';
 import type { ReceiptRow } from '../../types/rpc-contract.js';
 import { getSettings } from '../../infra/config.js';
 import { outputFile } from '../output/index.js';
-import { fillTemplate } from './template.js';
+import { fillTemplate, templateTotalAt } from './template.js';
 
 const DEFAULT_COLUMNS: Array<{ header: string; field: string }> = [
   { header: '연번', field: 'seq' }, { header: '지출일자', field: 'date' }, { header: '거래처', field: 'vendor' }, { header: '사업자등록번호', field: 'brn' },
@@ -47,27 +48,33 @@ export interface ReportTable {
   /** 합계 줄 (첫 칸 "합계") */
   total: string[];
   rows: string[][];
+  /** 합계 줄 자리: 머리줄 바로 아래(기본)·줄들 아래·없음 (기관 서식을 따름) */
+  totalAt: 'top' | 'bottom' | 'none';
 }
 
-export function buildTable(rows: ReceiptRow[], columns = DEFAULT_COLUMNS): ReportTable {
+/** template: 기관 서식. 서식의 합계 줄에는 금액만 들어가므로 "영수증 N장" 은 넣지 않는다 */
+export function buildTable(rows: ReceiptRow[], columns = DEFAULT_COLUMNS, totalAt: ReportTable['totalAt'] = 'top', template = false): ReportTable {
   const fields = columns.map((c) => c.field);
   const body = rows.map((r, i) => fields.map((f) => cellOf(r, f, i)));
   const sums = Object.fromEntries([...MONEY_FIELDS].map((f) => [f, rows.reduce((s, r) => s + toNumber((r as unknown as Record<string, string>)[f]), 0)]));
   const total = fields.map((f, k) => {
     if (MONEY_FIELDS.has(f)) return f === 'amount' || sums[f] ? comma(sums[f]) : '';
-    if (f === 'purpose') return `영수증 ${rows.length}장`;
+    if (f === 'purpose' && !template) return `영수증 ${rows.length}장`;
     return k === 0 ? '합계' : '';
   });
   if (total[0] !== '합계' && !MONEY_FIELDS.has(fields[0])) total[0] = '합계';
-  return { headers: columns.map((c) => c.header || ''), fields, total, rows: body };
+  return { headers: columns.map((c) => c.header || ''), fields, total, rows: body, totalAt };
 }
+
+/** 머리줄 다음 줄들 (합계 줄 자리대로) */
+const ordered = <T>(t: ReportTable, total: T, rows: T[]): T[] => (t.totalAt === 'top' ? [total, ...rows] : t.totalAt === 'bottom' ? [...rows, total] : rows);
 
 const tsvCell = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** 엑셀·한글 붙여 넣기: 머리줄 · 합계 · 줄들 */
+/** 엑셀·한글 붙여 넣기: 머리줄 · 합계 · 줄들 (합계 자리는 totalAt) */
 export function toTsv(t: ReportTable): string {
-  return [t.headers, t.total, ...t.rows].map((r) => r.map(tsvCell).join('\t')).join('\r\n');
+  return [t.headers, ...ordered(t, t.total, t.rows)].map((r) => r.map(tsvCell).join('\t')).join('\r\n');
 }
 
 /** 한글·워드·메일에 붙여 넣는 HTML 표 (테두리·금액 오른쪽 맞춤·합계 굵게) */
@@ -76,8 +83,8 @@ export function toHtml(t: ReportTable): string {
     `<${tag} style="border:1px solid #000;padding:2px 6px;${MONEY_FIELDS.has(f) ? 'text-align:right;' : f === 'seq' || f === 'date' || f === 'payment' ? 'text-align:center;' : ''}${extra}">${esc(s)}</${tag}>`;
   const head = `<tr>${t.headers.map((h) => `<th style="border:1px solid #000;padding:2px 6px;background:#f2f2f2;text-align:center;">${esc(h)}</th>`).join('')}</tr>`;
   const total = `<tr>${t.total.map((s, k) => td(s, t.fields[k], 'td', 'font-weight:bold;')).join('')}</tr>`;
-  const rows = t.rows.map((r) => `<tr>${r.map((s, k) => td(s, t.fields[k])).join('')}</tr>`).join('');
-  return `<table style="border-collapse:collapse;font-size:10pt;">${head}${total}${rows}</table>`;
+  const rows = t.rows.map((r) => `<tr>${r.map((s, k) => td(s, t.fields[k])).join('')}</tr>`);
+  return `<table style="border-collapse:collapse;font-size:10pt;">${head}${ordered(t, total, rows).join('')}</table>`;
 }
 
 const mdCell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ') || ' ';
@@ -121,7 +128,9 @@ export async function receiptReport(p: { rows: ReceiptRow[]; save?: boolean; tem
   const tpl = useTemplate && existsSync(s.template_path) ? s : null;
   const columns = tpl ? tpl.columns.filter((c) => c.field).map((c) => ({ header: c.header, field: c.field })) : DEFAULT_COLUMNS;
   if (tpl && !columns.length) warnings.push('서식의 칸 대응표가 비어 있습니다. 설정 › 내 기관 정보의 지출조서 서식에서 칸을 고르세요.');
-  const table = buildTable(p.rows, columns.length ? columns : DEFAULT_COLUMNS);
+  const fromTpl = !!tpl && columns.length > 0;
+  const totalAt = tpl && fromTpl ? await templateTotalAt(tpl.template_path).catch(() => 'top' as const) : 'top';
+  const table = buildTable(p.rows, fromTpl ? columns : DEFAULT_COLUMNS, totalAt, fromTpl);
   const total = p.rows.reduce((sum, r) => sum + toNumber(r.amount), 0);
   const out = { tsv: toTsv(table), html: toHtml(table), total, count: p.rows.length, ...(tpl ? { template: tpl.template_name } : {}), warnings };
   if (p.save === false) return out;

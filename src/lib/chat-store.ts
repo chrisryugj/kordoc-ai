@@ -62,13 +62,19 @@ function removeBody(id: string) {
   try { localStorage.removeItem(BODY(id)); } catch { /* 무시 */ }
 }
 
-export function loadChat(id: string): ChatBody | null {
+/** 저장소 키 → 대화 id (본문 키가 아니면 null) */
+export function chatIdOf(key: string | null): string | null {
+  return key?.startsWith("kordoc-chat:") ? key.slice("kordoc-chat:".length) : null;
+}
+
+/** liveSince: 이 시각 뒤에 시작한 요청은 다른 창(문서 카드·본창)에서 도는 중이라 그대로 둔다 */
+export function loadChat(id: string, liveSince = Infinity): ChatBody | null {
   try {
     const raw = localStorage.getItem(BODY(id));
     if (!raw) return null;
     const b = JSON.parse(raw) as ChatBody;
     // 앱이 꺼질 때 돌던 요청은 멈춘 것으로 보인다
-    const turns = (b.turns ?? []).map((t) => (t.state === "running" ? { ...t, state: "stopped" as const, text: t.text || "앱이 꺼져서 멈췄습니다." } : t));
+    const turns = (b.turns ?? []).map((t) => (t.state === "running" && !(t.startedAt >= liveSince) ? { ...t, state: "stopped" as const, text: t.text || "앱이 꺼져서 멈췄습니다." } : t));
     return { paths: b.paths ?? [], turns, events: b.events ?? [] };
   } catch {
     return null;
@@ -76,7 +82,24 @@ export function loadChat(id: string): ChatBody | null {
 }
 
 /** 본문과 목록을 함께 쓴다. 목록은 매번 저장소에서 다시 읽어 다른 창이 쓴 대화를 덮지 않는다 */
-export function saveChat(meta: ChatMeta, body: ChatBody) {
+/** 한 대화에 남길 요청 수와 크기 상한 — 오래 쓴 대화 하나가 저장소를 다 차지해 다른 대화까지 지워지지 않게 (모델에 보내는 대화는 loop 의 HISTORY_CHARS 로 따로 줄인다) */
+export const MAX_TURNS = 60;
+const MAX_BODY_CHARS = 600_000;
+const MAX_TEXT = 20_000;
+
+/** 오래된 요청부터 덜고, 아주 긴 답 글은 앞부분만 남긴다 */
+export function fitBody(body: ChatBody): ChatBody {
+  let turns = body.turns.slice(-MAX_TURNS).map((t) => (t.text.length > MAX_TEXT ? { ...t, text: `${t.text.slice(0, MAX_TEXT)}…` } : t));
+  let out = { ...body, turns };
+  while (JSON.stringify(out).length > MAX_BODY_CHARS && turns.length > 1) {
+    turns = turns.slice(1);
+    out = { ...body, turns };
+  }
+  return out;
+}
+
+export function saveChat(meta: ChatMeta, body0: ChatBody) {
+  const body = fitBody(body0);
   const write = () => localStorage.setItem(BODY(meta.id), JSON.stringify(body));
   try {
     write();

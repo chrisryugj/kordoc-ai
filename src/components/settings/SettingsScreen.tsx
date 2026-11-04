@@ -14,17 +14,7 @@ import { EngineSection, StorageSection, AboutSection } from "./SystemSections";
 import { LawSection } from "./LawSection";
 import { Modal } from "../ui/Modal";
 import { DirtyContext, type DirtyEntry } from "./dirty";
-
-const INDEX = [
-  { id: "set-org", mark: "가.", title: "내 기관 정보" },
-  { id: "set-orgdocs", mark: "나.", title: "우리 기관 문서 모음", adv: true },
-  { id: "set-ai", mark: "다.", title: "AI 연결" },
-  { id: "set-sec", mark: "라.", title: "보안" },
-  { id: "set-engine", mark: "마.", title: "엔진과 모델", adv: true },
-  { id: "set-store", mark: "바.", title: "저장과 연결", adv: true },
-  { id: "set-about", mark: "사.", title: "화면과 정보" },
-  { id: "set-law", mark: "아.", title: "법령 확인", adv: true },
-];
+import { INDEX, sectionMark } from "./marks";
 
 export function SettingsScreen({ active }: { active: boolean }) {
   const { settings, ready, engine, go, setLeaveGuard, settingsIntent, uiMode, setUiMode } = useApp();
@@ -101,12 +91,14 @@ export function SettingsScreen({ active }: { active: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsIntent, active, !!settings]);
 
-  const goTo = (id: string) => {
-    // 쉬운 화면에서 숨긴 구획을 찾아오면 전체 화면으로 바꾸고 간다
-    if (uiMode === "easy" && INDEX.find((x) => x.id === id)?.adv) { setUiMode("full"); requestAnimationFrame(() => goTo(id)); return; }
+  const goTo = (id: string, wait = 0) => {
+    // 쉬운 화면에서 숨긴 구획을 찾아오면 전체 화면으로 바꾸고 간다 (다음 차례의 goTo 는 옛 uiMode 를 들고 있어 다시 묻지 않는다)
+    if (!wait && uiMode === "easy" && INDEX.find((x) => x.id === id)?.adv) { setUiMode("full"); requestAnimationFrame(() => goTo(id, 1)); return; }
     const el = document.getElementById(id);
     const root = scrollRef.current;
     if (!el || !root) return;
+    // 화면 방식이 바뀌어 구획이 보일 때까지 몇 장면 기다린다
+    if (wait && !el.getClientRects().length) { if (wait < 10) requestAnimationFrame(() => goTo(id, wait + 1)); return; }
     setCurrent(id);
     jumping.current = true;
     const gap = () => el.getBoundingClientRect().top - root.getBoundingClientRect().top - 12;
@@ -130,7 +122,7 @@ export function SettingsScreen({ active }: { active: boolean }) {
         <nav className="kd-settings-index" aria-label="설정 목차">
           {INDEX.map((s) => (
             <button key={s.id} type="button" className={`kd-index-item${s.adv ? " kd-adv" : ""}`} aria-current={current === s.id ? "true" : undefined} onClick={() => goTo(s.id)}>
-              <span className="kd-section-mark">{s.mark}</span> {s.title}
+              <span className="kd-section-mark">{sectionMark(s.id, uiMode === "easy")}</span> {s.title}
               {dirty[s.id] && <span className="kd-index-dirty" role="img" aria-label="저장 안 함" title="저장하지 않은 변경이 있습니다" />}
             </button>
           ))}
@@ -145,7 +137,20 @@ export function SettingsScreen({ active }: { active: boolean }) {
                   <Button size="sm" variant="secondary" onClick={engine.restart}>다시 켜기</Button>
                 </div>
               </Note>
-            ) : <Note tone="info">문서 엔진을 켜는 중입니다. 잠시 뒤 설정을 읽어 옵니다.</Note>)}
+            ) : (
+              <>
+                <Note tone="info">문서 엔진을 켜는 중입니다. 잠시 뒤 설정을 읽어 옵니다.</Note>
+                {/* 설정을 읽어 오는 동안 구획 자리를 뼈대로 */}
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="mt-8 flex flex-col gap-3" aria-hidden="true">
+                    <span className="kd-skel" style={{ width: 180, height: 22 }} />
+                    <span className="kd-skel" style={{ width: "70%", height: 14 }} />
+                    <span className="kd-skel" style={{ width: "100%", height: 38 }} />
+                    <span className="kd-skel" style={{ width: "100%", height: 38 }} />
+                  </div>
+                ))}
+              </>
+            ))}
             {settings?.policy && (
               <Note tone={settings.policy.error ? "warn" : "info"}>
                 {settings.policy.error

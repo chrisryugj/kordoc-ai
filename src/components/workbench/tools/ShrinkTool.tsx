@@ -5,6 +5,7 @@ import { FileDown } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import type { PdfShrinkLevel, RpcResult } from "../../../lib/contract";
 import { rpc } from "../../../lib/rpc";
+import { useApp } from "../../../state/app";
 import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { Check, Field, Seg } from "../../common/Field";
@@ -69,14 +70,17 @@ export function shrinkSummary(r: RpcResult<"pdf_shrink">): string {
 }
 
 export function ShrinkTool({ doc, info }: ToolProps) {
-  const [choice, setChoice] = useState<ShrinkChoice>(DEFAULT_SHRINK);
+  const easy = useApp().uiMode === "easy";
+  const [picked, setChoice] = useState<ShrinkChoice>(DEFAULT_SHRINK);
+  // 쉬운 화면은 첨부 한도·정도를 숨기고 기본값(보통)으로 줄인다
+  const choice = easy ? DEFAULT_SHRINK : picked;
   const task = useTask<RpcResult<"pdf_shrink">>();
   const r = task.result;
   const run = () => void task.run(({ signal, onProgress }) => rpc("pdf_shrink", { path: doc.path, ...shrinkParams(choice) }, { signal, onProgress }));
 
   return (
     <div className="flex flex-col gap-4">
-      <ShrinkOptions value={choice} onChange={(v) => { setChoice(v); task.reset(); }} />
+      <div className="kd-adv flex flex-col gap-4"><ShrinkOptions value={picked} onChange={(v) => { setChoice(v); task.reset(); }} /></div>
       {task.busy ? <Working label="용량을 줄이는 중" progress={task.progress} onCancel={task.cancel} /> : (
         <div><Button onClick={run} data-tip={`결재 첨부 한도에 맞춰 PDF 속 그림을 줄인 새 PDF를 만듭니다. 글자·표는 그대로라 복사·검색이 됩니다.${info.format !== "pdf" ? " 이 문서는 PDF로 바꾼 뒤 줄입니다." : ""}`}><FileDown size={14} /> 용량 줄이기</Button></div>
       )}

@@ -1,5 +1,5 @@
 /**
- * 문서 카드 — 탐색기 우클릭 "KorDoc AI 에게 맡기기…"·"최종본 찾기"로 뜨는 작은 창.
+ * 문서 카드 — 탐색기 우클릭 "KorDoc AI에게 맡기기…"·"최종본 찾기"로 뜨는 작은 창.
  * 문서 이름과 한 줄 정보, 같은 문서의 다른 판(최종본), "이 문서로 무엇을 할까요?" 말로 시키기, 결과는 이 창에서.
  * AI 가 꺼져 있으면 문서 갈래에 맞는 일을 바로 실행 단추로 보인다 (우클릭 동작 id 를 card_handoff 로 본창에 넘김).
  * 본창이 필요한 일(앱에서 열기·편집기·비교)도 card_handoff 로 우클릭 동작과 같은 길로 넘긴다.
@@ -225,13 +225,28 @@ function Card({ input }: { input: CardInput }) {
               onSend={(t) => void agent.send(t)}
               onStop={agent.stop}
               busy={agent.busy}
+              locked={agent.elsewhere}
               autoFocus
-              placeholder={single ? "이 문서로 무엇을 할까요?" : "이 문서들로 무엇을 할까요?"}
+              placeholder={single ? "이 문서로 할 일 입력" : "이 문서들로 할 일 입력"}
               suggestions={agent.turns.length ? [] : suggestions}
             />
             <AgentRun turns={agent.turns} onSend={(t) => void agent.send(t)} busy={agent.busy} />
             {agent.turns.length > 0 && !agent.busy && (
               <div><Button size="sm" variant="ghost" onClick={() => agent.newChat(input.paths)}><MessageSquarePlus size={13} /> 새로 시키기</Button></div>
+            )}
+            {direct.length > 0 && (
+              // AI 가 켜져 있어도 AI 없이 바로 되는 일은 접어서 둔다
+              <details className="kd-advanced kd-card-direct">
+                <summary><ChevronRight size={14} aria-hidden="true" /> AI 없이 바로 하기</summary>
+                <div className="kd-advanced-body">
+                  <div className="kd-card-do-list">
+                    {direct.map((d) => (
+                      <Button key={d.id} variant="secondary" onClick={() => void runDirect(d)}
+                        data-tip={isQuick(d.id) ? "새 파일로 저장하고 끝나면 알림을 띄웁니다. 원본은 그대로입니다" : "본창에서 이 문서로 엽니다"}>{d.label}</Button>
+                    ))}
+                  </div>
+                </div>
+              </details>
             )}
           </>
         )}

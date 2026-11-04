@@ -32,7 +32,7 @@ type Fallback = { screen: "pdf" } | { screen: "inbox" } | { screen: "batch"; tas
 /** 실패했을 때 창에서 이어 할 곳 (하나로 합치기·나누기는 quickFallback 이 파일을 보고 고른다) */
 export const QUICK_FALLBACK: Record<QuickAction, Fallback> = {
   pdfmerge: { screen: "pdf" }, pdfsplit: { screen: "pdf" }, pdfimages: { screen: "pdf" }, pagenum: { screen: "pdf" },
-  hwpmerge: { screen: "batch", task: "merge" }, xlsxmerge: { screen: "batch", task: "merge" }, hwpsplit: { screen: "batch", task: "hwpsplit" },
+  hwpmerge: { screen: "batch", task: "merge" }, xlsxmerge: { screen: "batch", task: "merge" }, hwpsplit: { screen: "batch", task: "split" },
   inbox: { screen: "inbox" }, join: { screen: "pdf" }, split: { screen: "pdf" },
   pdf: { screen: "batch", task: "pdf" }, shrink: { screen: "batch", task: "shrink" }, hwpx: { screen: "batch", task: "hwpx" },
   redact: { screen: "batch", task: "redact" }, tables: { screen: "batch", task: "tables" }, convert: { screen: "batch", task: "convert" },
@@ -44,7 +44,7 @@ const isHangulPath = (p: string) => /\.hwpx?$/i.test(p);
 
 /** 실패했을 때 갈 곳: 고른 것이 전부 한글 문서면 서무 도구(합치기·나누기), 아니면 PDF 작업 */
 export function quickFallback(action: QuickAction, paths: string[]): Fallback {
-  if ((action === "join" || action === "split") && paths.length && paths.every(isHangulPath)) return { screen: "batch", task: action === "join" ? "merge" : "hwpsplit" };
+  if ((action === "join" || action === "split") && paths.length && paths.every(isHangulPath)) return { screen: "batch", task: action === "join" ? "merge" : "split" };
   return QUICK_FALLBACK[action];
 }
 /** 동작마다 받는 형식 (없으면 서무 도구 작업의 accepts, 그것도 없으면 다) */
@@ -143,7 +143,7 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
           const r = await rpc("split_hangul", { path: f.path, ...(env.outDir ? { output_dir: joinPath(env.outDir, `${stem(f.name)}_나누기`) } : {}) }, { signal: env.signal });
           last = r.output_dir;
         } else if (how === "pdfsplit") {
-          const r = await rpc("split_pdf", { input_path: f.path, mode: "each", ...(env.outDir ? { output_dir: joinPath(env.outDir, `${stem(f.name)}_분리`) } : {}) }, { signal: env.signal }) as { output_files?: string[] };
+          const r = await rpc("split_pdf", { input_path: f.path, mode: "each", ...(env.outDir ? { output_dir: joinPath(env.outDir, `${stem(f.name)}_나누기`) } : {}) }, { signal: env.signal }) as { output_files?: string[] };
           last = r.output_files?.[0] ? dirName(r.output_files[0]) : last;
         } else {
           last = (await rpc("pdf_to_images", { path: f.path, dpi: 150, format: "png", ...(env.outDir ? { output_dir: env.outDir } : {}) }, { signal: env.signal })).output_dir;

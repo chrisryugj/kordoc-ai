@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Cloud, Cpu, Lock, PlugZap, RefreshCw, Save, Server } from "lucide-react";
 import type { AiProviderId, LlmCatalogItem, RpcResult, Settings } from "../../lib/contract";
 import { useApp } from "../../state/app";
+import { useSectionMark } from "./marks";
 import { rpc } from "../../lib/rpc";
 import { baseName } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
@@ -39,12 +40,12 @@ export const COMPANY_NAME: Record<Company, string> = { anthropic: "Anthropic", o
 export const companyOf = (p: AiProviderId): Company => (p === "codex" ? "openai" : p === "gemini" || p === "gemini-cli" ? "google" : "anthropic");
 /** 구독 계정·API 키를 고를 수 있는 회사의 두 공급자 */
 const WAYS: Partial<Record<Company, { subscription: AiProviderId; cloud: AiProviderId; label: string }>> = {
-  anthropic: { subscription: "claude-code", cloud: "anthropic", label: "구독 계정" },
+  anthropic: { subscription: "claude-code", cloud: "anthropic", label: "구독 계정 (Claude Code)" },
   google: { subscription: "gemini-cli", cloud: "gemini", label: "구독 계정 (Gemini CLI)" },
 };
 /** 화면에 보일 "지금" 이름 (회사 · 연결 방식) */
 export const PROVIDER_LABEL: Record<AiProviderId, string> = {
-  none: "연결 안 됨", embedded: "이 PC · 내장 AI", local: "이 PC · 켜 둔 AI 프로그램", openai: "기관 AI 서버", gemini: "Google · API 키", anthropic: "Anthropic · API 키",
+  none: "연결 안 됨", embedded: "이 PC에서 · 내장 AI", local: "이 PC에서 · 켜 둔 AI 프로그램", openai: "기관 AI 서버", gemini: "Google · API 키", anthropic: "Anthropic · API 키",
   "claude-code": "Anthropic · 구독 계정", codex: "OpenAI · 구독 계정", "gemini-cli": "Google · 구독 계정",
 };
 const NO_KEYS = { openai: "", gemini: "", anthropic: "", local: "" };
@@ -76,6 +77,7 @@ function SubPick({ label, route, onPick, options, disabled }: {
 }
 
 export function AiSection() {
+  const mark = useSectionMark("set-ai");
   const { settings, saveSettings, ai, toast } = useApp();
   const s = settings!;
   const offline = s.privacy.offline;
@@ -84,6 +86,9 @@ export function AiSection() {
   const [keys, setKeys] = useState(NO_KEYS);
   const [models, setModels] = useState<string[]>([]);
   const list = useTask<void>();
+  // API 키 방식(Anthropic·Google)의 모델 목록: 불러오면 입력 칸 아래 고르기로 (목록에 없는 이름도 그대로 넣을 수 있다)
+  const [cloudModels, setCloudModels] = useState<{ anthropic: string[]; gemini: string[] }>({ anthropic: [], gemini: [] });
+  const cloudList = useTask<void>();
   const test = useTask<RpcResult<"ai_test">>();
   const [saving, setSaving] = useState(false);
   const lk = useLocked();
@@ -122,8 +127,8 @@ export function AiSection() {
   const embName = draft.embedded.model_path
     ? catalog.find((c) => baseName(draft.embedded.model_path) === c.file)?.name ?? baseName(draft.embedded.model_path) : "";
   const slotModel = route === "subscription" ? draft[subSlot(sub)].model : "";
-  const pickLine = route === "embedded" ? `이 PC · ${embName || "모델을 받거나 고르세요"}`
-    : route === "local" ? `이 PC · ${draft.local.model || "모델을 고르세요"}`
+  const pickLine = route === "embedded" ? `이 PC에서 · ${embName || "모델을 받거나 고르세요"}`
+    : route === "local" ? `이 PC에서 · ${draft.local.model || "모델을 고르세요"}`
     : route === "openai" ? `기관 AI 서버 · ${draft.openai.model || "모델 이름을 넣으세요"}`
     : route === "cloud" ? `${COMPANY_NAME[company]} · ${draft[cloud].model || "모델 이름을 넣으세요"}`
     : route === "subscription" ? `${COMPANY_NAME[company]} · ${slotModel || "프로그램 기본 모델"}` : "";
@@ -154,6 +159,13 @@ export function AiSection() {
     if (!draft.openai.model && r.models[0]) setDraft((d) => ({ ...d, openai: { ...d.openai, model: r.models[0] } }));
   });
 
+  const loadCloudModels = () => void cloudList.run(async () => {
+    const slot = cloud;
+    const r = await rpc("ai_list_models", { slot, ...(keys[slot] ? { api_key: keys[slot] } : {}) });
+    setCloudModels((m) => ({ ...m, [slot]: r.models }));
+    if (!r.models.length) throw new Error("이 키로 쓸 수 있는 모델을 찾지 못했습니다. 모델 이름을 직접 넣으세요.");
+  });
+
   const masked = (k: string) => (k ? `저장됨 (${k})` : "");
   // 저장된 키 지우기: 칸을 비워 저장하면 가린 값이 다시 가서 엔진이 버리므로, 빈 값을 따로 보낸다
   type KeySlot = "openai" | "gemini" | "anthropic" | "local";
@@ -172,7 +184,7 @@ export function AiSection() {
   });
 
   return (
-    <Section id="set-ai" mark="다." title="AI 연결" sub="요약·초안·검토에 쓸 AI"
+    <Section id="set-ai" mark={mark} title="AI 연결" sub="요약·초안·검토에 쓸 AI"
       aside={dirty ? <UnsavedBadge /> : undefined}>
       <div className="kd-ai-tiles" role="radiogroup" aria-label="AI를 돌릴 곳">
         <RouteTile id="pc" route={group} onPick={pickGroup} icon={<Cpu size={20} />} title="이 PC에서" desc="문서가 PC 밖으로 나가지 않습니다" badge="인터넷 없이 됨" locked={groupLock("pc")}
@@ -203,7 +215,7 @@ export function AiSection() {
               {WAYS[company] ? (
                 <Seg label="연결 방식" value={route} onChange={(r) => setProvider(r, r === "subscription" ? WAYS[company]!.subscription : WAYS[company]!.cloud)} disabled={!!pinned}
                   options={[{ value: "subscription", label: subBlocked ? `${WAYS[company]!.label} (기관에서 막음)` : WAYS[company]!.label, disabled: subBlocked }, { value: "cloud", label: "API 키" }]} />
-              ) : <span className="kd-aipick-way">구독 계정 (ChatGPT·Codex)</span>}
+              ) : <span className="kd-aipick-way">구독 계정 (Codex)</span>}
             </Field>
           </div>
         )}
@@ -265,8 +277,16 @@ export function AiSection() {
                 <TextField {...lp("API 키", `ai.${cloud}.api_key`)} type="password" value={keys[cloud]} placeholder={masked(draft[cloud].api_key) || (cloud === "gemini" ? "Google AI Studio에서 받은 키" : "Anthropic 콘솔에서 받은 키")} onChange={(v) => setKeys((k) => ({ ...k, [cloud]: v }))} />
                 {clearKey(cloud)}
               </div>
-              <TextField {...lp("모델", `ai.${cloud}.model`)} value={draft[cloud].model} onChange={(v) => setDraft((d) => ({ ...d, [cloud]: { ...d[cloud], model: v } }))} />
+              <Field label={lp("모델", `ai.${cloud}.model`).label} hint={cloudModels[cloud].length ? `불러온 모델 ${cloudModels[cloud].length}개에서 고르거나 이름을 직접 넣습니다` : "불러오기를 누르면 이 키로 쓸 수 있는 모델을 가져옵니다"}>
+                <div className="flex gap-2">
+                  <input className="kd-input" list={`kd-models-${cloud}`} disabled={lk(`ai.${cloud}.model`)} value={draft[cloud].model} onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, [cloud]: { ...d[cloud], model: v } })); }} placeholder={cloud === "anthropic" ? "예: claude-opus-5-5" : "예: gemini-3.8-flash"} aria-label="모델" />
+                  <datalist id={`kd-models-${cloud}`}>{cloudModels[cloud].map((m) => <option key={m} value={m} />)}</datalist>
+                  <Button variant="secondary" onClick={loadCloudModels} disabled={cloudList.busy || offline || lk(`ai.${cloud}.model`) || !(keys[cloud] || draft[cloud].api_key)}
+                    data-tip={offline ? "폐쇄망 모드에서는 불러올 수 없습니다. 모델 이름을 직접 넣으세요" : "API 키로 그 회사에 물어 쓸 수 있는 모델 이름을 가져옵니다"}><RefreshCw size={13} /> 불러오기</Button>
+                </div>
+              </Field>
             </div>
+            <ErrorLine message={cloudList.error} />
             <Switch {...lp("보내기 전에 개인정보 자동으로 가리기", "ai.redact_before_cloud")} desc="주민등록번호·전화번호·계좌번호 같은 것을 가린 뒤 보냅니다. 끄지 않기를 권합니다."
               checked={draft.redact_before_cloud} onChange={(v) => setDraft((d) => ({ ...d, redact_before_cloud: v }))} />
           </>

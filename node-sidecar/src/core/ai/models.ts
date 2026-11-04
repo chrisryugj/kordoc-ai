@@ -57,7 +57,7 @@ export const CATALOG: CatalogEntry[] = [
     ram_gb: 8,
     url: `${HF}/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf`,
     license: 'Apache-2.0',
-    description: '가볍고 빨라 요약·문서 대화·초안이 무난하고, 양식 채우기·표 추출의 JSON 을 잘 지킵니다. 메모리 8GB PC 부터 쓸 수 있습니다.',
+    description: '가볍고 빨라 요약·문서 대화·초안에 알맞고, 양식 채우기·표 추출에서 정해진 답 꼴(JSON)을 잘 지킵니다. 메모리 8GB 이상 PC에서 쓸 수 있습니다.',
   },
   {
     id: 'gemma4-e4b',
@@ -68,7 +68,7 @@ export const CATALOG: CatalogEntry[] = [
     ram_gb: 16,
     url: `${HF}/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf`,
     license: 'Apache-2.0',
-    description: '한국어 문장이 가장 자연스러운 고품질 모델. 초안·고쳐 쓰기·보고서에 좋습니다. 파일이 크고 느린 편이라 메모리 16GB 이상 PC 에 맞습니다.',
+    description: '한국어 문장이 자연스러워 초안·고쳐 쓰기·보고서에 알맞습니다. 파일이 크고 느린 편이라 메모리 16GB 이상 PC에 맞습니다.',
   },
   // 비상업(NC) 라이선스 모델은 추천 목록에 넣지 않는다(업무용은 별도 계약). 사용자가 가진 파일은 "가져오기"로 쓸 수 있다
 ];

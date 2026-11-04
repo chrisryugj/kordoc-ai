@@ -109,29 +109,52 @@ export interface OrgSource {
   reference: (kind: string) => Promise<string | null>;
 }
 
+/** 활동 줄의 자리 — 내부 번호("0.28") 대신 사람 말("29번째 문단", 구역이 둘째부터면 "2구역 3번째 문단") */
+export function paraText(id: unknown): string {
+  const m = /^(\d+)\.(\d+)$/.exec(String(id ?? ""));
+  if (!m) return "문단";
+  return `${Number(m[1]) ? `${Number(m[1]) + 1}구역 ` : ""}${Number(m[2]) + 1}번째 문단`;
+}
+/** 표 자리 "0.5.1" → "6번째 문단의 표" (칸 안의 표면 "안쪽 표". 끝 번호는 개체 차례라 말하지 않는다) */
+export function tableText(id: unknown): string {
+  const s = String(id ?? "");
+  const m = /^(\d+)\.(\d+)\.\d+/.exec(s);
+  if (!m) return "표";
+  return `${paraText(`${m[1]}.${m[2]}`)}의 ${s.includes(">") ? "안쪽 표" : "표"}`;
+}
+/** 고친 글 앞 몇 자 (활동 줄에 어느 문단인지 보이게) */
+const head = (t: unknown) => {
+  const s = String(t ?? "").replace(/\s+/g, " ").trim();
+  if (s.length <= 16) return s;
+  // 낱말 가운데서 끊지 않는다 (띄어쓰기 자리까지)
+  const cut = s.slice(0, 16);
+  const sp = cut.lastIndexOf(" ");
+  return `${s[16] !== " " && sp > 6 ? cut.slice(0, sp) : cut.trimEnd()}…`;
+};
+
 /** 도구 이름 → 플러그인 연산·문서를 바꾸는가·활동 줄 */
 const RUN: Record<string, { op: keyof AgentBridge; mutates?: boolean; say: (a: Record<string, unknown>, r: Record<string, unknown>) => string }> = {
   read_document: { op: "outline", say: () => "문서 읽음" },
-  read_table: { op: "readTable", say: (a) => `표 ${a.table} 읽음` },
+  read_table: { op: "readTable", say: (a) => `${tableText(a.table)} 읽음` },
   find_text: { op: "find", say: (a, r) => `"${a.text}" 찾음 · ${r.count}곳` },
   list_styles: { op: "styles", say: () => "스타일 목록 확인" },
   read_style: { op: "readStyle", say: (a) => `스타일 "${a.name}" 확인` },
   list_fields: { op: "fields", say: () => "빈칸 목록 확인" },
   replace_text: { op: "replace", mutates: true, say: (a, r) => `"${a.find}" → "${a.replace}" · ${r.replaced}곳` },
-  rewrite_paragraph: { op: "setParagraph", mutates: true, say: (a) => `문단 ${a.id} 고침` },
+  rewrite_paragraph: { op: "setParagraph", mutates: true, say: (a) => (head(a.text) ? `${paraText(a.id)} 고침: "${head(a.text)}"` : `${paraText(a.id)} 고침`) },
   insert_paragraphs: { op: "insertParagraphs", mutates: true, say: (_a, r) => `문단 ${r.count}개 넣음` },
   delete_paragraphs: { op: "deleteParagraphs", mutates: true, say: (_a, r) => `문단 ${r.deleted}개 지움` },
-  fill_cells: { op: "fillCells", mutates: true, say: (a, r) => `표 ${a.table} · 칸 ${r.filled}개 채움` },
-  add_rows: { op: "addRows", mutates: true, say: (a) => `표 ${a.table} · 줄 ${a.count ?? 1}개 넣음` },
-  remove_rows: { op: "removeRows", mutates: true, say: (a) => `표 ${a.table} · 줄 ${(a.rows as unknown[])?.length ?? 0}개 지움` },
+  fill_cells: { op: "fillCells", mutates: true, say: (a, r) => `${tableText(a.table)} · 칸 ${r.filled}개 채움` },
+  add_rows: { op: "addRows", mutates: true, say: (a) => `${tableText(a.table)} · 줄 ${a.count ?? 1}개 넣음` },
+  remove_rows: { op: "removeRows", mutates: true, say: (a) => `${tableText(a.table)} · 줄 ${(a.rows as unknown[])?.length ?? 0}개 지움` },
   insert_table: { op: "insertTable", mutates: true, say: (_a, r) => `표 넣음 · ${r.rows}줄 ${r.cols}칸` },
-  format_text: { op: "formatText", mutates: true, say: (a) => `문단 ${a.id} 글자 모양` },
+  format_text: { op: "formatText", mutates: true, say: (a) => `${paraText(a.id)} 글자 모양` },
   format_paragraphs: { op: "formatParagraphs", mutates: true, say: (_a, r) => `문단 ${r.count}개 모양` },
   apply_style: { op: "applyStyle", mutates: true, say: (_a, r) => `스타일 "${r.style}" · 문단 ${r.count}개` },
   create_style: { op: "createStyle", mutates: true, say: (a) => `스타일 "${a.name}" 만듦` },
   edit_style: { op: "editStyle", mutates: true, say: (a) => `스타일 "${a.name}" 고침` },
   fill_field: { op: "fillField", mutates: true, say: (a) => `빈칸 "${a.name}" 채움` },
-  insert_footnote: { op: "insertFootnote", mutates: true, say: (a, r) => `문단 ${a.id} 각주 ${r.number ?? ""} 넣음` },
+  insert_footnote: { op: "insertFootnote", mutates: true, say: (a, r) => `${paraText(a.id)}에 각주${r.number ? ` ${r.number}` : ""} 넣음` },
 };
 
 /** 결과 글: 모델이 읽기 쉬운 짧은 꼴 */

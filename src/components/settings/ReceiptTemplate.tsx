@@ -25,7 +25,8 @@ export function ReceiptTemplate() {
 
   useEffect(() => {
     if (!ready) return;
-    rpc("receipt_template_get", {}).then(setInfo, () => setInfo(null));
+    // 방금 넣은 서식이면 학습 결과(빈 줄 수·경고)를 지키고 대응표만 맞춘다 (저장된 정보에는 그것이 없다)
+    rpc("receipt_template_get", {}).then((g) => setInfo((cur) => (g && cur && cur.template_path === g.template_path ? { ...cur, columns: g.columns } : g)), () => setInfo(null));
   }, [ready, saved]);
 
   const put = async () => {

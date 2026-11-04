@@ -124,7 +124,9 @@ export function ChatScreen({ active }: { active: boolean }) {
         <section className="kd-convo" aria-label={chat.title ?? "새 대화"}>
           <header className="kd-convo-head">
             <h1 className="kd-convo-title">{chat.title ?? "새 대화"}</h1>
-            {chat.busy && !mine && <span className="kd-convo-note"><Loader2 size={14} className="kd-spin" /> 다른 대화에서 일하는 중입니다. 끝나면 보낼 수 있습니다.</span>}
+            {chat.elsewhere
+              ? <span className="kd-convo-note"><Loader2 size={14} className="kd-spin" /> 다른 창에서 이 대화의 일을 하는 중입니다. 끝나면 이어서 보낼 수 있습니다.</span>
+              : chat.busy && !mine && <span className="kd-convo-note"><Loader2 size={14} className="kd-spin" /> 다른 대화에서 일하는 중입니다. 끝나면 보낼 수 있습니다.</span>}
           </header>
           <div className="kd-convo-scroll" ref={scroll}>
             <div className="kd-convo-inner" data-empty={empty}>
@@ -151,7 +153,7 @@ export function ChatScreen({ active }: { active: boolean }) {
               onSend={(t) => void chat.send(t)}
               onStop={chat.stop}
               busy={mine}
-              locked={chat.busy && !mine}
+              locked={(chat.busy && !mine) || chat.elsewhere}
               dropName="chat"
               placeholder={empty ? undefined : "이어서 맡길 일 입력"}
               suggestions={empty ? sampleSuggestions(samples) : []}

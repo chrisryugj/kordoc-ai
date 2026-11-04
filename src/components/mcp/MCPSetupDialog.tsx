@@ -107,8 +107,25 @@ export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogPro
 
   // ── Render ─────────────────────────────────────────────────────
 
+  // 연결 단추 줄은 대화상자 바닥에 붙여 둔다 (창이 낮아도 본문만 스크롤되고 단추는 늘 보이게)
+  const footer = tab === "auto" && env ? (
+    <div className="kd-mcp-foot">
+      <div className="kd-mcp-acts">
+        <Button size="sm" onClick={handleInstall} disabled={installing || selected.size === 0}
+          data-tip="고른 AI 도구의 설정 파일에 KorDoc AI 항목을 넣습니다">
+          {installing ? <><RefreshCw size={13} className="kd-spin" /> 연결하는 중</> : <><Link2 size={13} /> 선택한 도구에 연결{selected.size ? ` (${selected.size})` : ""}</>}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { setInstallResults(null); void detect(); }} disabled={loading}
+          data-tip="이 PC에 깔린 AI 도구와 연결 상태를 다시 찾습니다">
+          <RefreshCw size={13} className={loading ? "kd-spin" : undefined} /> 다시 찾기
+        </Button>
+      </div>
+      <p className="kd-mcp-hint">연결한 뒤 그 AI 도구를 <strong>껐다 켜야</strong> 쓸 수 있습니다.</p>
+    </div>
+  ) : undefined;
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="AI 도구에 KorDoc AI 연결" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="AI 도구에 KorDoc AI 연결" size="lg" footer={footer}>
       <div className="kd-mcp">
         <p className="kd-mcp-lead">
           Claude Code·Codex·Claude·Cursor·VS Code 같은 AI 도구에서 이 앱의 문서 도구(읽기·공문 쓰기·서식 채우기·점검·가리기·PDF)를 씁니다. 결과는 늘 새 파일이고 원본은 그대로입니다.
@@ -168,18 +185,6 @@ export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogPro
                   {rootDir && <button type="button" className="kd-link kd-small" onClick={() => setRootDir("")}>제한 풀기</button>}
                 </div>
 
-                <div className="kd-mcp-acts">
-                  <Button size="sm" onClick={handleInstall} disabled={installing || selected.size === 0}
-                    data-tip="고른 AI 도구의 설정 파일에 KorDoc AI 항목을 넣습니다">
-                    {installing ? <><RefreshCw size={13} className="kd-spin" /> 연결하는 중</> : <><Link2 size={13} /> 선택한 도구에 연결{selected.size ? ` (${selected.size})` : ""}</>}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setInstallResults(null); void detect(); }} disabled={loading}
-                    data-tip="이 PC에 깔린 AI 도구와 연결 상태를 다시 찾습니다">
-                    <RefreshCw size={13} className={loading ? "kd-spin" : undefined} /> 다시 찾기
-                  </Button>
-                </div>
-
-                <p className="kd-mcp-hint">연결한 뒤 그 AI 도구를 <strong>껐다 켜야</strong> 쓸 수 있습니다.</p>
               </>
             ) : (
               <div className="kd-mcp-wait" data-tone="err">이 PC의 AI 도구를 찾지 못했습니다. 창을 닫았다가 다시 열어 보세요.</div>

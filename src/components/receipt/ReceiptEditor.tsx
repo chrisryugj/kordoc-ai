@@ -74,7 +74,8 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   const { ai, toast } = useApp();
   const [lines, setLines] = useState<Line[]>(() => receipts.filter((r) => r.ok).map(lineOf));
   const failed = receipts.filter((r) => !r.ok);
-  const [preview, setPreview] = useState<{ tsv: string; html: string; total: number; template?: string; warnings: string[] } | null>(null);
+  /** rows: 이 미리보기를 만든 줄들 (고친 뒤 아직 다시 안 만들었으면 지금 rows 와 다르다) */
+  const [preview, setPreview] = useState<{ tsv: string; html: string; total: number; template?: string; warnings: string[]; rows: ReceiptRow[] } | null>(null);
   const [copied, setCopied] = useState<"" | "auto" | "manual" | "failed">("");
   const [saved, setSaved] = useState("");
   const [saving, setSaving] = useState(false);
@@ -88,7 +89,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
     if (!rows.length) { setPreview(null); return; }
     let stop = false;
     const t = setTimeout(() => {
-      rpc("receipt_report", { rows, save: false }).then((r) => { if (!stop) setPreview(r); }, (e) => { if (!stop) toast(errorText(e), "error"); });
+      rpc("receipt_report", { rows, save: false }).then((r) => { if (!stop) setPreview({ ...r, rows }); }, (e) => { if (!stop) toast(errorText(e), "error"); });
     }, 300);
     return () => { stop = true; clearTimeout(t); };
   }, [rows, toast]);
@@ -96,14 +97,16 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   const copy = useCallback(async (how: "auto" | "manual") => {
     if (!preview) return;
     try {
-      await copyTable(preview.tsv, preview.html);
+      // 고친 직후라 미리보기가 아직 옛 값이면 지금 값으로 다시 만들어 넣는다
+      const p = preview.rows === rows ? preview : await rpc("receipt_report", { rows, save: false });
+      await copyTable(p.tsv, p.html);
       setCopied(how);
       if (how === "manual") toast("표를 복사했습니다. 한글·엑셀에 붙여 넣으세요", "success");
     } catch {
       setCopied("failed");
       if (how === "manual") toast("클립보드에 넣지 못했습니다. 창을 한 번 누른 뒤 다시 복사하세요", "error");
     }
-  }, [preview, toast]);
+  }, [preview, rows, toast]);
 
   useEffect(() => {
     if (!autoCopy || !preview || autoTried.current) return;
@@ -111,8 +114,11 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
     void copy("auto");
   }, [autoCopy, preview, copy]);
 
+  // 고치거나 빼면 클립보드의 표는 옛 값이다: "넣었습니다" 알림을 내린다
+  const staleCopy = () => setCopied((c) => (c === "auto" ? "" : c));
   const edit = (key: string, k: EditKey, v: string) => {
     setSaved("");
+    staleCopy();
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, row: { ...l.row, [k]: v }, low: { ...l.low, [k]: false }, touched: new Set(l.touched).add(k) } : l)));
   };
 
@@ -190,7 +196,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
                       </td>
                     ))}
                     <td>
-                      <button type="button" className="kd-icon-btn" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} aria-label={`${baseName(l.path)} 빼기`}
+                      <button type="button" className="kd-icon-btn" onClick={() => { staleCopy(); setLines((ls) => ls.filter((x) => x.key !== l.key)); }} aria-label={`${baseName(l.path)} 빼기`}
                         data-tip="이 영수증을 지출조서에서 뺍니다"><Trash2 size={14} /></button>
                     </td>
                   </tr>

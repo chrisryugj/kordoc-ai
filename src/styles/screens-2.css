@@ -9,7 +9,8 @@
 .kd-step + .kd-step::before { content: ""; width: 26px; height: 1px; background: var(--color-border-hover); margin: 0 4px; }
 .kd-step[data-state="done"] + .kd-step::before, .kd-step[data-state="done"] + .kd-step[data-state="now"]::before { background: var(--color-accent); }
 .kd-step button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); background: none; border: 0; cursor: pointer; text-align: left; color: var(--color-text-primary); }
-.kd-step button:disabled { cursor: default; opacity: 0.5; }
+.kd-step button:disabled { cursor: default; }
+.kd-step button:disabled .kd-step-label, .kd-step button:disabled .kd-step-n { color: var(--color-text-disabled); }
 .kd-step button:hover:not(:disabled) { background: var(--color-bg-tertiary); }
 .kd-step-n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: var(--fs-small); font-weight: 700; border: 1.5px solid var(--color-border-hover); color: var(--color-text-muted); flex: none; }
 .kd-step[data-state="now"] .kd-step-n { background: var(--color-text-primary); border-color: var(--color-text-primary); color: var(--color-bg-secondary); }
@@ -37,15 +38,19 @@
 .kd-preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
 .kd-preset { text-align: left; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); }
 .kd-preset:hover { border-color: var(--color-border-hover); }
-.kd-preset[aria-checked="true"] { border-color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-text-primary); }
+/* 고른 칸: 초록 테두리 + 옅은 초록 면 (옛 검정 테두리 대신. 면까지 칠해 키보드 포커스 고리와 헷갈리지 않게) */
+.kd-preset[aria-checked="true"] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); background: var(--color-accent-subtle); }
 
 .kd-library { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; align-items: start; }
 .kd-library-list { position: sticky; top: 0; padding: 10px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-primary); transition: border-color var(--transition-fast), background-color var(--transition-fast); }
 .kd-library-list[data-over="true"] { border-color: var(--color-accent); background: var(--color-accent-subtle); }
 .kd-library-detail { min-width: 0; }
 .kd-tpl { display: flex; align-items: center; border-radius: var(--radius-md); }
-.kd-tpl:hover { background: var(--color-bg-secondary); }
-.kd-tpl[aria-current="true"] { background: var(--color-bg-secondary); box-shadow: 0 0 0 1px var(--color-border-hover); }
+.kd-tpl:hover { background: var(--color-bg-tertiary); }
+.kd-tpl[aria-current="true"] { background: var(--color-bg-secondary); box-shadow: var(--shadow-card); }
+.kd-tpl-main .kd-row-title { font-weight: 500; }
+.kd-tpl[aria-current="true"] .kd-row-title { font-weight: 600; }
+.kd-library-list h3.kd-label { font-size: var(--fs-caption); color: var(--color-text-muted); }
 .kd-tpl-main { flex: 1; min-width: 0; text-align: left; padding: 7px 8px; background: none; border: 0; cursor: pointer; color: var(--color-text-primary); }
 .kd-tpl-add { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 6px; }
 
@@ -71,7 +76,7 @@
 .kd-edit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .kd-edit-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--color-border); }
 .kd-edit-main { flex: 1; min-height: 0; display: flex; }
-.kd-editor-frame { position: relative; flex: 1; min-width: 0; background: #e9ebee; }
+.kd-editor-frame { position: relative; flex: 1; min-width: 0; background: var(--color-desk); }
 .kd-editor-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .kd-editor-cover { position: absolute; inset: 0; display: grid; place-items: center; background: var(--color-desk); }
 .kd-editor-placeholder { max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px; text-align: center; color: var(--color-text-muted); font-size: var(--fs-body); line-height: 1.55; text-wrap: pretty; }
@@ -90,10 +95,10 @@
 
 /* ── 설정 ── */
 .kd-settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
-.kd-settings-index { padding: 18px 10px; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
+.kd-settings-index { padding: 18px 10px; border-right: 1px solid var(--color-border); background: var(--color-bg-primary); display: flex; flex-direction: column; gap: 2px; }
 .kd-index-item { display: flex; align-items: baseline; gap: 6px; text-align: left; padding: 8px 10px; border-radius: var(--radius-md); font-size: var(--fs-body); font-weight: 600; color: var(--color-text-secondary); background: none; border: 0; cursor: pointer; }
-.kd-index-item:hover { background: var(--color-bg-primary); }
-.kd-index-item[aria-current="true"] { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+.kd-index-item:hover { background: var(--color-bg-tertiary); }
+.kd-index-item[aria-current="true"] { background: var(--color-bg-secondary); color: var(--color-text-primary); box-shadow: var(--shadow-card); }
 .kd-index-item .kd-section-mark { font-size: var(--fs-small); }
 /* 저장 안 한 구획: 목차 끝의 점 (색만이 아니라 글자로도 알리는 것은 구획 제목 옆 배지) */
 .kd-index-dirty { margin-left: auto; align-self: center; width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); flex: none; }
@@ -121,7 +126,9 @@
 .kd-ai-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .kd-ai-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 14px; text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); min-width: 0; }
 .kd-ai-tile:hover:not(:disabled) { border-color: var(--color-border-hover); }
-.kd-ai-tile[aria-checked="true"] { border-color: var(--color-text-primary); box-shadow: inset 0 0 0 1px var(--color-text-primary); }
+.kd-ai-tile[aria-checked="true"] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); background: var(--color-accent-subtle); }
+/* 초록 면 위 배지는 흰 바탕으로 (옅은 바탕끼리 겹치면 글자 대비가 4.5:1 아래) */
+.kd-ai-tile[aria-checked="true"] .kd-badge { background: var(--color-bg-secondary); }
 .kd-ai-tile:disabled { cursor: not-allowed; background: var(--color-bg-primary); }
 .kd-ai-tile-icon { color: var(--color-accent); margin-bottom: 6px; }
 .kd-ai-tile:disabled .kd-ai-tile-icon { color: var(--color-text-muted); }
@@ -136,7 +143,7 @@
 .kd-approval-item { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 2px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); }
 .kd-seal-preview { width: 64px; height: 64px; display: grid; place-items: center; border: 1px dashed var(--color-border-hover); border-radius: var(--radius-md); background: var(--color-paper); flex: none; }
 .kd-seal-preview img { max-width: 56px; max-height: 56px; image-rendering: auto; }
-.kd-seal-preview .kd-muted { color: #5F625B; } /* 종이 면은 어두운 화면에서도 흰색이라 밝은 화면의 흐린 글자색 그대로 */
+.kd-seal-preview .kd-muted { color: var(--color-paper-muted); } /* 종이 면은 어두운 화면에서도 흰색이라 밝은 화면의 흐린 글자색 그대로 */
 
 /* ── 효과 ── */
 .kd-impact { max-width: 920px; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 16px; }
@@ -153,6 +160,8 @@
 .kd-wizard-steps li[data-state="done"] { color: var(--color-accent); }
 .kd-wizard-body { padding: 18px 24px; overflow: auto; }
 .kd-wizard-foot { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--color-border); }
+/* 바닥 줄 단추는 한 높이로 (이전·나중에 하기가 다음·시작보다 낮아 보이던 것) */
+.kd-wizard-foot .kd-btn { height: 44px; }
 
 /* ── 공문서 만들기: 작성 단계 고정 줄 · 글 접기 · 한 줄 맞춤 · 단계 되돌아가기 (UX 감사 반영) ── */
 .kd-actionbar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 10px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-secondary); }

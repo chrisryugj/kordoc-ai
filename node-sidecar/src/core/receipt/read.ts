@@ -13,20 +13,25 @@ import { aiConfigured, ask, parseJsonLoose } from '../../infra/llm/index.js';
 import { logger } from '../../infra/logger.js';
 import { sendProgress } from '../../infra/progress.js';
 import { parseBytes } from '../converter/index.js';
-import { errorText } from '../errors.js';
+import { errorText, parseFailure } from '../errors.js';
 import { formatOf } from '../files/format.js';
 import { ocrModelsReady } from '../system/index.js';
-import { linesFromMarkdown, linesFromOcr, parseReceipt, purposeOf, type ReceiptLine } from './parse.js';
+import { linesFromMarkdown, linesFromOcr, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from './parse.js';
 
 /** PDF 한 파일에서 영수증으로 볼 쪽 수 상한 */
 const MAX_PAGES = 30;
 
-function fromLines(path: string, lines: ReceiptLine[], via: 'text' | 'ocr', page?: number): ReceiptRead {
+/** OCR 모델 없이 글자층 없는 PDF 쪽을 읽었을 때 */
+const NEEDS_OCR_MODEL = '글자층이 없는 스캔 PDF라 글자 읽기(OCR) 모델이 있어야 읽습니다. 설정 › 엔진과 모델에서 모델을 넣은 뒤 다시 하세요.';
+
+function fromLines(path: string, raw: ReceiptLine[], via: 'text' | 'ocr', page?: number, emptyError = '글자를 찾지 못했습니다. 영수증이 잘 보이게 다시 찍거나 스캔하세요.'): ReceiptRead {
+  // 화면·AI 로 가는 읽은 줄도 카드번호는 앞 네 자리만
+  const lines = maskCardLines(raw);
   const { fields, items } = parseReceipt(lines);
   const ok = lines.length > 0;
   return {
     path, ...(page ? { page } : {}), ok, via, fields, items, purpose: purposeOf(items), lines: lines.map((l) => l.text),
-    ...(ok ? {} : { error: '글자를 찾지 못했습니다. 영수증이 잘 보이게 다시 찍거나 스캔하세요.' }),
+    ...(ok ? {} : { error: emptyError }),
   };
 }
 
@@ -62,13 +67,15 @@ export async function readOne(path: string, signal?: AbortSignal): Promise<Recei
     ...(longSide ? { ocrDetLongSide: longSide } : {}),
     ...(fmt === 'pdf' ? { pages: `1-${MAX_PAGES}` } : {}),
   }, undefined, signal);
-  if (!r.success) throw new Error(r.error);
+  if (!r.success) throw parseFailure(r);
+  // 모델이 없으면 PDF 의 스캔 쪽은 그림 자리 글만 나온다: 빈 값으로 "읽음" 대신 할 일을
+  const emptyError = !ready ? NEEDS_OCR_MODEL : undefined;
   const ocrPages = new Map<number, OcrPageLines>((r.ocrLines ?? []).map((p) => [p.pageNumber, p]));
   const pages = fmt === 'pdf' && r.pages && r.pages.length > 1 ? r.pages : null;
   if (!pages) {
     const ocr = [...ocrPages.values()];
     if (ocr.length && !ocr[0].regionsOnly) return [fromLines(path, ocr.flatMap((p) => linesFromOcr(p)), 'ocr')];
-    return [fromLines(path, linesFromMarkdown(r.markdown), ocr.length ? 'ocr' : 'text')];
+    return [fromLines(path, linesFromMarkdown(r.markdown), ocr.length ? 'ocr' : 'text', undefined, emptyError)];
   }
   // 여러 쪽 PDF: 쪽마다 영수증 한 장 (빈 쪽은 건너뜀)
   const out: ReceiptRead[] = [];
@@ -77,7 +84,7 @@ export async function readOne(path: string, signal?: AbortSignal): Promise<Recei
     const lines = o && !o.regionsOnly ? linesFromOcr(o) : linesFromMarkdown(p.markdown);
     if (lines.length) out.push(fromLines(path, lines, o ? 'ocr' : 'text', p.pageNumber));
   }
-  return out.length ? out : [fromLines(path, [], 'text')];
+  return out.length ? out : [fromLines(path, [], 'text', undefined, emptyError)];
 }
 
 const AI_SYSTEM = `당신은 공공기관 회계 담당자입니다. 영수증마다 지출조서 적요(용도) 한 줄과 품목 이름 정리를 JSON 으로만 답하세요.

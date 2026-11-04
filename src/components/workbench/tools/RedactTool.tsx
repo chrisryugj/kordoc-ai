@@ -62,7 +62,8 @@ function hasBatchim(word: string): boolean {
 const splitKeep = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter((x) => x.length >= 2);
 
 export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview: number }) {
-  const { settings, openDocs } = useApp();
+  const { settings, openDocs, uiMode } = useApp();
+  const easy = uiMode === "easy";
   // 검토 탭의 가리기는 정보공개 공개본이 기본 (이름·주소까지). 번호만 가릴 때는 아래에서 고른다
   const [rules, setRules] = useState<Set<RedactRule>>(() => new Set(DISCLOSURE_RULES));
   const [mask, setMask] = useState("●");
@@ -72,7 +73,9 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   const save = useTask<RedactResult>();
   const lastAuto = useRef(0);
   const savedRef = useRef<HTMLDivElement>(null);
-  const keepValue = keepText ?? keepFromSettings(settings?.org).join(", ");
+  const keepDefault = keepFromSettings(settings?.org).join(", ");
+  // 쉬운 화면은 세부 칸(가릴 것·남길 것·가림 글자)을 숨기고 기본값으로 한다
+  const keepValue = easy ? keepDefault : keepText ?? keepDefault;
 
   // 저장 결과(남은 의심 경고 포함)는 패널 아래로 밀려 안 보이기 쉬워 바로 보이는 자리로 올린다
   useEffect(() => {
@@ -82,7 +85,7 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   const fmt = info.format;
   const keeps = fmt === "hwpx" || fmt === "hwp";
   const asPdf = fmt === "pdf" || fmt === "image";
-  const params = () => ({ path: doc.path, rules: [...rules], mask_char: mask || "●", keep: splitKeep(keepValue) });
+  const params = () => ({ path: doc.path, rules: [...rules], mask_char: (easy ? "" : mask) || "●", keep: splitKeep(keepValue) });
   const runPreview = () => { save.reset(); void preview.run(() => rpc("redact", { ...params(), dry_run: true })); };
   const runSave = () => void save.run(() => rpc("redact", { ...params(), ...(keeps && alsoPdf ? { also_pdf: true } : {}) })).then((r) => {
     // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다)
@@ -116,6 +119,7 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
           {people ? "이름·주소는 다 찾지 못하거나 엉뚱한 곳을 가릴 수 있습니다. 가린 사본을 사람이 한 번 더 읽어 확인하세요." : "사람 이름과 주소는 가리지 않습니다. 정보공개 청구 문서라면 정보공개 공개본을 고르세요."}
         </span>
       </Field>
+      <div className="kd-adv flex flex-col gap-4">
       <Field label="가릴 것">
         <RuleChecks rules={rules} onChange={(n) => { setRules(n); preview.reset(); }} />
       </Field>
@@ -127,6 +131,7 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
           <input className="kd-input" style={{ width: 80 }} maxLength={1} value={mask} onChange={(e) => setMask(e.target.value)} aria-label="가림 글자" />
         </Field>
       )}
+      </div>
       {keeps && <Check label="가린 사본을 PDF로도 저장" checked={alsoPdf} onChange={setAlsoPdf} />}
 
       {preview.busy ? <Working label="개인정보를 찾는 중" /> : (

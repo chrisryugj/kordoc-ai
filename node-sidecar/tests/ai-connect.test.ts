@@ -5,9 +5,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFakeOpenAi, type FakeServer } from './ai-fake-server.js';
 
@@ -22,7 +22,7 @@ import { netLogSnapshot } from '../src/infra/net-guard.js';
 import { ask, contextCharBudget, getProvider } from '../src/infra/llm/index.js';
 import { findLocalServers } from '../src/infra/llm/local-servers.js';
 import { aiStatus, listServerModels } from '../src/core/ai/status.js';
-import { subscriptionModels, subscriptionStatus } from '../src/core/ai/connect.js';
+import { subscriptionModels, subscriptionStatus, subscriptionUpdate } from '../src/core/ai/connect.js';
 import { forgetLogins } from '../src/infra/llm/subscription/login.js';
 import { toAiError } from '../src/core/errors.js';
 import { SubscriptionError } from '../src/infra/llm/subscription/errors.js';
@@ -134,6 +134,12 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     expect(runs()).toBe(0);
   });
 
+  it('허용 전에는 업데이트도 프로그램을 띄우지 않는다', async () => {
+    await useClaude({ allow_subscription: false });
+    await expect(subscriptionUpdate({ provider: 'claude-code' }, signal())).rejects.toThrow(/허용하고 저장한 뒤/);
+    expect(runs()).toBe(0);
+  });
+
   it('프로그램 위치는 화면(update_settings)·settings.json 으로 못 바꾼다 (기관 배포 설정만)', async () => {
     const evil = join(root, 'evil.exe');
     await updateSettings({ ai: { claude_code: { cli_path: evil }, codex: { cli_path: evil } } });
@@ -165,6 +171,17 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     expect(entries().filter((e) => e.kind === 'system').at(-1)!.text).not.toContain('9876-5432');
     expect(netLogSnapshot().external_sent).toBe(sent + 1);
     expect(netLogSnapshot().entries[0]).toMatchObject({ host: 'api.anthropic.com (Claude Code)', external: true, allowed: true });
+  });
+
+  it('외부 AI로 보내기 전 가림은 도로명·동·호 주소까지 (kordoc 주소 규칙이 놓치는 꼴)', async () => {
+    await useClaude({ allow_subscription: true });
+    forgetLogins();
+    const r = await ask({ messages: [{ role: 'user', content: '청구인 주소는 가온시 한빛로 123, 101동 1004호입니다.' }], signal: signal(), stream: false });
+    expect(r.redacted).toBeGreaterThanOrEqual(1);
+    const userLine = entries().filter((e) => e.kind === 'stdin').map((e) => e.line as string).filter((l) => l.includes('"type":"user"')).at(-1)!;
+    expect(userLine).toContain('청구인 주소는');
+    expect(userLine).not.toContain('한빛로 123');
+    expect(userLine).not.toContain('1004호');
   });
 
   it('구독 프로그램은 문서 예산을 창 크기(18만 토큰)로 잡는다', async () => {
@@ -215,5 +232,48 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
         expect(e.message).not.toMatch(/[—–]/); // 화면 문장에 줄표 금지
       }
     }
+  });
+});
+
+describe('구독 업데이트 — 성공 경로 (PATH 에서 찾은 가짜 프로그램)', () => {
+  // 기관이 위치를 정하면(cli_path) 앱이 업데이트하지 않으므로, 가짜 사본을 임시 폴더에 두고 PATH 로 찾게 한다
+  const bin = join(root, 'bin');
+  const saved = { PATH: process.env.PATH, LOCALAPPDATA: process.env.LOCALAPPDATA };
+  const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const put = (name: 'claude' | 'codex') => {
+    const src = fileURLToPath(new URL(`./fixtures/fake-${name}.mjs`, import.meta.url));
+    copyFileSync(src, join(bin, `fake-${name}.mjs`));
+    if (process.platform === 'win32') writeFileSync(join(bin, `${name}.cmd`), `@ECHO off\r\n"%dp0%\\fake-${name}.mjs" %*\r\n`);
+    else { chmodSync(join(bin, `fake-${name}.mjs`), 0o755); symlinkSync(join(bin, `fake-${name}.mjs`), join(bin, name)); }
+  };
+
+  beforeAll(async () => {
+    mkdirSync(bin, { recursive: true });
+    put('claude');
+    put('codex');
+    process.env[pathKey] = `${bin}${delimiter}${saved.PATH ?? ''}`;
+    // Windows Codex 앱 폴더(appDirs)를 PATH 보다 먼저 보니 실제 앱이 깔린 PC 에서도 가짜를 찾게 비운다
+    process.env.LOCALAPPDATA = join(root, 'localappdata');
+    delete process.env.KORDOC_AI_POLICY;
+    reload();
+    await updateSettings({ privacy: { offline: false }, ai: { allow_subscription: true } });
+  });
+  afterAll(() => {
+    process.env[pathKey] = saved.PATH;
+    if (saved.LOCALAPPDATA === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = saved.LOCALAPPDATA;
+  });
+
+  it('Claude Code: 공식 update 를 띄우고 판이 바뀐 것을 알린다, 다시 하면 이미 최신', async () => {
+    const r = await subscriptionUpdate({ provider: 'claude-code' }, signal());
+    expect(r).toEqual({ ok: true, before: '2.1.302', after: '2.1.303', message: 'Claude Code를 2.1.302에서 2.1.303로 업데이트했습니다.' });
+    const again = await subscriptionUpdate({ provider: 'claude-code' }, signal());
+    expect(again).toMatchObject({ ok: true, before: '2.1.303', after: '2.1.303' });
+    expect(again.message).toMatch(/이미 최신 판입니다 \(2\.1\.303\)/);
+    expect(netLogSnapshot().entries.some((e) => e.host.includes('Claude Code 업데이트'))).toBe(true);
+  });
+
+  it('Codex(npm 으로 깐 것): update 뒤 판이 바뀐다', async () => {
+    const r = await subscriptionUpdate({ provider: 'codex' }, signal());
+    expect(r).toEqual({ ok: true, before: '0.157.0', after: '0.158.0', message: 'Codex를 0.157.0에서 0.158.0로 업데이트했습니다.' });
   });
 });

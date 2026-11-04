@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CheckCircle2, Info, Loader2, XCircle } from "lucide-react";
 
 export type ToastType = "success" | "error" | "loading" | "info";
 export interface ToastData { id: string; message: string; type: ToastType; }
@@ -14,9 +15,9 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
 
   return (
     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"}`}
-      style={{ backgroundColor: "#1F242B", color: "#F3F5F7", boxShadow: "var(--shadow-xl)", minWidth: 280, maxWidth: 460 }} role="alert">
-      <span className="w-4 h-4" style={{ color: iconColor }}>
-        {toast.type === "success" ? "✓" : toast.type === "error" ? "✕" : "●"}
+      style={{ backgroundColor: "var(--color-tip-bg)", color: "var(--color-tip-text)", border: "1px solid var(--color-tip-border)", boxShadow: "var(--shadow-xl)", minWidth: 280, maxWidth: 460 }} role="alert">
+      <span className="grid place-items-center w-4 h-4 shrink-0" style={{ color: iconColor }} aria-hidden="true">
+        {toast.type === "success" ? <CheckCircle2 size={16} /> : toast.type === "error" ? <XCircle size={16} /> : toast.type === "loading" ? <Loader2 size={16} className="kd-spin" /> : <Info size={16} />}
       </span>
       <span className="flex-1 line-clamp-3">{toast.message}</span>
       {toast.type !== "loading" && (

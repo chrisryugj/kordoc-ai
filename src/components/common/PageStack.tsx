@@ -172,7 +172,7 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
         {p ? (
           <img className="kd-page" src={p.data_url} alt={`${n}쪽`} style={{ width: "100%", height: h }} draggable={false} decoding="async" />
         ) : (
-          <div className="kd-page-blank" style={{ width: "100%", height: h }}>{n}쪽 그리는 중</div>
+          <div className="kd-page-blank kd-skel" role="img" aria-label={`${n}쪽 그리는 중`} style={{ width: "100%", height: h }} />
         )}
         <div className="kd-page-num" style={{ margin: `${NUM_TOP}px 0 0`, height: NUM_H, lineHeight: `${NUM_H}px` }}>{n} / {pageCount}쪽</div>
       </div>,

@@ -8,7 +8,7 @@ import { useApp } from "../../state/app";
 export function PolicyLock() {
   return (
     <span className="kd-badge" title="기관 배포 설정으로 정해져 이 PC에서 바꿀 수 없습니다"
-      style={{ height: 18, padding: "0 6px", marginLeft: 6, fontSize: 11, verticalAlign: "middle" }}>
+      style={{ height: 20, padding: "0 7px", marginLeft: 6, verticalAlign: "middle" }}>
       <Lock size={10} aria-hidden="true" /> 기관에서 정함
     </span>
   );

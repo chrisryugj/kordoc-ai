@@ -118,6 +118,32 @@ const R = [];
   });
 }
 
+// 3-2. 카드사 정보가 위에 있는 매출전표 (카드사 사업자번호가 가게 번호보다 먼저 나온다)
+{
+  const issuer = fakeBrn('110810001');
+  const brn = fakeBrn('208110033');
+  const supply = 20000;
+  const vat = 2000;
+  R.push({
+    file: 'card-slip-issuer.png', kind: 'card', width: 360,
+    html: `<p class="c b big">신용카드 매출전표</p><div class="hr"></div>
+      <p>[카드사 정보]</p>
+      <div class="row"><span>매입사</span><span>한빛카드</span></div>
+      <div class="row"><span>사업자번호</span><span>${issuer}</span></div>
+      <div class="row"><span>카드번호</span><span>4012-34**-****-5678</span></div>
+      <div class="row"><span>거래일시</span><span>2026/11/03 15:40:12</span></div>
+      <div class="row"><span>승인번호</span><span>41005566</span></div><div class="hr"></div>
+      <div class="row"><span>공급가액</span><span>${won(supply)}</span></div>
+      <div class="row"><span>부가세</span><span>${won(vat)}</span></div>
+      <div class="row b big"><span>합계</span><span>${won(supply + vat)}</span></div><div class="hr"></div>
+      <p>[가맹점 정보]</p>
+      <div class="row"><span>가맹점명</span><span>바른사무</span></div>
+      <div class="row"><span>사업자번호</span><span>${brn}</span></div>
+      <div class="row"><span>대표자명</span><span>오바른</span></div>`,
+    expect: { date: '2026-11-03', vendor: '바른사무', brn, total: supply + vat, vat, supply, payment: '카드', approval: '41005566', card: '4012', items: 0 },
+  });
+}
+
 // 4. 간이영수증 (칸 있는 양식, 년월일 꼴, ₩ 표시)
 {
   const brn = fakeBrn('602190078');

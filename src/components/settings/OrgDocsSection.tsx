@@ -4,18 +4,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FilePlus2, FolderPlus, Star, Trash2 } from "lucide-react";
 import type { OrgCorpusView } from "../../lib/contract";
 import { useApp } from "../../state/app";
+import { useSectionMark } from "./marks";
 import { rpc, errorText } from "../../lib/rpc";
 import { FILTERS, pickFiles, pickFolder } from "../../lib/native";
 import { useTask } from "../../hooks/useTask";
 import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { addSummary, orgCorpusChanged } from "../../hooks/useOrgCorpus";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { Section } from "../common/Field";
 import { ErrorLine, Note, Working } from "../common/Status";
 
 type Doc = OrgCorpusView["docs"][number];
 
 export function OrgDocsSection() {
+  const mark = useSectionMark("set-orgdocs");
   const { ready, toast, registerDrop, dragTarget } = useApp();
   const meta = useGongmunMeta();
   const [corpus, setCorpus] = useState<OrgCorpusView | null>(null);
@@ -58,7 +61,7 @@ export function OrgDocsSection() {
   const docs = corpus?.docs ?? [];
 
   return (
-    <Section id="set-orgdocs" mark="나." title="우리 기관 문서 모음"
+    <Section id="set-orgdocs" mark={mark} title="우리 기관 문서 모음"
       sub="결재가 끝난 우리 기관 한글 문서(HWP·HWPX)를 넣어 두면 AI 초안이 그 구성과 자주 쓰는 표현을 따르고, 새 문서를 그 서식으로 만듭니다. 한글 편집기의 AI 대화도 이 구성을 참고합니다. 이 PC에만 둡니다."
       aside={<>
         <Button variant="secondary" size="sm" disabled={add.busy} onClick={() => void pickFiles({ filters: FILTERS.hangul }).then(put)}><FilePlus2 size={13} /> 문서 넣기</Button>
@@ -106,7 +109,9 @@ function DocRow({ doc, kindOptions, disabled, onKind, onExemplar, onRemove }: {
           {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {!doc.exemplar && !doc.missing && <Button variant="ghost" size="sm" disabled={disabled} onClick={onExemplar}>대표로</Button>}
-        <button type="button" className="kd-icon-btn" disabled={disabled} onClick={onRemove} aria-label={`${doc.title} 빼기`}><Trash2 size={14} /></button>
+        <ConfirmRemove ask="모음에서 뺄까요?" verb="빼기" onConfirm={onRemove}>
+          {(open) => <button type="button" className="kd-icon-btn" disabled={disabled} onClick={open} aria-label={`${doc.title} 빼기`} data-tip="앱에 둔 사본을 모음에서 지웁니다. 처음 넣은 원본 파일은 그대로 둡니다"><Trash2 size={14} /></button>}
+        </ConfirmRemove>
       </span>
     </li>
   );

@@ -4,9 +4,10 @@
 //   · todo(계획 항목) · empty · linger(끝 알림 뒤 안 끝남) · slowfeatures(기능 확인이 0.5초)
 // FAKE_CODEX_AUTH: chatgpt(기본) · apikey · out  (`login status` 의 답)
 // FAKE_LOG: 기록 파일 (없으면 임시 폴더의 kordoc-fake-codex.jsonl)
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CODEX_MODE ?? 'ok';
@@ -17,7 +18,16 @@ const watched = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'NODE_O
 log({ kind: 'run', pid: process.pid, args, cwd: process.cwd(), env: Object.fromEntries(watched.map((k) => [k, process.env[k] ?? null])) });
 
 const FEATURES = ['shell_tool', 'unified_exec', 'view_image', 'apps', 'plugins', 'fast_mode'];
-if (args[0] === '--version') { process.stdout.write('codex-cli 0.157.0\n'); process.exit(0); }
+// 판: `update` 를 한 번 하면 0.158.0 (상태는 이 파일 옆 fake-codex.version: 자식 환경으로는 못 받는다. 시험은 사본을 임시 폴더에 두고 돌려 다른 시험과 안 섞인다)
+const versionFile = fileURLToPath(new URL('./fake-codex.version', import.meta.url));
+const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf-8').trim() : '0.157.0';
+if (args[0] === '--version') { process.stdout.write(`codex-cli ${version}\n`); process.exit(0); }
+if (args[0] === 'update') {
+  if (version === '0.158.0') { process.stdout.write('codex is already up to date (0.158.0)\n'); process.exit(0); }
+  writeFileSync(versionFile, '0.158.0');
+  process.stdout.write(`Updating Codex via npm...\nUpdated codex-cli ${version} -> 0.158.0\n`);
+  process.exit(0);
+}
 if (args[0] === 'login' && args[1] === 'status') {
   const auth = process.env.FAKE_CODEX_AUTH ?? 'chatgpt';
   process.stderr.write(auth === 'out' ? 'Not logged in\n' : auth === 'apikey' ? 'Logged in using an API key - sk-proj-***ABCD\n' : 'Logged in using ChatGPT\n');

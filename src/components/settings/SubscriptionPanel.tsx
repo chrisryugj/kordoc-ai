@@ -2,7 +2,7 @@
  *  설치·로그인 상태를 프로그램에 물어 보여 주고, 안 됐으면 터미널에서 칠 명령을 알려 준다. 앱은 로그인 정보를 읽거나 만들지 않는다.
  *  문서 보내기를 허용하고 저장하기 전에는 프로그램을 띄우지 않고 설치 위치만 본다. 프로그램 위치는 기관 배포 설정으로만 바꾼다. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpCircle, RefreshCw } from "lucide-react";
 import type { Settings, SubscriptionStatus } from "../../lib/contract";
 import { rpc } from "../../lib/rpc";
@@ -61,13 +61,16 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
   const update = () => void upd.run(async ({ signal }) => {
     const r = await rpc("ai_subscription_update", { provider }, { signal });
     toast(r.message, r.ok ? "success" : "error");
-    recheck();
+    // 업데이트하는 사이 회사를 바꿨으면 지금 보이는 프로그램을 다시 묻는다 (옛 프로그램 상태로 덮지 않게)
+    recheckRef.current();
     return r;
   });
   const [models, setModels] = useState<{ provider: SubProvider; items: Array<{ id: string; label: string }> } | null>(null);
 
   // 프로그램을 바꾸거나 허용을 저장하면 다시 묻는다 (허용 전에는 엔진이 띄우지 않고 설치 위치만 본다)
   const recheck = useCallback(() => void check.run(async ({ signal }) => (await rpc("ai_subscription_status", { provider }, { signal })).statuses[0]), [provider, savedAllow]); // eslint-disable-line react-hooks/exhaustive-deps
+  const recheckRef = useRef(recheck);
+  recheckRef.current = recheck;
   useEffect(() => { recheck(); }, [recheck]);
 
   const loadModels = () => void list.run(async ({ signal }) => {

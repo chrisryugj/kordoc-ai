@@ -4,14 +4,18 @@ import { useEffect, useState } from "react";
 import { Printer } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import { rpc } from "../../../lib/rpc";
+import { useApp } from "../../../state/app";
 import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { SelectField } from "../../common/Field";
 import { ErrorLine, Note, Working } from "../../common/Status";
 
 export function PrintTool({ doc, info }: ToolProps) {
+  const easy = useApp().uiMode === "easy";
   const [printers, setPrinters] = useState<Array<{ name: string; isDefault: boolean }> | null>(null);
-  const [printer, setPrinter] = useState("");
+  const [picked, setPrinter] = useState("");
+  // 쉬운 화면은 프린터 고르기를 숨기고 기본 프린터로 보낸다
+  const printer = easy ? printers?.find((p) => p.isDefault)?.name ?? printers?.[0]?.name ?? "" : picked;
   const print = useTask<string>();
 
   // 프린터 목록은 내보내기 탭을 처음 열 때 한 번
@@ -36,9 +40,9 @@ export function PrintTool({ doc, info }: ToolProps) {
       {printers && !printers.length ? <Note tone="info">이 PC에 연결된 프린터가 없습니다.</Note> : print.busy ? <Working label="인쇄를 준비하는 중" /> : (
         <>
           {printers && printers.length > 1 && (
-            <SelectField label="프린터" value={printer} onChange={setPrinter} options={printers.map((p) => ({ value: p.name, label: p.isDefault ? `${p.name} (기본)` : p.name }))} />
+            <div className="kd-adv"><SelectField label="프린터" value={picked} onChange={setPrinter} options={printers.map((p) => ({ value: p.name, label: p.isDefault ? `${p.name} (기본)` : p.name }))} /></div>
           )}
-          <div><Button variant="secondary" disabled={!printers} onClick={doPrint} data-tip="고른 프린터로 한 부를 바로 보냅니다. 여러 부나 양면은 PDF로 저장해 열어서 인쇄하세요."><Printer size={14} /> 인쇄</Button></div>
+          <div><Button variant="secondary" disabled={!printers} onClick={doPrint} data-tip={`${easy ? "기본" : "고른"} 프린터로 한 부를 바로 보냅니다. 여러 부나 양면은 PDF로 저장해 열어서 인쇄하세요.`}><Printer size={14} /> 인쇄</Button></div>
         </>
       )}
       <ErrorLine message={print.error} />

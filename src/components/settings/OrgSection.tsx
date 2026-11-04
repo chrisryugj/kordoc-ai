@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ImagePlus, Plus, Save, X } from "lucide-react";
 import type { Settings } from "../../lib/contract";
 import { useApp } from "../../state/app";
+import { useSectionMark } from "./marks";
 import { rpc } from "../../lib/rpc";
 import { FILTERS, pickFiles } from "../../lib/native";
 import { baseName } from "../../lib/format";
@@ -12,7 +13,7 @@ import { orgCorpusChanged } from "../../hooks/useOrgCorpus";
 import { Button } from "../ui/Button";
 import { Field, Section, SelectField, TextField } from "../common/Field";
 import { lockProps, useLocked } from "./PolicyLock";
-import { UnsavedBadge, useDirtyMark } from "./dirty";
+import { Advanced, UnsavedBadge, useDirtyMark } from "./dirty";
 import { ReceiptTemplate } from "./ReceiptTemplate";
 
 type Org = Settings["org"];
@@ -53,7 +54,9 @@ export function SealPreview({ path }: { path: string }) {
 }
 
 export function OrgSection() {
-  const { settings, saveSettings, toast } = useApp();
+  const mark = useSectionMark("set-org");
+  const { settings, saveSettings, toast, uiMode } = useApp();
+  const easy = uiMode === "easy";
   const meta = useGongmunMeta();
   const [org, setOrg] = useState<Org>(settings!.org);
   const lk = useLocked();
@@ -74,8 +77,18 @@ export function OrgSection() {
   };
   useDirtyMark("set-org", "내 기관 정보", dirty, save, () => setOrg(JSON.parse(savedOrg) as Org));
 
+  const fax = <TextField {...lp("팩스", "fax")} value={org.fax} onChange={(v) => set("fax", v)} />;
+  const homepage = <TextField {...lp("누리집", "homepage")} value={org.homepage} onChange={(v) => set("homepage", v)} />;
+  const address = <div className="kd-span2"><TextField {...lp("주소", "address")} value={org.address} onChange={(v) => set("address", v)} /></div>;
+  const docNo = <TextField {...lp("문서번호 앞부분", "doc_number_prefix")} hint="예: 총무과-" value={org.doc_number_prefix} onChange={(v) => set("doc_number_prefix", v)} />;
+  const approval = (
+    <Field label={lp("결재선", "approval_line").label} hint="결재란에 왼쪽부터 이 순서로 들어갑니다">
+      <ApprovalLine value={org.approval_line} onChange={(v) => set("approval_line", v)} disabled={lk("org.approval_line")} />
+    </Field>
+  );
+
   return (
-    <Section id="set-org" mark="가." title="내 기관 정보" sub="서식의 기관명·부서·담당자·전화 칸과 공문 머리·끝, 결재란, 도장에 자동으로 들어갑니다. 이 PC에만 저장됩니다."
+    <Section id="set-org" mark={mark} title="내 기관 정보" sub="서식의 기관명·부서·담당자·전화 칸과 공문 머리·끝, 결재란, 도장에 자동으로 들어갑니다. 이 PC에만 저장됩니다."
       aside={<>{dirty && <UnsavedBadge />}<Button onClick={() => void save()} disabled={!dirty || saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button></>}>
       <div className="kd-fieldgrid">
         <TextField {...lp("기관명", "name")} value={org.name} onChange={(v) => set("name", v)} placeholder="예: 가온시" />
@@ -83,18 +96,14 @@ export function OrgSection() {
         <TextField {...lp("직위", "position")} value={org.position} onChange={(v) => set("position", v)} placeholder="예: 주무관" />
         <TextField {...lp("이름", "person")} value={org.person} onChange={(v) => set("person", v)} />
         <TextField {...lp("전화", "phone")} value={org.phone} onChange={(v) => set("phone", v)} placeholder="02-000-0000" />
-        <TextField {...lp("팩스", "fax")} value={org.fax} onChange={(v) => set("fax", v)} />
+        {!easy && fax}
         <TextField {...lp("전자우편", "email")} value={org.email} onChange={(v) => set("email", v)} />
-        <TextField {...lp("누리집", "homepage")} value={org.homepage} onChange={(v) => set("homepage", v)} />
-        <div className="kd-span2"><TextField {...lp("주소", "address")} value={org.address} onChange={(v) => set("address", v)} /></div>
-        <TextField {...lp("문서번호 앞부분", "doc_number_prefix")} hint="예: 총무과-" value={org.doc_number_prefix} onChange={(v) => set("doc_number_prefix", v)} />
+        {!easy && <>{homepage}{address}{docNo}</>}
         <SelectField {...lp("기관 서식", "agency")} hint="글꼴·여백·머리글을 기관 방식대로" value={org.agency} onChange={(v) => set("agency", v)}
           options={[{ value: "", label: "공통 서식" }, ...(meta?.agencies ?? []).filter((a) => a !== "공통").map((a) => ({ value: a, label: a }))]} />
       </div>
       <div className="mt-5 grid gap-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-        <Field label={lp("결재선", "approval_line").label} hint="결재란에 왼쪽부터 이 순서로 들어갑니다">
-          <ApprovalLine value={org.approval_line} onChange={(v) => set("approval_line", v)} disabled={lk("org.approval_line")} />
-        </Field>
+        {!easy && approval}
         <Field label={lp("관인·서명 그림 (PNG)", "seal_image").label} hint="배경이 투명한 PNG가 깔끔합니다">
           <div className="flex items-center gap-3">
             <SealPreview path={org.seal_image} />
@@ -108,6 +117,13 @@ export function OrgSection() {
           </div>
         </Field>
       </div>
+      {easy && (
+        // 쉬운 화면: 자주 안 바꾸는 칸은 접어 둔다 (값은 그대로 저장·사용)
+        <Advanced title="더 넣을 정보">
+          <div className="kd-fieldgrid">{fax}{homepage}{address}{docNo}</div>
+          {approval}
+        </Advanced>
+      )}
       <ReceiptTemplate />
     </Section>
   );

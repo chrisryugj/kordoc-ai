@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { amountsIn, brnValid, dateIn, findItems, linesFromMarkdown, linesFromOcr, parseReceipt, purposeOf, type ReceiptLine } from '../src/core/receipt/parse.js';
+import { amountsIn, brnValid, dateIn, findItems, linesFromMarkdown, linesFromOcr, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from '../src/core/receipt/parse.js';
 import { dateText } from '../src/core/receipt/report.js';
 import { fieldOf } from '../src/core/receipt/template.js';
 import { ocrModelsReady } from '../src/core/system/index.js';
@@ -104,6 +104,81 @@ describe('값 뽑기 규칙', () => {
       .toEqual(['date', 'date', 'vendor', 'amount', 'purpose', 'payment', 'brn', '']);
   });
 
+  it('이름표와 금액이 한 조각("합계 18,000")이어도 그 줄의 금액 (다음 줄 받은금액을 합계로 잡지 않는다)', () => {
+    const { fields } = parseReceipt(L('가온문구', '합계 18,000', '받은금액 20,000', '거스름돈 2,000', '공급가액 16,364', '부가세 1,636'));
+    expect(fields.total?.value).toBe('18000');
+    expect(fields.supply?.value).toBe('16364');
+    expect(fields.vat?.value).toBe('1636');
+    // 글자층 PDF 의 표 아닌 줄도 한 조각
+    expect(parseReceipt(linesFromMarkdown('가온서점\n\n총 결제금액 18,000원\n\n받은금액 20,000원')).fields.total?.value).toBe('18000');
+  });
+
+  it('날짜: 없는 날(2월 30일·4월 31일)은 날짜로 잡지 않는다', () => {
+    expect(dateIn('2026-02-30')).toBeNull();
+    expect(dateIn('2026.04.31')).toBeNull();
+    expect(dateIn('26.02.29')).toBeNull();
+    expect(dateIn('2026-02-30 2024-02-29')).toBe('2024-02-29');
+  });
+
+  it('마크다운의 그림 자리 글(![image](…))은 영수증 줄이 아니다', () => {
+    expect(linesFromMarkdown('![image](image_001.png)')).toEqual([]);
+  });
+
+  it('사업자번호: 검증 숫자가 틀리면 신뢰도를 0.8 아래로 (사람이 확인하게), 맞으면 높게', () => {
+    const d9 = '317040052';
+    const w = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+    const s = [...d9].reduce((a, c, i) => a + Number(c) * w[i], 0) + Math.floor((Number(d9[8]) * 5) / 10);
+    const good = `${d9}${(10 - (s % 10)) % 10}`;
+    const bad = `${d9}${(Number(good[9]) + 1) % 10}`;
+    const fmt = (d: string) => `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+    const ok = parseReceipt(L(['사업자번호', fmt(good)])).fields.brn!;
+    const ng = parseReceipt(L(['사업자번호', fmt(bad)])).fields.brn!;
+    expect(ok.value).toBe(fmt(good));
+    expect(ok.confidence).toBeGreaterThanOrEqual(0.9);
+    expect(ng.value).toBe(fmt(bad));
+    expect(ng.confidence).toBeLessThan(0.8);
+  });
+
+  it('사업자번호가 여럿이면 카드사·결제대행(VAN) 쪽이 아닌 가게 쪽 번호', () => {
+    const { fields } = parseReceipt(L(['신용카드 매출전표'], ['매입사', '한빛카드'], ['사업자번호', '110-81-00012'], ['카드번호', '4012-34**-****-5678'],
+      ['합계', '22,000'], ['가맹점명', '바른사무'], ['사업자번호', '208-11-00336'], ['대표자명', '오바른']));
+    expect(fields.brn?.value).toBe('208-11-00336');
+    expect(parseReceipt(L(['VAN사 KICC 사업자번호 120-86-00018'], ['가온문구'], ['사업자 317-04-00528'])).fields.brn?.value).toBe('317-04-00528');
+    expect(parseReceipt(L(['가맹점번호 00123456 사업자번호 120-86-00018'], ['상호', '가온문구'], ['사업자등록번호', '317-04-00528'])).fields.brn?.value).toBe('317-04-00528');
+    // 하나뿐이면 그대로
+    expect(parseReceipt(L(['매입사 한빛카드'], ['사업자번호', '110-81-00012'])).fields.brn?.value).toBe('110-81-00012');
+  });
+
+  it('합계: "(부가세포함)"·"(VAT포함)" 이 붙은 합계·총액도 합계 후보', () => {
+    for (const label of ['합계(부가세포함)', '총액(VAT포함)', '합계금액(부가세 포함)']) {
+      const { fields } = parseReceipt(L(['가온문구'], ['공급가액', '20,000'], ['부가세', '2,000'], [label, '22,000'], ['받은금액', '50,000'], ['거스름돈', '28,000']));
+      expect(fields.total?.value, label).toBe('22000');
+      expect(fields.total!.confidence, label).toBeGreaterThanOrEqual(0.9);
+    }
+  });
+
+  it('합계: "부가세"·"부가세액"·"과세물품가액" 단독 줄은 합계 아님', () => {
+    for (const label of ['부가세', '부가세액', '과세물품가액', '부가세(VAT포함)']) {
+      const { fields } = parseReceipt(L(['가온문구'], [label, '2,000'], ['결제금액', '22,000']));
+      expect(fields.total?.value, label).toBe('22000');
+    }
+    expect(parseReceipt(L(['가온문구'], ['부가세액', '2,000'])).fields.total?.confidence ?? 0).toBeLessThan(0.8);
+  });
+
+  it('카드번호는 근거 줄(source)·읽은 줄에서도 앞 네 자리만', () => {
+    const lines = L(['카드번호', '5412-3456-7890-1234'], ['신용카드', '23,800'], '카드 4518 3456 7890 2201 승인 77001234', ['합계', '23,800']);
+    const { fields } = parseReceipt(lines);
+    expect(fields.card?.value).toBe('5412-****-****-****');
+    expect(fields.card?.source).toBe('카드번호 5412-****-****-****');
+    expect(fields.approval?.source).toBe('카드 4518 **** **** **** 승인 77001234');
+    expect(fields.approval?.value).toBe('77001234');
+    const masked = maskCardLines(lines);
+    expect(masked.map((l) => l.text).join('\n')).not.toMatch(/3456|7890|1234-|2201/);
+    expect(masked[0].cells).toEqual(['카드번호', '5412-****-****-****']);
+    // 카드번호가 아닌 숫자(사업자번호·전화·금액·승인번호)는 그대로
+    expect(maskCardLines(L('사업자 129-33-00668 TEL 031-000-1234 합계 51,700 승인 77001234'))[0].text).toBe('사업자 129-33-00668 TEL 031-000-1234 합계 51,700 승인 77001234');
+  });
+
   it('마크다운 표 → 칸 (글자층 PDF)', () => {
     const lines = linesFromMarkdown('## 가온서점\n\n| 품명 | 수량 | 단가 | 금액 |\n| --- | --- | --- | --- |\n| 공문서 작성 실무 | 1 | 18,000 | 18,000 |\n| 총 결제금액 |  |  | 18,000 |');
     expect(lines[1].cells).toEqual(['품명', '수량', '단가', '금액']);
@@ -137,6 +212,14 @@ describe('합성 영수증 OCR 정확도 (금액·일자·사업자번호 필수
       // 근거 줄과 신뢰도
       expect(got.fields.total!.source, f).toBeTruthy();
       expect(got.fields.total!.confidence, f).toBeGreaterThanOrEqual(0.8);
+      // 시험 사업자번호는 검증 숫자가 일부러 틀렸다 → 사람이 확인하게 낮은 신뢰도
+      expect(brnValid(want.brn.replace(/-/g, '')), f).toBe(false);
+      expect(got.fields.brn!.confidence, f).toBeLessThan(0.8);
+      // 카드번호는 읽은 줄·근거 줄에도 앞 네 자리만
+      if (want.card) {
+        const shown = [...got.lines, ...Object.values(got.fields).map((v) => (v as { source?: string }).source ?? '')].join('\n');
+        expect(shown, f).not.toMatch(new RegExp(`${want.card}[-\\s]?\\d{2}`));
+      }
     }
     console.log(`[receipt] ${files.length}장: 금액 ${score.total} · 일자 ${score.date} · 사업자번호 ${score.brn} · 가게 ${score.vendor} · 결제 ${score.payment}`);
     expect(score.vendor).toBeGreaterThanOrEqual(files.length - 1);
@@ -216,6 +299,12 @@ describe('기관 서식 학습·채우기', () => {
     const r = await call('receipt_report', { rows, output_dir: env.out });
     expect(r.template).toBe('지출조서_가.hwpx');
     expect(r.tsv.split('\r\n')[0]).toBe('번호\t사용일자\t사용처\t사용내역\t지출금액(원)\t비고');
+    // 미리보기·복사 표도 서식처럼 합계가 맨 아래, 합계 줄에는 금액만
+    const tsv = r.tsv.split('\r\n');
+    expect(tsv).toHaveLength(5);
+    expect(tsv[1].startsWith('1\t')).toBe(true);
+    expect(tsv[4]).toBe('합계\t\t\t\t132,800\t');
+    expect(r.html.lastIndexOf('132,800')).toBeGreaterThan(r.html.lastIndexOf('36,000'));
     const buf = readFileSync(r.output_path);
     expect((await validateHwpx(buf)).ok).toBe(true);
     const md = (await parse(buf)).markdown;
@@ -241,11 +330,29 @@ describe('기관 서식 학습·채우기', () => {
     expect((await call('receipt_template_get')).columns[7].field).toBe('approval');
 
     const r = await call('receipt_report', { rows: rows.slice(0, 2), output_dir: env.out });
+    // 미리보기·복사 표: 이 서식은 합계가 머리줄 바로 아래
+    expect(r.tsv.split('\r\n')[1]).toBe('합계\t\t\t\t\t\t96,800\t');
     const md = (await parse(readFileSync(r.output_path))).markdown;
     const t = tableRows(md, /연번|합계|^\| \d/);
     expect(t[1]).toBe('| 합계 |  |  |  |  |  | 96,800 |  |');
     expect(t[2]).toBe('| 1 | 가온25 시청점 | 129-33-00668 | 2026. 11. 1. | 사무용품 | 카드 | 51,700 |  |');
     expect(t[3]).toBe('| 2 | 가온문구 | 317-04-00528 | 2026. 11. 2. | 복사지 | 카드 | 45,100 |  |');
+  });
+
+  it('서식 C: 아래 합계 밑에 빈 줄이 더 있어도 영수증 줄은 합계 위에만 (모자라면 합계 위에 줄을 더함)', async () => {
+    const { parse } = await import('kordoc');
+    const path = await makeTemplate('지출조서_다.hwpx', `# 지출조서\n\n| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 비고 |\n| --- | --- | --- | --- | --- | --- |\n| 1 |  |  |  |  |  |\n| 2 |  |  |  |  |  |\n| 합계 |  |  |  |  |  |\n|  |  |  |  |  |  |\n`);
+    const info = await call('receipt_template_learn', { path, save: true });
+    expect(info).toMatchObject({ rows: 2, total_row: true });
+    const r = await call('receipt_report', { rows, output_dir: env.out });
+    const md = (await parse(readFileSync(r.output_path))).markdown;
+    const t = md.split('\n').filter((l: string) => l.startsWith('| ') && !l.startsWith('| ---'));
+    expect(t[1]).toBe('| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |');
+    expect(t[2]).toBe('| 2 | 2026. 11. 2. | 가온문구 | 복사지 | 45,100 |  |');
+    expect(t[3]).toBe('| 3 | 2026. 11. 3. | 한결인쇄 | 현수막 제작 | 36,000 |  |');
+    expect(t[4]).toBe('| 합계 |  |  |  | 132,800 |  |');
+    expect(t[5]).toMatch(/^\|(\s+\|)+$/);
+    await call('receipt_template_clear');
   });
 
   it('표 없는 문서는 할 일을 알리고, 서식을 지우면 기본 서식으로', async () => {

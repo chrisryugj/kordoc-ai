@@ -113,7 +113,7 @@ describe('form_fill', () => {
     const out = join(tmpDir, 'real2-filled.hwpx');
     const r = await formFill({
       input_path: REAL_FORM2,
-      values: { 성명: '김민수', 주소: '서울특별시 광진구 능동로 120' },
+      values: { 성명: '김민수', 주소: '가온시 한빛로 45' },
       output_path: out,
     });
     expect(r.success).toBe(true);

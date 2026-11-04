@@ -5,9 +5,11 @@
 // FAKE_CLAUDE_AUTH: subscription(기본) · apikey · out  (`auth status --json` 의 답)
 // FAKE_CLAUDE_REPLY: ok 의 답 글
 // FAKE_LOG: 기록 파일. 없으면(앱이 자식 환경을 허용 목록으로 걸러 못 받을 때) 임시 폴더의 kordoc-fake-claude.jsonl
-import { appendFileSync, readFileSync } from 'node:fs';
+// `update`: 이 파일 옆 fake-claude.version 에 새 판을 적는다 (`--version` 이 그것을 읽음)
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? 'ok';
@@ -17,7 +19,17 @@ const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 const watched = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'NODE_OPTIONS', 'KORDOC_SECRET', 'DISABLE_AUTOUPDATER', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'];
 log({ kind: 'run', pid: process.pid, args, cwd: process.cwd(), env: Object.fromEntries(watched.map((k) => [k, process.env[k] ?? null])) });
 
-if (args[0] === '--version') { process.stdout.write('2.1.302 (Claude Code)\n'); process.exit(0); }
+// 판: `update` 를 한 번 하면 2.1.303 (상태는 이 파일 옆 fake-claude.version: 자식 환경으로는 못 받는다. 시험은 사본을 임시 폴더에 두고 돌려 다른 시험과 안 섞인다). 다시 하면 이미 최신
+const versionFile = fileURLToPath(new URL('./fake-claude.version', import.meta.url));
+const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf-8').trim() : '2.1.302';
+if (args[0] === '--version') { process.stdout.write(`${version} (Claude Code)\n`); process.exit(0); }
+if (args[0] === 'update') {
+  process.stdout.write(`Current version: ${version}\nChecking for updates...\n`);
+  if (version === '2.1.303') { process.stdout.write('Claude Code is up to date (2.1.303)\n'); process.exit(0); }
+  writeFileSync(versionFile, '2.1.303');
+  process.stdout.write(`Successfully updated from ${version} to version 2.1.303\n`);
+  process.exit(0);
+}
 if (args[0] === 'auth' && args[1] === 'status') {
   const auth = process.env.FAKE_CLAUDE_AUTH ?? 'subscription';
   const body = auth === 'out' ? { loggedIn: false, authMethod: 'none' }

@@ -150,16 +150,16 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
               components={{
-                h1: (props) => <h1 style={{ fontSize: "1.5em", fontWeight: "bold", marginTop: "0.8em", marginBottom: "0.4em", color: "var(--color-text-primary)" }} {...props} />,
-                h2: (props) => <h2 style={{ fontSize: "1.3em", fontWeight: "bold", marginTop: "0.7em", marginBottom: "0.3em", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "0.2em" }} {...props} />,
-                h3: (props) => <h3 style={{ fontSize: "1.1em", fontWeight: "bold", marginTop: "0.6em", marginBottom: "0.2em", color: "var(--color-text-primary)" }} {...props} />,
+                h1: (props) => <h1 style={{ fontSize: "var(--fs-h2)", fontWeight: 700, marginTop: "0.8em", marginBottom: "0.4em", color: "var(--color-text-primary)" }} {...props} />,
+                h2: (props) => <h2 style={{ fontSize: "var(--fs-h3)", fontWeight: 700, marginTop: "0.7em", marginBottom: "0.3em", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "0.2em" }} {...props} />,
+                h3: (props) => <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 700, marginTop: "0.6em", marginBottom: "0.2em", color: "var(--color-text-primary)" }} {...props} />,
                 p: (props) => <p style={{ marginBottom: "0.75em", lineHeight: "1.7", color: "var(--color-text-secondary)", whiteSpace: "pre-line" }} {...props} />,
                 ul: (props) => <ul style={{ marginLeft: "1.5em", marginBottom: "0.75em", listStyleType: "disc", color: "var(--color-text-secondary)" }} {...props} />,
                 ol: (props) => <ol style={{ marginLeft: "1.5em", marginBottom: "0.75em", listStyleType: "decimal", color: "var(--color-text-secondary)" }} {...props} />,
                 li: (props) => <li style={{ marginBottom: "0.25em", lineHeight: "1.6", whiteSpace: "pre-line" }} {...props} />,
                 table: (props) => (
                   <div style={{ overflowX: "auto", marginBottom: "1em" }}>
-                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.875em" }} {...props} />
+                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "var(--fs-small)" }} {...props} />
                   </div>
                 ),
                 thead: (props) => <thead style={{ backgroundColor: "var(--color-bg-tertiary)" }} {...props} />,
@@ -169,7 +169,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
                   const isBlock = className?.includes("language-");
                   if (isBlock) {
                     return (
-                      <pre style={{ backgroundColor: "var(--color-bg-tertiary)", padding: "1em", borderRadius: "6px", overflow: "auto", marginBottom: "1em", fontSize: "0.9em" }}>
+                      <pre style={{ backgroundColor: "var(--color-bg-tertiary)", padding: "1em", borderRadius: "6px", overflow: "auto", marginBottom: "1em", fontSize: "var(--fs-small)" }}>
                         <code className={className} style={{ fontFamily: "var(--font-mono)" }} {...props}>{children}</code>
                       </pre>
                     );

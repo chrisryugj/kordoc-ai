@@ -31,7 +31,7 @@ export function isSubscriptionProvider(v: unknown): v is SubscriptionProviderId 
 /** 찾지도 띄우지도 말아야 하면 그 까닭 */
 function blocked(): Pick<SubscriptionStatus, 'state' | 'message'> | null {
   const s = getSettings();
-  if (s.privacy.offline) return { state: 'offline', message: '폐쇄망 모드에서는 구독 계정을 쓸 수 없습니다. 이 PC의 로컬 모델 서버나 내장 모델을 고르세요.' };
+  if (s.privacy.offline) return { state: 'offline', message: '폐쇄망 모드에서는 구독 계정을 쓸 수 없습니다. 이 PC에서 돌리는 AI(켜 둔 AI 프로그램이나 내장 AI)를 고르세요.' };
   if (s.policy?.locked.includes('ai.allow_subscription') && !s.ai.allow_subscription) {
     return { state: 'disabled', message: '기관에서 구독 계정 연결을 막았습니다. 다른 AI 연결을 고르세요.' };
   }
@@ -87,6 +87,8 @@ export async function subscriptionUpdate(params: { provider?: unknown }, signal:
   const provider = params.provider;
   const stop = blocked();
   if (stop) throw new Error(stop.message);
+  // 허용 전에는 프로그램을 띄우지 않는다 (상태 확인·모델 목록과 같은 규칙)
+  if (!getSettings().ai.allow_subscription) throw new Error('구독 계정으로 문서 보내기를 허용하고 저장한 뒤 업데이트하세요.');
   const program = await findProgram(provider, { configured: cliPath(provider) }).catch(() => null);
   if (!program) throw new Error(`이 PC에서 ${PROGRAM_LABEL[provider]}를 찾지 못했습니다. ${PROGRAM_LABEL[provider]}를 설치한 뒤 다시 시도하세요.`);
   if (cliPath(provider)) throw new Error(`기관 배포 설정이 ${PROGRAM_LABEL[provider]} 위치를 정해 두어 앱에서 업데이트하지 않습니다. 기관 담당자에게 업데이트를 요청하세요.`);

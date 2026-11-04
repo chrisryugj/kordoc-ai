@@ -6,7 +6,7 @@ import { quickFallback } from "./quick-actions";
 describe("quickFallback", () => {
   it("한글 문서끼리면 서무 도구, 섞이거나 PDF·폴더면 PDF 작업", () => {
     expect(quickFallback("join", ["C:\\a.hwp", "C:\\b.HWPX"])).toEqual({ screen: "batch", task: "merge" });
-    expect(quickFallback("split", ["C:\\a.hwpx"])).toEqual({ screen: "batch", task: "hwpsplit" });
+    expect(quickFallback("split", ["C:\\a.hwpx"])).toEqual({ screen: "batch", task: "split" });
     expect(quickFallback("join", ["C:\\a.hwp", "C:\\b.pdf"])).toEqual({ screen: "pdf" });
     expect(quickFallback("split", ["C:\\a.pdf"])).toEqual({ screen: "pdf" });
     expect(quickFallback("join", ["C:\\받은 문서"])).toEqual({ screen: "pdf" });

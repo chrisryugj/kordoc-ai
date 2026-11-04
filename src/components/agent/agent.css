@@ -49,7 +49,8 @@
 .kd-aion-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .kd-aion-opt { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg-secondary); text-align: left; cursor: pointer; font: inherit; color: var(--color-text-primary); }
 .kd-aion-opt:hover:not(:disabled) { border-color: var(--color-accent); }
-.kd-aion-opt:disabled { cursor: default; opacity: .65; }
+.kd-aion-opt:disabled { cursor: default; background: var(--color-bg-primary); }
+.kd-aion-opt:disabled b { color: var(--color-text-disabled); }
 .kd-aion-opt b { font-size: var(--fs-body); }
 .kd-aion-opt span { font-size: var(--fs-small); color: var(--color-text-secondary); line-height: 1.45; }
 .kd-aion-bar { height: 6px; border-radius: 3px; background: var(--color-bg-tertiary); overflow: hidden; }
@@ -107,7 +108,8 @@
 .kd-pq-card { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; text-align: left; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-bg-primary); font: inherit; color: var(--color-text-primary); cursor: pointer; transition: border-color var(--transition-fast), background-color var(--transition-fast); }
 .kd-pq-card:hover { border-color: var(--color-accent); background: var(--color-bg-secondary); }
 .kd-pq-card b { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-body); font-weight: 600; }
-.kd-pq-card span { font-size: var(--fs-caption); line-height: 1.5; color: var(--color-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 설명 한 덩이만 (제목 옆 '파일 N개' 표시 span 까지 두 줄 자르기에 걸려 클립 아이콘과 숫자가 세로로 쌓였다) */
+.kd-pq-card > span { font-size: var(--fs-caption); line-height: 1.5; color: var(--color-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: balance; }
 .kd-pq-need { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-caption); font-weight: 600; color: var(--color-text-muted); }
 .kd-pq-list { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
 .kd-pq-row { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-md); }
@@ -116,7 +118,7 @@
 .kd-pq-pick b { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 600; color: var(--color-text-primary); }
 .kd-pq-pick span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-small); color: var(--color-text-muted); }
 .kd-pq-uses { flex: none; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 10px; display: grid; place-items: center; font-size: var(--fs-caption); font-weight: 600; background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
-.kd-pq-act { flex: none; display: none; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); cursor: pointer; }
+.kd-pq-act { flex: none; display: none; place-items: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); cursor: pointer; }
 .kd-pq-row:hover .kd-pq-act, .kd-pq-row:focus-within .kd-pq-act, .kd-pq-row[data-mode="edit"] .kd-pq-act { display: inline-grid; }
 .kd-pq-act:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
 .kd-pq-input { flex: 1; height: 34px; margin: 3px; padding: 0 10px; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-body); outline: none; box-shadow: var(--shadow-focus); }

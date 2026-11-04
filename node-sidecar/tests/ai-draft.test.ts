@@ -33,7 +33,7 @@ beforeAll(async () => {
   await updateSettings({
     ai: { provider: 'openai', openai: { base_url: `${fake.url}/v1`, model: 'test-model' } },
     privacy: { offline: false },
-    org: { name: '서울특별시 광진구', dept: '총무과', person: '홍길동', phone: '02-450-0000' },
+    org: { name: '가온시', dept: '총무과', person: '홍길동', phone: '031-000-0000' },
   });
 });
 afterAll(async () => { await fake.close(); });

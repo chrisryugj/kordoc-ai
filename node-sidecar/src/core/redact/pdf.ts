@@ -5,7 +5,8 @@
  * 결과 PDF 는 쪽 그림만 담는다(글자층·메타데이터 없음) → 가린 글이 복사·검색으로 새지 않는다.
  */
 
-import { parse, redactMarkdown, redactText, type IRBlock, type RedactHit, type RedactRule } from 'kordoc';
+import { parse, type IRBlock, type RedactHit, type RedactRule } from 'kordoc';
+import { redactMarkdown, redactText } from './rules.js';
 import { PDFDocument } from 'pdf-lib';
 import type { PDFiumDocument, PDFiumPage } from '@hyzyla/pdfium';
 import { openPdf } from '../render/pdfium.js';

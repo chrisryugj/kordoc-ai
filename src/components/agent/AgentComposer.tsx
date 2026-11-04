@@ -43,6 +43,8 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
   const { ai, registerDrop, dragTarget, toast } = useApp();
   const [text, setText] = useState("");
   const [galleryOpen, setGalleryOpen] = useState(gallery);
+  // 대화 중에 "새 대화"를 누르면(gallery 가 다시 참) 목록을 다시 펼친다
+  useEffect(() => { setGalleryOpen(gallery); }, [gallery]);
   const [saved, setSaved] = useState(0);
   const [setupOpen, setSetupOpen] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);

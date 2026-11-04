@@ -11,3 +11,8 @@
 
 /* 정보 칸 아래 이어서 할 일 (최종본 찾기·회신 쓰기) */
 .kd-info-more { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 점검 결과 끝 "본 것": 항목마다 작은 알약 (검토 탭) */
+.kd-review-checked { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.kd-review-checked ul { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.kd-review-checked li { padding: 1px 8px; border-radius: 999px; background: var(--color-bg-tertiary); color: var(--color-text-muted); font-size: var(--fs-caption); line-height: 1.6; white-space: nowrap; }

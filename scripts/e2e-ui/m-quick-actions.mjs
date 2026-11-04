@@ -5,7 +5,7 @@
  *    창을 열지 않고(shell_show 없음) 결과 파일을 만들고 끝 알림 + shell_quick_done
  *  - 실패(깨진 PDF)는 창을 열고(shell_show) PDF 작업 화면에 그 파일을 놓는다
  *  - 합칠 PDF 가 하나뿐이면 PDF 작업 화면으로
- *  - 화면 동작: PDF 쪽 편집하기 → PDF 작업, 서무 도구에서 열기(폴더) → 서무 도구에 안의 파일, 결재 전 점검 → 문서 검토,
+ *  - 화면 동작: PDF 쪽 편집하기 → PDF 작업, 여러 파일 한꺼번에 열기(폴더) → 그 화면에 안의 파일, 결재 전 점검 → 문서 검토,
  *    영수증으로 지출조서(카드 "본창에서 열기"가 본창으로 넘기는 주소) → 서무 도구의 그 할 일로 바로 읽기 (카드 창 자체는 p-receipt.mjs)
  *
  * 사용: node scripts/e2e-ui/m-quick-actions.mjs --port 7734 --out <폴더>
@@ -120,7 +120,7 @@ try {
   // ── 쪽마다 나누기 · 그림으로 · 한글로 · 용량 · 표 ──
   await link('split', P2);
   l = await until();
-  const split = saved().find((f) => f.startsWith('2_붙임_분리'));
+  const split = saved().find((f) => f.startsWith('2_붙임_나누기'));
   check('나누기(PDF): 쪽마다 3개', split && readdirSync(join(SAVED, split)).filter((f) => f.endsWith('.pdf')).length === 3 && !shown(l), split ?? '');
   await link('pdfimages', P1);
   l = await until();
@@ -174,7 +174,7 @@ try {
   await link('tools', DOCS);
   await sleep(2000);
   const batchFiles = await page.$$eval('.kd-screen:not([hidden]) .kd-filerow', (e) => e.length).catch(() => 0);
-  check('서무 도구에서 열기(폴더) → 서무 도구에 안의 문서', (await screenNow()) === 'batch' && batchFiles >= 3, `${await screenNow()} ${batchFiles}개`);
+  check('여러 파일 한꺼번에 열기(폴더) → 그 화면에 안의 문서', (await screenNow()) === 'batch' && batchFiles >= 3, `${await screenNow()} ${batchFiles}개`);
   await link('precheck', HWPX);
   await page.waitForFunction(() => document.body.innerText.includes('결재 전') && document.querySelector('.kd-nav-item[aria-current="page"]')?.dataset.screen === 'workbench', { timeout: 60000 }).catch(() => undefined);
   check('결재 전 점검 → 문서 화면 검토', (await screenNow()) === 'workbench');

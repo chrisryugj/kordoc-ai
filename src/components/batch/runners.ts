@@ -150,7 +150,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
     case "join": {
       // 모두 한글이면 서식 그대로 HWPX 한 파일, 아니면 PDF 한 권 (쪽 번호·워터마크 없이)
       const first = files[0];
-      const name = `${stem(first.name)}${files.length > 1 ? `_외${files.length - 1}건` : ""}`;
+      const name = `${stem(first.name)}${files.length > 1 ? `_외${files.length - 1}건` : ""}_합본`;
       const dir = opts.outDir || env.defaultDir || dirName(first.path);
       paths.forEach((p) => env.setRow(p, { status: "run" }));
       if (joinTo(files.map((f) => f.format)) === "hwpx") {
@@ -172,11 +172,6 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
         const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: opts.outDir } : {}) }, { signal });
         return { output: r.output_dir, note: `${r.output_files.length}개로 나눔` };
       })) };
-    case "hwpsplit":
-      return { kind: "files", ...(await eachFile(env, async (f) => {
-        const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: opts.outDir } : {}) }, { signal });
-        return { output: r.output_dir, note: `${r.output_files.length}개로 나눔` };
-      })) };
     case "ocr":
       return { kind: "files", ...(await eachFile(env, async (f) => {
         const r = await rpc("ocr", { input_path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.md`) } : {}) }, { signal });
@@ -194,7 +189,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
         return r.count ? { output: r.output_dir, note: `그림 ${r.count}개` } : { empty: true, note: "그림 없음" };
       })) };
     case "bundle": {
-      const r = await rpc("bundle_pdf", { paths, page_numbers: opts.pageNumbers, ...(opts.watermark ? { watermark: opts.watermark } : {}), ...(opts.outDir ? { output_path: joinPath(opts.outDir, "합본.pdf") } : {}) }, o);
+      const r = await rpc("bundle_pdf", { paths, page_numbers: opts.pageNumbers, ...(opts.watermark ? { watermark: opts.watermark } : {}), ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(files[0].name)}${files.length > 1 ? `_외${files.length - 1}건` : ""}_합본.pdf`) } : {}) }, o);
       r.failed.forEach((x) => env.setRow(x.path, { status: "fail", error: x.error }));
       files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok" }));
       return { kind: "single", message: `${r.page_count}쪽짜리 합본을 만들었습니다${r.failed.length ? ` (${r.failed.length}개는 넣지 못함)` : ""}`, path: r.output_path };

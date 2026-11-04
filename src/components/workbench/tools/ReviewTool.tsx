@@ -308,9 +308,13 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
               <div className="kd-advanced-body"><LawResults result={law.result} /></div>
             </details>
           )}
-          <p className="kd-small kd-muted text-balance">
-            본 것: {[...pre.result!.checked, ...(review.result ? ["K팀장"] : []), ...(law.result?.checked ? ["법령 근거"] : [])].join(" · ")}
-          </p>
+          {/* 본 것은 항목마다 낱개로 (줄이 항목 가운데서 끊겨 끝에 한두 글자만 남지 않게) */}
+          <div className="kd-review-checked">
+            <span className="kd-small kd-muted">본 것</span>
+            <ul aria-label="본 것">
+              {[...pre.result!.checked, ...(review.result ? ["K팀장"] : []), ...(law.result?.checked ? ["법령 근거"] : [])].map((x) => <li key={x}>{x}</li>)}
+            </ul>
+          </div>
           {pre.result!.skipped.map((s) => <p key={s} className="kd-small kd-muted text-pretty">못 본 것: {s}</p>)}
         </div>
       )}

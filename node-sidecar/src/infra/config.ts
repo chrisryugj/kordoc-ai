@@ -251,6 +251,17 @@ async function applyUpdate(patch: Record<string, unknown>): Promise<Settings> {
   return compose();
 }
 
+/** Windows 에서는 백신·색인 프로그램이 막 쓴 파일을 잠깐 쥐어 바꿔 넣기가 EPERM·EBUSY·EACCES 로 실패한다(E2E 실측) → 잠깐 쉬었다 다시 */
+export async function renameRetry(from: string, to: string, tries = 6, mv: (a: string, b: string) => Promise<void> = rename): Promise<void> {
+  for (let i = 0; ; i++) {
+    try { await mv(from, to); return; } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (i >= tries - 1 || !/^(EPERM|EBUSY|EACCES)$/.test(code)) throw err;
+      await new Promise((r) => setTimeout(r, 60 * (i + 1)));
+    }
+  }
+}
+
 /** settings.json 쓰기 — 임시 파일 뒤 바꿔 넣기, 키는 암호화(sealedForFile) */
 async function persist(next: Obj): Promise<void> {
   const dir = dataDir();
@@ -260,7 +271,7 @@ async function persist(next: Obj): Promise<void> {
   const tmp = `${p}.${process.pid}.${++tmpSeq}.tmp`;
   try {
     await writeFile(tmp, JSON.stringify({ version: 2, ...sealedForFile(next) }, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    await rename(tmp, p);
+    await renameRetry(tmp, p);
   } catch (err) {
     // 문서 저장 오류 안내("설정 > 저장 위치를 바꾸세요")는 여기와 맞지 않는다
     if (/^(EACCES|EPERM|EROFS)$/.test((err as NodeJS.ErrnoException).code ?? '')) {

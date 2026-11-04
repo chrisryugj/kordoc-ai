@@ -237,7 +237,11 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     engine: { status: engine.status, error: engine.errorMessage, restart: engine.restart },
     ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, setActive: setActivePath, openDocs, closeDoc, updateDoc, focus,
-    batchIntent, startBatch: (b) => { setBatchIntent(intent(b)); setScreen("batch"); },
+    batchIntent, startBatch: (b) => {
+      // 목록에서 뺀 옛 할 일(옛 주소 호환): 한글 나누기는 나누기로, PDF 쪽 다루기는 PDF 작업 화면으로
+      if (b.task === "pdftools") { setPdfIntent(intent({ paths: b.paths })); setScreen("pdf"); return; }
+      setBatchIntent(intent(b.task === "hwpsplit" ? { ...b, task: "split" } : b)); setScreen("batch");
+    },
     compareIntent, startCompare: (o, n) => { setCompareIntent(intent({ old: o, new: n })); setScreen("compare"); },
     assistantIntent, askAbout: (a) => { setAssistantIntent(intent(a)); setScreen("assistant"); },
     workIntent, askWork: (w) => { setWorkIntent(intent(w)); setScreen("chat"); },

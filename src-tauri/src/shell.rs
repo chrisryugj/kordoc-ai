@@ -45,7 +45,7 @@ pub struct Action {
 enum Group {
     /// 맡기기·요약
     Ai,
-    /// 앱·편집기·서무 도구에서 열기
+    /// 앱·편집기·여러 파일 한꺼번에 열기
     Open,
     /// 다른 형식으로 바꾸기·저장
     Change,
@@ -68,13 +68,13 @@ const fn act(group: Group, id: &'static str, label: &'static str, quick: bool) -
 }
 
 pub const ACTIONS: &[Action] = &[
-    // 맨 앞은 맡기기 (macOS 는 ACTIONS[0].label 의 빠른 동작으로 깔렸는지 본다: 이름·자리를 바꾸지 말 것)
+    // 맨 앞은 맡기기 (macOS 는 ACTIONS[0].label 의 빠른 동작으로 깔렸는지 본다: 자리를 바꾸지 말 것, 이름을 바꾸면 옛 이름을 macOS LEGACY_ASK 에)
     // 문서 카드(작은 창): 이 문서로 무엇을 할지 말로 시키기
-    Action { folder: Some("KorDoc AI 에게 맡기기…"), mac: true, ..act(Ai, "ask", "KorDoc AI 에게 맡기기…", false) },
+    Action { folder: Some("KorDoc AI에게 맡기기…"), mac: true, ..act(Ai, "ask", "KorDoc AI에게 맡기기…", false) },
     Action { mac: true, ..act(Ai, "summarize", "AI로 요약하기", false) },
     // 열기
     Action { mac: true, ..act(Open, "open", "앱에서 열기", false) },
-    Action { files: false, folder: Some("서무 도구에서 열기"), ..act(Open, "tools", "서무 도구에서 열기", false) },
+    Action { files: false, folder: Some("여러 파일 한꺼번에 열기"), ..act(Open, "tools", "여러 파일 한꺼번에 열기", false) },
     Action { only: HANGUL, ..act(Open, "edit", "한글 편집기로 고치기", false) },
     // 바꾸기 (언제나 새 파일)
     Action { skip: &[".pdf"], folder: Some("모두 PDF로 저장"), mac: true, ..act(Change, "pdf", "PDF로 저장", true) },
@@ -110,7 +110,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "7";
+const MENU_VERSION: &str = "8";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -675,29 +675,34 @@ mod platform {
         s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
+    /// 예전 판의 맡기기 이름 (ACTIONS[0] 이름이 바뀌기 전에 깐 PC 도 깔린 것으로 보고 다시 깐다)
+    const LEGACY_ASK: &str = "KorDoc AI 에게 맡기기…";
     /// 예전 판의 빠른 동작 이름 (다시 깔 때 지운다)
-    const LEGACY: &[&str] = &["PDF로 내보내기", "글(마크다운)로 바꾸기", "한글 문서(HWPX)로 바꾸기", "PDF 쪽 정리 (나누기·뽑기·돌리기)"];
+    const LEGACY: &[&str] = &[LEGACY_ASK, "PDF로 내보내기", "글(마크다운)로 바꾸기", "한글 문서(HWPX)로 바꾸기", "PDF 쪽 정리 (나누기·뽑기·돌리기)"];
 
     fn mac_actions() -> impl Iterator<Item = &'static Action> {
         ACTIONS.iter().filter(|a| a.mac)
     }
 
-    /// 판 표시 파일: "앱에서 열기" 묶음 안
+    /// 지금 이름이나 옛 맡기기 이름으로 깔려 있나
+    fn installed_in(dir: &std::path::Path) -> bool {
+        dir.join(bundle_name(ACTIONS[0].label)).exists() || dir.join(bundle_name(LEGACY_ASK)).exists()
+    }
+
+    /// 판 표시 파일: 맨 앞(맡기기) 묶음 안
     fn version_file(dir: &std::path::Path) -> PathBuf {
         dir.join(bundle_name(ACTIONS[0].label)).join("Contents").join("kordoc-menu-version")
     }
 
     pub fn status() -> MenuStatus {
-        let installed = services_dir()
-            .map(|d| d.join(bundle_name(ACTIONS[0].label)).exists())
-            .unwrap_or(false);
+        let installed = services_dir().map(|d| installed_in(&d)).unwrap_or(false);
         MenuStatus { supported: true, installed, kind: "quick-action" }
     }
 
     pub fn refresh_if_stale() {
         let _lock = MENU_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let Some(dir) = services_dir() else { return };
-        if !dir.join(bundle_name(ACTIONS[0].label)).exists() {
+        if !installed_in(&dir) {
             return;
         }
         if std::fs::read_to_string(version_file(&dir)).map(|v| v.trim() == MENU_VERSION).unwrap_or(false) {
@@ -938,7 +943,7 @@ mod tests {
         let pdf = reg_root(&key(".pdf"));
         // 옛 항목이 남지 않게 지우고 다시
         assert!(s.contains(&format!("[-{pdf}]\r\n\r\n[{pdf}]\r\n\"MUIVerb\"=\"KorDoc AI\"")));
-        assert!(s.contains(&format!("[{pdf}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\01ask]\r\n@=\"KorDoc AI에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"")));
         assert!(s.contains(&format!("[{pdf}\\shell\\10receipt]\r\n@=\"영수증으로 지출조서 만들기\"")));
         assert!(s.contains(&format!("[{pdf}\\shell\\17versions]\r\n@=\"최종본 찾기\"")));
         assert!(!(1..=30).any(|n| s.contains(&format!("[{pdf}\\shell\\{n:02}pdf]"))));
@@ -953,15 +958,15 @@ mod tests {
         assert!(s.contains(&sep(&hwp, "05pdf", "PDF로 저장")));
         assert!(s.contains(&sep(&hwp, "11join", "하나로 합치기")));
         assert!(s.contains(&sep(&hwp, "14precheck", "결재 전 점검하기")));
-        assert!(s.contains(&plain(&hwp, "01ask", "KorDoc AI 에게 맡기기…")));
+        assert!(s.contains(&plain(&hwp, "01ask", "KorDoc AI에게 맡기기…")));
         assert!(s.contains(&plain(&hwp, "02summarize", "AI로 요약하기")));
         assert!(s.contains(&plain(&hwp, "12split", "나누기")) && s.contains(&plain(&hwp, "13pdfwork", "PDF 쪽 편집하기")));
         // .pdf 에는 바꾸기 묶음 첫 항목(PDF로 저장)이 빠져도 다음 항목(한글 문서로 바꾸기)에 구분선
         assert!(s.contains(&sep(&pdf, "04hwpx", "한글 문서로 바꾸기")));
         // 폴더: 아이콘 우클릭은 %1, 빈 곳 우클릭은 %V, 폴더 이름으로
         let bg = reg_root(FOLDER_KEYS[1].0);
-        assert!(s.contains(&plain(&bg, "01ask", "KorDoc AI 에게 맡기기…")));
-        assert!(s.contains(&sep(&bg, "02tools", "서무 도구에서 열기")));
+        assert!(s.contains(&plain(&bg, "01ask", "KorDoc AI에게 맡기기…")));
+        assert!(s.contains(&sep(&bg, "02tools", "여러 파일 한꺼번에 열기")));
         assert!(s.contains(&sep(&bg, "03pdf", "모두 PDF로 저장")));
         assert!(s.contains(&plain(&bg, "04hwpx", "모두 한글 문서로 바꾸기")));
         assert!(s.contains(&sep(&bg, "05join", "하나로 합치기 (이름 차례)")));

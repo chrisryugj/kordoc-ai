@@ -30,6 +30,8 @@
 .kd-batch .kd-check:has(.kd-row-desc) { align-items: flex-start; }
 
 .kd-tasklist .kd-taskitem .kd-badge { margin-left: 6px; vertical-align: 1px; }
+/* 묶음 이름은 다른 목록(탐색·대화 목록)과 같은 12px 흐림 */
+.kd-tasklist h2.kd-label { font-size: var(--fs-caption); color: var(--color-text-muted); }
 /* 좁은 목록에서 설명 끝 낱말 하나만 다음 줄로 떨어지지 않게 줄 길이를 고르게 */
 .kd-tasklist .kd-row-desc { text-wrap: balance; word-break: keep-all; }
 

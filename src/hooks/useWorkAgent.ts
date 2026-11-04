@@ -10,7 +10,7 @@ import { errorText, isAbort } from "../lib/rpc";
 import { createWorkSkill } from "../lib/work-agent";
 import { runAgent } from "../lib/hwp-agent/loop";
 import type { AgentSkill } from "../lib/hwp-agent/types";
-import { deleteChat, loadChat, loadChats, newChatId, renameChat, saveChat, titleOf, type ChatBody, type ChatMeta } from "../lib/chat-store";
+import { chatIdOf, deleteChat, loadChat, loadChats, newChatId, renameChat, saveChat, titleOf, type ChatBody, type ChatMeta } from "../lib/chat-store";
 
 export interface AgentStep { tool: string; summary: string; isError: boolean }
 
@@ -26,7 +26,8 @@ export interface AgentTurn {
   ms?: number;
 }
 
-interface Live { meta: ChatMeta | null; body: ChatBody; skill: AgentSkill | null }
+/** gone: 지운 대화 (늦게 끝난 요청이 다시 저장하지 않게) */
+interface Live { meta: ChatMeta | null; body: ChatBody; skill: AgentSkill | null; gone?: boolean }
 
 export interface WorkAgent {
   chatId: string;
@@ -39,6 +40,8 @@ export interface WorkAgent {
   busy: boolean;
   /** 도는 요청이 있는 대화 */
   runningId: string | null;
+  /** 지금 보는 대화가 다른 창(문서 카드·본창)에서 도는 중 (끝날 때까지 이 창에서는 보내지 않는다) */
+  elsewhere: boolean;
   send: (text: string) => Promise<void>;
   start: (text: string, paths: string[]) => Promise<void>;
   stop: () => void;
@@ -52,14 +55,17 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
   const store = useRef(new Map<string, Live>());
   const [viewId, setViewId] = useState(newChatId);
   const [chats, setChats] = useState<ChatMeta[]>(loadChats);
-  const [runningId, setRunningId] = useState<string | null>(null);
+  const [runningId, setRunningIdState] = useState<string | null>(null);
+  const running = useRef<string | null>(null);
+  const setRunningId = (id: string | null) => { running.current = id; setRunningIdState(id); };
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const ctrl = useRef<AbortController | null>(null);
 
   const live = useCallback((id: string): Live => {
     let l = store.current.get(id);
     if (!l) {
-      const body = loadChat(id);
+      // 이 창이 뜬 뒤 시작한 요청이 돌고 있으면 다른 창이 하는 중이다 (그 전 것은 앱이 꺼져 멈춘 것)
+      const body = loadChat(id, performance.timeOrigin);
       const meta = body ? loadChats().find((c) => c.id === id) ?? null : null;
       l = { meta, body: body ?? { paths: [], turns: [], events: [] }, skill: null };
       store.current.set(id, l);
@@ -68,17 +74,48 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
   }, []);
 
   const persist = useCallback((l: Live) => {
-    if (!l.meta) return;
-    l.meta = { ...l.meta, updatedAt: Date.now() };
+    if (!l.meta || l.gone) return;
+    // 다른 창에서 바꾼 이름은 덮지 않는다
+    const title = loadChats().find((c) => c.id === l.meta!.id)?.title ?? l.meta.title;
+    l.meta = { ...l.meta, title, updatedAt: Date.now() };
     saveChat(l.meta, l.body);
     setChats(loadChats());
   }, []);
 
-  // 다른 창(문서 카드)이 쓴 대화를 목록에 반영
+  // 다른 창(문서 카드·본창)이 쓴 대화를 목록과 열어 둔 대화에 반영
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => { if (!e.key || e.key.startsWith("kordoc-chat")) setChats(loadChats()); };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key && !e.key.startsWith("kordoc-chat")) return;
+      setChats(loadChats());
+      const id = chatIdOf(e.key);
+      const l = id ? store.current.get(id) : undefined;
+      if (!id || !l) return;
+      if (e.newValue === null) {
+        // 다른 창에서 지웠다: 이 창에서 돌던 요청이면 멈추고, 다시 저장하지 않는다
+        l.gone = true;
+        if (running.current === id) ctrl.current?.abort();
+        store.current.delete(id);
+      } else if (running.current !== id) {
+        // 다른 창이 이어 쓴 대화: 다음에 그릴 때 저장소에서 다시 읽는다
+        store.current.delete(id);
+      }
+      redraw();
+    };
+    // 창을 닫으면 돌던 요청을 멈춘 것으로 남긴다 (다른 창이 도는 중으로 계속 보지 않게)
+    const onHide = () => {
+      const l = running.current ? store.current.get(running.current) : undefined;
+      const ts = l?.body.turns ?? [];
+      const t = ts[ts.length - 1];
+      if (!l?.meta || l.gone || t?.state !== "running") return;
+      l.body = { ...l.body, turns: [...ts.slice(0, -1), { ...t, state: "stopped", text: t.text || "창을 닫아서 멈췄습니다.", ms: Date.now() - t.startedAt }] };
+      saveChat(l.meta, l.body);
+    };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("pagehide", onHide);
+    };
   }, []);
 
   const cur = live(viewId);
@@ -94,6 +131,7 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
     const request = text.trim();
     if (!request || ctrl.current) return;
     const l = live(id);
+    if (l.body.turns[l.body.turns.length - 1]?.state === "running") return;
     const ac = new AbortController();
     ctrl.current = ac;
     setRunningId(id);
@@ -174,6 +212,8 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
   const remove = useCallback((id: string) => {
     if (id === runningId) ctrl.current?.abort();
     deleteChat(id);
+    const l = store.current.get(id);
+    if (l) l.gone = true;
     store.current.delete(id);
     setChats(loadChats());
     if (id === viewId) {
@@ -192,6 +232,7 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
     turns: cur.body.turns,
     busy: runningId !== null,
     runningId,
+    elsewhere: runningId !== viewId && cur.body.turns[cur.body.turns.length - 1]?.state === "running",
     send,
     start,
     stop,

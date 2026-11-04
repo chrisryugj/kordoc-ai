@@ -16,7 +16,7 @@ import { MailMergeOptions } from "./MailMerge";
 import { ShrinkOptions } from "../workbench/tools/ShrinkTool";
 import { ReceiptTaskOptions } from "../receipt/ReceiptTaskOptions";
 
-const NO_OUTPUT: BatchTaskId[] = ["search", "pdftools", "watch", "print", "compare"];
+const NO_OUTPUT: BatchTaskId[] = ["search", "watch", "print", "compare"];
 type SetOpts = (p: Partial<BatchOpts>) => void;
 
 function HangulSplit({ opts, set }: { opts: BatchOpts; set: SetOpts }) {
@@ -52,10 +52,12 @@ function PdfSplit({ opts, set }: { opts: BatchOpts; set: SetOpts }) {
   );
 }
 
-export function TaskOptions({ task, opts, set, formats = [] }: {
+export function TaskOptions({ task, opts, set, formats = [], onPdfWork }: {
   task: BatchTaskId; opts: BatchOpts; set: SetOpts;
   /** 넣은 파일 형식 (나누기: 있는 형식의 설정만) */
   formats?: DocFormat[];
+  /** 나누기: 넣은 파일을 PDF 작업 화면에 놓기 (쪽을 보며 고를 때) */
+  onPdfWork?: () => void;
 }) {
   const hangul = !formats.length || formats.some((x) => x === "hwp" || x === "hwpx");
   const pdf = !formats.length || formats.includes("pdf");
@@ -88,11 +90,12 @@ export function TaskOptions({ task, opts, set, formats = [] }: {
         </>
       )}
       {task === "merge" && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
-      {task === "hwpsplit" && <HangulSplit opts={opts} set={set} />}
       {task === "split" && hangul && <HangulSplit opts={opts} set={set} />}
       {task === "split" && pdf && <PdfSplit opts={opts} set={set} />}
+      {task === "split" && onPdfWork && (
+        <div><button type="button" className="kd-link kd-small" onClick={onPdfWork} data-tip="넣은 파일을 PDF 작업 화면에 놓습니다. 쪽 그림을 보며 뽑기·지우기·순서·돌리기를 하고 새 PDF로 저장합니다. 원본은 그대로 둡니다">쪽을 보며 나누기·뽑기 (PDF 작업)</button></div>
+      )}
       {task === "join" && <p className="kd-small kd-muted">위 목록 차례대로 붙입니다. 끌어서 차례를 바꿉니다.</p>}
-      {task === "pdftools" && <p className="kd-small kd-muted">시작을 누르면 넣은 파일을 PDF 작업 화면에 놓습니다. 한글·워드·그림도 PDF로 바꿔 넣습니다.</p>}
       {task === "shrink" && <ShrinkOptions value={opts.shrink} onChange={(shrink) => set({ shrink })} />}
       {task === "collect" && <GatherOptions opts={opts} set={set} />}
       {task === "print" && <PrintOptions value={opts.printer} onChange={(printer) => set({ printer })} />}

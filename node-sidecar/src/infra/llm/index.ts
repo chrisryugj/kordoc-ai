@@ -1,6 +1,11 @@
 /** AI 진입점 — 설정에 맞는 공급자를 고르고, 클라우드로 나가기 전 마스킹·토큰 스트림을 붙인다 */
 
-import { redactMarkdown } from 'kordoc';
+// 외부 AI 로 보내기 전 가림: kordoc 규칙 + kordoc 이 놓치는 도로명·동·호 주소까지 (문서 가리기와 같은 규칙)
+import { DEFAULT_REDACT_RULES } from 'kordoc';
+import { redactMarkdown } from '../../core/redact/rules.js';
+
+/** 외부 AI 로 나가는 글: kordoc 기본 규칙(주민·전화·전자우편·카드·계좌·외국인·여권·운전면허)에 주소까지. 이름은 문서 뜻을 망가뜨려 두지 않는다 */
+const CLOUD_RULES = [...DEFAULT_REDACT_RULES, 'address' as const];
 import { getSettings } from '../config.js';
 import { sendToken } from '../progress.js';
 import { createAnthropicProvider } from './anthropic.js';
@@ -106,12 +111,12 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
   let system = opts.system;
   if (p.isCloud && ai.redact_before_cloud) {
     messages = messages.map((m) => {
-      const r = redactMarkdown(m.content);
+      const r = redactMarkdown(m.content, { rules: CLOUD_RULES });
       redacted += r.hits.length;
       return { ...m, content: r.text };
     });
     if (system && (p.id === 'claude-code' || p.id === 'codex' || p.id === 'gemini-cli')) {
-      const r = redactMarkdown(system);
+      const r = redactMarkdown(system, { rules: CLOUD_RULES });
       redacted += r.hits.length;
       system = r.text;
     }

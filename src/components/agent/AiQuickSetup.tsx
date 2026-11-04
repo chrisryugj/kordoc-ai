@@ -59,8 +59,8 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
 
   const pct = down && down.total ? Math.round((down.current / down.total) * 100) : 0;
   // 세부는 작은 글 한 줄: 찾은 프로그램의 모델, 없으면 내장 AI 크기
-  const detail = server ? `이 PC · ${firstChatModel(server.models)}`
-    : model ? `이 PC · ${model.name}${have ? "" : ` (${model.size_gb}GB, 메모리 ${model.ram_gb}GB 이상)`}` : "";
+  const detail = server ? `이 PC에서 · ${firstChatModel(server.models)}`
+    : model ? `이 PC에서 · ${model.name}${have ? "" : ` (${model.size_gb}GB, 메모리 ${model.ram_gb}GB 이상)`}` : "";
 
   return (
     <div className="kd-aion" role="region" aria-label="AI 켜기">

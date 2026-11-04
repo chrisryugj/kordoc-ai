@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </p>
           <p
             className="ts-2xs mb-4 text-center max-w-md"
-            style={{ color: "var(--color-text-muted)", opacity: 0.7 }}
+            style={{ color: "var(--color-text-muted)" }}
           >
             문제가 반복되면 오류 내용을 복사해 관리자에게 전하세요.
           </p>

@@ -139,7 +139,11 @@ try {
   await ui.click('표 복사');
   await sleep(300);
   c = await clip(page);
-  check('서무 도구: 표 복사 (기관 서식 칸, 합계 53,800)', c.text.startsWith('번호\t사용일자') && c.text.split('\r\n')[1]?.includes('53,800') && c.text.includes('카드'), c.text.slice(0, 100));
+  // 이 기관 서식은 합계 줄이 맨 아래라 복사 표도 저장 파일처럼 합계가 끝 줄
+  const lines = c.text.split('\r\n');
+  check('서무 도구: 표 복사 (기관 서식 칸·합계 자리, 합계 53,800)', c.text.startsWith('번호\t사용일자') && lines.at(-1)?.startsWith('합계') && lines.at(-1)?.includes('53,800') && lines[1]?.startsWith('1\t') && c.text.includes('카드'), c.text.slice(0, 160));
+  const prow = await page.$$eval('.kd-receipt-preview tr', (trs) => trs.map((tr) => tr.innerText.replace(/\s+/g, ' ').trim()));
+  check('미리보기: 기관 서식처럼 합계가 맨 아래', prow.at(-1)?.startsWith('합계') && prow.at(-1)?.includes('53,800'), prow.join(' / ').slice(0, 160));
   await ui.shot(join(OUT, 'p-04-batch.png'));
   check('화면 오류 없음 (본창)', ui.errors.length === 0, ui.errors.slice(0, 3).join(' | '));
 } catch (e) {

@@ -121,7 +121,7 @@ export async function bundlePdf(
   if (p.watermark?.trim() || p.page_numbers) await stampPdf(merged, p);
   // overwrite: 화면이 덮어쓰기를 확인한 경로. 합칠 원본 자리면 덮어쓰지 않는다
   const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => resolve(x).toLowerCase() === resolve(p.output_path!).toLowerCase());
-  const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}_합본.pdf`, overwrite });
+  const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}${p.paths.length > 1 ? `_외${p.paths.length - 1}건` : ''}_합본.pdf`, overwrite });
   await writeFile(outPath, await merged.save());
   return { output_path: outPath, page_count: merged.getPageCount(), failed };
 }

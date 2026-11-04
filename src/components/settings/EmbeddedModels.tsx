@@ -9,6 +9,7 @@ import { FILTERS, pickFiles } from "../../lib/native";
 import { baseName, fileSize, num } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { Field, Seg, SelectField } from "../common/Field";
 import { ErrorLine, Note, StatusLine } from "../common/Status";
 import { Advanced } from "./dirty";
@@ -108,7 +109,9 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
             </span>
             <span className="kd-row-aside">
               {f.path !== modelPath && <Button size="sm" variant="secondary" onClick={() => onChange({ model_path: f.path })}>이 모델 쓰기</Button>}
-              <button type="button" className="kd-icon-btn" onClick={() => void remove(f.path)} aria-label={`${f.name} 지우기`}><Trash2 size={14} /></button>
+              <ConfirmRemove ask="모델 파일을 지울까요?" onConfirm={() => void remove(f.path)}>
+                {(open) => <button type="button" className="kd-icon-btn" onClick={open} aria-label={`${f.name} 지우기`} data-tip="앱에 가져온 모델 파일을 이 PC에서 지웁니다. 다시 쓰려면 파일을 다시 가져와야 합니다"><Trash2 size={14} /></button>}
+              </ConfirmRemove>
             </span>
           </div>
         ))}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, History, CalendarClock, LayoutGrid, LifeBuoy } from "lucide-react";
 import { useApp, type ToolId } from "../../state/app";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { FormatBadge } from "../common/FormatBadge";
 import { HomeIndex } from "./HomeIndex";
 import { HomeSamples } from "./HomeSamples";
@@ -63,7 +64,9 @@ function Recovered({ active }: { active: boolean }) {
               <span className="kd-row-desc block">{timeAgo(it.saved_at)} 고친 내용이 남아 있습니다{it.exists || it.working ? "" : ". 원래 파일이 없어 저장할 때 새로 만듭니다"}</span>
             </span>
             <span className="kd-row-aside">
-              <Button size="sm" variant="ghost" onClick={() => void rpc("recovery_discard", { path: it.path }).finally(load)}>버리기</Button>
+              <ConfirmRemove ask="고친 내용을 버릴까요?" verb="버리기" onConfirm={() => void rpc("recovery_discard", { path: it.path }).finally(load)}>
+                {(open) => <Button size="sm" variant="ghost" onClick={open} data-tip="저장하지 않은 고친 내용을 지웁니다. 원래 파일은 그대로 둡니다">버리기</Button>}
+              </ConfirmRemove>
               <Button size="sm" onClick={() => startCreate({ path: it.path, recover: { title: it.title, working: it.working } })}>되살리기</Button>
             </span>
           </div>

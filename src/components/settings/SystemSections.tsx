@@ -5,6 +5,7 @@ import { Activity, BarChart3, FileText, FolderInput, FolderOpen, MousePointerCli
 import { resolveResource } from "@tauri-apps/api/path";
 import type { RpcResult } from "../../lib/contract";
 import { useApp, type ThemePref, type UiMode } from "../../state/app";
+import { useSectionMark } from "./marks";
 import { rpc, errorText, invokeCmd, isTauri } from "../../lib/rpc";
 import { notifyQuick, pickFolder } from "../../lib/native";
 import { applyZoom, currentZoom, maxZoom, zoomLabel, ZOOM_STEPS } from "../../lib/zoom";
@@ -28,6 +29,7 @@ const STEP_LABEL: Record<string, string> = {
 };
 
 export function EngineSection() {
+  const mark = useSectionMark("set-engine");
   const { system } = useApp();
   const [ocr, setOcr] = useState(true);
   const [llama, setLlama] = useState(false);
@@ -47,7 +49,7 @@ export function EngineSection() {
   ] : [];
 
   return (
-    <Section id="set-engine" mark="마." title="엔진과 모델" sub="문제가 생기면 엔진 점검을 눌러 어느 단계에서 막히는지 확인하세요.">
+    <Section id="set-engine" mark={mark} title="엔진과 모델" sub="문제가 생기면 엔진 점검을 눌러 어느 단계에서 막히는지 확인하세요.">
       <dl className="kd-dl kd-dl-wide">
         {rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
       </dl>
@@ -104,6 +106,7 @@ export function EngineSection() {
 }
 
 export function StorageSection() {
+  const mark = useSectionMark("set-store");
   const { settings, saveSettings } = useApp();
   const [mcp, setMcp] = useState(false);
   const [shell, setShell] = useState<{ supported: boolean; installed: boolean; kind: string } | null>(null);
@@ -138,7 +141,7 @@ export function StorageSection() {
   const isMac = shell?.kind === "quick-action";
 
   return (
-    <Section id="set-store" mark="바." title="저장과 연결">
+    <Section id="set-store" mark={mark} title="저장과 연결">
       <Field label="저장 위치" hint="만든 문서를 담을 폴더. 원본은 고치지 않고 결과는 늘 새 파일입니다. 원본 옆으로 하면 원본과 같은 폴더에 새 파일로 저장합니다.">
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <FolderOpen size={14} className="kd-muted flex-none" />
@@ -187,6 +190,7 @@ export function StorageSection() {
 }
 
 export function AboutSection() {
+  const mark = useSectionMark("set-about");
   const { theme, setTheme, system, go, toast, uiMode, setUiMode } = useApp();
   const [zoom, setZoom] = useState(() => currentZoom());
   // 창이 좁으면 더 큰 단계는 못 고른다 (키우면 화면 오른쪽이 잘린다)
@@ -216,7 +220,7 @@ export function AboutSection() {
     }
   };
   return (
-    <Section id="set-about" mark="사." title="화면과 정보">
+    <Section id="set-about" mark={mark} title="화면과 정보">
       <Field label="화면 방식" hint="쉬운 화면은 자주 하는 일을 큰 단추로 보이고 세부 설정을 접어 둡니다. 전체 화면은 모든 기능과 설정을 보입니다.">
         <Seg<UiMode> label="화면 방식" value={uiMode} onChange={setUiMode} options={[{ value: "easy", label: "쉬운 화면" }, { value: "full", label: "전체 화면" }]} />
       </Field>

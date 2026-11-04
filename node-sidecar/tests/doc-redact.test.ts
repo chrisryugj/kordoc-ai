@@ -58,7 +58,9 @@ describe('redact', () => {
     const src = await parse(readFileSync(LETTER_PDF));
     if (!src.success) throw new Error(src.error);
     const rules = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'name', 'address'];
-    const originals = redactMarkdown(src.markdown, { rules: rules as never }).hits.map((h) => src.markdown.slice(h.index, h.index + h.length));
+    // 엔진과 같은 규칙(kordoc + 놓친 주소 꼴: 발신 기관 주소 "가온시 도청로 1" 도 주소로 가린다)
+    const { redactMarkdown: engineRules } = await import('../src/core/redact/rules.js');
+    const originals = engineRules(src.markdown, { rules: rules as never }).hits.map((h) => src.markdown.slice(h.index, h.index + h.length));
     expect(originals.length).toBeGreaterThanOrEqual(2); // 전자우편·이름
     const r = await call('redact', { path: LETTER_PDF, rules });
     expect(r.preserved).toBe(false);
@@ -106,6 +108,30 @@ describe('redact', () => {
     expect(back.markdown).toContain('031-000-1234');
     expect(back.markdown).toContain('김가온');
     expect(back.markdown).not.toContain('010-2345-6789');
+  });
+
+  it('정보공개 공개본(이름·주소까지) — 도로명 주소 "가온시 한빛로 123, 101동 1004호" 까지 가린다 (kordoc 주소 규칙이 놓치는 꼴)', async () => {
+    const DISCLOSURE = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'name', 'address'];
+    const dry = await call('redact', { path: CLAIM, dry_run: true, rules: DISCLOSURE });
+    expect(dry.hits.some((h: { rule: string }) => h.rule === 'address')).toBe(true);
+    const r = await call('redact', { path: CLAIM, rules: DISCLOSURE, output_dir: join(env.out, '공개본') });
+    expect(JSON.stringify(r)).not.toContain('한빛로 123');
+    const back = await parse(readFileSync(r.output_path));
+    if (!back.success) throw new Error(back.error);
+    expect(back.markdown).not.toContain('한빛로 123');
+    expect(back.markdown).not.toContain('1004호');
+    expect(back.markdown).toContain('가온시'); // 시·군·구 이름은 남긴다 (kordoc 주소 가림과 같은 모양)
+  });
+
+  it('주소 규칙 — 도로명·지번 + 동·호는 잡고, 시 이름 뒤 보통 문장·문서번호는 안 잡는다', async () => {
+    const { redactText } = await import('../src/core/redact/rules.js');
+    const mask = (s: string) => redactText(s, { rules: ['address'] }).text;
+    expect(mask('주소: 가온시 한빛로 123, 101동 1004호')).toBe('주소: 가온시 ●●● ●●●, ●●●● ●●●●●');
+    expect(mask('경기도 가온시 중앙동 123-4번지')).toBe('경기도 가온시 ●●● ●●●●●●●');
+    expect(mask('가온시 한빛로12번길 34')).not.toContain('34');
+    for (const s of ['2026년 가온시 생활체육 시설 사용료', '가온시 체육진흥과-1234(2026.10.5.)', '가온시 시민 300명 참가']) expect(mask(s)).toBe(s);
+    // 주소를 고르지 않으면 건드리지 않는다
+    expect(redactText('가온시 한빛로 123', { rules: ['phone'] }).text).toBe('가온시 한빛로 123');
   });
 
   it('보지 않은 항목을 밝힌다 — 이름·주소를 고르지 않으면 unchecked_rules', async () => {

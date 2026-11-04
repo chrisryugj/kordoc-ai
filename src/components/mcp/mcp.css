@@ -26,3 +26,5 @@
 .kd-mcp-path > svg { flex: none; margin-top: 2px; }
 .kd-mcp-path-name { flex: none; min-width: 96px; font-weight: 500; color: var(--color-text-secondary); }
 .kd-mcp-path code { min-width: 0; font-family: var(--font-mono); word-break: break-all; }
+/* 바닥 줄 (Modal footer): 연결 단추 + 다시 켜기 안내 */
+.kd-mcp-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }

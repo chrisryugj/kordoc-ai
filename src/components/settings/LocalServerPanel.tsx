@@ -1,4 +1,4 @@
-/** AI 연결 › 이 PC의 로컬 모델 서버 — 켜진 Ollama·LM Studio·llama.cpp 서버 등을 찾아 고르거나 주소를 직접 넣는다 */
+/** AI 연결 › 이 PC에서 · 켜 둔 AI 프로그램 — 켜진 Ollama·LM Studio·llama.cpp 서버 등을 찾아 고르거나 주소를 직접 넣는다 */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { RefreshCw, Search } from "lucide-react";
@@ -55,7 +55,7 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked, key
         )}
       </div>
       {find.result && (found.length ? (
-        <div className="flex flex-col gap-2" role="radiogroup" aria-label="찾은 로컬 모델 서버">
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label="찾은 AI 프로그램">
           {found.map((s) => (
             <button key={s.base_url} type="button" role="radio" aria-checked={value.base_url === s.base_url} className="kd-ai-tile" disabled={urlLocked} onClick={() => pick(s)}>
               <span className="kd-row-title block">{s.name}</span>
@@ -64,7 +64,7 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked, key
           ))}
         </div>
       ) : (
-        <Note tone="info">켜진 로컬 모델 서버를 찾지 못했습니다. Ollama나 LM Studio를 켜고(LM Studio는 개발자 탭에서 서버 시작) 다시 찾거나, 아래에 주소를 직접 넣으세요.</Note>
+        <Note tone="info">켜 둔 AI 프로그램을 찾지 못했습니다. Ollama나 LM Studio를 켜고(LM Studio는 개발자 탭에서 서버 시작) 다시 찾거나, 아래에 주소를 직접 넣으세요.</Note>
       ))}
       <ErrorLine message={find.error} />
 

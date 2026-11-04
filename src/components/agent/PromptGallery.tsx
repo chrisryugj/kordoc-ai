@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Paperclip, Pencil, Trash2, X } from "lucide-react";
 import { PROMPTS } from "./prompts";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { loadMyPrompts, removeMyPrompt, renameMyPrompt, useMyPrompt as countUse, type MyPrompt } from "../../lib/my-prompts";
 
 function MyRow({ p, onPick, onChange }: { p: MyPrompt; onPick: (text: string) => void; onChange: () => void }) {
@@ -31,7 +32,9 @@ function MyRow({ p, onPick, onChange }: { p: MyPrompt; onPick: (text: string) =>
       </button>
       {p.uses > 0 && <span className="kd-pq-uses" data-tip="쓴 횟수">{p.uses}</span>}
       <button type="button" className="kd-pq-act" onClick={() => { setDraft(p.title); setEdit(true); }} aria-label={`${p.title} 이름 바꾸기`}><Pencil size={13} /></button>
-      <button type="button" className="kd-pq-act" onClick={() => { removeMyPrompt(p.id); onChange(); }} aria-label={`${p.title} 지우기`}><Trash2 size={13} /></button>
+      <ConfirmRemove ask="이 프롬프트를 지울까요?" onConfirm={() => { removeMyPrompt(p.id); onChange(); }}>
+        {(open) => <button type="button" className="kd-pq-act" onClick={open} aria-label={`${p.title} 지우기`} data-tip="저장해 둔 이 문장을 내 프롬프트에서 지웁니다"><Trash2 size={13} /></button>}
+      </ConfirmRemove>
     </li>
   );
 }

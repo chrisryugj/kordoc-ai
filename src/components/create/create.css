@@ -37,6 +37,8 @@
 .kd-assist .kd-tabs { flex-wrap: nowrap; gap: 0; }
 .kd-assist .kd-tab { flex: 1 1 auto; padding: 0 8px; }
 .kd-assist-sec { display: flex; flex-direction: column; gap: 10px; }
+/* 좁은 판의 짧은 안내는 끝줄이 한 낱말로 떨어지지 않게 줄을 고르게 */
+.kd-create-aioff > p.kd-small { text-wrap: balance; }
 .kd-assist-sec + .kd-assist-sec { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-subtle); }
 
 /* ── AI 꺼짐 안내 ── */

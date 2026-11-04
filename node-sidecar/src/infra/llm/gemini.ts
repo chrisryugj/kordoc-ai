@@ -58,5 +58,17 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
       }
       return out;
     },
+    /** 이 키로 쓸 수 있는 글 생성 모델 (공식 models.list, 이름 앞 "models/" 는 뗀다) */
+    async listModels(signal) {
+      if (!cfg.api_key) throw new Error('Gemini API 키를 넣은 뒤 모델을 불러오세요.');
+      const url = `${BASE}/models?pageSize=1000`;
+      await assertAllowed(url);
+      const res = await fetch(url, { headers: { 'x-goog-api-key': cfg.api_key }, signal: signal ?? AbortSignal.timeout(15_000), redirect: 'manual' });
+      if (!res.ok) throw await httpError(res, 'Gemini');
+      const body = (await res.json()) as { models?: Array<{ name?: string; supportedGenerationMethods?: string[] }> };
+      return (body.models ?? [])
+        .filter((m) => m.name && (m.supportedGenerationMethods ?? []).includes('generateContent'))
+        .map((m) => m.name!.replace(/^models\//, ''));
+    },
   };
 }

@@ -116,7 +116,7 @@ pub fn run() {
             let first_urls: Vec<String> = Vec::new();
             let quick_start = first.as_ref().map(|(a, _)| shell::is_quick(a)).unwrap_or(false)
                 || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::parse_action_url(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
-            // 문서 카드(우클릭 "KorDoc AI 에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
+            // 문서 카드(우클릭 "KorDoc AI에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
             let card_start = first.as_ref().map(|(a, _)| shell::is_card(a)).unwrap_or(false);
             if quick_start {
                 shell::mark_cold_quick();

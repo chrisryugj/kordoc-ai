@@ -378,9 +378,9 @@ const handlers: Handlers = {
   },
   watch_stop: (p) => { const i = watchers.findIndex((w) => w.id === p.id); if (i >= 0) watchers.splice(i, 1); return true; },
   watch_list: () => watchers.map((w) => ({ ...w })),
-  merge_files: async (p) => { await wait(600); return { success: true, output_path: p.output_path ?? joinPath(DOCS_DIR, `${stem(p.files[0])}_병합.md`), file_count: p.files.length, total_length: 0, failed_files: [], failed: [] }; },
+  merge_files: async (p) => { await wait(600); return { success: true, output_path: p.output_path ?? joinPath(DOCS_DIR, `${stem(p.files[0])}${p.files.length > 1 ? `_외${p.files.length - 1}건` : ""}_합본.md`), file_count: p.files.length, total_length: 0, failed_files: [], failed: [] }; },
   split_hangul: async (p) => { await wait(500); const dir = joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.path)}_나누기`); return { output_dir: dir, output_files: [1, 2].map((n) => joinPath(dir, `${stem(p.path)}_${n}.hwpx`)), sections: 2, page_breaks: 0 }; },
-  split_pdf: async (p) => { await wait(500); const dir = joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_분리`); return { success: true, output_files: [1, 2, 3].map((n) => joinPath(dir, `${stem(p.input_path)}_${n}.pdf`)), output_dir: dir, total_pages: 3 }; },
+  split_pdf: async (p) => { await wait(500); const dir = joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_나누기`); return { success: true, output_files: [1, 2, 3].map((n) => joinPath(dir, `${stem(p.input_path)}_${n}.pdf`)), output_dir: dir, total_pages: 3 }; },
   pdf_page_count: () => ({ page_count: 12 }),
   pdf_extract_pages: async (p) => { await wait(400); return { output_path: p.output_path, extracted_pages: 3, total_pages: 12 }; },
   pdf_open: async (p) => {
@@ -411,7 +411,7 @@ const handlers: Handlers = {
   ai_subscription_status: async (p) => {
     await wait(600);
     const list = p.provider ? [p.provider] : (["claude-code", "codex"] as const);
-    if (settings.privacy.offline) return { statuses: list.map((provider) => ({ provider, state: "offline" as const, message: "폐쇄망 모드에서는 구독 계정을 쓸 수 없습니다. 이 PC의 로컬 모델 서버나 내장 모델을 고르세요.", login_command: provider === "codex" ? "codex login" : "claude" })) };
+    if (settings.privacy.offline) return { statuses: list.map((provider) => ({ provider, state: "offline" as const, message: "폐쇄망 모드에서는 구독 계정을 쓸 수 없습니다. 이 PC에서 돌리는 AI(켜 둔 AI 프로그램이나 내장 AI)를 고르세요.", login_command: provider === "codex" ? "codex login" : "claude" })) };
     return { statuses: list.map((provider) => provider === "codex"
       ? { provider, state: "signed-out" as const, message: "Codex에 로그인되어 있지 않습니다. 터미널에서 codex login 을 실행해 ChatGPT 계정으로 로그인한 뒤 다시 시도하세요.", login_command: "codex login" }
       : { provider, state: "ready" as const, version: "2.1.300", plan: "max", login_command: "claude" }) };

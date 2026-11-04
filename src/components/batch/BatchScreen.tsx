@@ -96,15 +96,13 @@ export function BatchScreen({ active }: { active: boolean }) {
   /** again: 문서 수합을 앞서 만든 엑셀로 다시 만들기 (overwrite 면 같은 파일을 바꾸고, 아니면 번호 붙은 새 파일) */
   const start = useCallback(async (list = usable, t = task, again?: { overwrite: boolean }) => {
     if (t === "merge") { setDialog("merge"); return; }
-    // 쪽 다루기는 PDF 작업 화면에서 (쪽 그림을 보며 고르고 옮긴다)
-    if (t === "pdftools") { startPdf({ paths: list.map((f) => f.path) }); return; }
     const gather = { ai: !!ai?.configured, ...(again && gatherPrev ? { previous: gatherPrev, overwrite: again.overwrite } : {}) };
     const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), receiptAi: !!ai?.configured && !ai.is_cloud, defaultDir: settings?.convert.output_dir || undefined, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
     if (outcome?.kind === "gather") { setGatherPrev(outcome.result.output_path); setLate(0); }
     // 결과는 맨 위에 나온다: 작은 화면에서도 보이게 올린다
     if (outcome) mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     if (outcome) void notifySystem("KorDoc AI: 여러 파일 작업 끝", outcome.message);
-  }, [usable, task, opts, run, ai, gatherPrev, startPdf]);
+  }, [usable, task, opts, run, ai, gatherPrev]);
 
   // 홈·우클릭·예제에서 넘어온 파일과 할 일 (우클릭은 바로 시작)
   useEffect(() => {
@@ -130,7 +128,7 @@ export function BatchScreen({ active }: { active: boolean }) {
     setDialog("");
     const dir = outDir || opts.outDir || settings?.convert.output_dir || dirName(ordered[0].path);
     const ext = mode === "native" ? (ordered[0].type === "hwp" ? "hwpx" : ordered[0].type) : "md";
-    const out = joinPath(dir, `수합_${stem(ordered[0].name)}${ordered.length > 1 ? `_외${ordered.length - 1}건` : ""}.${ext}`);
+    const out = joinPath(dir, `${stem(ordered[0].name)}${ordered.length > 1 ? `_외${ordered.length - 1}건` : ""}_합본.${ext}`);
     // PDF 끼리 합치기는 합본 PDF 와 같은 길 하나로 (쪽 번호·워터마크 선택도 같다)
     if (ext === "pdf") { void bundle(ordered.map((f) => f.path), outDir); return; }
     void run.run(async ({ signal }) => {
@@ -276,8 +274,9 @@ export function BatchScreen({ active }: { active: boolean }) {
                     <p className="kd-small kd-muted mt-0.5">{def.desc}{def.accepts ? ` (${def.accepts.map((a) => (a === "image" ? "그림" : a.toUpperCase())).join("·")} 파일만)` : ""}</p>
                   </div>
                   {plan && <p className="kd-batch-plan" role="status"><ArrowRight size={16} aria-hidden="true" />{plan}</p>}
-                  <div onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLElement).dataset.runOnEnter !== undefined && !blocked) void start(); }}>
-                    <TaskOptions task={task} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} formats={usable.map((f) => f.format)} />
+                  <div onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.target as HTMLElement).dataset.runOnEnter !== undefined && !blocked) void start(); }}>
+                    <TaskOptions task={task} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} formats={usable.map((f) => f.format)}
+                      onPdfWork={usable.length ? () => startPdf({ paths: usable.map((f) => f.path) }) : undefined} />
                   </div>
                 </section>
               </>

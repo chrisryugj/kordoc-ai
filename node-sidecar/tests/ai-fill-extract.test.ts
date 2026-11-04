@@ -29,7 +29,7 @@ beforeAll(async () => {
   await updateSettings({
     ai: { provider: 'openai', openai: { base_url: `${fake.url}/v1`, model: 'test-model' } },
     privacy: { offline: false },
-    org: { name: '서울특별시 광진구', dept: '총무과', person: '홍길동', phone: '02-450-0000' },
+    org: { name: '가온시', dept: '총무과', person: '홍길동', phone: '031-000-0000' },
     convert: { output_dir: '' },
   });
   writeFileSync(join(dir, '계획.md'), '# 2026년 직원 체육대회 계획\n\n- 일시: 2026. 4. 10.(금) 14:00\n- 장소: 구민체육센터\n- 예산: 1,500,000원');
@@ -54,7 +54,7 @@ describe('ai_fill_suggest', () => {
     const sent = lastUser(body);
     expect(sent).toContain('[쓰려는 문서]\n체육대회 개최 안내 공문');
     expect(sent).toContain('- 본문: 행사 목적과 내용을 적으세요');
-    expect(sent).toContain('기관명: 서울특별시 광진구');
+    expect(sent).toContain('기관명: 가온시');
     expect(sent).toContain('1,500,000원');
     expect(systemOf(body)).toContain('설명');
   });

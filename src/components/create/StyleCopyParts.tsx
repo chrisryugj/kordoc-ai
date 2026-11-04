@@ -7,6 +7,7 @@ import { rpc, errorText } from "../../lib/rpc";
 import { baseName, formatOf } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { SelectField } from "../common/Field";
 import { ErrorLine, Note, StatusLine } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
@@ -74,9 +75,15 @@ export function SavedStyleList({ styles, selected, onSelect, onDelete }: {
             <span className="kd-row-title block pr-7">{s.name}</span>
             <span className="kd-row-desc block">{KIND[s.format.preset] ?? "문서"} 서식 · 본문 {s.format.body.font} {n(s.format.body.pt)}pt</span>
           </button>
-          <button type="button" className="kd-icon-btn absolute right-1 top-1" aria-label={`${s.name} 서식 지우기`} title="이 서식 지우기" onClick={() => onDelete(s.id)}>
-            <Trash2 size={13} />
-          </button>
+          <span className="absolute right-1 top-1">
+            <ConfirmRemove ask="이 서식을 지울까요?" onConfirm={() => onDelete(s.id)}>
+              {(open) => (
+                <button type="button" className="kd-icon-btn" aria-label={`${s.name} 서식 지우기`} data-tip="저장한 서식만 지웁니다. 이 서식으로 만든 문서는 그대로 둡니다" onClick={open}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </ConfirmRemove>
+          </span>
         </div>
       ))}
     </div>

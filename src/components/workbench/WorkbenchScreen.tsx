@@ -49,7 +49,7 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
   return (
     <div className="kd-screen" hidden={!active}>
       <ScreenHeader
-        title={current ? current.name : "문서"}
+        title={current ? current.name : "문서 보기"}
         sub={sub}
         actions={(
           <>

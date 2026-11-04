@@ -7,6 +7,8 @@ import { getSettings } from '../../infra/config.js';
 import { ask, getProvider } from '../../infra/llm/index.js';
 import { isEmbeddedLoaded, warmupEmbedded } from '../../infra/llm/embedded.js';
 import { createOpenAiProvider } from '../../infra/llm/openai.js';
+import { createAnthropicProvider } from '../../infra/llm/anthropic.js';
+import { createGeminiProvider } from '../../infra/llm/gemini.js';
 import { normalizeLocalBase } from '../../infra/llm/local-servers.js';
 
 /** 설정만 보고 빠진 것을 알려 준다 (네트워크·모델 로드 없음) */
@@ -35,8 +37,8 @@ export function aiStatus(): AiStatus {
       break;
     case 'local':
       model = ai.local.model || undefined;
-      if (!ai.local.base_url) missing = '로컬 모델 서버 주소가 비어 있습니다. 설정 › AI 연결에서 이 PC에서 찾기를 누르거나 주소를 넣으세요.';
-      else if (!ai.local.model) missing = '로컬 모델 서버의 모델을 고르지 않았습니다. 설정 › AI 연결에서 모델을 고르세요.';
+      if (!ai.local.base_url) missing = '켜 둔 AI 프로그램 주소가 비어 있습니다. 설정 › AI 연결에서 이 PC에서 찾기를 누르거나 주소를 넣으세요.';
+      else if (!ai.local.model) missing = '켜 둔 AI 프로그램의 모델을 고르지 않았습니다. 설정 › AI 연결에서 모델을 고르세요.';
       break;
     case 'gemini':
     case 'anthropic':
@@ -81,7 +83,8 @@ export async function aiTest(signal: AbortSignal): Promise<{ ok: boolean; latenc
 }
 
 /** 저장 전 주소·키로 모델 목록 — 화면에 가려진 키(****)가 오면 저장된 키를 쓴다. slot: 기관 서버(openai)·이 PC 서버(local) 중 어느 칸의 키인지 */
-export async function listServerModels(params: { base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, signal: AbortSignal): Promise<{ models: string[] }> {
+export async function listServerModels(params: { base_url?: string; api_key?: string; slot?: 'openai' | 'local' | 'anthropic' | 'gemini' }, signal: AbortSignal): Promise<{ models: string[] }> {
+  if (params.slot === 'anthropic' || params.slot === 'gemini') return listCloudModels(params.slot, params.api_key, signal);
   const saved = getSettings().ai[params.slot === 'local' ? 'local' : 'openai'];
   const raw = params.base_url?.trim() || saved.base_url;
   const baseUrl = params.slot === 'local' ? normalizeLocalBase(raw) : raw;
@@ -101,6 +104,22 @@ export async function listServerModels(params: { base_url?: string; api_key?: st
     if (/fetch failed|ECONNREFUSED|ENOTFOUND|timeout|aborted/i.test(msg)) {
       throw new Error(`AI 서버에 연결하지 못했습니다(${baseUrl}). 서버가 켜져 있는지, 주소·포트가 맞는지 확인하세요.`);
     }
+    throw err;
+  }
+}
+
+/** API 키 방식 외부 AI 의 모델 목록 — 입력 중인 키(가려진 **** 이면 저장된 키). 폐쇄망 모드면 관문이 막는다 */
+async function listCloudModels(slot: 'anthropic' | 'gemini', apiKey: string | undefined, signal: AbortSignal): Promise<{ models: string[] }> {
+  const typed = apiKey && !apiKey.includes('****') ? apiKey.trim() : '';
+  const s = getSettings().ai;
+  const key = typed || s[slot].api_key;
+  const p = slot === 'anthropic' ? createAnthropicProvider({ api_key: key, model: '' }, s.timeout_ms) : createGeminiProvider({ api_key: key, model: '' }, s.timeout_ms);
+  try {
+    return { models: await p.listModels!(AbortSignal.any([signal, AbortSignal.timeout(15_000)])) };
+  } catch (err) {
+    if (signal.aborted) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/fetch failed|ECONNREFUSED|ENOTFOUND|timeout|aborted/i.test(msg)) throw new Error(`${slot === 'anthropic' ? 'Anthropic' : 'Google'} 서버에 연결하지 못했습니다. 인터넷 연결을 확인하거나 모델 이름을 직접 넣으세요.`);
     throw err;
   }
 }

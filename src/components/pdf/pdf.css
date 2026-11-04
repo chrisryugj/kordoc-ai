@@ -21,7 +21,9 @@
 .kd-pdf-chip-n { color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kd-pdf-chip-tag { font-size: var(--fs-caption); padding: 1px 5px; border-radius: var(--radius-sm); background: var(--color-bg-tertiary); color: var(--color-text-secondary); white-space: nowrap; }
 .kd-pdf-chip-tag[data-tone="warn"] { background: var(--color-warning-bg); color: var(--color-warning); }
-.kd-pdf-chip .kd-icon-btn { width: 24px; height: 24px; }
+.kd-pdf-chip .kd-icon-btn { position: relative; width: 24px; height: 24px; }
+/* 칩 안 단추는 보이는 크기 24px, 누르는 자리는 32px */
+.kd-pdf-chip .kd-icon-btn::before { content: ""; position: absolute; inset: -4px; }
 /* 여는 중: 몇 개 중 몇째 + 진행 막대 (칩 줄에선 좁게, 빈 책상에선 크게) */
 .kd-pdf-opening { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; row-gap: 5px; width: 280px; font-size: var(--fs-small); }
 .kd-pdf-opening-t { font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
@@ -37,7 +39,7 @@
   font-size: var(--fs-small); font-weight: 600; color: var(--color-text-secondary); background: transparent; border: 1px solid transparent; cursor: pointer; white-space: nowrap;
 }
 .kd-pdf-tool:hover:not(:disabled) { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
-.kd-pdf-tool:disabled { opacity: 0.38; cursor: default; }
+.kd-pdf-tool:disabled { color: var(--color-text-disabled); cursor: default; }
 .kd-pdf-tool[data-danger="true"]:hover:not(:disabled) { color: var(--color-error); }
 .kd-pdf-count { font-size: var(--fs-small); color: var(--color-text-muted); font-variant-numeric: tabular-nums; margin-right: 4px; white-space: nowrap; }
 .kd-pdf-count b { color: var(--color-text-primary); }
@@ -62,11 +64,11 @@
   transition: transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), width 180ms, height 180ms;
 }
 .kd-pg-sheet img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-.kd-pg-wait { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-caption); color: #9a9e95; font-variant-numeric: tabular-nums; }
-.kd-pg-blank { background: repeating-linear-gradient(135deg, var(--color-paper) 0 9px, #f4f2ec 9px 10px); }
+.kd-pg-wait { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-caption); color: var(--color-paper-muted); font-variant-numeric: tabular-nums; }
+.kd-pg-blank { background: repeating-linear-gradient(135deg, var(--color-paper) 0 9px, var(--color-paper-line) 9px 10px); }
 .kd-pg:hover .kd-pg-sheet { box-shadow: 0 0 0 1px var(--color-border-hover), var(--shadow-page); }
 .kd-pg[data-sel="true"] .kd-pg-sheet { box-shadow: 0 0 0 2px var(--color-accent), 0 0 0 5px var(--color-accent-glow), var(--shadow-page); }
-.kd-pg:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: -1px; }
+.kd-pg:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
 .kd-pg-check {
   position: absolute; width: 20px; height: 20px; display: grid; place-items: center;
   background: var(--color-accent); color: var(--color-accent-ink); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
@@ -95,6 +97,8 @@
   color: var(--color-text-muted); background: var(--color-paper); border: 1px solid var(--color-border-hover);
   opacity: 0; transform: scale(0.85); transition: opacity 120ms, transform 120ms; cursor: pointer;
 }
+/* 보이는 원은 22px, 누르는 자리는 32px */
+.kd-pg-cut::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; }
 .kd-pg:hover .kd-pg-cut, .kd-pg-cut:focus-visible { opacity: 1; transform: none; }
 .kd-pg-cut:hover { color: var(--color-seal); border-color: var(--color-seal); }
 .kd-pg[data-cut="true"] .kd-pg-cut { opacity: 1; transform: none; color: var(--color-paper); background: var(--color-seal); border-color: var(--color-seal); }
@@ -128,6 +132,8 @@
 .kd-pdf-empty-sheets span:nth-child(2) { left: 32px; top: 2px; transform: rotate(7deg); }
 .kd-pdf-empty-sheets span:nth-child(3) { left: 19px; top: 10px; }
 .kd-pdf-empty-sheets span:nth-child(3)::after { content: ""; position: absolute; inset: 12px 10px auto; height: 26px; background: repeating-linear-gradient(var(--color-border) 0 2px, transparent 2px 7px); }
+/* 어두운 화면: 그림 종이가 흰 덩어리로 튀지 않게 한 단 낮춘다 (실제 문서 쪽은 흰 종이 그대로) */
+.dark .kd-pdf-empty-sheets span { background: var(--color-bg-subtle); box-shadow: 0 0 0 1px var(--color-border), var(--shadow-md); }
 .kd-pdf-empty h2 { font-size: var(--fs-h2); font-weight: 700; letter-spacing: -0.02em; }
 .kd-pdf-empty p { font-size: var(--fs-body); color: var(--color-text-muted); line-height: 1.6; }
 .kd-pdf-can { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--color-rule-strong); margin-top: 6px; text-align: left; }
@@ -146,9 +152,13 @@
   transition: border-color var(--transition-fast), background-color var(--transition-fast);
 }
 .kd-pdf-save:hover:not(:disabled) { border-color: var(--color-border-hover); background: var(--color-bg-primary); }
-.kd-pdf-save:disabled { cursor: default; opacity: 0.5; }
+.kd-pdf-save:disabled { cursor: default; background: var(--color-bg-primary); color: var(--color-text-disabled); }
+/* 사용 불가 이유("쪽을 눌러 고르면 켜집니다")는 읽히게 흐림색 그대로 */
+.kd-pdf-save:disabled .kd-pdf-save-d { color: var(--color-text-muted); opacity: 1; }
 .kd-pdf-save[data-main="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
 .kd-pdf-save[data-main="true"]:hover:not(:disabled) { background: var(--color-accent-hover); }
+/* 초록 면 위 보조 글은 흐리게 하면 대비가 4.5:1 아래로 떨어진다 */
+.kd-pdf-save[data-main="true"] .kd-pdf-save-d, .kd-pdf-save[data-main="true"] kbd { opacity: 1; }
 .kd-pdf-save-t { display: flex; align-items: center; gap: 7px; font-size: var(--fs-body); font-weight: 700; }
 .kd-pdf-save-d { font-size: var(--fs-small); opacity: 0.82; overflow-wrap: anywhere; }
 .kd-pdf-save kbd { margin-left: auto; font: inherit; font-size: var(--fs-caption); opacity: 0.75; }
@@ -176,9 +186,9 @@
 .kd-pdf-where span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 크게 보기 */
-.kd-pdf-view { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: rgba(28, 30, 27, 0.86); color: #f3f0e8; outline: none; }
+.kd-pdf-view { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: rgba(16, 20, 26, 0.88); color: #F3F5F7; outline: none; }
 .kd-pdf-view-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: var(--fs-body); }
-.kd-pdf-view-head .kd-icon-btn { color: #f3f0e8; }
+.kd-pdf-view-head .kd-icon-btn { color: #F3F5F7; }
 .kd-pdf-view-head .kd-icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
 .kd-pdf-view-body { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px 24px 24px; }
 .kd-pdf-view-body .kd-pg-sheet { position: relative; left: auto; top: auto; box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6); }

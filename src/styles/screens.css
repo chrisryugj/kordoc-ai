@@ -151,7 +151,7 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-bigaction { display: flex; gap: 12px; align-items: flex-start; width: 100%; padding: 12px; text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); cursor: pointer; color: var(--color-text-primary); }
 .kd-bigaction > svg { flex: none; margin-top: 2px; color: var(--color-accent); }
 .kd-bigaction:hover:not(:disabled) { border-color: var(--color-border-hover); background: var(--color-bg-primary); }
-.kd-bigaction:disabled { opacity: 0.55; cursor: default; }
+.kd-bigaction:disabled { cursor: default; background: var(--color-bg-primary); color: var(--color-text-disabled); }
 .kd-bigaction:disabled > svg { color: var(--color-text-muted); }
 .kd-chip { min-height: 34px; padding: 6px 14px; border-radius: 999px; font-size: var(--fs-small); font-weight: 600; line-height: 1.4; border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-secondary); cursor: pointer; text-align: left; transition: border-color var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast); }
 .kd-chip:hover { border-color: var(--color-border-hover); background: var(--color-bg-primary); color: var(--color-text-primary); }
@@ -165,12 +165,13 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-wb { flex: 1; min-height: 0; display: grid; grid-template-columns: 216px minmax(0, 1fr); }
 .kd-wb[data-list="false"] { grid-template-columns: minmax(0, 1fr); }
 .kd-wb[data-list="false"] .kd-toolbar { padding-left: 52px; }
-.kd-doclist { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--color-border); }
+/* 화면 안 왼쪽 목록(연 문서·할 일·설정 목차·대화 목록·도움말 목차)은 모두 옅은 회색 면 + 고른 줄은 흰 카드 (왼쪽 탐색과 같은 문법) */
+.kd-doclist { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--color-border); background: var(--color-bg-primary); }
 .kd-doclist-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 4px 14px; }
 .kd-doclist-items { flex: 1; overflow: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
 .kd-docitem { display: flex; align-items: flex-start; border-radius: var(--radius-md); }
-.kd-docitem:hover { background: var(--color-bg-primary); }
-.kd-docitem[aria-current="true"] { background: var(--color-bg-tertiary); }
+.kd-docitem:hover { background: var(--color-bg-tertiary); }
+.kd-docitem[aria-current="true"] { background: var(--color-bg-secondary); box-shadow: var(--shadow-card); }
 .kd-docitem-main { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; padding: 8px 4px 8px 8px; text-align: left; background: none; border: 0; cursor: pointer; color: var(--color-text-primary); }
 .kd-docitem-name { display: block; font-size: var(--fs-body); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .kd-docitem-x { width: 32px; height: 32px; margin: 2px 0 0 0; }
@@ -196,7 +197,8 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 }
 .kd-next-btn:hover { border-color: var(--color-border-hover); }
 .kd-next-btn[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent); }
-.kd-tooltabs .kd-tab { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+/* 높이를 왼쪽 미리보기 도구 줄(8+38+8)과 맞춰 두 칸의 밑줄이 한 줄로 이어지게 */
+.kd-tooltabs .kd-tab { flex: 1 1 0; min-width: 0; padding: 0 6px; min-height: 50px; }
 .kd-tool-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 16px 16px 28px; }
 /* 탭 안 도구 하나하나: 작은 제목 + 괘선으로 나눈다 */
 .kd-tool-sec + .kd-tool-sec { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--color-border); }
@@ -208,12 +210,13 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 
 /* ── 한꺼번에 ── */
 .kd-batch { flex: 1; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
-.kd-tasklist { overflow: auto; padding: 14px 8px 20px; border-right: 1px solid var(--color-border); }
+.kd-tasklist { overflow: auto; padding: 14px 8px 20px; border-right: 1px solid var(--color-border); background: var(--color-bg-primary); }
 .kd-taskitem { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: var(--radius-md); background: none; border: 1px solid transparent; cursor: pointer; color: var(--color-text-primary); }
 .kd-taskitem:hover:not(:disabled) { background: var(--color-bg-tertiary); }
-.kd-taskitem[aria-pressed="true"] { background: var(--color-bg-secondary); border-color: var(--color-border-hover); }
+.kd-taskitem[aria-pressed="true"], .kd-taskitem[aria-pressed="true"]:hover:not(:disabled) { background: var(--color-bg-secondary); box-shadow: var(--shadow-card); }
 .kd-taskitem[aria-pressed="true"] .kd-row-title { color: var(--color-accent); }
-.kd-taskitem:disabled { opacity: 0.6; cursor: default; }
+.kd-taskitem:disabled { cursor: default; }
+.kd-taskitem:disabled .kd-row-title { color: var(--color-text-disabled); }
 .kd-batch-main { overflow: auto; min-width: 0; padding: 18px 24px 28px; display: flex; flex-direction: column; gap: 18px; }
 .kd-batch-opts { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .kd-batch-opts p.kd-small { text-wrap: balance; }
@@ -273,7 +276,7 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-tasks[data-size="lg"] .kd-tasks-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .kd-tasks[data-size="lg"] .kd-task { padding: 20px 18px; min-height: 176px; }
 .kd-tasks[data-size="lg"] .kd-task-icon { width: 44px; height: 44px; border-radius: 12px; }
-.kd-tasks[data-size="lg"] .kd-task-title { font-size: 17px; }
+.kd-tasks[data-size="lg"] .kd-task-title { font-size: var(--fs-h2); }
 @container (max-width: 900px) { .kd-tasks[data-size="lg"] .kd-tasks-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* 첫 실행: 화면 방식 고르기 */

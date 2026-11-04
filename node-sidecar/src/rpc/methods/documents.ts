@@ -117,13 +117,13 @@ export function registerDocuments(router: RpcRouter): void {
     const files = reqPaths(p.files);
     const mode = oneOf(p.mode, ['native', 'markdown'] as const) ?? 'markdown';
     const ext = mode === 'native' ? extname(files[0]).toLowerCase() : '.md';
-    const output_path = outputFile({ output_path: optPath(p.output_path), source: files[0], name: `${stemOf(files[0])}_병합${ext}` });
+    const output_path = outputFile({ output_path: optPath(p.output_path), source: files[0], name: `${stemOf(files[0])}${files.length > 1 ? `_외${files.length - 1}건` : ''}_합본${ext}` });
     return mergeFiles({ files, output_path, mode }, signal);
   }, { heavy: true });
   reg('split_pdf', (p, signal) => {
     const file = reqPath(p.input_path);
-    // output_dir 는 상위 폴더: 그 안에 <이름>_분리 (이미 있고 비어 있지 않으면 core 가 (2) 폴더로)
-    const output_dir = splitDirOf(optPath(p.output_dir), file, `${stemOf(file)}_분리`);
+    // output_dir 는 상위 폴더: 그 안에 <이름>_나누기 (한글 나누기와 같은 이름. 이미 있고 비어 있지 않으면 core 가 (2) 폴더로)
+    const output_dir = splitDirOf(optPath(p.output_dir), file, `${stemOf(file)}_나누기`);
     return splitPdf({ file, output_dir, mode: oneOf(p.mode, ['each', 'range'] as const), ranges: str(p.ranges) }, signal);
   }, { heavy: true });
   // 한글 나누기: 구역·강제 쪽 나눔마다 서식 그대로 HWPX 여러 개 (결과 폴더 <이름>_나누기, output_dir 는 상위 폴더)

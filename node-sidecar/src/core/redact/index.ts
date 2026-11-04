@@ -8,7 +8,7 @@
 
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { DEFAULT_REDACT_RULES, parse, redactMarkdown, redactText, type RedactHit } from 'kordoc';
+import { DEFAULT_REDACT_RULES, parse, type RedactHit } from 'kordoc';
 import type { BatchItemResult, RedactResult, RedactRule } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
 import { errorText } from '../errors.js';
@@ -19,6 +19,7 @@ import { outputDir, outputFile, stemOf } from '../output/index.js';
 import { patchDocument } from '../hwpx-tools/index.js';
 import { exportPdf } from '../export/index.js';
 import { imageToPdf, redactPdf } from './pdf.js';
+import { missedAddressHits, redactMarkdown, redactText } from './rules.js';
 
 export const ALL_RULES: readonly RedactRule[] = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'crn', 'ip', 'name', 'address'];
 export const RULE_LABELS: Record<RedactRule, string> = {
@@ -109,6 +110,17 @@ function dropKept(hits: CliHit[], forms: Map<string, unknown>): CliHit[] {
 
 const unchecked = (rules: readonly RedactRule[]) => PERSONAL.filter((r) => !rules.includes(r));
 
+/** 가린 사본의 글을 고친 마크다운대로 서식 그대로 바꿔 넣는다 (임시 파일에 쓰고 바꿔치기) */
+async function patchInPlace(path: string, markdown: string, format: 'hwp' | 'hwpx'): Promise<void> {
+  const tmp = join(dirname(path), `.${Date.now()}_가림.${format}`);
+  try {
+    await patchDocument({ path, markdown, output_path: tmp });
+    await rename(tmp, path);
+  } finally {
+    await rm(tmp, { force: true });
+  }
+}
+
 async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskChar: string, stem: string, signal?: AbortSignal): Promise<RedactResult> {
   const format = formatOf(p.path) as 'hwp' | 'hwpx';
   const keep = keepMatcher(p.keep);
@@ -130,16 +142,24 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
         if (masked.success) {
           let md = masked.markdown;
           for (const [form, f] of forms) md = md.split(form).join(f.orig);
-          if (md !== masked.markdown) {
-            const tmp = join(dirname(report.output), `.${Date.now()}_가림.${format}`);
-            try {
-              await patchDocument({ path: report.output, markdown: md, output_path: tmp });
-              await rename(tmp, report.output);
-            } finally {
-              await rm(tmp, { force: true });
-            }
-          }
+          if (md !== masked.markdown) await patchInPlace(report.output, md, format);
         }
+      }
+    }
+  }
+  // kordoc 주소 규칙이 놓친 도로명·지번 주소(rules.ts): 가린 사본에서 마저 가리고(미리 찾아보기면 원본에서 세기만) 목록에 더한다
+  if (rules.includes('address')) {
+    const target = report.output ?? p.path;
+    const isMd = target.toLowerCase().endsWith('.md');
+    const md = isMd ? await readFile(target, 'utf-8') : await parse(await readFile(target), { layoutTables: 'keep' }).then((r) => (r.success ? r.markdown : ''), () => '');
+    const extra = missedAddressHits(md, maskChar).filter((h) => !keep(md.slice(h.index, h.index + h.length)));
+    if (extra.length) {
+      listed = [...listed, ...extra.map((h) => ({ rule: h.rule, masked: h.masked }))];
+      if (report.output) {
+        let out = md;
+        for (const h of extra) out = out.slice(0, h.index) + h.masked + out.slice(h.index + h.length);
+        if (isMd) await writeFile(report.output, out, 'utf-8');
+        else await patchInPlace(report.output, out, format);
       }
     }
   }

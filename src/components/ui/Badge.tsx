@@ -28,7 +28,7 @@ const getVariantStyle = (variant: BadgeVariant): CSSProperties => {
 export const Badge = memo(function Badge({ variant = "default", children, className = "" }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold tracking-wide ${className}`}
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[length:var(--fs-caption)] font-semibold tracking-wide ${className}`}
       style={getVariantStyle(variant)}
     >
       {children}

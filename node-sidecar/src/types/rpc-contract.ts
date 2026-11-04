@@ -158,8 +158,8 @@ export interface RpcMethods {
   watch_list: [Record<string, never>, Array<{ id: string; dir: string; out_dir: string; format: string; processed: number; started_at: string }>];
   /** failed: 합치지 못한 파일과 이유 (없으면 빈 배열). 하나도 못 합치면 오류. file_count 는 실제로 합친 파일 수 */
   merge_files: [{ files: string[]; output_path?: string; mode?: 'native' | 'markdown' }, MergeFilesResult];
-  /** output_dir 를 주면 그 안에 <원래 이름>_분리 폴더(output_dir 이름이 이미 그것이면 그 폴더). 없으면 저장 폴더의 <원래 이름>_분리.
-   *  결과 폴더가 이미 있고 비어 있지 않으면 <원래 이름>_분리 (2) … 새 폴더 (덮어쓰지 않음). output_dir 는 실제로 쓴 폴더 */
+  /** output_dir 를 주면 그 안에 <원래 이름>_나누기 폴더(output_dir 이름이 이미 그것이면 그 폴더). 없으면 저장 폴더의 <원래 이름>_나누기.
+   *  결과 폴더가 이미 있고 비어 있지 않으면 <원래 이름>_나누기 (2) … 새 폴더 (덮어쓰지 않음). output_dir 는 실제로 쓴 폴더 */
   split_pdf: [{ input_path: string; output_dir?: string; mode?: 'each' | 'range'; ranges?: string }, { success: boolean; output_dir: string; output_files: string[]; total_pages: number }];
   /** output_dir 를 주면 그 안에 <원래 이름>_나누기 폴더(output_dir 이름이 이미 그것이면 그 폴더). 결과 폴더가 이미 있고 비어 있지 않으면 (2) … 새 폴더. output_dir 는 실제로 쓴 폴더 */
   split_hangul: [{ path: string; output_dir?: string; mode?: 'auto' | 'section' | 'pagebreak' }, { output_dir: string; output_files: string[]; sections: number; page_breaks: number }];
@@ -208,7 +208,7 @@ export interface RpcMethods {
   /** 연결 시험 — 짧은 질문 한 번 */
   ai_test: [Record<string, never>, { ok: boolean; latency_ms: number; sample?: string; error?: string }];
   /** 저장 전 설정값으로 모델 목록 (OpenAI 호환 서버). slot: 저장된 키를 꺼낼 칸 — 기관 서버(openai, 기본)·이 PC 서버(local) */
-  ai_list_models: [{ base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, { models: string[] }];
+  ai_list_models: [{ base_url?: string; api_key?: string; slot?: 'openai' | 'local' | 'anthropic' | 'gemini' }, { models: string[] }];
   /** 이 PC 에서 켜진 로컬 모델 서버 찾기 — 127.0.0.1 의 잘 알려진 포트(Ollama·LM Studio·llama.cpp 서버·vLLM 등)에 /v1/models */
   ai_local_servers: [Record<string, never>, { servers: LocalModelServer[] }];
   /** 구독 프로그램(Claude Code·Codex·Gemini CLI) 설치·로그인 상태. provider 가 없으면 모두. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */

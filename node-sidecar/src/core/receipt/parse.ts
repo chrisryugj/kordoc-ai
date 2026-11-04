@@ -56,6 +56,8 @@ export function linesFromMarkdown(md: string): ReceiptLine[] {
   for (const raw of md.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || /^\|?\s*:?-{3,}/.test(line)) continue;
+    // 그림 자리 글 (스캔 쪽을 OCR 없이 읽으면 이것만 나온다)
+    if (/^!\[[^\]]*\]\([^)]*\)$/.test(line)) continue;
     if (/^<tr>/i.test(line)) {
       const cells = [...line.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)].map((m) => unesc(m[1])).filter(Boolean);
       if (cells.length) out.push({ text: cells.join(' '), cells, confidence: 1 });
@@ -91,7 +93,10 @@ export function amountsIn(text: string): number[] {
 
 /** 줄의 마지막 금액 (쉼표 있는 꼴을 먼저, 없으면 1~9자리 숫자) */
 function lastAmount(line: ReceiptLine, from = 0): number | undefined {
-  const text = line.cells.slice(from).join(' ');
+  // 이름표와 값이 한 조각("합계 18,000")이면 이름표·괄호 말("(VAT포함)"·"(1건)")을 뺀 뒤 글
+  const text = from > 0 && line.cells.length <= from
+    ? line.text.replace(/\([^)]*\)/g, ' ').replace(/^[^\d]*/, '')
+    : line.cells.slice(from).join(' ');
   const withComma = [...text.matchAll(/(?<![\d,.])\d{1,3}(?:[,.]\d{3})+(?!\d)/g)].map((m) => Number(m[0].replace(/[,.]/g, '')));
   if (withComma.length) return withComma[withComma.length - 1];
   const all = amountsIn(text).filter((n) => n > 0 && n < 1e9);
@@ -101,6 +106,8 @@ function lastAmount(line: ReceiptLine, from = 0): number | undefined {
 const pad = (n: number) => String(n).padStart(2, '0');
 function okDate(y: number, m: number, d: number, now = new Date()): string | null {
   if (y < 2000 || y > now.getFullYear() + 1 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  // 없는 날 (2월 30일·4월 31일)
+  if (new Date(Date.UTC(y, m - 1, d)).getUTCDate() !== d) return null;
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 
@@ -134,6 +141,8 @@ const TOTAL_TIERS: RegExp[] = [
   /^(합계|총)금액|^총합계|^총액|^합계|^총계|^공급대가(총액)?|^판매(합계|금액)|^매출합계|^금액합계|^계$/,
 ];
 const NOT_TOTAL = /수량|받은|거스름|잔돈|할인|과세|면세|부가|공급가|포인트|잔액|적립|봉사료|점수/;
+/** 합계 이름표에 붙는 "(부가세포함)"·"(VAT포함)" (붙은 머리 글 기준). 떼고 본다: "부가세(VAT포함)" 는 떼도 부가세라 합계가 아니다 */
+const TAX_INCLUDED = /\((부가세|부가가치세|vat)포함\)/gi;
 const SUPPLY = /^(공급가액|공급가|과세물품가액|과세물품|과세매출|과세금액|물품가액)/;
 const VAT = /^(부가세|부가가치세|세액|vat)/i;
 const DATE_LABEL = /거래일|거래일시|일자|일시|날짜|작성년월일|작성일|판매일|결제일|승인일|매출일|등록|발행일/;
@@ -163,16 +172,26 @@ function findDate(lines: ReceiptLine[]): ReceiptValue | undefined {
   return val(best.d, best.score >= 2 ? 0.95 : 0.85, best.line);
 }
 
-function findBrn(lines: ReceiptLine[]): ReceiptValue | undefined {
-  for (const line of lines) {
+/** 가게가 아닌 쪽(카드사·결제대행·가맹점번호)의 사업자번호가 놓이는 줄. "신용카드·체크카드" 같은 결제 수단 이름은 빼고 "한빛카드" 같은 카드사 이름 */
+const BRN_AWAY = /카드사|매입사|발급사|\bVAN|밴\s*사|결제\s*대행|PG사|가맹점\s*번호|[가-힣A-Za-z]{2,}(?<!신용|체크|선불|직불)카드(?![가-힣])/i;
+
+/** 사업자번호 후보 가운데: 이름표가 있고, 검증 숫자가 맞고, 가게 이름 줄에 가깝고, 카드사·결제대행 쪽이 아닌 것.
+ *  검증 숫자가 틀렸거나 카드사 쪽 번호뿐이면 신뢰도를 0.8 아래로 (사람이 확인하게) */
+function findBrn(lines: ReceiptLine[], vendorAt = -1): ReceiptValue | undefined {
+  let best: { value: string; score: number; c: number; line: ReceiptLine } | undefined;
+  lines.forEach((line, i) => {
     const m = /(?<!\d)(\d{3})\s*[-–.]\s*(\d{2})\s*[-–.]\s*(\d{5})(?!\d)/.exec(line.text)
       ?? (BRN_LABEL.test(line.text) ? /(?<!\d)(\d{3})(\d{2})(\d{5})(?!\d)/.exec(squash(line.text)) : null);
-    if (!m) continue;
-    const digits = `${m[1]}${m[2]}${m[3]}`;
-    const c = (BRN_LABEL.test(line.text) ? 0.92 : 0.85) + (brnValid(digits) ? 0.05 : 0);
-    return val(`${m[1]}-${m[2]}-${m[3]}`, c, line);
-  }
-  return undefined;
+    if (!m) return;
+    const labeled = BRN_LABEL.test(line.text);
+    const valid = brnValid(`${m[1]}${m[2]}${m[3]}`);
+    const away = BRN_AWAY.test(line.text) || (i > 0 && BRN_AWAY.test(lines[i - 1].text));
+    const near = vendorAt >= 0 && Math.abs(i - vendorAt) <= 2;
+    const score = (labeled ? 1 : 0) + (valid ? 1 : 0) + (near ? 1.5 : 0) - (away ? 3 : 0) - i / 1000;
+    const c = !valid || away ? 0.6 : labeled ? 0.97 : 0.9;
+    if (!best || score > best.score) best = { value: `${m[1]}-${m[2]}-${m[3]}`, score, c, line };
+  });
+  return best ? val(best.value, best.c, best.line) : undefined;
 }
 
 function cleanVendor(s: string): string {
@@ -204,7 +223,7 @@ function findVendor(lines: ReceiptLine[]): ReceiptValue | undefined {
 function findTotal(lines: ReceiptLine[], hints: number[]): ReceiptValue | undefined {
   const cands: Array<{ tier: number; amount: number; line: ReceiptLine; i: number }> = [];
   lines.forEach((line, i) => {
-    const h = head(line);
+    const h = head(line).replace(TAX_INCLUDED, '');
     if (NOT_TOTAL.test(h)) return;
     const tier = TOTAL_TIERS.findIndex((re) => re.test(h));
     if (tier < 0) return;
@@ -235,6 +254,28 @@ function findLabeledAmount(lines: ReceiptLine[], re: RegExp): ReceiptValue | und
     if (a !== undefined) return val(String(a), 0.9, line);
   }
   return undefined;
+}
+
+/** 카드번호 꼴 (네 자리 · 2~4 · 4 · 3~4, 가린 글자 *·x·# 포함) */
+const CARD_NO = /(?<!\d)\d{4}[-\s]?[\d*xX#]{2,4}[-\s]?[\d*xX#]{4}[-\s]?[\d*xX#]{3,4}(?!\d)/g;
+
+/** 카드번호는 앞 네 자리만 두고 가린다. 카드 줄(카드 글자·바로 위 "카드번호")이거나 이미 가린 꼴·네 자리씩 띄운 꼴만 카드번호로 본다 */
+function maskCardText(text: string, cardLine: boolean): string {
+  return text.replace(CARD_NO, (m) => (cardLine || /[*xX#]/.test(m) || /^\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{3,4}$/.test(m)
+    ? m.slice(0, 4) + m.slice(4).replace(/[\dxX#]/g, '*')
+    : m));
+}
+
+/** 읽은 줄의 카드번호 가리기 (근거 줄·화면·AI 로 가는 줄 모두 이것을 거친다) */
+export function maskCardLines(lines: ReceiptLine[]): ReceiptLine[] {
+  return lines.map((line, i) => {
+    const cardLine = /카드/.test(squash(line.text)) || (i > 0 && /카드번호[:：]?$/.test(squash(lines[i - 1].text)));
+    const text = maskCardText(line.text, cardLine);
+    if (text === line.text) return line;
+    const cells = line.cells.map((c) => maskCardText(c, cardLine));
+    // 번호가 여러 칸에 걸쳐 갈라졌으면 칸으로는 못 가리니 줄 하나로
+    return { ...line, text, cells: cells.join(' ') === text || line.cells.join(' ') !== line.text ? cells : [text] };
+  });
 }
 
 function findPayment(lines: ReceiptLine[]): { payment?: ReceiptValue; card?: ReceiptValue; paid: number[] } {
@@ -361,7 +402,9 @@ export function purposeOf(items: ReceiptItem[]): ReceiptValue {
   return { value: items.length > 1 ? `${first} 외 ${items.length - 1}건` : first, confidence: 0.7 };
 }
 
-export function parseReceipt(lines: ReceiptLine[]): { fields: ReceiptFields; items: ReceiptItem[] } {
+export function parseReceipt(raw: ReceiptLine[]): { fields: ReceiptFields; items: ReceiptItem[] } {
+  // 카드번호는 처음부터 가린 줄로 (근거 줄에 남지 않게)
+  const lines = maskCardLines(raw);
   const items = findItems(lines);
   const supply = findLabeledAmount(lines, SUPPLY);
   const vat = findLabeledAmount(lines, VAT);
@@ -373,8 +416,9 @@ export function parseReceipt(lines: ReceiptLine[]): { fields: ReceiptFields; ite
   const fields: ReceiptFields = {};
   const set = <K extends keyof ReceiptFields>(k: K, v: ReceiptFields[K] | undefined) => { if (v) fields[k] = v; };
   set('date', findDate(lines));
-  set('vendor', findVendor(lines));
-  set('brn', findBrn(lines));
+  const vendor = findVendor(lines);
+  set('vendor', vendor);
+  set('brn', findBrn(lines, vendor ? lines.findIndex((l) => l.text === vendor.source) : -1));
   set('owner', findOwner(lines));
   set('address', findAddress(lines));
   set('total', findTotal(lines, hints));

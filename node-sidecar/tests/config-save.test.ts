@@ -42,3 +42,19 @@ describe('updateSettings 동시 호출', () => {
     expect(JSON.parse(readFileSync(file, 'utf-8')).law.oc).toBe('gaon2');
   });
 });
+
+describe('설정 파일 바꿔 넣기: Windows 잠깐 잠김(EPERM·EBUSY)은 다시 해 본다', () => {
+  it('두 번 EPERM 뒤 성공하면 성공, 다른 오류는 바로 던진다', async () => {
+    const { renameRetry } = await import('../src/infra/config.js');
+    let n = 0;
+    const flaky = async () => { n++; if (n < 3) throw Object.assign(new Error('locked'), { code: 'EPERM' }); };
+    await renameRetry('a', 'b', 6, flaky);
+    expect(n).toBe(3);
+    const bad = async () => { throw Object.assign(new Error('nope'), { code: 'ENOENT' }); };
+    await expect(renameRetry('a', 'b', 6, bad)).rejects.toThrow('nope');
+    let m = 0;
+    const always = async () => { m++; throw Object.assign(new Error('busy'), { code: 'EBUSY' }); };
+    await expect(renameRetry('a', 'b', 3, always)).rejects.toThrow('busy');
+    expect(m).toBe(3);
+  });
+});

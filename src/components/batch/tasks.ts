@@ -25,10 +25,9 @@ export interface TaskDef {
 export const TASKS: TaskDef[] = [
   { id: "join", group: "합치기·나누기", title: "하나로 합치기", desc: "한글은 HWPX 한 파일로, 그 밖은 PDF 한 권으로", min: 2 },
   { id: "split", group: "합치기·나누기", title: "나누기", desc: "한글은 구역·쪽 나눔마다, PDF는 쪽마다", min: 1, accepts: ["hwp", "hwpx", "pdf"] },
-  { id: "bundle", group: "합치기·나누기", title: "합본 PDF", desc: "결재용. 쪽 번호·워터마크를 넣은 PDF 한 권", min: 1 },
-  { id: "merge", group: "합치기·나누기", title: "한 문서로 합치기", desc: "한글·워드를 같은 형식 하나로", min: 2, adv: true },
-  { id: "hwpsplit", group: "합치기·나누기", title: "한글 문서 나누기", desc: "구역·쪽 나눔마다, 서식 그대로", min: 1, accepts: ["hwp", "hwpx"], adv: true },
-  { id: "pdftools", group: "합치기·나누기", title: "PDF 나누기·쪽 뽑기", desc: "쪽을 보며 나누기·뽑기·순서·돌리기", min: 1, adv: true },
+  { id: "bundle", group: "합치기·나누기", title: "합본 PDF", desc: "결재 첨부용. 모든 형식을 PDF 한 권으로, 쪽 번호·워터마크를 넣어", min: 1 },
+  { id: "merge", group: "합치기·나누기", title: "한 문서로 합치기", desc: "차례·방식을 골라 같은 형식 한 파일로, 섞이면 글(.md)로 이어 붙임", min: 2, adv: true },
+  // 한글 나누기(hwpsplit)·PDF 쪽 다루기(pdftools)는 나누기와 겹쳐 목록에서 뺐다. 옛 주소는 startBatch 가 나누기·PDF 작업으로 보낸다
   { id: "collect", group: "모으기", title: "문서 수합", desc: "제출물을 엑셀 한 장으로, 미제출 부서·독촉 글까지", min: 1 },
   { id: "extract", group: "모으기", title: "항목 뽑기(AI)", desc: "서식이 제각각인 문서에서 같은 항목을 표로", min: 1, adv: true, ai: true },
   { id: "mailmerge", group: "만들기", title: "명부로 여러 장 만들기", desc: "양식 하나에 명부 한 줄씩", min: 0, adv: true },
