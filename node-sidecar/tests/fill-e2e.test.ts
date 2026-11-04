@@ -3,9 +3,9 @@
  * 실양식(서면자문 의견서)이 로컬에 있으면 실파일 드롭→채움→저장→재파싱 검증까지 수행.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +49,7 @@ let tmpDir: string;
 beforeAll(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'kordoc-fill-'));
 });
+afterAll(async () => { await rm(tmpDir, { recursive: true, force: true }); });
 
 describe('form_schema', () => {
   it('합성 양식 — 인라인 빈 라벨 2개를 타입과 함께 노출', async () => {

@@ -60,14 +60,13 @@ function SortableFileItem({
       style={{
         ...style,
         backgroundColor: isDragging ? "var(--color-bg-secondary)" : "var(--color-bg-tertiary)",
-        boxShadow: isDragging ? "0 4px 12px rgba(0,0,0,.12)" : undefined,
+        boxShadow: isDragging ? "var(--shadow-lg)" : undefined,
       }}
     >
       {/* 드래그 핸들 */}
       <button
         {...listeners}
-        className="p-0.5 rounded cursor-grab active:cursor-grabbing shrink-0"
-        style={{ color: "var(--color-text-muted)" }}
+        className="kd-icon-btn cursor-grab active:cursor-grabbing shrink-0"
         tabIndex={-1}
         aria-label="끌어서 순서 바꾸기"
       >
@@ -76,8 +75,8 @@ function SortableFileItem({
 
       {/* 번호 */}
       <span
-        className="w-5 h-5 rounded-md flex items-center justify-center ts-2xs font-bold shrink-0"
-        style={{ backgroundColor: "color-mix(in srgb, #D97706 15%, transparent)", color: "#D97706" }}
+        className="w-6 h-6 rounded-md flex items-center justify-center kd-small kd-num font-bold shrink-0"
+        style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}
       >
         {index + 1}
       </span>
@@ -86,7 +85,7 @@ function SortableFileItem({
       <Badge variant={getFileTypeBadgeVariant(file.name)}>{file.type.toUpperCase()}</Badge>
 
       {/* 파일명 */}
-      <span className="ts-xs flex-1 truncate" style={{ color: "var(--color-text-primary)" }}>
+      <span className="kd-small flex-1 truncate" style={{ color: "var(--color-text-primary)" }}>
         {file.name}
       </span>
 
@@ -95,24 +94,16 @@ function SortableFileItem({
         <button
           onClick={onMoveUp}
           disabled={index === 0}
-          className="p-0.5 rounded transition-colors"
-          style={{
-            color: index === 0 ? "var(--color-text-disabled)" : "var(--color-text-secondary)",
-            cursor: index === 0 ? "default" : "pointer",
-          }}
-          aria-label="위로 이동"
+          className="kd-icon-btn"
+          aria-label="위로 옮기기"
         >
           <ChevronUp size={14} />
         </button>
         <button
           onClick={onMoveDown}
           disabled={index === total - 1}
-          className="p-0.5 rounded transition-colors"
-          style={{
-            color: index === total - 1 ? "var(--color-text-disabled)" : "var(--color-text-secondary)",
-            cursor: index === total - 1 ? "default" : "pointer",
-          }}
-          aria-label="아래로 이동"
+          className="kd-icon-btn"
+          aria-label="아래로 옮기기"
         >
           <ChevronDown size={14} />
         </button>
@@ -122,11 +113,7 @@ function SortableFileItem({
       <button
         onClick={onRemove}
         disabled={total <= 2}
-        className="p-0.5 rounded transition-colors shrink-0"
-        style={{
-          color: total <= 2 ? "var(--color-text-disabled)" : "var(--color-text-muted)",
-          cursor: total <= 2 ? "default" : "pointer",
-        }}
+        className="kd-icon-btn shrink-0"
         aria-label={`${file.name} 빼기`}
       >
         <X size={13} />
@@ -224,15 +211,15 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
         <div className="flex items-center gap-3">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: "color-mix(in srgb, #D97706 12%, transparent)" }}
+            style={{ backgroundColor: "var(--color-accent-subtle)" }}
           >
-            <Merge size={20} style={{ color: "#D97706" }} />
+            <Merge size={20} style={{ color: "var(--color-accent)" }} />
           </div>
           <div>
-            <h3 id={titleId} className="ts-sm font-bold" style={{ color: "var(--color-text-primary)" }}>
+            <h3 id={titleId} className="kd-h2" style={{ color: "var(--color-text-primary)" }}>
               합치기
             </h3>
-            <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+            <p className="kd-small" style={{ color: "var(--color-text-muted)" }}>
               끌어서 순서를 정하세요 · {items.length}개 파일
             </p>
           </div>
@@ -272,24 +259,24 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
         {/* 병합 방식 선택 — 동일 네이티브 포맷일 때만 */}
         {uniformType && (
           <div className="space-y-2">
-            <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+            <p className="kd-label">
               합칠 방식
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
                 className="flex items-center gap-2 p-2.5 rounded-lg text-left transition-all"
                 style={{
-                  backgroundColor: mergeMode === "native" ? "color-mix(in srgb, #D97706 8%, transparent)" : "var(--color-bg-tertiary)",
-                  border: `1.5px solid ${mergeMode === "native" ? "#D97706" : "var(--color-border-subtle)"}`,
+                  backgroundColor: mergeMode === "native" ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
+                  border: `1.5px solid ${mergeMode === "native" ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
                 }}
                 onClick={() => setMergeMode("native")}
               >
-                <FileOutput size={15} style={{ color: mergeMode === "native" ? "#D97706" : "var(--color-text-muted)" }} />
+                <FileOutput size={15} style={{ color: mergeMode === "native" ? "var(--color-accent)" : "var(--color-text-muted)" }} />
                 <div>
-                  <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                  <div className="kd-small font-semibold" style={{ color: "var(--color-text-primary)" }}>
                     서식 유지
                   </div>
-                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
+                  <div className="kd-small" style={{ color: "var(--color-text-muted)" }}>
                     {uniformType.toUpperCase()} 그대로
                   </div>
                 </div>
@@ -304,10 +291,10 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
               >
                 <FileText size={15} style={{ color: mergeMode === "markdown" ? "var(--color-accent)" : "var(--color-text-muted)" }} />
                 <div>
-                  <div className="ts-2xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                    마크다운
+                  <div className="kd-small font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                    글(마크다운)
                   </div>
-                  <div className="ts-2xs" style={{ color: "var(--color-text-muted)", fontSize: "0.675rem" }}>
+                  <div className="kd-small" style={{ color: "var(--color-text-muted)" }}>
                     글로 바꿈
                   </div>
                 </div>
@@ -318,34 +305,32 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
 
         {/* 내보내기 폴더 */}
         <div className="space-y-1.5">
-          <p className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>저장할 곳</p>
+          <p className="kd-label">저장할 곳</p>
           <div className="flex items-center gap-2">
             <button
               onClick={handleBrowseOutputDir}
               className="group flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all cursor-pointer"
               style={{ backgroundColor: "var(--color-bg-tertiary)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = "0 0 0 1px #D9770640"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = "0 0 0 1px var(--color-accent)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)"; e.currentTarget.style.boxShadow = "none"; }}
             >
-              <FolderOpen size={13} style={{ color: effectiveDir ? "#D97706" : "var(--color-text-muted)" }} />
-              <span className="ts-2xs truncate" style={{ color: effectiveDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+              <FolderOpen size={13} style={{ color: effectiveDir ? "var(--color-accent)" : "var(--color-text-muted)" }} />
+              <span className="kd-small truncate" style={{ color: effectiveDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
                 {effectiveDir
-                  ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir ? " (전역)" : ""}`
+                  ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir ? " (설정의 저장 폴더)" : ""}`
                   : "원본 파일 옆"
                 }
               </span>
-              <span className="ts-2xs font-medium ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "#D97706" }}>
-                변경
+              <span className="kd-small font-semibold ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--color-accent)" }}>
+                바꾸기
               </span>
             </button>
             {localOutputDir && (
               <button
                 onClick={() => setLocalOutputDir("")}
-                className="p-1 rounded shrink-0 transition-colors"
-                style={{ color: "var(--color-text-muted)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-error)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; }}
-                title="초기화"
+                className="kd-icon-btn shrink-0"
+                aria-label="저장할 곳 원래대로"
+                data-tip="고른 폴더를 버리고 원래 저장할 곳으로 되돌립니다"
               >
                 <X size={13} />
               </button>

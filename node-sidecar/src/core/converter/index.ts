@@ -116,7 +116,7 @@ export async function parseDoc(path: string, opts: ParseDocOptions = {}): Promis
 /** kordoc 경고 → 화면 문장 (OCR 필요 경고는 CLI 안내 대신 할 일로) */
 export function parseWarnings(r: ParseSuccess): string[] {
   const out = (r.warnings ?? []).map((w) => (w.code === 'NEEDS_OCR' || /CLI|ocr: true/.test(w.message)
-    ? '글자 층이 없는 쪽(스캔)이 있습니다. 글자를 읽으려면 OCR을 켜고 다시 시도하세요.'
+    ? '글자 층이 없는 쪽(스캔)이 있습니다. 글자 읽기(OCR)를 켜고 다시 시도하세요.'
     : cleanMessage(w.message)));
   return [...new Set(out)];
 }

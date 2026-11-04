@@ -220,14 +220,16 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
   const canAgent = hangul && !!ai?.configured && toAgent.length > 0 && !more;
   return (
     <div className="flex flex-col gap-4">
-      <p className="kd-small kd-muted text-pretty">
-        표기법, 날짜와 요일, 표 합계, 끝. 표시, 빈칸 안내 글자, 남은 개인정보를 한 번에 봅니다.
-        AI가 연결되어 있으면 K팀장 검토와 법령 근거 확인도 이어서 합니다.
-      </p>
-      <Check label="보고서·계획서라면 개조식 끝맺음(함·임)도 보기" checked={munche} onChange={setMunche} />
+      {/* 탭 맨 위의 주 행동. 무엇을 보는지는 말풍선으로 */}
       {pre.busy ? <Working label="빠른 검사를 하는 중" onCancel={pre.cancel} /> : (
-        <div><Button onClick={() => { fix.reset(); runAll(doc.path); }}><ClipboardCheck size={14} /> 결재 전 한 번에 점검</Button></div>
+        <Button className="w-full" onClick={() => { fix.reset(); runAll(doc.path); }}
+          data-tip={`표기법·날짜와 요일·표 합계·끝. 표시·빈칸 안내 글자·남은 개인정보를 봅니다.${ai?.configured ? " K팀장(AI) 검토와 법령 근거 확인도 이어서 합니다." : ""} 원본은 바꾸지 않습니다.`}>
+          <ClipboardCheck size={14} /> 결재 전 한 번에 점검
+        </Button>
       )}
+      <div className="kd-adv">
+        <Check label="개조식 끝맺음(함·임)도 보기" desc="보고서·계획서일 때" checked={munche} onChange={setMunche} />
+      </div>
       <ErrorLine message={pre.error} />
 
       {done && (
@@ -235,7 +237,7 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
           {fixedCopy && fix.result && (
             <>
               <SavedFile path={fix.result.output_path} label={`${fix.result.replaced}곳을 고친 사본을 저장하고 다시 점검했습니다`} />
-              <div><Button variant="secondary" size="sm" onClick={() => openDocs([fix.result!.output_path])}><Eye size={13} /> 고친 사본을 작업대에서 보기</Button></div>
+              <div><Button variant="secondary" size="sm" onClick={() => openDocs([fix.result!.output_path])}><Eye size={13} /> 고친 사본을 문서 화면에서 보기</Button></div>
             </>
           )}
           {fixedCopy && fix.result && fix.result.skipped.length > 0 && (
@@ -254,9 +256,9 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
 
           {canFix && (
             <div className="kd-inset flex flex-col gap-2 p-3">
-              <p className="kd-small text-pretty">바르게 고칠 값이 정해진 {fixes.length}곳을 서식 그대로 고친 사본을 만들고, 그 사본을 다시 점검합니다. 원본은 그대로 둡니다.</p>
+              <p className="kd-small text-pretty kd-num">바르게 고칠 값이 정해진 곳 {fixes.length}곳</p>
               {fix.busy ? <Working label="고치는 중" /> : (
-                <div><Button variant="secondary" onClick={runFix}><Wand2 size={14} /> 고칠 수 있는 것 모두 고치기</Button></div>
+                <div><Button variant="secondary" onClick={runFix} data-tip="서식 그대로 고친 사본을 만들고 그 사본을 다시 점검합니다. 원본은 그대로 둡니다."><Wand2 size={14} /> 고칠 수 있는 것 모두 고치기</Button></div>
               )}
               <ErrorLine message={fix.error} />
             </div>
@@ -264,18 +266,16 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
 
           {canAgent && (
             <div className="kd-inset flex flex-col gap-2 p-3">
-              <p className="kd-small text-pretty kd-num">
-                표기 지적 {toAgent.length}곳을 이 파일 그대로 한글 편집기로 열어 AI가 찾아 고칩니다. 날짜와 요일, 표 합계, 개인정보, 빈칸처럼 내용을 확인해야 하는 곳은 위 목록에서 직접 보세요.
-                바꾼 곳은 AI 대화 탭에서 한 번에 되돌릴 수 있고, 저장해야 파일에 들어갑니다.
-              </p>
-              <div><Button variant="secondary" onClick={() => startCreate({ path: target, agentTask: { text: precheckTask(items), label: `결재 전 점검의 표기 지적 ${toAgent.length}곳을 고쳐 주세요` } })}><Sparkles size={14} /> 편집기에서 AI로 고치기</Button></div>
+              <p className="kd-small text-pretty kd-num">표기 지적 {toAgent.length}곳은 AI가 편집기에서 고칩니다. 날짜·표 합계·개인정보·빈칸은 위 목록에서 직접 보세요.</p>
+              <div><Button variant="secondary" onClick={() => startCreate({ path: target, agentTask: { text: precheckTask(items), label: `결재 전 점검의 표기 지적 ${toAgent.length}곳을 고쳐 주세요` } })}
+                data-tip="이 파일을 한글 편집기로 엽니다. 바꾼 곳은 AI 대화 탭에서 한 번에 되돌릴 수 있고, 저장해야 파일에 들어갑니다."><Sparkles size={14} /> 편집기에서 AI로 고치기</Button></div>
             </div>
           )}
 
           <div className="flex flex-col gap-1">
             {!ai?.configured ? (
               <StatusLine tone="muted">
-                K팀장 검토(AI)는 AI 연결 시 함께 봅니다. <button type="button" className="kd-link" onClick={() => openSettings("set-ai")}>AI 연결하기</button>
+                K팀장 검토(AI)는 AI를 켜면 함께 봅니다. <button type="button" className="kd-link" onClick={() => openSettings("set-ai")}>AI 켜기</button>
               </StatusLine>
             ) : review.busy ? <Working label="K팀장이 논리·숫자·날짜를 읽는 중" onCancel={review.cancel} />
               : review.result ? <StatusLine tone="ok">K팀장 검토: {review.result.issues.length ? `${review.result.issues.length}건을 목록에 더했습니다` : "더 짚을 곳이 없습니다"}</StatusLine>

@@ -275,7 +275,7 @@ export function PageGrid(p: Props) {
       onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)} onKeyDown={onKeyDown}
       // 우클릭(맥은 Control+누르기)은 메뉴만: 손을 뗄 때 고르기를 바꾸지 않고, 끌던 중이면 끌기를 버린다
       onContextMenu={dropDrag}>
-      <div ref={gridRef} className="kd-pdf-grid" role="listbox" aria-multiselectable="true" aria-label="쪽 목록. 화살표로 옮겨 가고 Space 로 고릅니다"
+      <div ref={gridRef} className="kd-pdf-grid" role="listbox" aria-multiselectable="true" aria-label="쪽 목록. 화살표로 옮겨 가고 Space로 고릅니다"
         style={{ "--pg": `${size}px`, "--pg-gap": `${GAP_X}px` } as React.CSSProperties}>
         {board.items.map((it, i) => {
           const f = fileOf(board, it);

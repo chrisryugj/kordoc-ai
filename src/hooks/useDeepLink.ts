@@ -12,9 +12,12 @@ import { canQuit } from "../lib/quit";
  * shell_take_pending 으로 넘긴다 (모양은 실시간 이벤트와 같다).
  */
 type PendingEvent = { event: "deep-link"; payload: string } | { event: "open-files"; payload: string[] };
+// 끝의 pdfmerge·hwpmerge·pdfsplit·hwpsplit 는 옛 판 메뉴의 형식별 합치기·나누기 (메뉴에는 없고 예전 주소로만).
+// 목록 안에 주석을 넣지 말 것: Rust 시험이 대괄호 안을 쉼표로 잘라 읽는다
 export const LINK_ACTIONS = [
-  "ask", "versions", "open", "tools", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "pdfsplit", "shrink", "pdfimages",
-  "hwpx", "hwpmerge", "hwpsplit", "redact", "tables", "convert", "summarize", "compare", "collect",
+  "ask", "summarize", "open", "tools", "edit", "pdf", "hwpx", "shrink", "pagenum", "pdfimages", "tables", "convert",
+  "join", "xlsxmerge", "split", "pdfwork", "collect", "precheck", "redact", "compare", "versions", "inbox",
+  "pdfmerge", "hwpmerge", "pdfsplit", "hwpsplit",
 ] as const;
 export type LinkAction = (typeof LINK_ACTIONS)[number];
 

@@ -26,30 +26,31 @@ export function aiStatus(): AiStatus {
   switch (ai.provider) {
     case 'embedded':
       model = ai.embedded.model_path ? basename(ai.embedded.model_path) : undefined;
-      if (!ai.embedded.model_path || !existsSync(ai.embedded.model_path)) missing = '내장 AI 모델 파일이 없습니다. 설정 > AI 연결에서 추천 모델을 받거나 가져오세요.';
+      if (!ai.embedded.model_path || !existsSync(ai.embedded.model_path)) missing = '내장 AI 모델 파일이 없습니다. 설정 › AI 연결에서 추천 모델을 받거나 가져오세요.';
       break;
     case 'openai':
       model = ai.openai.model || undefined;
-      if (!ai.openai.base_url) missing = 'AI 서버 주소가 비어 있습니다. 설정 > AI 연결에서 주소를 넣으세요.';
-      else if (!ai.openai.model) missing = 'AI 모델을 고르지 않았습니다. 설정 > AI 연결에서 모델을 고르세요.';
+      if (!ai.openai.base_url) missing = 'AI 서버 주소가 비어 있습니다. 설정 › AI 연결에서 주소를 넣으세요.';
+      else if (!ai.openai.model) missing = 'AI 모델을 고르지 않았습니다. 설정 › AI 연결에서 모델을 고르세요.';
       break;
     case 'local':
       model = ai.local.model || undefined;
-      if (!ai.local.base_url) missing = '로컬 모델 서버 주소가 비어 있습니다. 설정 > AI 연결에서 이 PC에서 찾기를 누르거나 주소를 넣으세요.';
-      else if (!ai.local.model) missing = '로컬 모델 서버의 모델을 고르지 않았습니다. 설정 > AI 연결에서 모델을 고르세요.';
+      if (!ai.local.base_url) missing = '로컬 모델 서버 주소가 비어 있습니다. 설정 › AI 연결에서 이 PC에서 찾기를 누르거나 주소를 넣으세요.';
+      else if (!ai.local.model) missing = '로컬 모델 서버의 모델을 고르지 않았습니다. 설정 › AI 연결에서 모델을 고르세요.';
       break;
     case 'gemini':
     case 'anthropic':
       model = ai[ai.provider].model || undefined;
-      if (!ai[ai.provider].api_key) missing = 'API 키가 없습니다. 설정 > AI 연결에서 키를 넣으세요.';
+      if (!ai[ai.provider].api_key) missing = 'API 키가 없습니다. 설정 › AI 연결에서 키를 넣으세요.';
       break;
     case 'claude-code':
     case 'codex':
+    case 'gemini-cli':
       // 설치·로그인은 프로그램을 띄워야 알 수 있어 여기서는 보지 않는다 (ai_subscription_status, 실행 직전 확인)
-      model = ai[ai.provider === 'codex' ? 'codex' : 'claude_code'].model || '기본 모델';
+      model = ai[ai.provider === 'codex' ? 'codex' : ai.provider === 'gemini-cli' ? 'gemini_cli' : 'claude_code'].model || '기본 모델';
       break;
     default:
-      missing = 'AI가 아직 연결되지 않았습니다. 설정 > AI 연결에서 내장 모델이나 AI 서버를 고르세요.';
+      missing = 'AI가 아직 연결되지 않았습니다. 설정 › AI 연결에서 내장 모델이나 AI 서버를 고르세요.';
   }
   try {
     const p = getProvider();
@@ -107,7 +108,7 @@ export async function listServerModels(params: { base_url?: string; api_key?: st
 /** 내장 모델을 미리 메모리에 올림 */
 export async function aiWarmup(): Promise<{ gpu: string | false; context_size: number }> {
   const { ai } = getSettings();
-  if (ai.provider !== 'embedded') throw new Error('내장 AI를 고른 경우에만 미리 올릴 수 있습니다. 설정 > AI 연결에서 내장 모델을 고르세요.');
+  if (ai.provider !== 'embedded') throw new Error('내장 AI를 고른 경우에만 미리 올릴 수 있습니다. 설정 › AI 연결에서 내장 모델을 고르세요.');
   const r = await warmupEmbedded(ai.embedded);
   return { gpu: r.gpu, context_size: r.contextSize };
 }

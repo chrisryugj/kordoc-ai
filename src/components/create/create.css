@@ -1,0 +1,43 @@
+/* 새로 쓰기 화면 전용 (공유 CSS 는 건드리지 않고 여기서 덧씌운다) */
+
+/* ── 단계 표시: 지금 단계를 강조색으로 또렷하게 ── */
+.kd-steps .kd-step[data-state="now"] button { background: var(--color-accent-subtle); }
+.kd-steps .kd-step[data-state="now"] .kd-step-n { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
+.kd-steps .kd-step[data-state="now"] .kd-step-label { color: var(--color-accent); }
+.kd-steps .kd-step[data-state="later"] .kd-step-label { color: var(--color-text-muted); font-weight: 600; }
+/* 좁은 창에서도 지금 단계 설명만은 남긴다 */
+@media (max-width: 1260px) { .kd-steps .kd-step[data-state="now"] .kd-step-desc { display: block; } }
+
+/* ── 작성: 처음엔 큰 선택 4개 ── */
+.kd-routes.kd-start { display: block; border-bottom: 0; padding: 28px 24px 8px; }
+.kd-start-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 920px; margin-top: 14px; }
+.kd-start-card {
+  display: flex; align-items: flex-start; gap: 14px; min-height: 88px; padding: 18px 20px; text-align: left; cursor: pointer;
+  border: 1px solid var(--color-border); border-radius: var(--radius-xl); background: var(--color-bg-secondary); color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm); transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.kd-start-card:hover { border-color: var(--color-border-hover); box-shadow: var(--shadow-card-hover); }
+.kd-start-card:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-color: var(--color-accent); }
+.kd-start-icon { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-lg); background: var(--color-accent-subtle); color: var(--color-accent); }
+.kd-start-title { display: flex; align-items: center; gap: 8px; font-size: var(--fs-h3); font-weight: 700; line-height: 1.4; }
+.kd-start-desc { display: block; margin-top: 4px; font-size: var(--fs-small); line-height: 1.5; color: var(--color-text-muted); word-break: keep-all; text-wrap: pretty; }
+
+/* 고른 뒤엔 한 줄 탭 (아이콘 + 이름) */
+.kd-routes > .kd-route { align-items: center; gap: 8px; padding: 12px 14px 11px; }
+.kd-routes.kd-routes-tabs { grid-auto-columns: max-content; gap: 4px; }
+.kd-route-name { font-size: var(--fs-body); font-weight: 600; white-space: nowrap; }
+.kd-routes > .kd-route[aria-selected="true"] { border-bottom-color: var(--color-accent); }
+.kd-routes > .kd-route[aria-selected="true"] .kd-route-name { color: var(--color-text-primary); }
+.kd-routes > .kd-route[aria-selected="false"] .kd-route-name { color: var(--color-text-secondary); }
+
+/* ── 서식 칸: 접힌 묶음 ── */
+.kd-form-more .kd-fold-head { min-height: 44px; }
+
+/* ── 편집 보조 판: 탭 네 개를 한 줄로 ── */
+.kd-assist .kd-tabs { flex-wrap: nowrap; gap: 0; }
+.kd-assist .kd-tab { flex: 1 1 auto; padding: 0 8px; }
+.kd-assist-sec { display: flex; flex-direction: column; gap: 10px; }
+.kd-assist-sec + .kd-assist-sec { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-subtle); }
+
+/* ── AI 꺼짐 안내 ── */
+.kd-create-aioff { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }

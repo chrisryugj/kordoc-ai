@@ -1,0 +1,13 @@
+/* 문서 화면(작업대) 로컬 모양. 색·글자 크기는 변수만 */
+
+/* 읽는 중·암호·못 연 문서 안내는 미리보기와 도구 칸을 합친 넓이 가운데에 */
+.kd-docws-msg { grid-column: 1 / -1; min-height: 0; overflow: auto; display: flex; flex-direction: column; justify-content: center; }
+.kd-docws-pw-error { color: var(--color-error); }
+.kd-docws-pw { width: 220px; }
+
+/* 도구 탭 맨 위의 주 행동 한 줄 */
+.kd-tool-lead { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.kd-tool-lead > .kd-btn { width: 100%; }
+
+/* 정보 칸 아래 이어서 할 일 (최종본 찾기·회신 쓰기) */
+.kd-info-more { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -89,7 +89,7 @@ try {
   await ui.click('결재 전 한 번에 점검', { within: `${ws} [data-tool="review"]` });
   await ui.waitText('편집기에서 AI로 고치기', 30000);
   const panel = await page.evaluate((s) => document.querySelector(`${s} [data-tool="review"]`).innerText, ws);
-  check('점검 결과에 "편집기에서 AI로 고치기"와 몇 곳인지', /표기 지적 \d+곳을 이 파일 그대로 한글 편집기로/.test(panel), panel.match(/표기 지적 \d+곳/)?.[0] ?? '');
+  check('점검 결과에 "편집기에서 AI로 고치기"와 몇 곳인지', /표기 지적 \d+곳은 AI가 편집기에서 고칩니다/.test(panel), panel.match(/표기 지적 \d+곳/)?.[0] ?? '');
   await ui.shot(join(OUT, 'k-01-precheck.png'));
   await ui.click('편집기에서 AI로 고치기', { within: `${ws} [data-tool="review"]` });
   await sleep(500);

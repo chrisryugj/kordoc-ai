@@ -93,21 +93,24 @@ export function buildBook(columns: Column[], rows: GatherRow[], status: CollectG
 /** 제출 현황 — 명단 순서대로, 그 뒤 명단에 없는 부서(이름 순), 마지막에 부서를 모르는 파일 */
 export function buildStatus(
   roster: string[],
-  subs: Array<{ file: string; dept: string; in_roster: boolean }>,
+  subs: Array<{ file: string; path?: string; dept: string; in_roster: boolean }>,
   rows: GatherRow[],
   columns: Column[],
 ): CollectGatherResult['status'] {
   const blanksBy = new Map<string, number>();
   for (const r of rows) blanksBy.set(r.dept, (blanksBy.get(r.dept) ?? 0) + blanksOf(columns, r));
-  const filesBy = new Map<string, string[]>();
-  for (const s of subs) filesBy.set(s.dept, [...(filesBy.get(s.dept) ?? []), s.file]);
-  const out: CollectGatherResult['status'] = roster.map((dept) => ({
-    dept, in_roster: true, submitted: filesBy.has(dept), files: filesBy.get(dept) ?? [], blanks: blanksBy.get(dept) ?? 0,
-  }));
+  // 이름과 전체 경로를 같은 차례로 (하위 폴더의 같은 이름 파일을 가른다)
+  const filesBy = new Map<string, Array<{ file: string; path: string }>>();
+  for (const s of subs) filesBy.set(s.dept, [...(filesBy.get(s.dept) ?? []), { file: s.file, path: s.path ?? s.file }]);
+  const entry = (dept: string, in_roster: boolean) => {
+    const list = filesBy.get(dept) ?? [];
+    return { dept, in_roster, submitted: filesBy.has(dept), files: list.map((f) => f.file), paths: list.map((f) => f.path), blanks: blanksBy.get(dept) ?? 0 };
+  };
+  const out: CollectGatherResult['status'] = roster.map((dept) => entry(dept, true));
   const rosterSet = new Set(roster);
   const others = [...filesBy.keys()].filter((d) => d && !rosterSet.has(d)).sort((a, b) => a.localeCompare(b, 'ko'));
-  for (const dept of others) out.push({ dept, in_roster: false, submitted: true, files: filesBy.get(dept)!, blanks: blanksBy.get(dept) ?? 0 });
-  if (filesBy.has('')) out.push({ dept: '', in_roster: false, submitted: true, files: filesBy.get('')!, blanks: blanksBy.get('') ?? 0 });
+  for (const dept of others) out.push(entry(dept, false));
+  if (filesBy.has('')) out.push(entry('', false));
   return out;
 }
 

@@ -1,0 +1,113 @@
+/**
+ * AI 대화 기록 — 대화(세션)마다 요청·진행·결과와 모델에 이어 보낼 대화(events)를 이 PC 화면 저장소에 둔다.
+ * 목록(제목·시각)과 본문을 따로 둬서 목록을 그릴 때 본문을 다 읽지 않는다. 본창·문서 카드 창이 같은 저장소를 쓴다.
+ * 저장소를 못 쓰면(가득 참 등) 이번 실행 동안만 기억한다.
+ */
+
+import type { AgentTurn } from "../hooks/useWorkAgent";
+import type { AgentEvent } from "./hwp-agent/loop";
+
+export interface ChatMeta {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 우클릭 문서 카드 창에서 시작한 대화 */
+  from?: "card";
+}
+
+export interface ChatBody {
+  paths: string[];
+  turns: AgentTurn[];
+  events: AgentEvent[];
+}
+
+const INDEX = "kordoc-chats";
+const BODY = (id: string) => `kordoc-chat:${id}`;
+/** 오래된 대화부터 지운다 */
+export const MAX_CHATS = 60;
+/** 제목 글자 수 (첫 요청을 줄여 쓴다) */
+const TITLE_MAX = 40;
+
+export function newChatId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** 첫 요청 → 대화 제목: 줄바꿈을 걷고 앞부분만 */
+export function titleOf(request: string): string {
+  const one = request.replace(/\s+/g, " ").trim();
+  return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1)}…` : one || "새 대화";
+}
+
+export function loadChats(): ChatMeta[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(INDEX) ?? "[]") as ChatMeta[];
+    return Array.isArray(list) ? list.filter((c) => c && typeof c.id === "string").sort((a, b) => b.updatedAt - a.updatedAt) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIndex(list: ChatMeta[]) {
+  const sorted = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const old of sorted.slice(MAX_CHATS)) removeBody(old.id);
+  try {
+    localStorage.setItem(INDEX, JSON.stringify(sorted.slice(0, MAX_CHATS)));
+  } catch {
+    /* 이번 실행 동안만 */
+  }
+}
+
+function removeBody(id: string) {
+  try { localStorage.removeItem(BODY(id)); } catch { /* 무시 */ }
+}
+
+export function loadChat(id: string): ChatBody | null {
+  try {
+    const raw = localStorage.getItem(BODY(id));
+    if (!raw) return null;
+    const b = JSON.parse(raw) as ChatBody;
+    // 앱이 꺼질 때 돌던 요청은 멈춘 것으로 보인다
+    const turns = (b.turns ?? []).map((t) => (t.state === "running" ? { ...t, state: "stopped" as const, text: t.text || "앱이 꺼져서 멈췄습니다." } : t));
+    return { paths: b.paths ?? [], turns, events: b.events ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/** 본문과 목록을 함께 쓴다. 목록은 매번 저장소에서 다시 읽어 다른 창이 쓴 대화를 덮지 않는다 */
+export function saveChat(meta: ChatMeta, body: ChatBody) {
+  const write = () => localStorage.setItem(BODY(meta.id), JSON.stringify(body));
+  try {
+    write();
+  } catch {
+    // 가득 찼으면 가장 오래된 대화부터 지우고 한 번 더
+    const list = loadChats().filter((c) => c.id !== meta.id);
+    for (const old of list.slice(Math.max(0, list.length - 10))) removeBody(old.id);
+    saveIndex(list.slice(0, Math.max(0, list.length - 10)));
+    try { write(); } catch { /* 이번 실행 동안만 */ }
+  }
+  saveIndex([meta, ...loadChats().filter((c) => c.id !== meta.id)]);
+}
+
+export function renameChat(id: string, title: string) {
+  const t = title.replace(/\s+/g, " ").trim();
+  if (!t) return;
+  saveIndex(loadChats().map((c) => (c.id === id ? { ...c, title: t } : c)));
+}
+
+export function deleteChat(id: string) {
+  removeBody(id);
+  saveIndex(loadChats().filter((c) => c.id !== id));
+}
+
+/** 목록 묶음: 오늘·어제·지난 7일·지난 30일·그 전 */
+export function groupOf(at: number, now = Date.now()): string {
+  const day = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const diff = Math.round((day(now) - day(at)) / 86_400_000);
+  if (diff <= 0) return "오늘";
+  if (diff === 1) return "어제";
+  if (diff < 7) return "지난 7일";
+  if (diff < 30) return "지난 30일";
+  return "그 전";
+}

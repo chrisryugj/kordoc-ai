@@ -26,7 +26,7 @@ export function Note({ tone = "info", children }: { tone?: "info" | "warn" | "er
 export function Empty({ icon, title, children, action }: { icon?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="kd-empty">
-      {icon && <div className="mb-1" style={{ color: "var(--color-text-disabled)" }}>{icon}</div>}
+      {icon && <div className="kd-empty-icon" aria-hidden="true">{icon}</div>}
       <p className="kd-empty-title">{title}</p>
       {children && <p>{children}</p>}
       {action && <div className="mt-2 flex flex-wrap justify-center gap-2">{action}</div>}

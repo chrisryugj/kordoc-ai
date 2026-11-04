@@ -158,8 +158,9 @@ export function MailMergeResult({ message, result }: { message: string; result: 
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" disabled={merge.busy} onClick={() => void merge.run(async ({ signal }) => {
               const out = joinPath(dir, `${folder}_합친 문서.hwpx`);
-              await rpc("merge_files", { files: outputs, output_path: out, mode: "native" }, { signal });
-              return out;
+              // 같은 이름이 있으면 엔진이 (2) 를 붙인 경로를 돌려준다
+              const r = (await rpc("merge_files", { files: outputs, output_path: out, mode: "native" }, { signal })) as { output_path?: string } | null;
+              return r?.output_path || out;
             })}><Combine size={13} /> 한 파일로 합치기</Button>
             <Button variant="secondary" size="sm" disabled={pdf.busy} onClick={() => void pdf.run(({ signal, onProgress }) => rpc("bundle_pdf", { paths: outputs, output_path: joinPath(dir, `${folder}_합본.pdf`), page_numbers: false }, { signal, onProgress }))}>
               <FileText size={13} /> 합본 PDF

@@ -1,0 +1,5 @@
+/* 첫 실행 마법사: 단계마다 높이가 튀지 않게 한 높이로, 넘치면 본문만 굴린다 */
+.kd-wizard.kd-wiz-fixed { height: min(640px, calc(100vh - 48px)); }
+.kd-wiz-fixed .kd-wizard-body { flex: 1; min-height: 0; }
+/* AI 연결: 넷(없이·이 PC·기관·외부)을 2×2 로 */
+.kd-ai-tiles.kd-wiz-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }

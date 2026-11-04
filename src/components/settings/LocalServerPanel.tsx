@@ -1,6 +1,6 @@
 /** AI 연결 › 이 PC의 로컬 모델 서버 — 켜진 Ollama·LM Studio·llama.cpp 서버 등을 찾아 고르거나 주소를 직접 넣는다 */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import type { LocalModelServer, Settings } from "../../lib/contract";
 import { rpc } from "../../lib/rpc";
@@ -16,8 +16,10 @@ type Local = Settings["ai"]["local"];
 /** 저절로 고를 때는 글 모델을 — 임베딩 모델(nomic-embed 등)은 대화에 못 쓴다 */
 export const firstChatModel = (models: string[]) => models.find((m) => !/embed/i.test(m)) ?? models[0] ?? "";
 
-export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
+export function LocalServerPanel({ value, onChange, keyInput, onKey, masked, keyAction }: {
   value: Local; onChange: (p: Partial<Local>) => void; keyInput: string; onKey: (v: string) => void; masked: string;
+  /** 키 칸 아래 (저장된 키 지우기) */
+  keyAction?: ReactNode;
 }) {
   const lk = useLocked();
   const lp = (label: string, path: string) => lockProps(label, lk(path));
@@ -49,9 +51,8 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
     <>
       <div className="flex flex-wrap items-center gap-2">
         {find.busy ? <Working label="이 PC에서 켜진 서버를 찾는 중" /> : (
-          <Button variant="secondary" onClick={scan} disabled={urlLocked}><Search size={13} /> 이 PC에서 찾기</Button>
+          <Button variant="secondary" onClick={scan} disabled={urlLocked} data-tip="Ollama(11434)·LM Studio(1234)·llama.cpp 서버(8080)·vLLM(8000) 등 자주 쓰는 자리를 봅니다"><Search size={13} /> 이 PC에서 찾기</Button>
         )}
-        <span className="kd-small kd-muted">Ollama(11434)·LM Studio(1234)·llama.cpp 서버(8080)·vLLM(8000) 등 자주 쓰는 자리를 봅니다.</span>
       </div>
       {find.result && (found.length ? (
         <div className="flex flex-col gap-2" role="radiogroup" aria-label="찾은 로컬 모델 서버">
@@ -79,14 +80,17 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked }: {
             ) : (
               <input className="kd-input" disabled={lk("ai.local.model")} value={value.model} onChange={(e) => onChange({ model: e.target.value })} placeholder="예: gemma4" aria-label="모델" />
             )}
-            <Button variant="secondary" onClick={loadModels} disabled={list.busy || !value.base_url || lk("ai.local.model")}><RefreshCw size={13} /> 불러오기</Button>
+            <Button variant="secondary" onClick={loadModels} disabled={list.busy || !value.base_url || lk("ai.local.model")} data-tip="이 주소의 프로그램에 있는 모델 이름을 가져옵니다"><RefreshCw size={13} /> 불러오기</Button>
           </div>
         </Field>
       </div>
       <ErrorLine message={list.error} />
       <Advanced>
         <div className="kd-fieldgrid">
-          <TextField {...lp("키(선택)", "ai.local.api_key")} type="password" hint="키를 요구하는 서버만 넣습니다" value={keyInput} placeholder={masked} onChange={onKey} />
+          <div className="flex flex-col">
+            <TextField {...lp("키(선택)", "ai.local.api_key")} type="password" hint="키를 요구하는 서버만 넣습니다" value={keyInput} placeholder={masked} onChange={onKey} />
+            {keyAction}
+          </div>
         </div>
       </Advanced>
       <Note tone="ok">이 PC 안(127.0.0.1)으로만 묻고 답해 문서가 PC 밖으로 나가지 않습니다. 폐쇄망 모드에서도 됩니다.</Note>

@@ -8,6 +8,7 @@ import { createClaudeCodeProvider } from './claude-code.js';
 import { createCodexProvider } from './codex.js';
 import { createEmbeddedProvider } from './embedded.js';
 import { createGeminiProvider } from './gemini.js';
+import { createGeminiCliProvider } from './gemini-cli.js';
 import { normalizeLocalBase } from './local-servers.js';
 import { createOpenAiProvider, resolveOpenAiHost } from './openai.js';
 import type { ChatMessage, ChatRequest, JsonSchema, LlmProvider } from './types.js';
@@ -18,8 +19,8 @@ export type { ChatImage, ChatMessage, JsonSchema, LlmProvider } from './types.js
 function subscriptionOff(): Error {
   const lockedOff = getSettings().policy?.locked.includes('ai.allow_subscription');
   return new Error(lockedOff
-    ? '기관에서 구독 계정(Claude Code·Codex) 연결을 막았습니다. 설정 > AI 연결에서 다른 AI를 고르세요.'
-    : '구독 계정으로 문서 보내기가 꺼져 있습니다. 설정 > AI 연결의 구독 계정에서 문서 보내기를 허용하거나 다른 AI를 고르세요.');
+    ? '기관에서 구독 계정(Claude Code·Codex·Gemini CLI) 연결을 막았습니다. 설정 › AI 연결에서 다른 AI를 고르세요.'
+    : '구독 계정으로 문서 보내기가 꺼져 있습니다. 설정 › AI 연결의 구독 계정에서 문서 보내기를 허용하거나 다른 AI를 고르세요.');
 }
 
 export function getProvider(): LlmProvider {
@@ -40,11 +41,15 @@ export function getProvider(): LlmProvider {
       if (!ai.allow_subscription) throw subscriptionOff();
       p = createCodexProvider(ai.codex, ai.timeout_ms);
       break;
+    case 'gemini-cli':
+      if (!ai.allow_subscription) throw subscriptionOff();
+      p = createGeminiCliProvider(ai.gemini_cli, ai.timeout_ms);
+      break;
     default:
-      throw new Error('AI가 아직 연결되지 않았습니다. 설정 > AI 연결에서 내장 모델이나 AI 서버를 고르세요.');
+      throw new Error('AI가 아직 연결되지 않았습니다. 설정 › AI 연결에서 내장 모델이나 AI 서버를 고르세요.');
   }
   if (privacy.offline && p.isCloud) {
-    throw new Error('폐쇄망 모드에서는 인터넷 AI를 쓸 수 없습니다. 내장 모델이나 기관 내부 AI 서버를 고르세요.');
+    throw new Error('폐쇄망 모드에서는 외부 AI를 쓸 수 없습니다. 내장 모델이나 기관 내부 AI 서버를 고르세요.');
   }
   return p;
 }
@@ -105,7 +110,7 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
       redacted += r.hits.length;
       return { ...m, content: r.text };
     });
-    if (system && (p.id === 'claude-code' || p.id === 'codex')) {
+    if (system && (p.id === 'claude-code' || p.id === 'codex' || p.id === 'gemini-cli')) {
       const r = redactMarkdown(system);
       redacted += r.hits.length;
       system = r.text;

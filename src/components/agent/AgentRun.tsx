@@ -69,11 +69,11 @@ function nextOf(files: string[]): Array<{ label: string; text: string }> {
   const pdf = files.find((f) => formatOf(f) === "pdf");
   if (hangul) {
     const n = baseName(hangul);
-    out.push({ label: "결재 전 점검", text: `방금 만든 ${n} 을 결재 전 점검하고, 고칠 수 있는 건 고쳐 줘` });
-    out.push({ label: "PDF 로", text: `방금 만든 ${n} 을 PDF 로 만들어 줘` });
-    out.push({ label: "개인정보 가리기", text: `방금 만든 ${n} 의 개인정보를 가려 줘` });
+    out.push({ label: "결재 전 점검", text: `방금 만든 문서(${n})를 결재 전 점검하고, 고칠 수 있는 건 고쳐 줘` });
+    out.push({ label: "PDF로", text: `방금 만든 문서(${n})를 PDF로 만들어 줘` });
+    out.push({ label: "개인정보 가리기", text: `방금 만든 문서(${n})의 개인정보를 가려 줘` });
   }
-  if (pdf) out.push({ label: "용량 줄이기", text: `방금 만든 ${baseName(pdf)} 의 용량을 10MB 안으로 줄여 줘` });
+  if (pdf) out.push({ label: "용량 줄이기", text: `방금 만든 PDF(${baseName(pdf)})의 용량을 10MB 안으로 줄여 줘` });
   return out;
 }
 

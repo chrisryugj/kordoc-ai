@@ -231,7 +231,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 앱 작업 사본(새로 쓰기 초안)을 다시 쓸 때는 .bak 을 남기지 않는다
       const backup = !(session.working && path === session.path);
       const r = await rpc("editor_write", { path, data_b64, overwrite: true, backup, ...(session.token ? { token: session.token } : {}) });
-      if (r.backup_path) toast(`덮어쓰기 전 파일은 ${baseName(r.backup_path)} 로 남겼습니다`, "info");
+      if (r.backup_path) toast(`덮어쓰기 전 파일을 ${baseName(r.backup_path)} 이름으로 남겼습니다`, "info");
       if (r.tails_lost) toast("바탕쪽이나 메모 일부를 옮기지 못했습니다. 한글에서 열어 확인하세요.", "error");
       await ed.call("saved", { name: baseName(r.path) }).catch(() => undefined);
       // 내보낸 뒤에 고친 게 있으면(저장하는 사이 입력) 그건 아직 저장 안 된 것으로 둔다
@@ -369,7 +369,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const ed = client.current!;
       const file = await rpc("editor_open", { path, ...(recover ? { recover: true } : {}) });
       setSession((s) => (s && s.path === path ? { ...s, token: file.token } : s));
-      if (file.tracked) toast("변경 내용 추적이 든 문서입니다. 고친 흔적이 함께 보일 수 있고, 저장하면 보이는 그대로 본문이 되며 추적 기록은 남지 않습니다. 처음 덮어쓸 때 원본은 .bak 으로 남습니다.", "info");
+      if (file.tracked) toast("변경 내용 추적이 든 문서입니다. 고친 흔적이 함께 보일 수 있고, 저장하면 보이는 그대로 본문이 되며 추적 기록은 남지 않습니다. 처음 덮어쓸 때 원본은 .bak 파일로 남습니다.", "info");
       try {
         await ed.open(new Uint8Array(b64ToBuffer(file.data_b64)), file.name);
       } catch (e) {

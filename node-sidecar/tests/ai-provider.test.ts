@@ -1,8 +1,6 @@
 /** AI 공급자 계층·연결 상태 — 가짜 OpenAI 호환 서버로 (유료 클라우드 호출 없음) */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFakeOpenAi, type FakeServer } from './ai-fake-server.js';
 
@@ -20,9 +18,10 @@ import { createThinkFilter } from '../src/infra/llm/types.js';
 import { aiStatus, aiTest, listServerModels } from '../src/core/ai/status.js';
 import { RpcRouter } from '../src/rpc/router.js';
 import { registerAi } from '../src/rpc/methods/ai.js';
+import { tempDir } from './tmp-dirs.js';
 
 // 설정은 첫 getSettings() 때 읽으니(가져오기 시점엔 안 읽음) 테스트 전에만 정하면 된다
-process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-ai-provider-'));
+process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-provider-');
 const signal = () => new AbortController().signal;
 let fake: FakeServer;
 
@@ -156,7 +155,7 @@ describe('ai_status · ai_test · ai_list_models', () => {
     await updateSettings({ ai: { provider: 'embedded', embedded: { model_path: join(process.env.KORDOC_AI_DATA_DIR!, '없는.gguf') } } });
     s = aiStatus();
     expect(s.configured).toBe(false);
-    expect(s.error).toMatch(/설정 > AI 연결/);
+    expect(s.error).toMatch(/설정 › AI 연결/);
     await updateSettings({ ai: { provider: 'none' } });
     expect(aiStatus().configured).toBe(false);
     await useServer(fake);

@@ -28,6 +28,7 @@ import { b64ToBytes } from "../../lib/rhwp";
 import { LintList } from "../workbench/tools/ReviewTool";
 import { FormatOptions, type FormatOpts } from "./FormatOptions";
 import { ActionBar } from "./ActionBar";
+import { AiOffNote } from "./AiOffNote";
 
 export interface DraftSeed { kind?: DraftKind; references?: string[]; levelsFrom?: string; markdown?: string; preset?: string; nonce: number }
 
@@ -77,7 +78,7 @@ function OrgLine({ kind, refInfo, loaded, on, onChange, onManage, noAi, ownSampl
 }
 
 export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRoute?: (r: "library" | "blank") => void }) {
-  const { ai, settings, go, docs, openSettings } = useApp();
+  const { ai, settings, docs, openSettings } = useApp();
   const { openInEditor } = useCreate();
   const meta = useGongmunMeta();
   // 갈래를 고르면 문서 갈래도 맞춘다 (대응표는 엔진 gongmun_meta 가 정본)
@@ -250,27 +251,24 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
   const writing = !!markdown.trim() || draft.busy;
   /** AI 없이 쓸 글도 견본도 없다 — 안내만 보이고 미리보기·만들기 줄은 숨긴다 */
   const deadEnd = !ai?.configured && !writing && !opts.levelsFrom;
+  /** 미리보기 판은 글이 생긴 뒤에만 (빈 판이 화면 절반을 차지하지 않게) */
+  const showPreview = writing;
 
   const pagesMap = useMemo(() => Object.fromEntries((preview?.pages ?? []).map((p) => [p.page, p])), [preview]);
 
   return (
-    <div className="kd-draft" data-solo={deadEnd || undefined}>
+    <div className="kd-draft" data-solo={!showPreview || undefined}>
       <div className="kd-draft-left">
         <section className="kd-panel kd-draft-ai" aria-labelledby="draft-ai-t">
           <div className="flex items-center justify-between gap-2">
-            <h2 id="draft-ai-t" className="kd-h3 flex items-center gap-1.5"><Sparkles size={15} className="kd-muted" /> AI에게 초안 부탁하기</h2>
+            <h2 id="draft-ai-t" className="kd-h3 flex items-center gap-1.5"><Sparkles size={15} className="kd-muted" /> AI 초안</h2>
             <AiWhere />
           </div>
           {!ai?.configured ? (
-            <div className="flex flex-col gap-3">
-              <p className="kd-text">AI가 연결되어 있지 않아 초안을 대신 써 드릴 수 없습니다.</p>
-              <p className="kd-small kd-muted">서식함에서 서식을 골라 칸을 채우거나, 빈 문서로 시작해 한글 편집기에서 직접 쓰세요. AI는 설정에서 연결합니다.</p>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => onRoute?.("library")}>서식함에서 고르기</Button>
-                <Button variant="secondary" onClick={() => onRoute?.("blank")}>빈 문서로 시작</Button>
-                <Button variant="ghost" onClick={() => go("settings")}>설정에서 AI 연결</Button>
-              </div>
-            </div>
+            <AiOffNote extra={<>
+              <Button size="sm" variant="secondary" onClick={() => onRoute?.("library")} data-tip="AI 없이 서식을 골라 칸을 채웁니다">서식 골라 쓰기</Button>
+              <Button size="sm" variant="ghost" onClick={() => onRoute?.("blank")} data-tip="기관 머리·끝만 채운 빈 문서를 편집기에서 엽니다">빈 문서로 시작</Button>
+            </>}>AI가 연결되어 있지 않아 초안을 쓸 수 없습니다.</AiOffNote>
           ) : (
             <>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="초안 갈래">
@@ -284,7 +282,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
                   {refs.map((r) => (
                     <div key={r} className="kd-inset flex items-center gap-2 px-2.5 py-1.5">
                       <span className="kd-path flex-1">{baseName(r)}</span>
-                      <button type="button" className="kd-icon-btn" style={{ width: 26, height: 26 }} onClick={() => setRefs(refs.filter((x) => x !== r))} aria-label={`${baseName(r)} 빼기`}><X size={13} /></button>
+                      <button type="button" className="kd-icon-btn" onClick={() => setRefs(refs.filter((x) => x !== r))} aria-label={`${baseName(r)} 빼기`}><X size={13} /></button>
                     </div>
                   ))}
                   {/* 작업대에 열어 둔 문서는 한 번에 붙인다 */}
@@ -303,16 +301,16 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
               )}
               <textarea className="kd-textarea" rows={kind === "memo" ? 10 : 3} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder={k.hint} aria-label="AI에게 부탁할 내용" />
               <div className="flex flex-wrap items-end gap-3">
-                <div style={{ minWidth: 150 }}>
+                <div className="kd-adv" style={{ minWidth: 150 }}>
                   <SelectField label="문서 갈래" value={preset} onChange={setPreset} options={(meta?.presets ?? [{ id: "official", label: "기안문", description: "" }]).map((p) => ({ value: p.id, label: p.label }))} />
                 </div>
-                <Field label="분량"><Seg label="분량" value={length} onChange={setLength} options={[{ value: "short", label: "짧게" }, { value: "medium", label: "보통" }, { value: "long", label: "길게" }]} /></Field>
+                <div className="kd-adv"><Field label="분량"><Seg label="분량" value={length} onChange={setLength} options={[{ value: "short", label: "짧게" }, { value: "medium", label: "보통" }, { value: "long", label: "길게" }]} /></Field></div>
                 <div className="flex-1" />
                 {draft.busy
                   ? <Button variant="secondary" onClick={draft.cancel}><Square size={13} /> 멈추기</Button>
-                  : <Button onClick={() => runDraft()} disabled={!!k.ref && !refs.length}><Sparkles size={14} /> 초안 쓰기</Button>}
+                  : <Button onClick={() => runDraft()} disabled={!!k.ref && !refs.length} data-tip="AI가 쓰는 글이 바로 보입니다. 다 쓰면 미리보기와 표기법 검사가 나옵니다"><Sparkles size={14} /> 초안 쓰기</Button>}
               </div>
-              {k.ref && !refs.length && <p className="kd-small kd-muted">{k.ref}부터 붙이세요.</p>}
+              {k.ref && !refs.length && <p className="kd-small kd-muted">{k.ref} 필요</p>}
               <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded={orgRead !== undefined} on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />
               {draftOrg && !draft.busy && markdown.trim() && <StatusLine tone="ok">우리 기관 {draftOrg.label} {draftOrg.count}건의 구성을 따라 썼습니다</StatusLine>}
               <ErrorLine message={draft.error} />
@@ -357,17 +355,17 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
 
         {/* AI 없이 쓸 때는 우리 기관 서식 줄을 서식 옵션 위에 (AI 쪽 칸이 없어서) */}
         {!deadEnd && !ai?.configured && orgRef && <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded noAi on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />}
-        {!deadEnd && <FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)}
-          locked={orgTemplate ? `우리 기관 견본 「${orgRef?.exemplar.title}」 서식 그대로 만들어 이 옵션은 쓰지 않습니다. 옵션을 쓰려면 위에서 '우리 기관 서식으로'를 끄세요.` : undefined} />}
+        {!deadEnd && <div className={opts.levelsFrom ? undefined : "kd-adv"}><FormatOptions value={opts} onChange={setOpts} open={optsOpen} onToggle={() => setOptsOpen((o) => !o)}
+          locked={orgTemplate ? `우리 기관 견본 「${orgRef?.exemplar.title}」 서식 그대로 만들어 이 옵션은 쓰지 않습니다. 옵션을 쓰려면 위에서 '우리 기관 서식으로'를 끄세요.` : undefined} /></div>}
 
         {!deadEnd && <ActionBar error={make.error} busy={make.busy && <Working label="한글 문서로 만드는 중" />}
           status={draft.busy ? <StatusLine tone="busy">AI가 초안을 쓰는 중</StatusLine>
             : refit.busy ? <StatusLine tone="busy">넘친 줄을 맞추는 중 (기다리지 않고 만들어도 됩니다)</StatusLine>
-            : !markdown.trim() ? (ai?.configured ? "초안을 쓰면 미리보기를 보고 한글 문서로 만듭니다" : "글을 쓰면 미리보기를 보고 한글 문서로 만듭니다")
+            : !markdown.trim() ? (ai?.configured ? "초안을 쓰면 미리보기가 나옵니다" : "글을 쓰면 미리보기가 나옵니다")
             : preview ? `초안 미리보기 ${preview.rhwp ? `${rh.pageCount}쪽` : `앞 ${preview.pages.length}쪽`}${preview.lint.length ? ` · 표기법 ${preview.lint.length}건` : ""}`
             : "미리보기를 그리는 중"}>
           {refit.busy && <Button variant="secondary" onClick={refit.cancel}><Square size={13} /> 맞추기 멈추기</Button>}
-          <Button size="lg" disabled={!markdown.trim() || draft.busy} onClick={() => void make.run(async () => {
+          <Button size="lg" disabled={!markdown.trim() || draft.busy} data-tip="미리보기 그대로 한글 문서를 만들어 편집기에서 엽니다" onClick={() => void make.run(async () => {
             refit.cancel(); // 맞추는 중이면 멈추고 지금 글로 만든다
             const r = await rpc("generate_hwpx", { ...genParams, output_path: await workingFile(`${firstTitle(markdown)}.hwpx`) });
             if (!r.output_path) throw new Error("한글 문서를 만들지 못했습니다. 글을 확인하고 다시 누르세요.");
@@ -377,7 +375,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
         </ActionBar>}
       </div>
 
-      {!deadEnd && <aside className="kd-draft-right" aria-label="실시간 미리보기">
+      {showPreview && <aside className="kd-draft-right" aria-label="실시간 미리보기">
         <div className="kd-draft-right-head">
           <h2 className="kd-h3">미리보기</h2>
           {draft.busy ? <StatusLine tone="busy">AI가 초안을 쓰는 중</StatusLine>

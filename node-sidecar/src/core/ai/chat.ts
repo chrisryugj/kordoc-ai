@@ -100,7 +100,7 @@ export async function chatWithDocs(params: ChatParams, signal: AbortSignal): Pro
 
   const context = selected.map((p, i) => `${passageLabel(p, i + 1)}\n${p.text}`).join('\n\n');
   const scope = whole ? '문서 전체' : `문서에서 질문과 가까운 부분 ${selected.length}곳`;
-  sendProgress({ current: 1, total: 2, message: 'AI가 답을 쓰는 중...' });
+  sendProgress({ current: 1, total: 2, message: 'AI가 답을 쓰는 중' });
   const r = await ask({
     system: SYSTEM,
     messages: [

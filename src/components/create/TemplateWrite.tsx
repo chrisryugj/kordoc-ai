@@ -14,6 +14,7 @@ import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
 import { ErrorLine, Note, Working } from "../common/Status";
 import { useCreate, workingFile } from "./session";
+import { AiNeedBadge, AiOffNote } from "./AiOffNote";
 
 const AXIS_HINT: Record<string, string> = {
   구성: "장 사이 논리(왜 → 무엇을 → 어떻게)",
@@ -30,7 +31,12 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
   const write = useTask<RpcResult<"ai_template_write">>();
   const open = useTask<void>();
 
-  if (!ai?.configured) return <Note tone="info">AI 연결을 고르면 이 서식대로 내용을 채운 문서를 AI 가 써 줍니다. 설정의 AI 연결에서 고르세요.</Note>;
+  if (!ai?.configured) return (
+    <div className="kd-inset flex flex-col gap-2 p-3">
+      <span className="kd-label flex items-center gap-2">AI로 이 서식대로 쓰기 <AiNeedBadge /></span>
+      <AiOffNote>AI를 켜면 이 서식 그대로 내용만 새로 씁니다.</AiOffNote>
+    </div>
+  );
 
   const run = () => void write.run(async ({ signal, onProgress }) => rpc("ai_template_write", {
     path,
@@ -44,7 +50,7 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
   return (
     <div className="kd-inset flex flex-col gap-2.5 p-3">
       <span className="kd-label">AI로 이 서식대로 쓰기</span>
-      <p className="kd-small kd-muted">표·상자·글꼴·항목 부호는 이 서식 그대로 두고, 내용만 지시와 참고 문서대로 새로 씁니다. 모르는 숫자·이름은 ○○로 남깁니다. 로고 같은 그림은 견본 그대로 남으니 편집기에서 바꾸세요.</p>
+      <p className="kd-small kd-muted" data-tip="모르는 숫자·이름은 ○○로 남깁니다. 로고 같은 그림은 견본 그대로 남으니 편집기에서 바꾸세요">표·상자·글꼴은 그대로, 내용만 새로 씁니다.</p>
       <textarea className="kd-textarea" rows={3} value={instruction} onChange={(e) => setInstruction(e.target.value)}
         placeholder="무슨 문서인가요? 예: 경로당 냉방기 교체 계획 보고, 민원 14건·예산은 참고 문서대로" aria-label="쓸 문서 지시" />
       {refs.length > 0 && (
@@ -52,7 +58,7 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
           {refs.map((x) => (
             <li key={x} className="flex items-center gap-2 kd-small">
               <span className="kd-path flex-1">{baseName(x)}</span>
-              <button type="button" className="kd-icon-btn" style={{ width: 24, height: 24 }} onClick={() => setRefs(refs.filter((y) => y !== x))} aria-label={`${baseName(x)} 빼기`}><X size={12} /></button>
+              <button type="button" className="kd-icon-btn" onClick={() => setRefs(refs.filter((y) => y !== x))} aria-label={`${baseName(x)} 빼기`}><X size={12} /></button>
             </li>
           ))}
         </ul>
@@ -60,7 +66,7 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
       {write.busy ? <Working label="서식대로 쓰는 중" progress={write.progress} onCancel={write.cancel} /> : (
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" size="sm" onClick={() => void pickFiles().then((p) => setRefs([...new Set([...refs, ...p])]))}><FileUp size={13} /> 참고 문서 붙이기</Button>
-          <Button size="sm" onClick={run} disabled={!instruction.trim() && !refs.length}><Sparkles size={13} /> 이 서식대로 쓰기</Button>
+          <Button size="sm" onClick={run} disabled={!instruction.trim() && !refs.length} data-tip="새 파일로 만듭니다. 서식 원본은 그대로입니다"><Sparkles size={13} /> 이 서식대로 쓰기</Button>
         </div>
       )}
       <ErrorLine message={write.error} />
@@ -68,9 +74,9 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
       {r && !write.busy && (
         <div className="flex flex-col gap-2">
           <Note tone={r.findings.length || r.skipped.length ? "warn" : "ok"}>
-            {r.applied}곳을 새로 썼습니다{r.converted ? " (HWP 서식이라 HWPX 로 만들었습니다)" : ""}.
-            {r.findings.length ? ` 결재 전에 살필 것 ${r.findings.length}건이 있습니다.` : " 공문서 게이트를 통과했습니다."}
-            {r.redacted ? ` 인터넷 AI 로 보내기 전 개인정보 ${r.redacted}건을 가렸습니다.` : ""}
+            {r.applied}곳을 새로 썼습니다{r.converted ? " (HWP 서식이라 HWPX로 만들었습니다)" : ""}.
+            {r.findings.length ? ` 결재 전에 살필 것 ${r.findings.length}건이 있습니다.` : " 공문서 점검에서 걸린 곳이 없습니다."}
+            {r.redacted ? ` 외부 AI로 보내기 전 개인정보 ${r.redacted}건을 가렸습니다.` : ""}
           </Note>
           {r.findings.length > 0 && (
             <ul className="flex flex-col gap-1.5" aria-label="살필 것">

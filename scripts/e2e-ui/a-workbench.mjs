@@ -22,7 +22,13 @@ const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail 
 
 async function run(width, height, dark) {
   // 저장 폴더는 화면을 열기 전에 (앱이 처음 읽는 설정에 들어가야 samples 옆에 쓰지 않는다)
-  await fetch(`${RELAY}/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: 'sidecar_call', args: { method: 'update_settings', params: { settings: { org: { name: '가온시', person: '김가온' }, convert: { output_dir: SAVE } } } } }) });
+  // 저장이 실패하면(갓 쓴 settings.json 을 백신이 잡고 있으면 Windows 는 바꿔 넣기가 EPERM) 다시 해 본다. 끝내 안 되면 까닭을 보인다
+  for (let i = 0; ; i++) {
+    const r = await (await fetch(`${RELAY}/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: 'sidecar_call', args: { method: 'update_settings', params: { settings: { org: { name: '가온시', person: '김가온' }, convert: { output_dir: SAVE } } } } }) })).json();
+    if (r.ok && r.result?.convert?.output_dir === SAVE) break;
+    if (i >= 4) throw new Error(`저장 폴더 설정 실패: ${r.error ?? JSON.stringify(r.result?.convert)}`);
+    await sleep(1000);
+  }
   const ui = await openUi({ relay: RELAY, width, height, dark, prefs: { 'kordoc-first-run-done': true, 'kordoc-nav-collapsed': width < 1200, 'kordoc-theme': dark ? 'dark' : 'light' } });
   const { page } = ui;
   const tag = `${width}${dark ? '-dark' : ''}`;
@@ -45,7 +51,8 @@ async function run(width, height, dark) {
     await ui.dialog([[path]]);
     await page.click('.kd-nav-item[data-screen="workbench"]');
     await sleep(200);
-    await ui.click('문서 열기', { within: '.kd-screen:not([hidden]) .kd-head' });
+    // 문서가 없으면 머리 대신 가운데 빈 상태에 문서 열기가 있다
+    await ui.click('문서 열기', { within: '.kd-screen:not([hidden])' });
     await page.waitForFunction(() => document.querySelector('.kd-docws:not([hidden]) .kd-tools'), { timeout: 30000 });
     await sleep(2500);
   };
@@ -56,7 +63,10 @@ async function run(width, height, dark) {
     const tabs = await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].map((t) => ({ t: t.textContent, top: t.getBoundingClientRect().top, off: t.disabled })));
     check(`[${tag}] 도구 탭 넷, 한 줄`, tabs.map((x) => x.t).join('/') === '읽기/고치기/검토/내보내기' && new Set(tabs.map((x) => Math.round(x.top))).size === 1, JSON.stringify(tabs));
     const replies = await page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.offsetParent !== null && b.textContent.includes('회신 쓰기')).map((b) => `${b.textContent.trim()}|${b.className}`));
-    check(`[${tag}] 받은 공문: 회신 단추는 머리에 주 단추 하나`, replies.length === 1 && replies[0].startsWith('이 공문에 회신 쓰기') && !/secondary/.test(replies[0]), replies.join(' / '));
+    // AI 가 꺼져 있으면 서식함의 표준 기안문으로 쓰는 "서식으로 회신 쓰기"
+    check(`[${tag}] 받은 공문: 회신 단추는 머리에 주 단추 하나`, replies.length === 1 && /^(이 공문에 회신 쓰기|서식으로 회신 쓰기)/.test(replies[0]) && !/secondary/.test(replies[0]), replies.join(' / '));
+    const headBtns = await page.evaluate(() => [...document.querySelectorAll('.kd-screen:not([hidden]) .kd-head button')].filter((b) => b.offsetParent !== null).map((b) => b.textContent.trim()));
+    check(`[${tag}] 머리 단추는 주 행동 하나와 문서 열기`, headBtns.length === 2 && headBtns[1] === '문서 열기', headBtns.join(' / '));
     const info = await page.evaluate(() => {
       const ws = document.querySelector('.kd-docws:not([hidden])');
       const dl = Object.fromEntries([...ws.querySelectorAll('.kd-dl > div')].map((d) => [d.querySelector('dt').textContent, d.querySelector('dd').textContent]));
@@ -72,9 +82,11 @@ async function run(width, height, dark) {
     });
     const pages = info.dl['쪽수'];
     const n = (s) => (s.match(/(\d+)쪽/) ?? [])[1];
-    check(`[${tag}] 쪽수 하나로 (머리·목록·정보·미리보기)`, pages && [info.head, info.list, info.viewer].every((s) => n(s) === n(pages)), JSON.stringify({ pages, head: info.head, list: info.list, viewer: info.viewer }));
+    // 한 문서만 열려 있으면 왼쪽 목록은 접혀 있다 (목록 줄이 없으면 머리·정보·미리보기만 맞춘다)
+    check(`[${tag}] 쪽수 하나로 (머리·목록·정보·미리보기)`, pages && [info.head, info.list, info.viewer].filter((s, i) => i !== 1 || s).every((s) => n(s) === n(pages)), JSON.stringify({ pages, head: info.head, list: info.list, viewer: info.viewer }));
     check(`[${tag}] 작성자 rhwp·빈칸 숨김`, !('작성자' in info.dl) || !/rhwp/i.test(info.dl['작성자']), JSON.stringify(info.dl));
-    check(`[${tag}] 읽기 탭: 정보·AI 요약·묻기·표 뽑기 소제목`, info.sections.join('/') === '정보/AI 요약·묻기/표 뽑기', info.sections.join('/'));
+    // AI 가 켜져 있으면 요약이 맨 위
+    check(`[${tag}] 읽기 탭: 정보·AI 요약·묻기·표 뽑기 소제목`, ['정보/AI 요약·묻기/표 뽑기', 'AI 요약·묻기/정보/표 뽑기'].includes(info.sections.join('/')), info.sections.join('/'));
     check(`[${tag}] 받은 공문이면 정보에 접수함에 넣기, AI 칸에 겹친 회신 없음`, info.follow && !info.aiFollow, JSON.stringify({ follow: info.follow, aiFollow: info.aiFollow }));
     await ui.shot(join(OUT, `w-${tag}-01-letter-read.png`));
     const orph1 = await ui.orphans('.kd-tools p, .kd-tools .kd-small, .kd-tools .kd-note');
@@ -101,7 +113,7 @@ async function run(width, height, dark) {
     });
     check(`[${tag}] 저장 형식 고르기: 한 줄에 하나만 떨어지지 않음`, seg.length && seg.every((c) => c > 1), JSON.stringify(seg));
     const where = await page.evaluate(() => { const el = document.querySelector('.kd-docws:not([hidden]) [data-tool="export"] .kd-path'); return { text: el?.textContent, title: el?.title }; });
-    check(`[${tag}] 저장할 곳은 폴더 이름만, 전체 경로는 마우스 올리면`, where.text && !where.text.includes('/') && where.title.includes('/'), JSON.stringify(where));
+    check(`[${tag}] 저장할 곳은 폴더 이름만, 전체 경로는 마우스 올리면`, where.text && !/[\\/]/.test(where.text) && /[\\/]/.test(where.title), JSON.stringify(where));
     await ui.click('인쇄', { exact: true, within: '.kd-docws:not([hidden]) [data-tool="print"]' });
     await ui.waitText('인쇄를 보냈습니다');
     check(`[${tag}] 내보내기 탭에서 인쇄 (HWPX, 고른 프린터)`, printed && printed.files[0] === LETTER && printed.printer === '사무실 복합기', JSON.stringify(printed));
@@ -109,10 +121,10 @@ async function run(width, height, dark) {
     const orph2 = await ui.orphans('.kd-tools p, .kd-tools .kd-small, .kd-tools .kd-note, .kd-tools .kd-field-hint');
     check(`[${tag}] 내보내기 탭 외톨이 줄 없음`, orph2.length === 0, JSON.stringify(orph2));
 
-    // ── 보고서: 받은 공문 아님 → 회신은 보통 단추, 글만 저장
+    // ── 보고서: 받은 공문 아님 → 머리 주 행동은 한글 편집기, 회신은 (전체 화면의) 정보 칸에만. 글만 저장
     await openDoc(REPORT);
-    const replies2 = await page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.offsetParent !== null && b.textContent.includes('회신 쓰기')).map((b) => `${b.textContent.trim()}|${b.className}`));
-    check(`[${tag}] 받은 공문 아님: 회신은 보통 단추 하나`, replies2.length === 1 && replies2[0].startsWith('회신 쓰기') && /secondary/.test(replies2[0]), replies2.join(' / '));
+    const head2 = await page.evaluate(() => [...document.querySelectorAll('.kd-screen:not([hidden]) .kd-head button')].filter((b) => b.offsetParent !== null).map((b) => b.textContent.trim()));
+    check(`[${tag}] 받은 공문 아님: 머리 주 행동은 한글 편집기로 열기, 회신 없음`, head2[0] === '한글 편집기로 열기' && !head2.some((t) => t.includes('회신')), head2.join(' / '));
     await tab('내보내기');
     await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [data-tool="export"] .kd-seg button')].find((b) => b.textContent === '글만')?.click());
     const before = new Set(readdirSync(SAVE));
@@ -143,7 +155,7 @@ async function run(width, height, dark) {
       for (const b of document.querySelectorAll('.kd-docws:not([hidden]) [data-tool="export"] .kd-seg')[0].querySelectorAll('button')) { const t = Math.round(b.getBoundingClientRect().top); rows[t] = (rows[t] ?? 0) + 1; }
       return Object.values(rows);
     });
-    check(`[${tag}] PDF 저장 형식 다섯: 외톨이 칸 없음`, seg5.every((c) => c > 1), JSON.stringify(seg5));
+    check(`[${tag}] PDF 저장 형식: 외톨이 칸 없음`, seg5.every((c) => c > 1), JSON.stringify(seg5));
     await ui.shot(join(OUT, `w-${tag}-05-pdf-export.png`));
 
     // ── 글 파일(.txt)은 마크다운으로 해석하지 않는다

@@ -1,8 +1,6 @@
 /** 공문에 인용한 법조문 검증 — 항·호·목, 인용 문장과 조문 내용, 공문 시행일 당시 조문 (가짜 법제처, 실제 인터넷 호출 없음) */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 vi.mock('../src/infra/progress.js', async (importOriginal) => ({
@@ -29,8 +27,9 @@ import { citingSentence, contentWords, wordMatch } from '../src/core/law/match.j
 import { findLevel, parseArticle } from '../src/core/law/article.js';
 // @ts-expect-error 시험용 JS 모듈 (형식 선언 없음)
 import { BODIES, SAMPLE_GONGMUN, startFakeDrf } from './law-fake-drf.mjs';
+import { tempDir } from './tmp-dirs.js';
 
-process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-lawv-'));
+process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-lawv-');
 
 let drf: { base: string; requests: URL[]; close: () => Promise<void> };
 beforeAll(async () => { drf = await startFakeDrf(); });

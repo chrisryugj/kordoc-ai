@@ -136,7 +136,7 @@ describe('watch_start·watch_stop·watch_list', () => {
     const { id } = await call('watch_start', { dir, out_dir: out, format: 'md' });
     try {
       expect((await call('watch_list')).map((w: { id: string }) => w.id)).toContain(id);
-      await expect(call('watch_start', { dir })).rejects.toThrow(/이미 감시 중/);
+      await expect(call('watch_start', { dir })).rejects.toThrow(/이미 지켜보는/);
       copyFileSync(sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx'), join(dir, 'sub', '공문.hwpx'));
       writeFileSync(join(dir, '메모.txt'), '무시되는 글자 파일');
       const mock = vi.mocked(sendNotification);
@@ -144,7 +144,7 @@ describe('watch_start·watch_stop·watch_list', () => {
       while (!mock.mock.calls.some(([m]) => m === 'watch_event') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
       const event = mock.mock.calls.find(([m]) => m === 'watch_event')?.[1] as { id: string; ok: boolean; output_path: string };
       expect(event).toMatchObject({ id, ok: true });
-      expect(event.output_path).toBe(join(out, 'sub', '공문.md'));
+      expect(event.output_path).toBe(join(out, 'sub', '공문_hwpx.md'));
       expect(readFileSync(event.output_path, 'utf-8')).toContain('체육대회');
       expect((await call('watch_list')).find((w: { id: string }) => w.id === id).processed).toBe(1);
     } finally {
@@ -152,6 +152,20 @@ describe('watch_start·watch_stop·watch_list', () => {
     }
     expect(await call('watch_stop', { id })).toBe(false);
   }, 60_000);
+
+  it('같은 이름 다른 확장자는 결과가 겹치지 않는다 (공문_hwpx.md · 공문_pdf.md)', async () => {
+    const { resultName } = await import('../src/core/watch/index.js');
+    expect(resultName(join('a', '공문.hwpx'), 'md')).toBe('공문_hwpx.md');
+    expect(resultName(join('a', '공문.PDF'), 'txt')).toBe('공문_pdf.txt');
+  });
+
+  it('결과 폴더가 지켜볼 폴더와 같거나 위면 시작할 때 거절하고 할 일 안내', async () => {
+    const dir = join(env.base, 'watch-parent', '받은 문서');
+    mkdirSync(dir, { recursive: true });
+    await expect(call('watch_start', { dir, out_dir: join(env.base, 'watch-parent') })).rejects.toThrow(/결과 폴더를 지켜볼 폴더 안이나 전혀 다른 폴더로 바꾸세요/);
+    await expect(call('watch_start', { dir, out_dir: dir })).rejects.toThrow(/바깥\(위\) 폴더/);
+    expect((await call('watch_list')).some((w: { dir: string }) => w.dir === dir)).toBe(false);
+  });
 });
 
 describe('ocr (리드 구현) — 계약 모양으로 등록', () => {

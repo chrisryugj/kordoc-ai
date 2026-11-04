@@ -1,7 +1,7 @@
 /** HWPX·HWP 서식 유지 수합 — 한컴오피스 없이 XML 수준 병합 (레포 예제 + 코퍼스가 있으면 실문서) */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import JSZip from 'jszip';
@@ -80,5 +80,35 @@ describe('HWPX 서식 유지 수합 (순수 XML)', () => {
     await mergeFiles({ files: [received, pii], output_path: out, mode: 'native' }, signal);
     const r = await parse(readFileSync(out));
     expect(r.success && r.markdown.includes('한마음 체육대회') && r.markdown.includes('정보공개 청구서')).toBe(true);
+  });
+
+  it('깨진 HWPX 하나는 빼고 합치며 어느 파일인지·이유를 failed 에 담는다', async () => {
+    const bad = join(dir, '깨진 문서.hwpx');
+    writeFileSync(bad, 'PK not really');
+    const out = join(dir, 'with-bad.hwpx');
+    const r = await mergeFiles({ files: [received, bad, report], output_path: out, mode: 'native' }, signal);
+    expect(r.file_count).toBe(2);
+    expect(r.failed_files).toEqual([bad]);
+    expect(r.failed).toEqual([{ path: bad, error: expect.stringMatching(/손상됐거나 저장이 끝나지 않은/) }]);
+    await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
+  });
+
+  it('합칠 수 있는 문서가 하나뿐이면 오류에 못 읽은 파일 이름을 넣는다', async () => {
+    const bad = join(dir, '깨진 공문.hwpx');
+    writeFileSync(bad, 'PK not really');
+    await expect(mergeFiles({ files: [received, bad], output_path: join(dir, 'x.hwpx'), mode: 'native' }, signal)).rejects.toThrow(/깨진 공문\.hwpx/);
+  });
+
+  it('마크다운 방식: 일부 실패는 failed 에, 다 실패하면 빈 파일 대신 오류', async () => {
+    const bad = join(dir, '깨진.hwpx');
+    writeFileSync(bad, 'PK not really');
+    const out = join(dir, 'part.md');
+    const r = await mergeFiles({ files: [received, bad], output_path: out, mode: 'markdown' }, signal);
+    expect(r.file_count).toBe(1);
+    expect(r.failed.map((f) => f.path)).toEqual([bad]);
+    expect(r.failed[0].error).not.toMatch(/[A-Za-z]{6,}/);
+    const none = join(dir, 'none.md');
+    await expect(mergeFiles({ files: [bad, bad], output_path: none, mode: 'markdown' }, signal)).rejects.toThrow(/합칠 수 있는 문서가 없습니다/);
+    expect(existsSync(none)).toBe(false);
   });
 });

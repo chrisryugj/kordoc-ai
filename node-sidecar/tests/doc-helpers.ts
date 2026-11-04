@@ -1,11 +1,11 @@
 /** doc-*.test.ts 공용 — 임시 앱 데이터·출력 폴더(코퍼스·samples 에는 쓰지 않음), 실문서 경로, RPC 호출 */
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { reload } from '../src/infra/config.js';
 import type { RpcRouter } from '../src/rpc/router.js';
+import { tempDir } from './tmp-dirs.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +26,7 @@ export const ORG = {
 
 /** 앱 데이터·출력 폴더를 임시로 — 설정 출력 폴더가 out 이라 원본 옆에 쓰지 않는다 */
 export function setupEnv(): { base: string; out: string; data: string; work: string } {
-  const base = mkdtempSync(join(tmpdir(), 'kordoc-doc-'));
+  const base = tempDir('kordoc-doc-'); // 시험 파일이 끝나면 지운다
   const out = join(base, 'out');
   const data = join(base, 'appdata');
   const work = join(base, 'work');

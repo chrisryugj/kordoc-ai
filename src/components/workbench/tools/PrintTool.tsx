@@ -33,13 +33,12 @@ export function PrintTool({ doc, info }: ToolProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="kd-small kd-muted">고른 프린터로 한 부를 바로 보냅니다. 여러 부나 양면은 PDF로 저장해 열어서 인쇄하세요.</p>
       {printers && !printers.length ? <Note tone="info">이 PC에 연결된 프린터가 없습니다.</Note> : print.busy ? <Working label="인쇄를 준비하는 중" /> : (
         <>
           {printers && printers.length > 1 && (
             <SelectField label="프린터" value={printer} onChange={setPrinter} options={printers.map((p) => ({ value: p.name, label: p.isDefault ? `${p.name} (기본)` : p.name }))} />
           )}
-          <div><Button variant="secondary" disabled={!printers} onClick={doPrint}><Printer size={14} /> 인쇄</Button></div>
+          <div><Button variant="secondary" disabled={!printers} onClick={doPrint} data-tip="고른 프린터로 한 부를 바로 보냅니다. 여러 부나 양면은 PDF로 저장해 열어서 인쇄하세요."><Printer size={14} /> 인쇄</Button></div>
         </>
       )}
       <ErrorLine message={print.error} />

@@ -92,7 +92,7 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
                 {have ? (
                   using ? null : <Button size="sm" variant="secondary" onClick={() => onChange({ model_path: have })}>이 모델 쓰기</Button>
                 ) : (
-                  <Button size="sm" variant="secondary" disabled={!!down || offline} title={offline ? "폐쇄망 모드에서는 받지 않습니다" : undefined} onClick={() => void download(item)}>
+                  <Button size="sm" variant="secondary" disabled={!!down || offline} title={offline ? "폐쇄망 모드에서는 받지 않습니다" : undefined} onClick={() => void download(item)} data-tip={offline ? undefined : `${item.size_gb}GB를 한 번 받습니다`}>
                     <Download size={13} /> 받기
                   </Button>
                 )}
@@ -114,7 +114,7 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
         ))}
       </div>
       {offline && <Note tone="info">폐쇄망 모드라 인터넷에서 받지 않습니다. 인터넷이 되는 PC에서 받은 모델 파일을 USB로 옮겨 가져오세요.</Note>}
-      <div><Button variant="secondary" onClick={() => void importFile()}><FileUp size={14} /> 가진 모델 파일 가져오기</Button></div>
+      <div><Button variant="secondary" onClick={() => void importFile()} data-tip="다른 PC에서 받아 USB로 옮긴 모델 파일(.gguf)을 씁니다"><FileUp size={14} /> 가진 모델 파일 가져오기</Button></div>
       {modelPath && <p className="kd-small kd-muted">고른 모델: {baseName(modelPath)}</p>}
       <ErrorLine message={error} />
 
@@ -129,8 +129,7 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
         <p className="kd-small kd-muted">괄호 안 숫자는 AI가 글을 나눠 세는 조각(토큰) 수입니다. 그래픽 칩(GPU)이 없으면 저절로 CPU로 돌립니다. 가져올 모델 파일은 .gguf 형식입니다.</p>
       </Advanced>
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" disabled={warm.busy || !modelPath} onClick={() => void warm.run(() => rpc("ai_warmup", {}))}><Flame size={14} /> {warm.busy ? "올리는 중" : "미리 올려 두기"}</Button>
-        <span className="kd-small kd-muted">처음 쓸 때 기다리지 않도록 모델을 메모리에 올립니다</span>
+        <Button variant="ghost" disabled={warm.busy || !modelPath} onClick={() => void warm.run(() => rpc("ai_warmup", {}))} data-tip="처음 쓸 때 기다리지 않도록 모델을 메모리에 올립니다"><Flame size={14} /> {warm.busy ? "올리는 중" : "미리 올려 두기"}</Button>
       </div>
       {warm.result && <Note tone="ok">준비됐습니다. {warm.result.gpu ? "그래픽 칩으로 돌립니다." : "그래픽 칩 없이 돌립니다."}</Note>}
       <ErrorLine message={warm.error} />

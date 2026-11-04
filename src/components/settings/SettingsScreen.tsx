@@ -17,17 +17,17 @@ import { DirtyContext, type DirtyEntry } from "./dirty";
 
 const INDEX = [
   { id: "set-org", mark: "가.", title: "내 기관 정보" },
-  { id: "set-orgdocs", mark: "나.", title: "우리 기관 문서 모음" },
+  { id: "set-orgdocs", mark: "나.", title: "우리 기관 문서 모음", adv: true },
   { id: "set-ai", mark: "다.", title: "AI 연결" },
   { id: "set-sec", mark: "라.", title: "보안" },
-  { id: "set-engine", mark: "마.", title: "엔진과 모델" },
-  { id: "set-store", mark: "바.", title: "저장과 연결" },
+  { id: "set-engine", mark: "마.", title: "엔진과 모델", adv: true },
+  { id: "set-store", mark: "바.", title: "저장과 연결", adv: true },
   { id: "set-about", mark: "사.", title: "화면과 정보" },
-  { id: "set-law", mark: "아.", title: "법령 확인" },
+  { id: "set-law", mark: "아.", title: "법령 확인", adv: true },
 ];
 
 export function SettingsScreen({ active }: { active: boolean }) {
-  const { settings, ready, engine, go, setLeaveGuard, settingsIntent } = useApp();
+  const { settings, ready, engine, go, setLeaveGuard, settingsIntent, uiMode, setUiMode } = useApp();
   const [current, setCurrent] = useState(INDEX[0].id);
   // 저장 안 한 구획 (구획 id → 이름·저장·되돌리기)
   const [dirty, setDirty] = useState<Record<string, DirtyEntry>>({});
@@ -61,7 +61,9 @@ export function SettingsScreen({ active }: { active: boolean }) {
     const entries = Object.values(dirtyRef.current);
     if (save) {
       setSavingAll(true);
-      const ok = (await Promise.all(entries.map((e) => e.save()))).every(Boolean);
+      // 구획마다 차례로 저장 (동시에 보내면 앞 저장 결과를 뒤 구획이 모른 채 덮을 수 있다)
+      let ok = true;
+      for (const e of entries) ok = (await e.save()) && ok;
       setSavingAll(false);
       if (!ok) { setLeaving(null); return; } // 저장 실패 안내는 구획이 띄운다. 머물러 고치게
     } else entries.forEach((e) => e.reset());
@@ -100,6 +102,8 @@ export function SettingsScreen({ active }: { active: boolean }) {
   }, [settingsIntent, active, !!settings]);
 
   const goTo = (id: string) => {
+    // 쉬운 화면에서 숨긴 구획을 찾아오면 전체 화면으로 바꾸고 간다
+    if (uiMode === "easy" && INDEX.find((x) => x.id === id)?.adv) { setUiMode("full"); requestAnimationFrame(() => goTo(id)); return; }
     const el = document.getElementById(id);
     const root = scrollRef.current;
     if (!el || !root) return;
@@ -125,7 +129,7 @@ export function SettingsScreen({ active }: { active: boolean }) {
       <div className="kd-settings">
         <nav className="kd-settings-index" aria-label="설정 목차">
           {INDEX.map((s) => (
-            <button key={s.id} type="button" className="kd-index-item" aria-current={current === s.id ? "true" : undefined} onClick={() => goTo(s.id)}>
+            <button key={s.id} type="button" className={`kd-index-item${s.adv ? " kd-adv" : ""}`} aria-current={current === s.id ? "true" : undefined} onClick={() => goTo(s.id)}>
               <span className="kd-section-mark">{s.mark}</span> {s.title}
               {dirty[s.id] && <span className="kd-index-dirty" role="img" aria-label="저장 안 함" title="저장하지 않은 변경이 있습니다" />}
             </button>
@@ -160,6 +164,10 @@ export function SettingsScreen({ active }: { active: boolean }) {
                 <StorageSection />
                 <AboutSection />
                 <LawSection />
+                <div className="kd-easy kd-note mt-8" data-tone="info">
+                  <span className="flex-1">우리 기관 문서 모음, 엔진과 모델, 저장과 연결, 법령 확인 같은 세부 설정은 전체 화면에서 보입니다.</span>
+                  <Button size="sm" variant="secondary" onClick={() => setUiMode("full")}>전체 화면으로</Button>
+                </div>
               </DirtyContext.Provider>
             )}
           </div>

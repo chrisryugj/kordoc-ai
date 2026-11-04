@@ -168,7 +168,7 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
     `위 지시${refs.text ? '와 참고 문서' : ''}로 ${PRESET_LABEL[preset]} 초안을 마크다운으로 쓰세요. 문서 본문만 출력하세요.`,
   ].filter(Boolean);
 
-  sendProgress({ current: 1, total: 3, message: `${PRESET_LABEL[preset]} 초안 쓰는 중...` });
+  sendProgress({ current: 1, total: 3, message: `${PRESET_LABEL[preset]} 초안 쓰는 중` });
   const first = await ask({ system, messages: [{ role: 'user', content: parts.join('\n\n') }], maxTokens, signal });
   redacted += first.redacted;
   let markdown = finish(first.text);
@@ -176,7 +176,7 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
 
   const errors = lintErrors(markdown, preset);
   if (errors.length) {
-    sendProgress({ current: 2, total: 3, message: `표기법 오류 ${errors.length}건 고쳐 쓰는 중...` });
+    sendProgress({ current: 2, total: 3, message: `표기법 오류 ${errors.length}건 고쳐 쓰는 중` });
     const fix = await fixLines(markdown, errors, system, signal);
     redacted += fix.redacted;
     const fixed = finish(fix.markdown);

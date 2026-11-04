@@ -13,6 +13,7 @@ import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { Button } from "../ui/Button";
 import { ErrorLine, Note } from "../common/Status";
 import { useCreate } from "./session";
+import { AiOffNote } from "./AiOffNote";
 import { createAgentBridge } from "../../lib/hwp-agent/bridge";
 import { createHwpSkill, type OrgSource } from "../../lib/hwp-agent/tools";
 import { runAgent, type AgentEvent } from "../../lib/hwp-agent/loop";
@@ -125,7 +126,7 @@ export function AgentChat() {
           onTool: (t) => patchLast((e) => ({ ...e, tools: [...(e.tools ?? []), { summary: t.summary, isError: t.isError }] })),
         },
       });
-      const note = r.redacted ? `\n\n(인터넷 AI 로 보내기 전 개인정보 ${r.redacted}건을 가렸습니다. 가린 글은 찾아 바꾸지 못할 수 있습니다.)` : "";
+      const note = r.redacted ? `\n\n(외부 AI로 보내기 전 개인정보 ${r.redacted}건을 가렸습니다. 가린 글은 찾아 바꾸지 못할 수 있습니다.)` : "";
       patchLast((e) => ({ ...e, text: (r.text || e.text || "끝났습니다.") + note }));
     } catch (e) {
       // rpc 는 이름만 AbortError 인 Error 를 던진다 (DOMException 만 보면 멈추기가 빨간 오류로 보였다)
@@ -159,7 +160,7 @@ export function AgentChat() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(prompt); }
   };
 
-  if (!ai?.configured) return <Note tone="info">AI 연결이 필요합니다. 설정의 AI 연결에서 고르세요.</Note>;
+  if (!ai?.configured) return <AiOffNote>말로 고치기는 AI가 필요합니다. 칸 채우기와 점검은 AI 없이 됩니다.</AiOffNote>;
   if (editorState !== "ready") return <Note tone="info">편집기에 문서가 열리면 말로 고칠 수 있습니다.</Note>;
 
   return (
@@ -167,7 +168,7 @@ export function AgentChat() {
       <div ref={listRef} className="flex flex-col gap-2.5" style={{ maxHeight: "52vh", overflowY: "auto" }} aria-live="polite">
         {chat.length === 0 && (
           <div className="flex flex-col gap-1.5">
-            <p className="kd-small kd-muted">열린 문서를 말로 고칩니다. 바꾼 곳으로 커서가 가고, 요청 하나를 통째로 되돌릴 수 있습니다. 고칠 문단에 커서를 두고 보내면 그 문단에 대한 요청으로 봅니다.</p>
+            <p className="kd-small kd-muted" data-tip="바꾼 곳으로 커서가 갑니다. 고칠 문단에 커서를 두고 보내면 그 문단에 대한 요청으로 봅니다">열린 문서를 말로 고칩니다. 요청 하나씩 되돌릴 수 있습니다.</p>
             <div className="flex flex-wrap gap-1.5">
               {EXAMPLES.map((x) => <button key={x} type="button" className="kd-chip" onClick={() => setPrompt(x)}>{x}</button>)}
             </div>
@@ -181,7 +182,7 @@ export function AgentChat() {
                 {e.tools.map((t, k) => <li key={k} className="kd-small" style={{ color: t.isError ? "var(--color-warning)" : "var(--color-text-muted)" }}>{t.isError ? "· 못 함: " : "· "}{t.summary}</li>)}
               </ul>
             )}
-            {e.text ? <p className="kd-text kd-pre" style={e.error ? { color: "var(--color-error)" } : undefined}>{e.text}</p> : (busy && i === chat.length - 1 ? <p className="kd-small kd-muted">생각하는 중…</p> : null)}
+            {e.text ? <p className="kd-text kd-pre" style={e.error ? { color: "var(--color-error)" } : undefined}>{e.text}</p> : (busy && i === chat.length - 1 ? <p className="kd-small kd-muted">생각하는 중</p> : null)}
             {e.changes && (
               <div className="flex items-center gap-2">
                 <span className="kd-small kd-muted">바꾼 곳 {e.changes.count}개{e.changes.state === "reverted" ? " · 되돌림" : e.changes.state === "refused" ? " · 되돌릴 수 없음(그 뒤 문서를 고쳤거나 시작점을 모름)" : ""}</span>
@@ -195,13 +196,13 @@ export function AgentChat() {
       </div>
       <ErrorLine message={error} />
       <textarea className="kd-textarea" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={onKey}
-        placeholder="무엇을 고칠까요? (Enter 보내기 · Shift+Enter 줄바꿈)" aria-label="편집기 AI 에게 요청" disabled={busy} />
+        placeholder="무엇을 고칠까요? (Enter 보내기 · Shift+Enter 줄바꿈)" aria-label="편집기 AI에게 요청" disabled={busy} />
       <div className="flex gap-2">
         {busy
           ? <Button variant="secondary" size="sm" onClick={() => ctrl.current?.abort()}><Square size={12} /> 멈추기</Button>
           : <Button size="sm" disabled={!prompt.trim()} onClick={() => void send(prompt)}><Send size={12} /> 보내기</Button>}
         {!busy && chat.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={() => { setChat([]); events.current = []; setError(""); }}><MessageSquarePlus size={12} /> 새 대화</Button>
+          <Button size="sm" variant="ghost" data-tip="대화만 지우고 새로 시작합니다. 문서는 그대로입니다" onClick={() => { setChat([]); events.current = []; setError(""); }}><MessageSquarePlus size={12} /> 새 대화</Button>
         )}
       </div>
     </div>

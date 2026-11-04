@@ -77,7 +77,7 @@ export async function suggestFill(params: FillParams, signal: AbortSignal): Prom
     required: fields,
     additionalProperties: false,
   };
-  sendProgress({ current: 1, total: 2, message: '칸에 넣을 값을 찾는 중...' });
+  sendProgress({ current: 1, total: 2, message: '칸에 넣을 값을 찾는 중' });
   const r = await ask({ system: SYSTEM, messages: [{ role: 'user', content }], schema, maxTokens, signal, stream: false });
 
   let raw: Record<string, unknown> = {};

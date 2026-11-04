@@ -73,7 +73,7 @@ export function registerDocumentWork(router: RpcRouter): void {
   reg('to_hwpx', (p, signal) => toHwpx({ path: reqPath(p.path), preset: str(p.preset), ocr: oneOf(p.ocr, ['auto', 'force', 'off'] as const), output_path: optPath(p.output_path) }, signal), { heavy: true });
   reg('to_hwpx_batch', (p, signal) => toHwpxBatch({ paths: reqPaths(p.paths), preset: str(p.preset), output_dir: optPath(p.output_dir) }, signal), { heavy: true });
   reg('compare_hwpx', (p, signal) => compareHwpx({ old_path: reqPath(p.old_path), new_path: reqPath(p.new_path), title: str(p.title), output_path: optPath(p.output_path) }, signal), { heavy: true });
-  reg('bundle_pdf', (p, signal) => bundlePdf({ paths: reqPaths(p.paths), output_path: optPath(p.output_path), watermark: str(p.watermark), page_numbers: bool(p.page_numbers) }, signal), { heavy: true });
+  reg('bundle_pdf', (p, signal) => bundlePdf({ paths: reqPaths(p.paths), output_path: optPath(p.output_path), watermark: str(p.watermark), page_numbers: bool(p.page_numbers), overwrite: bool(p.overwrite) }, signal), { heavy: true });
   reg('pdf_stamp', (p, signal) => pdfStamp({ path: reqPath(p.path), watermark: str(p.watermark), page_numbers: bool(p.page_numbers), output_path: optPath(p.output_path) }, signal), { heavy: true });
   reg('pdf_shrink', (p, signal) => pdfShrink({
     path: reqPath(p.path),

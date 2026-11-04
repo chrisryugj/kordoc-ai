@@ -9,11 +9,12 @@ import type { AgentSkill, ExecutedToolCall, ToolExecution } from "./hwp-agent/ty
 /** 만들었다고 말하는 말투 (파일을 만든 도구 없이 이렇게 답하면 한 번 되묻는다) */
 const CLAIMS = /(만들었|저장했|바꿨|바꾸었|채웠|가렸|합쳤|고쳤)습니다/;
 
-export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void }): Promise<AgentSkill> {
+export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void; outputs?: string[] }): Promise<AgentSkill> {
   const { system, tools } = await rpc("agent_tools", {});
   let made = 0;
   // 이 대화에서 만든 파일: "이어서" 요청은 파일 이름만 말하므로 전체 경로를 맥락에 실어야 모델이 경로를 지어내지 않는다 (실측: Gemma 4 E4B 가 precheck 에 없는 경로를 넣음)
-  const outputs: string[] = [];
+  // 저장해 둔 대화를 다시 열어 이어 시키면 그 대화에서 만든 파일부터 안다
+  const outputs: string[] = [...new Set(deps.outputs ?? [])];
   return {
     systemPrompt: system,
     tools,

@@ -125,7 +125,7 @@ export function ImpactScreen({ active }: { active: boolean }) {
         </div>
       </div>
       <Modal isOpen={confirmReset} onClose={() => setConfirmReset(false)} title="처리 기록 지우기" size="sm"
-        footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setConfirmReset(false)}>그만두기</Button><Button variant="danger" onClick={() => void reset()}>지우기</Button></div>}>
+        footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setConfirmReset(false)}>취소</Button><Button variant="danger" onClick={() => void reset()}>지우기</Button></div>}>
         <p className="kd-text">이 PC에 쌓인 처리 기록을 모두 지울까요? 지우면 되돌리지 못합니다.</p>
       </Modal>
     </div>

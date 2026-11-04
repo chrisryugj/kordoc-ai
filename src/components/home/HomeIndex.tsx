@@ -25,7 +25,7 @@ export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox
       ],
     },
     {
-      n: "2.", title: "쓰기", desc: "서식만 고르면 공문서 완성",
+      n: "2.", title: "쓰기", desc: "서식을 골라 공문서 쓰기",
       tasks: [
         ["서식함에서 공문서 만들기", () => onCreate("library")],
         ["AI로 초안 쓰기", () => onCreate("ai")],
@@ -54,7 +54,7 @@ export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox
       ],
     },
     {
-      n: "5.", title: "서무 도구", desc: "여러 문서를 한 번에",
+      n: "5.", title: "한꺼번에", desc: "여러 파일을 한 번에",
       tasks: [
         ["문서 수합해서 엑셀로", () => onBatch("collect")],
         ["명부로 여러 장 만들기", () => onBatch("mailmerge")],

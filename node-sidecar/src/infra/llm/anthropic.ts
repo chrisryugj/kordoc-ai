@@ -18,7 +18,7 @@ export function createAnthropicProvider(cfg: { api_key: string; model: string },
     isCloud: true,
     supportsVision: true,
     async chat(req: ChatRequest) {
-      if (!cfg.api_key) throw new Error('Claude API 키가 없습니다. 설정 > AI 연결에서 입력하세요.');
+      if (!cfg.api_key) throw new Error('Claude API 키가 없습니다. 설정 › AI 연결에서 넣으세요.');
       await assertAllowed('https://api.anthropic.com/v1/messages');
       const client = new Anthropic({ apiKey: cfg.api_key, timeout: timeoutMs, maxRetries: 2 });
 

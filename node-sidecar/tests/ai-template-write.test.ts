@@ -1,8 +1,7 @@
 /** 서식대로 새로 쓰기 — 견본 골격을 AI 에 주고, 받은 글을 견본 서식에 넣고, 게이트 지적을 돌려준다 (가짜 OpenAI 호환 서버) */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import { markdownToHwpx, parse } from 'kordoc';
@@ -16,8 +15,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 
 import { updateSettings } from '../src/infra/config.js';
 import { writeFromTemplate } from '../src/core/ai/template-write.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-tplwrite-'));
+const dir = tempDir('kordoc-ai-tplwrite-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const signal = () => new AbortController().signal;
 

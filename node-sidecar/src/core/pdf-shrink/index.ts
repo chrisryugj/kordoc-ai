@@ -282,7 +282,7 @@ export async function pdfShrink(p: ShrinkParams, signal?: AbortSignal): Promise<
   const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stemOf(p.path)}_용량줄임.pdf` });
   await writeFile(outPath, best.bytes);
   const notes: string[] = [`${mb(before)} → ${mb(after)}`];
-  if (target && !underTarget) notes.push(`한도 ${p.target_mb}MB 를 아직 넘습니다${p.allow_raster ? '' : '. "쪽을 그림으로 바꿔서라도 줄이기"를 켜면 더 줄일 수 있습니다'}`);
+  if (target && !underTarget) notes.push(`한도 ${p.target_mb}MB를 아직 넘습니다${p.allow_raster ? '' : '. "쪽을 그림으로 바꿔서라도 줄이기"를 켜면 더 줄일 수 있습니다'}`);
   if (!textKept) notes.push('쪽을 그림으로 바꿔 글자 복사·검색이 되지 않습니다');
   if (signed) notes.push('전자서명이 든 PDF라 줄인 사본에서는 서명이 풀립니다. 서명이 필요하면 원본을 첨부하세요');
   return {

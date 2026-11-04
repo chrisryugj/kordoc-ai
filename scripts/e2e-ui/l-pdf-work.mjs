@@ -4,7 +4,7 @@
  *  - 누르기·Shift 누르기로 고르기, R 돌리기, Alt+화살표 옮기기, 끌어 옮기기, Delete, Ctrl+Z·Ctrl+Shift+Z
  *  - 쪽 사이 가위로 나눌 곳 → 나눠 저장 두 개, PDF 하나로 저장(쪽 차례·돌린 각이 결과에), 고른 쪽만, 그림으로
  *  - 빈 쪽 넣기 → 빈 쪽 찾아 고르기, 우클릭 메뉴 → 크게 보기 → Esc
- *  - 서무 도구 "PDF 나누기·쪽 뽑기"를 시작하면 이 화면에 그 파일만 놓인다
+ *  - 여러 파일 한꺼번에 "PDF 나누기·쪽 뽑기"를 시작하면 이 화면에 그 파일만 놓인다
  *  - 화면 오류 0, 외톨이 줄 0
  *
  * 사용: node scripts/e2e-ui/l-pdf-work.mjs --port 7733 --out <스크린샷 폴더>
@@ -77,14 +77,14 @@ const pdfInfo = async (p) => { const d = await PDFDocument.load(readFileSync(p))
 
 try {
   await page.click('.kd-nav-item[data-screen="pdf"]');
-  await ui.waitText('PDF·그림·한글 문서를 끌어다 놓으세요');
+  await ui.waitText('PDF·그림·한글 문서를 끌어다 놓기');
   check('빈 책상: 할 수 있는 일 여섯 가지', (await page.$$eval(`${scr} .kd-pdf-can > div`, (e) => e.length)) === 6);
   await ui.shot(join(OUT, 'l-01-empty.png'));
 
   // ── 넣기: 이름 차례 (가 → 그림 → 나 → 다_보고서) ──
   await ui.dialog([[B, HWPX, PNG, A]]);
   await ui.click('파일 고르기', { within: scr });
-  await page.waitForFunction((s) => document.querySelectorAll(`${s} .kd-pg`).length >= 6 && !document.querySelector(`${s} .kd-pdf-chip-wait`), { timeout: 120000 }, scr);
+  await page.waitForFunction((s) => document.querySelectorAll(`${s} .kd-pg`).length >= 6 && !document.querySelector(`${s} .kd-pdf-opening`), { timeout: 120000 }, scr);
   const n0 = await count();
   const c0 = await caps();
   check('넣은 차례는 파일 이름 차례, 한글 문서는 PDF로 바꿔서', c0.slice(0, 6).join('|') === '가 · 1|가 · 2|가 · 3|그림 · 1|나 · 1|나 · 2' && c0.slice(6).every((c) => c.startsWith('다_보고서')) && n0 > 6, `${n0}쪽: ${c0.join('|').slice(0, 120)}`);
@@ -216,17 +216,17 @@ try {
     check('크게 보기: 화살표로 다음 쪽, Esc 로 닫기', head.includes('2 / ') && !(await page.$('.kd-pdf-view')), head.slice(0, 40));
   }
 
-  // ── 서무 도구에서 넘겨받기 ──
+  // ── 여러 파일 한꺼번에서 넘겨받기 ──
   await page.click('.kd-nav-item[data-screen="batch"]');
   await sleep(300);
   await ui.dialog([[A]]);
-  await ui.click('파일 추가', { within: `${scr} .kd-head` });
+  await ui.click('파일 고르기', { within: scr });
   await sleep(1500);
   await page.evaluate(() => document.querySelector('.kd-tasklist [data-task="pdftools"]').click());
   await sleep(300);
-  await ui.click('시작', { within: `${scr} .kd-batch-opts` });
+  await ui.click('시작', { within: `${scr} .kd-batch-go` });
   await waitCount(3, 30000);
-  check('서무 도구 "PDF 나누기·쪽 뽑기" → PDF 작업에 그 파일만', (await caps()).join('|') === '가 · 1|가 · 2|가 · 3' && (await page.$eval('.kd-nav-item[aria-current="page"]', (e) => e.dataset.screen)) === 'pdf');
+  check('여러 파일 한꺼번에 "PDF 나누기·쪽 뽑기" → PDF 작업에 그 파일만', (await caps()).join('|') === '가 · 1|가 · 2|가 · 3' && (await page.$eval('.kd-nav-item[aria-current="page"]', (e) => e.dataset.screen)) === 'pdf');
   await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
   await sleep(300);
   check('넘겨받기 전 책상은 되돌리기로', (await count()) > 3, String(await count()));

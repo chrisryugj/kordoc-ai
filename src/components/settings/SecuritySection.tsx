@@ -15,7 +15,7 @@ import { ErrorLine } from "../common/Status";
 import { lockProps, useLocked } from "./PolicyLock";
 
 const WHERE: Record<string, string> = {
-  embedded: "이 PC 안 (내장 모델)", local: "이 PC의 로컬 모델 서버", openai: "기관 AI 서버", gemini: "인터넷 서비스 (Google Gemini)", anthropic: "인터넷 서비스 (Anthropic Claude)",
+  embedded: "이 PC 안 (내장 모델)", local: "이 PC의 로컬 모델 서버", openai: "기관 AI 서버", gemini: "외부 AI (Google Gemini)", anthropic: "외부 AI (Anthropic Claude)",
   "claude-code": "구독 계정 (Claude Code 프로그램, Anthropic 서버)", codex: "구독 계정 (Codex 프로그램, OpenAI 서버)", none: "AI를 쓰지 않음",
 };
 
@@ -54,14 +54,14 @@ export function SecuritySection({ active }: { active: boolean }) {
           </div>
 
           <dl className="kd-dl kd-dl-wide">
-            <div><dt>폐쇄망 모드</dt><dd>{st.offline ? <span className="kd-status" data-tone="ok"><ShieldCheck size={14} /> 켜짐: 인터넷으로 나가는 연결을 모두 막습니다</span> : "꺼짐: 인터넷 AI·법령 확인·모델 받기를 허용합니다"}</dd></div>
+            <div><dt>폐쇄망 모드</dt><dd>{st.offline ? <span className="kd-status" data-tone="ok"><ShieldCheck size={14} /> 켜짐: 인터넷으로 나가는 연결을 모두 막습니다</span> : "꺼짐: 외부 AI·법령 확인·모델 받기를 허용합니다"}</dd></div>
             <div><dt>AI 처리 위치</dt><dd>{WHERE[st.ai_provider] ?? st.ai_provider}{st.ai_is_cloud ? " · 문서 내용이 인터넷으로 나갑니다" : ""}</dd></div>
-            <div><dt>보내기 전 자동 가림</dt><dd>{st.ai_is_cloud ? (st.redact_before_cloud ? "켜짐: 개인정보를 가린 뒤 보냅니다" : "꺼짐: 원문이 그대로 나갑니다") : `${st.redact_before_cloud ? "켜짐" : "꺼짐"} (지금은 인터넷 AI를 쓰지 않아 해당 없음)`}</dd></div>
+            <div><dt>보내기 전 자동 가림</dt><dd>{st.ai_is_cloud ? (st.redact_before_cloud ? "켜짐: 개인정보를 가린 뒤 보냅니다" : "꺼짐: 원문이 그대로 나갑니다") : `${st.redact_before_cloud ? "켜짐" : "꺼짐"} (지금은 외부 AI를 쓰지 않아 해당 없음)`}</dd></div>
             <div><dt>사용 통계 전송</dt><dd>없음: 사용 기록·통계를 어디에도 보내지 않습니다</dd></div>
             <div><dt>데이터 위치</dt><dd className="flex flex-wrap items-center gap-2"><span className="kd-path">{st.data_dir}</span><button type="button" className="kd-link kd-small" onClick={() => void rpc("open_folder", { path: st.data_dir }).catch(() => undefined)}><FolderOpen size={12} className="inline -mt-0.5" /> 열기</button></dd></div>
           </dl>
 
-          <Switch {...lockProps("폐쇄망 모드", lk("privacy.offline"))} desc="켜면 인터넷 AI·법령 확인·모델 받기를 막고 기관 안 주소와 이 PC로만 연결합니다."
+          <Switch {...lockProps("폐쇄망 모드", lk("privacy.offline"))} desc="켜면 외부 AI·법령 확인·모델 받기를 막고 기관 안 주소와 이 PC로만 연결합니다."
             checked={settings?.privacy.offline ?? false} onChange={(v) => void saveSettings({ privacy: { offline: v } })} />
 
           <div>

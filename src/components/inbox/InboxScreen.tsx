@@ -1,6 +1,6 @@
 /** 받은 공문 — 받은 공문의 보낸 곳·제목·요청 사항·기한을 한 표로, 기한 배지와 회신 초안으로 잇는다 */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, FlaskConical, Inbox, Sheet } from "lucide-react";
 import { useApp } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
@@ -51,8 +51,13 @@ export function InboxScreen({ active }: { active: boolean }) {
     setBadge("inbox", n ? String(n) : undefined);
   }, [items, today, setBadge]);
 
+  // 읽는 중에 또 넣으면 새 작업이 앞 작업을 끊는다(useTask) → 받지 않고 알린다
+  const busyRef = useRef(false);
+  busyRef.current = adding.busy;
   const add = useCallback(async (paths: string[]) => {
     if (!paths.length) return;
+    if (busyRef.current) { toast("앞 공문을 읽는 중입니다. 다 읽은 뒤 다시 넣으세요.", "info"); return; }
+    busyRef.current = true;
     setFailed([]);
     const added = await adding.run(async ({ signal, onProgress }) => {
       const files = (await rpc("scan_paths", { paths })).files.map((f) => f.path);
@@ -122,11 +127,12 @@ export function InboxScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="접수함" sub="받은 공문의 요청 사항과 제출 기한을 한눈에 보고, 바로 회신을 씁니다."
-        actions={(
+      {/* 비었을 때는 가운데 빈 상태의 공문 추가 하나만 */}
+      <ScreenHeader title="접수함" sub="받은 공문의 요청 사항과 제출 기한"
+        actions={!!items?.length && (
           <>
-            {!!items?.length && <Button variant="secondary" onClick={exportLedger} disabled={ledger.busy}><Sheet size={15} /> 접수대장 엑셀</Button>}
-            <Button variant="secondary" onClick={pick} disabled={adding.busy}><FilePlus2 size={15} /> 공문 추가</Button>
+            <Button variant="ghost" onClick={exportLedger} disabled={ledger.busy} data-tip="모든 공문의 보낸 곳·요청 사항·기한·상태를 엑셀 한 장으로 저장합니다."><Sheet size={15} /> 접수대장 엑셀</Button>
+            <Button variant="secondary" onClick={pick} disabled={adding.busy} data-tip="공문 파일을 골라 넣습니다. 여기에 끌어다 놓아도 됩니다."><FilePlus2 size={15} /> 공문 추가</Button>
           </>
         )} />
       <div className="kd-body kd-inbox-drop" data-drop="inbox" data-over={dragTarget === "inbox" && !!items?.length}>
@@ -150,14 +156,14 @@ export function InboxScreen({ active }: { active: boolean }) {
             !loadError && <p className="kd-text kd-muted py-6">{ready ? "목록을 읽는 중입니다." : "문서 엔진을 켜는 중입니다."}</p>
           ) : items.length === 0 ? (
             <div className="kd-dropzone mt-2" data-over={dragTarget === "inbox"}>
-              <Empty icon={<Inbox size={30} />} title="받은 공문이 없습니다"
+              <Empty icon={<Inbox size={30} />} title="받은 공문 없음"
                 action={(
                   <>
-                    <Button onClick={pick} disabled={adding.busy}><FilePlus2 size={14} /> 공문 추가</Button>
+                    <Button onClick={pick} disabled={adding.busy} data-tip="보낸 곳·요청 사항·제출 기한을 뽑아 기한 순으로 정리합니다."><FilePlus2 size={14} /> 공문 추가</Button>
                     <Button variant="secondary" onClick={() => void trySample()} disabled={adding.busy}><FlaskConical size={14} /> 예제 공문으로 해 보기</Button>
                   </>
                 )}>
-                공문을 끌어다 놓거나 공문 추가를 누르세요. 보낸 곳·요청 사항·제출 기한을 뽑아 기한 순으로 정리하고, 회신 초안으로 바로 이어 줍니다.
+                공문 파일을 여기에 끌어다 놓아도 됩니다.
               </Empty>
             </div>
           ) : (
@@ -165,13 +171,15 @@ export function InboxScreen({ active }: { active: boolean }) {
               <div className="kd-inbox-bar">
                 <Seg label="보기" value={filter} onChange={setFilter} options={[
                   { value: "todo", label: `할 일 ${num(counts.todo)}` },
-                  { value: "done", label: `끝남 ${num(counts.done)}` },
+                  { value: "done", label: `끝냄 ${num(counts.done)}` },
                   { value: "all", label: `전체 ${num(counts.all)}` },
                 ]} />
                 {summary && <span className="kd-small kd-num kd-inbox-summary">{summary}</span>}
               </div>
               {shown.length === 0 ? (
-                <p className="kd-text kd-muted py-6">{filter === "todo" ? "남은 할 일이 없습니다. 끝낸 공문은 끝남에서 봅니다." : "끝낸 공문이 없습니다."}</p>
+                <Empty icon={<Inbox size={28} />} title={filter === "todo" ? "남은 할 일 없음" : "끝낸 공문 없음"}>
+                  {filter === "todo" ? "끝낸 공문은 끝냄에서 봅니다." : undefined}
+                </Empty>
               ) : (
                 <table className="kd-table kd-inbox-table" aria-label="받은 공문 목록 (기한 순)">
                   <thead>

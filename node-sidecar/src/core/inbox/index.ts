@@ -95,7 +95,7 @@ async function readOne(path: string, signal?: AbortSignal) {
   const r = await parseDoc(path, { images: false, plain: true, pages: format === 'pdf' ? '1-10' : undefined, signal });
   const hangulPictures = (format === 'hwp' || format === 'hwpx') && hasImage(r.blocks) && ocrModelsReady();
   if (r.markdown.replace(/\s/g, '').length < 20 && !hangulPictures) {
-    throw new Error('글자를 읽지 못했습니다. 스캔한 공문이면 설정 > 저장과 연결에서 스캔한 쪽 글자 읽기를 켜고 다시 넣으세요.');
+    throw new Error('글자를 읽지 못했습니다. 스캔한 공문이면 설정 › 저장과 연결에서 스캔한 쪽 글자 읽기를 켜고 다시 넣으세요.');
   }
   const ex = extractInbox(r.markdown, todayIso());
   if (!hangulPictures) return ex;

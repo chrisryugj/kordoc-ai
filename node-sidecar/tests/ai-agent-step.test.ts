@@ -1,8 +1,6 @@
 /** 편집기 AI 한 차례 (core/ai/agent-step.ts) — 지시문에 도구 목록·답 형식, 답 JSON {say, calls} 에서 글과 호출 (가짜 OpenAI 호환 서버) */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFakeOpenAi, lastUser, systemOf, type ChatBody, type FakeServer } from './ai-fake-server.js';
 
@@ -14,8 +12,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 
 import { updateSettings } from '../src/infra/config.js';
 import { agentStep } from '../src/core/ai/agent-step.js';
+import { tempDir } from './tmp-dirs.js';
 
-process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-ai-agent-'));
+process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-agent-');
 const signal = () => new AbortController().signal;
 let fake: FakeServer;
 let reply: (b: ChatBody, n: number) => string = () => '';

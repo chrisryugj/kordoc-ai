@@ -22,6 +22,9 @@ import { ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { OrderList } from "../common/OrderList";
 import { RULES } from "../workbench/tools/RedactTool";
 
+/** 돌던 작업을 결과 없는 빈 작업으로 밀어낸다 (결과·오류를 지우고, 늦게 끝난 앞 작업의 결과는 버려진다) */
+const supersede = <T,>(t: { run: (fn: () => Promise<T>) => Promise<T | null> }) => void t.run(async () => null as unknown as T);
+
 type GuideAnswer = "clear" | "keep" | "cancel";
 /** 작업 전에 정한 것 — 지울 빈칸 이름들 */
 interface Prep { clear: string[] }
@@ -40,7 +43,7 @@ function Row({ mark, title, desc, children }: { mark: string; title: string; des
 }
 
 export function OutputStep({ active }: { active: boolean }) {
-  const { settings, go } = useApp();
+  const { settings, openSettings } = useApp();
   const { session, editorState, docSeq, call, saveTo, outputFile, saveDir, syncDirty, suggestedName } = useCreate();
   const [fileName, setFileName] = useState("");
   const [ask, setAsk] = useState<{ count: number; resolve: (a: GuideAnswer) => void } | null>(null);
@@ -79,7 +82,8 @@ export function OutputStep({ active }: { active: boolean }) {
   useEffect(() => {
     if (docSeq === seenSeq.current) return;
     seenSeq.current = docSeq;
-    for (const t of [save, pdf, print, seal, redact, bundle]) t.reset();
+    // 돌던 작업은 새 빈 작업으로 밀어낸다: 앞 문서 작업의 결과·오류가 늦게 와도 버려진다(useTask 는 마지막 run 것만 받는다)
+    supersede(save); supersede(pdf); supersede(print); supersede(seal); supersede(redact); supersede(bundle);
     setAttach([]);
     // 문서가 바뀔 때만
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,7 +165,11 @@ export function OutputStep({ active }: { active: boolean }) {
     if (!target) return;
     void save.run(async () => {
       await applyGuides(p);
-      return saveTo(target, format);
+      // 저장하면 지금 문서 경로가 저장한 파일로 바뀐다: 같은 문서이니 파일 이름 칸을 제안 이름으로 되돌리지 않는다
+      lastSession.current = target;
+      const out = await saveTo(target, format);
+      lastSession.current = out;
+      return out;
     });
   })();
 
@@ -223,7 +231,8 @@ export function OutputStep({ active }: { active: boolean }) {
     if (!target) return;
     void bundle.run(async ({ signal }) => {
       const path = await latest(p);
-      return rpc("bundle_pdf", { paths: [path, ...attach], output_path: target, page_numbers: pageNums, ...(watermark ? { watermark } : {}) }, { signal });
+      // 저장 창이 덮어쓰기를 물어 확인받은 자리 (export_pdf 와 같다)
+      return rpc("bundle_pdf", { paths: [path, ...attach], output_path: target, overwrite: true, page_numbers: pageNums, ...(watermark ? { watermark } : {}) }, { signal });
     });
   })();
 
@@ -251,28 +260,28 @@ export function OutputStep({ active }: { active: boolean }) {
                   <button key={s} type="button" className="kd-chip" aria-pressed={fileName === s} onClick={() => setFileName(s)}>{s}</button>
                 ))}
               </div>
-              <p className="kd-field-hint">날짜_부서_제목 순서로 지으면 나중에 찾기 쉽습니다. 부서는 내 기관 정보에서 가져옵니다.</p>
+              <p className="kd-field-hint">날짜_부서_제목 순서 권장</p>
             </div>
 
-            <Row mark="가." title="한글 파일로 저장" desc="받는 곳이 옛 한글을 쓰면 HWP, 그 밖에는 HWPX를 권합니다.">
+            <Row mark="가." title="한글 파일로 저장" desc="HWPX 권장 · 받는 곳이 옛 한글이면 HWP">
               {save.busy ? <Working label="저장하는 중" /> : (
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => saveAs("hwpx")}><Save size={14} /> HWPX로 저장</Button>
-                  <Button variant="secondary" onClick={() => saveAs("hwp")}><Save size={14} /> HWP로 저장</Button>
+                  <Button onClick={() => saveAs("hwpx")} data-tip="저장할 곳을 고릅니다. 같은 이름이 있으면 바꿀지 묻습니다"><Save size={14} /> HWPX로 저장</Button>
+                  <Button variant="secondary" onClick={() => saveAs("hwp")} data-tip="한글 2010 이전 등 옛 한글에서 열 파일"><Save size={14} /> HWP로 저장</Button>
                 </div>
               )}
               <ErrorLine message={save.error} />
               {save.result && <SavedFile path={save.result} />}
             </Row>
 
-            <Row mark="나." title="PDF로 저장" desc="지금 편집기 내용을 편집기와 같은 조판으로 PDF를 만듭니다. 한글 파일을 따로 저장하지 않아도 됩니다.">
-              {pdf.busy ? <Working label="PDF를 만드는 중" onCancel={pdf.cancel} /> : <div><Button variant="secondary" onClick={toPdf}><FileText size={14} /> PDF로 저장</Button></div>}
+            <Row mark="나." title="PDF로 저장" desc="지금 편집기 내용 그대로">
+              {pdf.busy ? <Working label="PDF를 만드는 중" onCancel={pdf.cancel} /> : <div><Button variant="secondary" onClick={toPdf} data-tip="편집기와 같은 조판으로 만듭니다. 한글 파일을 따로 저장하지 않아도 됩니다"><FileText size={14} /> PDF로 저장</Button></div>}
               <ErrorLine message={pdf.error} />
               {pdf.result && <SavedFile path={pdf.result} />}
               {pdf.result && keepHangul}
             </Row>
 
-            <Row mark="다." title="인쇄" desc="고른 프린터로 한 부를 바로 보냅니다. 여러 부·양면은 PDF로 저장해 열어서 인쇄하세요.">
+            <Row mark="다." title="인쇄" desc="고른 프린터로 한 부">
               {printers && !printers.length ? <Note tone="info">이 PC에 연결된 프린터가 없습니다.</Note> : print.busy ? <Working label="인쇄를 준비하는 중" /> : (
                 <div className="flex flex-wrap items-end gap-2">
                   {printers && printers.length > 1 && (
@@ -280,26 +289,26 @@ export function OutputStep({ active }: { active: boolean }) {
                       <SelectField label="프린터" value={printer} onChange={setPrinter} options={printers.map((p) => ({ value: p.name, label: p.isDefault ? `${p.name} (기본)` : p.name }))} />
                     </div>
                   )}
-                  <Button variant="secondary" disabled={!printers} onClick={doPrint}><Printer size={14} /> 인쇄</Button>
+                  <Button variant="secondary" disabled={!printers} onClick={doPrint} data-tip="한 부를 바로 보냅니다. 여러 부·양면은 PDF로 저장해 열어서 인쇄하세요"><Printer size={14} /> 인쇄</Button>
                 </div>
               )}
               <ErrorLine message={print.error} />
               {print.result && <Note tone="ok">인쇄를 보냈습니다: {print.result}</Note>}
             </Row>
 
-            <Row mark="라." title="도장 찍은 사본" desc="문서의 (인) 자리에 관인이나 서명 그림을 찍은 사본을 만듭니다.">
+            <Row mark="라." title="도장 찍은 사본" desc="(인) 자리에 관인·서명 그림">
               {!sealImage ? (
-                <Note tone="info">관인·서명 그림이 없습니다. <button type="button" className="kd-link" onClick={() => go("settings")}>내 기관 정보</button>에서 그림을 등록하세요.</Note>
+                <Note tone="info">관인·서명 그림이 없습니다. <button type="button" className="kd-link" onClick={() => openSettings("set-org")}>설정 › 내 기관 정보</button>에서 관인 그림을 넣으세요.</Note>
               ) : seal.busy ? <Working label="도장을 찍는 중" /> : (
-                <div><Button variant="secondary" onClick={doSeal}><Stamp size={14} /> 도장 찍기</Button></div>
+                <div><Button variant="secondary" onClick={doSeal} data-tip="이름_날인.hwpx 사본을 만듭니다. 지금 문서는 그대로입니다"><Stamp size={14} /> 도장 찍기</Button></div>
               )}
               <ErrorLine message={seal.error} />
-              {seal.result && (seal.result.placed > 0 ? <SavedFile path={seal.result.output_path} label={`${seal.result.placed}곳에 찍은 사본을 저장했습니다`} /> : <Note tone="warn">문서에서 (인) 자리를 찾지 못했습니다.</Note>)}
+              {seal.result && (seal.result.placed > 0 ? <SavedFile path={seal.result.output_path} label={`${seal.result.placed}곳에 찍은 사본을 저장했습니다`} /> : <Note tone="warn">문서에서 (인) 자리를 찾지 못해 찍지 않았습니다. 편집기에서 도장 찍을 곳에 (인)을 넣고 다시 누르세요.</Note>)}
             </Row>
 
-            <Row mark="마." title="공개용 사본" desc="정보공개·누리집 게시용으로 개인정보를 가린 사본을 만들고 남은 곳이 없는지 다시 검사합니다.">
+            <Row mark="마." title="공개용 사본" desc="개인정보를 가린 정보공개·게시용">
               {redact.busy ? <Working label="개인정보를 가리는 중" /> : (
-                <div><Button variant="secondary" onClick={doRedact}><EyeOff size={14} /> 공개용 사본 만들기</Button></div>
+                <div><Button variant="secondary" onClick={doRedact} data-tip="주민번호·전화번호 등을 가린 사본을 만들고 남은 곳이 없는지 다시 검사합니다. 지금 문서는 그대로입니다"><EyeOff size={14} /> 공개용 사본 만들기</Button></div>
               )}
               <ErrorLine message={redact.error} />
               {redact.result?.output_path && (
@@ -310,10 +319,10 @@ export function OutputStep({ active }: { active: boolean }) {
               )}
             </Row>
 
-            <Row mark="바." title="붙임 합본 PDF" desc="본문 뒤에 붙임 문서를 순서대로 이어 PDF 한 권으로 만듭니다.">
+            <Row mark="바." title="붙임 합본 PDF" desc="본문과 붙임을 PDF 한 권으로">
               <OrderList items={attach} onChange={setAttach} />
               <div className="flex flex-wrap items-end gap-3">
-                <Button variant="ghost" size="sm" onClick={() => void pickFiles().then((p) => setAttach([...new Set([...attach, ...p])]))}><FilePlus2 size={13} /> 붙임 추가</Button>
+                <Button variant="ghost" size="sm" data-tip="본문 뒤에 넣은 순서대로 잇습니다. 끌어서 순서를 바꿀 수 있습니다" onClick={() => void pickFiles().then((p) => setAttach([...new Set([...attach, ...p])]))}><FilePlus2 size={13} /> 붙임 추가</Button>
                 <div style={{ width: 150 }}>
                   <SelectField label="워터마크" value={watermark} onChange={setWatermark} options={[{ value: "", label: "없음" }, { value: "대외비", label: "대외비" }, { value: "사본", label: "사본" }, { value: "공개용", label: "공개용" }]} />
                 </div>
@@ -337,7 +346,7 @@ export function OutputStep({ active }: { active: boolean }) {
             <p className="kd-small kd-muted">{session.dirty ? "고친 내용이 아직 저장되지 않았습니다" : session.savedAt ? "저장한 그대로입니다" : session.working ? "만든 초안 그대로입니다" : "연 그대로입니다"}</p>
             {session.working ? (
               <div className="kd-inset flex flex-col gap-2 p-3">
-                <p className="kd-small">작업 사본으로 앱 작업 폴더에만 있습니다. 남겨 두려면 한글 파일로도 저장하세요.</p>
+                <p className="kd-small">앱 작업 폴더에만 있는 작업 사본입니다.</p>
                 <div className="flex flex-wrap gap-1.5">
                   <Button variant="secondary" size="sm" onClick={() => saveAs("hwpx")}><Save size={13} /> 한글 파일도 저장</Button>
                   <Button variant="ghost" size="sm" onClick={() => void rpc("reveal_file", { path: session.path }).catch(() => undefined)}><FolderOpen size={13} /> 작업 폴더</Button>

@@ -1,0 +1,28 @@
+/* AI 도구에 KorDoc AI 연결 (MCP) */
+.kd-mcp { display: flex; flex-direction: column; gap: 12px; }
+.kd-mcp-lead { font-size: var(--fs-small); line-height: 1.55; color: var(--color-text-secondary); }
+.kd-mcp-body { display: flex; flex-direction: column; gap: 12px; min-height: 220px; }
+.kd-mcp-hint { font-size: var(--fs-small); color: var(--color-text-muted); }
+.kd-mcp-wait { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px 0; font-size: var(--fs-small); color: var(--color-text-muted); }
+.kd-mcp-wait[data-tone="err"] { color: var(--color-error); }
+.kd-mcp-list { display: flex; flex-direction: column; gap: 4px; }
+.kd-mcp-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--color-border-subtle); background: var(--color-bg-tertiary); cursor: pointer; transition: border-color var(--transition-fast), background-color var(--transition-fast); }
+.kd-mcp-row[data-on="true"] { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+.kd-mcp-row[data-absent="true"] .kd-mcp-name { color: var(--color-text-muted); }
+.kd-mcp-row input { width: 16px; height: 16px; flex: none; accent-color: var(--color-accent); }
+.kd-mcp-name { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 500; color: var(--color-text-primary); }
+.kd-mcp-state { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-caption); color: var(--color-text-muted); }
+.kd-mcp-state[data-tone="ok"] { color: var(--color-success); font-weight: 600; }
+.kd-mcp-state[data-tone="accent"] { color: var(--color-accent); }
+.kd-mcp-result { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: var(--radius-sm); font-size: var(--fs-caption); background: var(--color-success-subtle); color: var(--color-success); }
+.kd-mcp-result[data-ok="false"] { background: var(--color-error-subtle); color: var(--color-error); }
+.kd-mcp-result-msg { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.kd-mcp-folder { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-small); color: var(--color-text-muted); }
+.kd-mcp-folder > span { flex: 1; min-width: 0; word-break: break-all; }
+.kd-mcp-acts { display: flex; align-items: center; gap: 8px; }
+.kd-mcp-paths { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-caption); color: var(--color-text-muted); }
+.kd-mcp-paths-title { font-size: var(--fs-small); font-weight: 600; color: var(--color-text-secondary); }
+.kd-mcp-path { display: flex; align-items: flex-start; gap: 8px; }
+.kd-mcp-path > svg { flex: none; margin-top: 2px; }
+.kd-mcp-path-name { flex: none; min-width: 96px; font-weight: 500; color: var(--color-text-secondary); }
+.kd-mcp-path code { min-width: 0; font-family: var(--font-mono); word-break: break-all; }

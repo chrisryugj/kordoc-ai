@@ -10,9 +10,9 @@
  *   중계기: node scripts/dev-relay.mjs --port 7725 --data <앱 데이터 폴더>
  *   앞서 필요: node-sidecar 빌드(tsc·esbuild). 견본·내용 문서는 결과 폴더 안 fixtures/ 에 만든다
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { openUi, ROOT, SAMPLES, sleep } from './ui-lib.mjs';
 
@@ -47,7 +47,7 @@ try {
 
   await ui.click('새로 쓰기', { within: '.kd-nav' });
   await ui.click('우리 서식으로 맞추기', { within: '.kd-routes' });
-  await ui.waitText('1. 맞출 서식 고르기');
+  await ui.waitText('1. 맞출 서식');
   await ui.shot(join(OUT, '01-empty.png'));
 
   // 견본에서 서식 읽기
@@ -85,7 +85,7 @@ try {
   for (const w of [1280, 1024]) {
     await page.setViewport({ width: w, height: 860 });
     await sleep(400);
-    const o = await ui.orphans('.kd-routes .kd-row-desc, .kd-draft-left p, .kd-draft-left dd, .kd-draft-left .kd-row-desc, .kd-actionbar-status');
+    const o = await ui.orphans('.kd-filedrop .kd-row-desc, .kd-draft-left p, .kd-draft-left dd, .kd-draft-left .kd-row-desc, .kd-actionbar-status');
     check(`외톨이 줄 0 @${w}`, o.length === 0, JSON.stringify(o));
     if (w === 1024) await ui.shot(join(OUT, '03b-files-1024.png'));
   }
@@ -97,7 +97,9 @@ try {
   await ui.click('우리 서식으로 만들기');
   await ui.waitText('3. 결과', 120000);
   await page.waitForFunction(() => !document.querySelector('.kd-actionbar [role=progressbar]'), { timeout: 120000 });
-  const outs = [md, txt, pdf].map((p) => p.replace(/\.[^.]+$/, '_우리서식.hwpx'));
+  // 결과는 설정의 저장 폴더에 (개발 중계기는 <데이터 폴더>/결과 로 정해 둔다)
+  const outDir = (await ui.call('get_settings')).convert.output_dir;
+  const outs = [md, txt, pdf].map((p) => join(outDir, basename(p).replace(/\.[^.]+$/, '_우리서식.hwpx')));
   check('결과 파일 3개 (원래 이름_우리서식.hwpx)', outs.every((p) => existsSync(p) && readFileSync(p).subarray(0, 2).toString() === 'PK'), outs.filter((p) => !existsSync(p)).join(', '));
   check('원본 그대로', [md, txt, pdf].every(existsSync));
   const back = await ui.call('style_extract', { path: outs[0] });
@@ -107,7 +109,7 @@ try {
   // PDF로 저장
   await ui.click('PDF로 저장', { within: '.kd-draft-left' });
   await ui.waitText('PDF 보기', 120000);
-  check('결과 PDF 저장 (결과 옆, 설정 출력 폴더가 없을 때)', existsSync(outs[0].replace(/\.hwpx$/, '.pdf')), outs[0].replace(/\.hwpx$/, '.pdf'));
+  check('결과 PDF 저장 (결과 한글 파일 옆)', existsSync(outs[0].replace(/\.hwpx$/, '.pdf')), outs[0].replace(/\.hwpx$/, '.pdf'));
   await ui.shot(join(OUT, '05-pdf.png'));
 
   // 편집기에서 열기
@@ -118,12 +120,13 @@ try {
   await ui.shot(join(OUT, '06-editor.png'));
 
   // 서무 도구
-  await ui.click('서무 도구', { within: '.kd-nav' });
+  await ui.click('여러 파일 한꺼번에', { within: '.kd-nav' });
   await ui.click('우리 서식으로 맞추기', { within: '.kd-tasklist' });
   await ui.waitText('맞출 서식');
-  for (const p of outs) rmSync(p, { force: true });
+  // rmSync 는 쓰지 않는다: Node 24.13(Windows)은 한글 이름 파일을 rmSync 로 지우면 그대로 죽는다(0xC0000409)
+  for (const p of outs) if (existsSync(p)) unlinkSync(p);
   await ui.dialog([[md, txt, pdf]]);
-  await ui.click('파일 추가');
+  await ui.click('파일 고르기', { within: '.kd-screen:not([hidden])' });
   await ui.waitText('체육대회 회의 메모.txt');
   await ui.shot(join(OUT, '07-batch.png'));
   await ui.click('시작');
@@ -138,6 +141,9 @@ try {
   await page.setViewport({ width: 1280, height: 860 });
   await ui.shot(join(OUT, '08-batch-done.png'));
   check('화면 오류 없음', ui.errors.length === 0, ui.errors.slice(0, 3).join(' | '));
+} catch (e) {
+  check('실행 오류 없음', false, String(e?.stack ?? e).split('\n').slice(0, 3).join(' '));
+  await ui.shot(join(OUT, 'zz-error.png')).catch(() => undefined);
 } finally {
   await ui.clearDialog().catch(() => undefined);
   await ui.close();

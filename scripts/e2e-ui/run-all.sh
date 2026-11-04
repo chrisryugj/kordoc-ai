@@ -17,7 +17,7 @@ run() { # 이름 포트 환경변수 명령…
   KORDOC_DATA="$data" "$@" > "$W/$name.log" 2>&1 || fail=1
   echo "== $name $(grep -E '통과' "$W/$name.log" | tail -1)"
   grep -E '^FAIL' "$W/$name.log" | head -8
-  kill $rp 2>/dev/null; sleep 1
+  kill $rp 2>/dev/null; wait $rp 2>/dev/null; sleep 1  # 중계기가 포트를 놓을 때까지
 }
 run a-shell 7721 "" node scripts/e2e-ui/a-shell.mjs --relay http://127.0.0.1:7721 --out "$W/out-a-shell"
 run a-workbench 7721 "" node scripts/e2e-ui/a-workbench.mjs --relay http://127.0.0.1:7721 --out "$W/out-a-workbench"

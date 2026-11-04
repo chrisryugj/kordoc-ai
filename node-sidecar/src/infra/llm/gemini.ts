@@ -16,7 +16,7 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
     isCloud: true,
     supportsVision: true,
     async chat(req: ChatRequest) {
-      if (!cfg.api_key) throw new Error('Gemini API 키가 없습니다. 설정 > AI 연결에서 입력하세요.');
+      if (!cfg.api_key) throw new Error('Gemini API 키가 없습니다. 설정 › AI 연결에서 넣으세요.');
       const url = `${BASE}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
       await assertAllowed(url);
 

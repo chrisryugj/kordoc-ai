@@ -23,7 +23,7 @@ export function TablesTool({ doc, info }: ToolProps) {
   return (
     <div className="flex flex-col gap-4">
       <Field label="저장 형식">
-        <Seg label="표 저장 형식" value={format} onChange={setFormat} options={[{ value: "xlsx", label: "엑셀" }, { value: "csv", label: "CSV" }, { value: "md", label: "마크다운" }]} />
+        <Seg label="표 저장 형식" value={format} onChange={setFormat} options={[{ value: "xlsx", label: "엑셀" }, { value: "csv", label: "CSV" }, { value: "md", label: "글(마크다운)" }]} />
       </Field>
       <Check label="자료가 든 표만" desc="결재란·글상자처럼 배치에만 쓴 표는 뺍니다" checked={onlyData} onChange={setOnlyData} />
       {!!info.page_count && info.page_count > 1 && (

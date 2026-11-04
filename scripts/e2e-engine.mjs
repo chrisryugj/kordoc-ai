@@ -572,13 +572,13 @@ function defineAiChecks(f, sc) {
     assert(r.rows.length === 5, `행 ${r.rows.length}`);
     return r.rows.map((x) => `${x['부서명']}:${x['희망 인원']}`).join(', ');
   });
-  check('ai', '폐쇄망 모드: 인터넷 AI 차단·내부 주소 허용·외부 0', async () => {
+  check('ai', '폐쇄망 모드: 외부 AI 차단·내부 주소 허용·외부 0', async () => {
     await sc.call('update_settings', { settings: { privacy: { offline: true } } });
     const t = await sc.call('ai_test', {}, 600_000);
     assert(t.ok, `내부 주소가 막힘: ${t.error}`);
     await sc.call('update_settings', { settings: { ai: { provider: 'gemini' } } });
     const st = await sc.call('ai_status');
-    assert(!st.configured || st.error, '폐쇄망에서 인터넷 AI 가 켜져 있음');
+    assert(!st.configured || st.error, '폐쇄망에서 외부 AI가 켜져 있음');
     await sc.call('update_settings', { settings: { ai: { provider: 'openai' }, privacy: { offline: false } } });
     const s = await sc.call('security_status');
     assert(s.external_sent === 0, `외부 요청 ${s.external_sent}`);

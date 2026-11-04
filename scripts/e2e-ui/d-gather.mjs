@@ -1,11 +1,11 @@
 /**
- * D 영역 화면 검증 — 서무 도구(문서 수합·늦게 온 파일·시작 못 하는 까닭·업무별 목록·인쇄)·접수함(접수대장 엑셀).
+ * D 영역 화면 검증 — 여러 파일 한꺼번에(문서 수합·늦게 온 파일·시작 못 하는 까닭·업무별 목록·인쇄)·접수함(접수대장 엑셀).
  *   node scripts/e2e-ui/d-gather.mjs --relay http://127.0.0.1:7724 --out <스크린샷·작업 폴더>
  * 만든 엑셀은 열어서(xl/worksheets XML) 값·노란 칸·합계·제출 현황까지 대조한다. 프린터로 실제로 보내지는 않는다.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { openUi, ROOT, SAMPLES, sleep } from './ui-lib.mjs';
 import { makeGatherFixtures } from './d-gather-fixtures.mjs';
 
@@ -45,22 +45,22 @@ const openBatch = async () => { await page.click('.kd-nav-item[data-screen="batc
 
 try {
   await openBatch();
-  // ── 업무별 목록 (문서 수합 먼저) · 시작 못 하는 까닭
+  // ── 할 일 묶음(동사형 이름) · 시작 못 하는 까닭
   const groups = await page.$$eval('.kd-tasklist h2', (hs) => hs.map((h) => h.textContent.trim()));
-  check('업무별 묶음 순서', JSON.stringify(groups.slice(0, 8)) === JSON.stringify(['문서 수합', '명부로 여러 장', '정보공개 공개본', '결재 합본', '신구대조표', '문서 찾기', '형식 바꾸기', '폴더 지켜보기']), groups.join(' / '));
+  check('할 일 묶음 순서', JSON.stringify(groups) === JSON.stringify(['합치기·나누기', '모으기', '만들기', '가리기', '줄이기·인쇄하기', '비교하기', '찾기·뽑기', '바꾸기', '지켜보기']), groups.join(' / '));
   const pressed = await page.$eval('.kd-taskitem[aria-pressed="true"]', (e) => e.dataset.task);
   check('처음 고른 일 = 문서 수합', pressed === 'collect', pressed);
-  const startOff = await page.evaluate(() => [...document.querySelectorAll('.kd-batch-opts button')].find((b) => b.textContent.trim().startsWith('시작'))?.disabled);
+  const startOff = await page.evaluate(() => [...document.querySelectorAll('.kd-batch-go button')].find((b) => b.textContent.trim().startsWith('시작'))?.disabled);
   const reason = await text('#task-block');
   check('파일 없을 때 시작이 꺼진 까닭', startOff && reason.includes('파일을 먼저 넣으세요'), reason);
   await ui.shot(join(OUT, 'd01-batch-empty.png'));
 
   // ── 제출물 폴더 + 명단 파일 + 기한 → 시작
   await ui.dialog([fx.dir]);
-  await ui.click('폴더 추가');
+  await ui.click('폴더 고르기');
   await ui.waitText('파일 8개');
   const rowDesc = await page.$eval('.kd-filerow .kd-row-desc', (e) => ({ t: e.textContent, title: e.getAttribute('title') }));
-  check('파일 줄은 폴더 이름만, 전체 경로는 올려 보기', rowDesc.t.startsWith('제출물 폴더') && rowDesc.title.startsWith('/'), JSON.stringify(rowDesc));
+  check('파일 줄은 폴더 이름만, 전체 경로는 올려 보기', rowDesc.t.startsWith('제출물 폴더') && isAbsolute(rowDesc.title ?? ''), JSON.stringify(rowDesc));
   await ui.dialog([[fx.roster]]);
   await ui.click('명단 파일에서 가져오기');
   await page.waitForFunction(() => document.querySelector('textarea[aria-label="부서 명단"]')?.value.includes('문화체육과'), { timeout: 15000 });
@@ -71,9 +71,9 @@ try {
   await ui.waitText('엑셀 한 장으로 모았습니다', 60000);
   await sleep(400);
   await ui.shot(join(OUT, 'd02-gather-result.png'));
-  const savedPath = await page.$eval('.kd-batch-opts .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
+  const savedPath = await page.$eval('.kd-batch-result .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
   check('엑셀 저장 (제출물 폴더 옆, 제목_수합.xlsx)', savedPath && basename(savedPath) === '2026년 하반기 직무교육 수요조사서_수합.xlsx' && existsSync(savedPath), savedPath);
-  const summary = await page.evaluate(() => [...document.querySelectorAll('.kd-batch-opts p.kd-small')].map((p) => p.textContent).find((t) => /같은 서식 \d/.test(t)));
+  const summary = await page.evaluate(() => [...document.querySelectorAll('.kd-batch-result p.kd-small')].map((p) => p.textContent).find((t) => /같은 서식 \d/.test(t)));
   check('요약 줄: 같은 서식 5·엑셀 2·빈칸·합계', /같은 서식 5개 · 엑셀 2개/.test(summary ?? '') && /빈칸 \d+곳/.test(summary) && /합계 희망 인원 40/.test(summary), summary);
   const missingHead = await text('#gather-missing-t');
   check('미제출 2개 부서', missingHead === '미제출 2개 부서: 환경위생과, 문화체육과', missingHead);
@@ -81,7 +81,8 @@ try {
   check('독촉 글: 제목·부서·기한, 줄표 없음', reminder.includes('「2026년 하반기 직무교육 수요조사서」') && reminder.includes('환경위생과, 문화체육과') && reminder.includes('10. 20.(화)까지') && !/[—–]/.test(reminder), reminder.split('\n')[0]);
   await ui.click('독촉 글 복사');
   const clip = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => `ERR ${e}`);
-  check('독촉 글 복사 → 클립보드', clip === reminder, clip.slice(0, 40));
+  // Windows 클립보드는 줄바꿈을 \r\n 으로 돌려준다 (붙여 넣으면 같은 글)
+  check('독촉 글 복사 → 클립보드', clip.replace(/\r\n/g, '\n') === reminder, clip.slice(0, 40));
   const sep = await text('#gather-sep-t');
   check('서식이 달라 따로 볼 문서 = 워드 1개', sep === '서식이 달라 따로 봐야 할 문서 1개', sep);
 
@@ -112,7 +113,7 @@ try {
   await ui.click('같은 파일 바꾸기');
   await ui.waitText('엑셀 한 장으로 모았습니다', 60000);
   await sleep(400);
-  const again = await page.$eval('.kd-batch-opts .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
+  const again = await page.$eval('.kd-batch-result .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
   const missing2 = await text('#gather-missing-t');
   check('늦게 온 파일: 같은 파일로 다시 만들고 미제출 1개', again === savedPath && missing2 === '미제출 1개 부서: 문화체육과', `${basename(again)} / ${missing2}`);
   const st2 = rows((await readBook(again))['제출 현황']);
@@ -125,15 +126,15 @@ try {
   await ui.click('새 파일로 만들기');
   await ui.waitText('엑셀 한 장으로 모았습니다', 60000);
   await sleep(400);
-  const numbered = await page.$eval('.kd-batch-opts .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
+  const numbered = await page.$eval('.kd-batch-result .kd-note[data-tone="ok"] .kd-path', (e) => e.getAttribute('title'));
   check('새 파일로 만들기 = 번호 붙은 파일', basename(numbered) === '2026년 하반기 직무교육 수요조사서_수합 (2).xlsx', basename(numbered));
 
   // 외톨이 줄 (1280 · 1024)
-  const orph1280 = await ui.orphans('.kd-batch-opts p, .kd-batch-opts .kd-field-hint, .kd-batch-opts .kd-row-desc, .kd-batch-opts h3, .kd-tasklist .kd-row-desc');
+  const orph1280 = await ui.orphans('.kd-batch-result p, .kd-batch-opts p, .kd-batch-opts .kd-field-hint, .kd-batch-opts .kd-row-desc, .kd-batch-opts h3, .kd-tasklist .kd-row-desc');
   check('외톨이 줄 0 (1280)', orph1280.length === 0, JSON.stringify(orph1280));
   await page.setViewport({ width: 1024, height: 860 });
   await sleep(400);
-  const orph1024 = await ui.orphans('.kd-batch-opts p, .kd-batch-opts .kd-field-hint, .kd-batch-opts .kd-row-desc, .kd-batch-opts h3, .kd-tasklist .kd-row-desc');
+  const orph1024 = await ui.orphans('.kd-batch-result p, .kd-batch-opts p, .kd-batch-opts .kd-field-hint, .kd-batch-opts .kd-row-desc, .kd-batch-opts h3, .kd-tasklist .kd-row-desc');
   check('외톨이 줄 0 (1024)', orph1024.length === 0, JSON.stringify(orph1024));
   await ui.shot(join(OUT, 'd05-gather-1024.png'));
   await page.setViewport({ width: 1280, height: 900 });
@@ -144,7 +145,7 @@ try {
   const segs = await page.$$eval('.kd-batch-opts .kd-seg button', (bs) => bs.map((b) => b.textContent));
   check('글로: 쉬운 이름 (마크다운·HTML 없음)', segs.join('|') === '제목·표 살린 글|웹 페이지|글자만', segs.join('|'));
   const out = await page.$eval('.kd-batch-opts .kd-path', (e) => ({ t: e.textContent, title: e.getAttribute('title') }));
-  check('저장할 곳: 폴더 이름만', !out.t.includes('/'), JSON.stringify(out));
+  check('저장할 곳: 폴더 이름만', !/[\\/]/.test(out.t), JSON.stringify(out));
   await page.click('.kd-taskitem[data-task="print"]');
   await sleep(1200);
   const printUi = await text('.kd-batch-opts');

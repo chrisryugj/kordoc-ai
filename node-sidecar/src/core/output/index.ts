@@ -5,7 +5,7 @@
  * (예외: 폴더 감시는 같은 원본의 변환 결과를 갱신하므로 덮어쓴다 — core/watch)
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { getSettings } from '../../infra/config.js';
@@ -50,6 +50,24 @@ export function uniquePath(p: string): string {
     const cand = join(dir, `${stem} (${n})${ext}`);
     if (!existsSync(cand)) return cand;
   }
+}
+
+/** 결과 여러 개를 담을 폴더 — 이미 있고 비어 있지 않으면 `이름 (2)` … 새 폴더 (전에 만든 결과를 덮어쓰지 않게). 만들어서 돌려준다 */
+export function resultDir(dir: string): string {
+  const used = (d: string) => {
+    try { return readdirSync(d).length > 0; } catch { return existsSync(d); }
+  };
+  let out = dir;
+  for (let n = 2; used(out); n++) out = join(dirname(dir), `${basename(dir)} (${n})`);
+  mkdirSync(out, { recursive: true });
+  return out;
+}
+
+/** 나누기 결과 폴더 자리 — parent 를 주면 그 안의 name 폴더(parent 이름이 이미 name 이면 그 폴더), 없으면 저장 폴더의 name */
+export function splitDirOf(parent: string | undefined, source: string, name: string): string {
+  if (!parent) return join(outputDir({ source }), name);
+  const p = validatePath(parent);
+  return basename(p).normalize('NFC') === name.normalize('NFC') ? p : join(p, name);
 }
 
 /** 저장 폴더 — output_dir → 설정 출력 폴더 → 원본 옆 → 문서 폴더. 없으면 만든다 */

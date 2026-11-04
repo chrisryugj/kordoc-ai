@@ -127,7 +127,7 @@ export function lintFindings(text: string, parsed: boolean): LintFinding[] {
 }
 
 export async function reviewDocument(params: { path: string }, signal: AbortSignal): Promise<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }> {
-  sendProgress({ current: 0, total: 3, message: '문서 읽는 중...' });
+  sendProgress({ current: 0, total: 3, message: '문서 읽는 중' });
   const doc = await loadDoc(params.path, signal);
   const lint = lintFindings(doc.markdown, doc.parsed);
 
@@ -141,7 +141,7 @@ export async function reviewDocument(params: { path: string }, signal: AbortSign
   let redacted = 0;
   for (let i = 0; i < pieces.length; i++) {
     signal.throwIfAborted();
-    sendProgress({ current: i, total: pieces.length, message: pieces.length > 1 ? `K팀장이 검토 중 (${i + 1}/${pieces.length})` : 'K팀장이 검토 중...' });
+    sendProgress({ current: i, total: pieces.length, message: pieces.length > 1 ? `K팀장이 검토하는 중 (${i + 1}/${pieces.length})` : 'K팀장이 검토하는 중' });
     const part = pieces.length > 1 ? `(긴 문서의 ${i + 1}/${pieces.length} 부분)\n` : '';
     const r = await ask({
       system: SYSTEM,

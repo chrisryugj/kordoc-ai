@@ -33,51 +33,80 @@ pub struct Action {
     files: bool,
     /// 폴더 메뉴 이름 (없으면 폴더 메뉴에 안 넣음)
     folder: Option<&'static str>,
-    /// 앞에 구분선
-    sep: bool,
+    /// 묶음. 메뉴에 실제로 넣은 바로 앞 항목과 묶음이 다르면 그 앞에 구분선 (확장자마다 빠지는 항목이 있어도 구분선이 남게)
+    group: Group,
     /// macOS 빠른 동작으로도 (Finder 메뉴가 길어지지 않게 자주 쓰는 것만)
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     mac: bool,
 }
+
+/// 메뉴 묶음 (차례대로, 묶음 사이에 구분선)
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Group {
+    /// 맡기기·요약
+    Ai,
+    /// 앱·편집기·서무 도구에서 열기
+    Open,
+    /// 다른 형식으로 바꾸기·저장
+    Change,
+    /// 합치기·나누기
+    Join,
+    /// 점검·가리기·찾기
+    Check,
+}
+use Group::*;
 
 const HANGUL: &[&str] = &[".hwp", ".hwpx"];
 const DOCS: &[&str] = &[".hwp", ".hwpx", ".hml", ".hwpml", ".docx", ".pdf"];
 const IMAGES: &[&str] = &[".png", ".jpg", ".jpeg"];
 const NONE: &[&str] = &[];
 
-const fn act(id: &'static str, label: &'static str, quick: bool) -> Action {
-    Action { id, label, quick, only: NONE, skip: NONE, files: true, folder: None, sep: false, mac: false }
+const fn act(group: Group, id: &'static str, label: &'static str, quick: bool) -> Action {
+    Action { id, label, quick, only: NONE, skip: NONE, files: true, folder: None, group, mac: false }
 }
 
 pub const ACTIONS: &[Action] = &[
-    // 문서 카드(작은 창): 이 문서로 무엇을 할지 말로 시키기 · 같은 문서의 판들과 최종본
-    Action { folder: Some("KorDoc AI 에게 맡기기…"), mac: true, ..act("ask", "KorDoc AI 에게 맡기기…", false) },
-    Action { skip: IMAGES, mac: true, ..act("versions", "최종본 찾기", false) },
-    Action { sep: true, mac: true, ..act("open", "앱에서 열기", false) },
-    Action { files: false, folder: Some("서무 도구에서 열기"), ..act("tools", "서무 도구에서 열기", false) },
-    Action { only: HANGUL, ..act("edit", "한글 편집기로 고치기", false) },
-    Action { only: DOCS, ..act("precheck", "결재 전 점검", false) },
-    Action { folder: Some("PDF 하나로 합치기 (이름 차례)"), sep: true, mac: true, ..act("pdfmerge", "PDF 하나로 합치기", true) },
-    Action { skip: &[".pdf"], folder: Some("모두 PDF로 저장"), mac: true, ..act("pdf", "PDF로 저장", true) },
-    Action { mac: true, ..act("pdfwork", "PDF 쪽 정리 (나누기·뽑기·돌리기)", false) },
-    Action { only: &[".pdf"], ..act("pdfsplit", "PDF 쪽마다 나누기", true) },
-    Action { only: &[".pdf", ".hwp", ".hwpx", ".docx"], mac: true, ..act("shrink", "PDF 용량 줄이기", true) },
-    Action { only: &[".pdf", ".hwp", ".hwpx"], ..act("pdfimages", "쪽마다 그림으로 저장", true) },
-    Action { skip: &[".hwpx"], folder: Some("모두 한글 문서(HWPX)로"), sep: true, mac: true, ..act("hwpx", "한글 문서(HWPX)로 바꾸기", true) },
-    // 한글 문서 합치기·나누기 (서식 그대로, 결과는 HWPX): 여러 개 골라 합치기 · 구역·강제 쪽 나눔마다 나누기
-    Action { only: HANGUL, folder: Some("한글 문서 하나로 합치기 (이름 차례)"), mac: true, ..act("hwpmerge", "한글 문서 하나로 합치기", true) },
-    Action { only: HANGUL, ..act("hwpsplit", "한글 문서 나누기 (구역·쪽 나눔마다)", true) },
-    Action { folder: Some("개인정보 모두 가리기"), mac: true, ..act("redact", "개인정보 가리기", true) },
-    Action { skip: IMAGES, ..act("tables", "표를 엑셀로 뽑기", true) },
-    Action { ..act("convert", "글(마크다운)로 바꾸기", true) },
-    Action { sep: true, mac: true, ..act("summarize", "AI로 요약하기", false) },
-    Action { only: &[".hwp", ".hwpx", ".docx", ".pdf"], ..act("compare", "두 문서 비교 (신구대조표)", false) },
-    Action { files: false, folder: Some("문서 수합 (엑셀 한 장)"), sep: true, ..act("collect", "문서 수합", false) },
+    // 맨 앞은 맡기기 (macOS 는 ACTIONS[0].label 의 빠른 동작으로 깔렸는지 본다: 이름·자리를 바꾸지 말 것)
+    // 문서 카드(작은 창): 이 문서로 무엇을 할지 말로 시키기
+    Action { folder: Some("KorDoc AI 에게 맡기기…"), mac: true, ..act(Ai, "ask", "KorDoc AI 에게 맡기기…", false) },
+    Action { mac: true, ..act(Ai, "summarize", "AI로 요약하기", false) },
+    // 열기
+    Action { mac: true, ..act(Open, "open", "앱에서 열기", false) },
+    Action { files: false, folder: Some("서무 도구에서 열기"), ..act(Open, "tools", "서무 도구에서 열기", false) },
+    Action { only: HANGUL, ..act(Open, "edit", "한글 편집기로 고치기", false) },
+    // 바꾸기 (언제나 새 파일)
+    Action { skip: &[".pdf"], folder: Some("모두 PDF로 저장"), mac: true, ..act(Change, "pdf", "PDF로 저장", true) },
+    Action { skip: &[".hwpx"], folder: Some("모두 한글 문서로 바꾸기"), mac: true, ..act(Change, "hwpx", "한글 문서로 바꾸기", true) },
+    Action { only: &[".pdf", ".hwp", ".hwpx", ".docx"], mac: true, ..act(Change, "shrink", "PDF 용량 줄이기", true) },
+    Action { only: &[".pdf"], ..act(Change, "pagenum", "쪽 번호 넣기", true) },
+    Action { only: &[".pdf", ".hwp", ".hwpx"], ..act(Change, "pdfimages", "쪽마다 그림으로 저장", true) },
+    Action { skip: &[".png", ".jpg", ".jpeg", ".xls", ".xlsx"], ..act(Change, "tables", "표를 엑셀로 뽑기", true) },
+    Action { ..act(Change, "convert", "글로 바꾸기", true) },
+    // 합치기·나누기: 형식은 화면이 고른 파일을 보고 정한다 (src/lib/quick-actions.ts)
+    //   하나로 합치기: 전부 한글 문서면 서식 그대로 HWPX 하나, 하나라도 다른 형식이 섞이면 PDF 한 권
+    //   나누기: 한글 문서는 구역·쪽 나눔마다, PDF 는 쪽마다
+    Action { folder: Some("하나로 합치기 (이름 차례)"), mac: true, ..act(Join, "join", "하나로 합치기", true) },
+    // 엑셀은 파일마다 시트 하나 (.xls 는 엔진의 서식 유지 합치기가 받지 않는다)
+    Action { only: &[".xlsx"], folder: Some("엑셀 하나로 합치기 (이름 차례)"), ..act(Join, "xlsxmerge", "엑셀 하나로 합치기", true) },
+    Action { only: &[".pdf", ".hwp", ".hwpx"], ..act(Join, "split", "나누기", true) },
+    Action { mac: true, ..act(Join, "pdfwork", "PDF 쪽 편집하기", false) },
+    Action { files: false, folder: Some("문서 수합하기"), ..act(Join, "collect", "문서 수합하기", false) },
+    // 옛 판 동작: 메뉴에는 없고 kordoc:// 주소·실행 인자로만 (예전에 만든 바로 가기·링크가 계속 되게)
+    Action { files: false, ..act(Join, "pdfmerge", "PDF 하나로 합치기", true) },
+    Action { files: false, ..act(Join, "hwpmerge", "한글 문서 하나로 합치기", true) },
+    Action { files: false, ..act(Join, "pdfsplit", "PDF 쪽마다 나누기", true) },
+    Action { files: false, ..act(Join, "hwpsplit", "한글 문서 나누기", true) },
+    // 점검·가리기 · 같은 문서의 판들과 최종본(문서 카드) · 접수함에 넣기
+    Action { only: DOCS, ..act(Check, "precheck", "결재 전 점검하기", false) },
+    Action { folder: Some("개인정보 모두 가리기"), mac: true, ..act(Check, "redact", "개인정보 가리기", true) },
+    Action { only: &[".hwp", ".hwpx", ".docx", ".pdf"], ..act(Check, "compare", "신구대조표 만들기", false) },
+    Action { skip: IMAGES, mac: true, ..act(Check, "versions", "최종본 찾기", false) },
+    Action { only: &[".hwp", ".hwpx", ".pdf"], ..act(Check, "inbox", "받은 공문 접수하기", true) },
 ];
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "4";
+const MENU_VERSION: &str = "6";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -110,7 +139,7 @@ fn reg_q(s: &str) -> String {
 }
 
 /// 메뉴를 지우고 새로 넣는 .reg 글. reg add 를 항목마다 부르면 수백 번이라 10초 넘게 걸려 reg import 한 번으로 깐다.
-/// 계단식 메뉴: 부모(이름·아이콘·여러 개 골라도 보이게·판) + 항목마다 하위 키 (이름 앞 두 자리 숫자로 차례, 구분선은 CommandFlags)
+/// 계단식 메뉴: 부모(이름·아이콘·여러 개 골라도 보이게·판) + 항목마다 하위 키 (이름 앞 두 자리 숫자로 차례, 묶음 사이 구분선은 CommandFlags)
 #[cfg_attr(not(windows), allow(dead_code))]
 fn reg_script(exe: &str) -> String {
     let mut out = String::from("Windows Registry Editor Version 5.00\r\n\r\n");
@@ -122,7 +151,8 @@ fn reg_script(exe: &str) -> String {
         for (i, (a, label)) in items.iter().enumerate() {
             let sub = format!(r"{root}\shell\{:02}{}", i + 1, a.id);
             out += &format!("[{sub}]\r\n@=\"{}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n", reg_q(label));
-            if a.sep && i > 0 {
+            // 이 메뉴에 실제로 넣은 바로 앞 항목과 묶음이 다를 때 (묶음 첫 항목이 이 확장자에서 빠져도 구분선이 남게)
+            if i > 0 && items[i - 1].0.group != a.group {
                 // ECF_SEPARATORBEFORE
                 out += "\"CommandFlags\"=dword:00000020\r\n";
             }
@@ -629,7 +659,7 @@ mod platform {
     }
 
     /// 예전 판의 빠른 동작 이름 (다시 깔 때 지운다)
-    const LEGACY: &[&str] = &["PDF로 내보내기", "글(마크다운)로 바꾸기"];
+    const LEGACY: &[&str] = &["PDF로 내보내기", "글(마크다운)로 바꾸기", "한글 문서(HWPX)로 바꾸기", "PDF 쪽 정리 (나누기·뽑기·돌리기)"];
 
     fn mac_actions() -> impl Iterator<Item = &'static Action> {
         ACTIONS.iter().filter(|a| a.mac)
@@ -839,15 +869,38 @@ mod tests {
         let ids = |ext: &str| file_actions(ext).map(|a| a.id).collect::<Vec<_>>();
         assert_eq!(
             ids(".hwp"),
-            ["ask", "versions", "open", "edit", "precheck", "pdfmerge", "pdf", "pdfwork", "shrink", "pdfimages", "hwpx", "hwpmerge", "hwpsplit", "redact", "tables", "convert", "summarize", "compare"]
+            [
+                "ask", "summarize", // 맡기기
+                "open", "edit", // 열기
+                "pdf", "hwpx", "shrink", "pdfimages", "tables", "convert", // 바꾸기
+                "join", "split", "pdfwork", // 합치기·나누기
+                "precheck", "redact", "compare", "versions", "inbox", // 점검·가리기
+            ]
         );
-        // PDF 는 PDF로 저장 없이 나누기, 한글 문서에는 HWPX 로 바꾸기 없음, 그림은 표·비교·편집기 없음
-        assert!(!ids(".pdf").contains(&"pdf") && ids(".pdf").contains(&"pdfsplit") && !ids(".pdf").contains(&"edit"));
-        assert!(!ids(".hwpx").contains(&"hwpx"));
-        // 한글 합치기·나누기는 한글 문서에만
-        assert!(ids(".hwpx").contains(&"hwpsplit") && !ids(".pdf").contains(&"hwpmerge") && !ids(".docx").contains(&"hwpsplit"));
+        assert_eq!(
+            ids(".pdf"),
+            [
+                "ask", "summarize", "open", "hwpx", "shrink", "pagenum", "pdfimages", "tables", "convert",
+                "join", "split", "pdfwork", "precheck", "redact", "compare", "versions", "inbox",
+            ]
+        );
+        // PDF 는 PDF로 저장 없이 나누기·쪽 번호, 한글 문서에는 한글 문서로 바꾸기 없음, 그림은 표·비교·편집기 없음
+        assert!(!ids(".pdf").contains(&"pdf") && ids(".pdf").contains(&"split") && !ids(".pdf").contains(&"edit"));
+        assert!(!ids(".hwpx").contains(&"hwpx") && !ids(".hwp").contains(&"pagenum"));
+        // 엑셀 합치기는 .xlsx 에만 (.xls 는 엔진이 안 받음), 엑셀 파일에는 표를 엑셀로 뽑기 없음
+        assert!(ids(".xlsx").contains(&"xlsxmerge") && !ids(".xls").contains(&"xlsxmerge") && !ids(".pdf").contains(&"xlsxmerge"));
+        assert!(!ids(".xlsx").contains(&"tables") && !ids(".xls").contains(&"tables"));
+        // 접수는 받은 공문 형식(한글·PDF)에만
+        assert!(ids(".hwpx").contains(&"inbox") && !ids(".docx").contains(&"inbox") && !ids(".png").contains(&"inbox"));
+        // 나누기는 한글 문서·PDF 에만, 합치기는 어디나 하나
+        assert!(ids(".hwpx").contains(&"split") && ids(".pdf").contains(&"split") && !ids(".docx").contains(&"split") && ids(".docx").contains(&"join"));
+        // 옛 판 동작(형식별 합치기·나누기)은 메뉴에 없고 주소로만
+        for old in ["pdfmerge", "hwpmerge", "pdfsplit", "hwpsplit"] {
+            assert!(is_action(old) && is_quick(old));
+            assert!(EXTS.iter().all(|e| !ids(e).contains(&old)) && ACTIONS.iter().all(|a| a.id != old || a.folder.is_none()), "{old} 가 메뉴에 있습니다");
+        }
         let png = ids(".png");
-        assert!(png.contains(&"pdfmerge") && png.contains(&"pdfwork") && !png.contains(&"tables") && !png.contains(&"compare") && !png.contains(&"pdfsplit"));
+        assert!(png.contains(&"join") && png.contains(&"pdfwork") && !png.contains(&"tables") && !png.contains(&"compare") && !png.contains(&"split"));
         // 폴더에만 있는 것은 파일 메뉴에 없다
         assert!(EXTS.iter().all(|e| !ids(e).contains(&"collect") && !ids(e).contains(&"tools")));
         // 하위 키 이름은 두 자리 숫자로 차례 (10번째 넘어도 탐색기가 차례를 바꾸지 않게)
@@ -863,22 +916,58 @@ mod tests {
         // 옛 항목이 남지 않게 지우고 다시
         assert!(s.contains(&format!("[-{pdf}]\r\n\r\n[{pdf}]\r\n\"MUIVerb\"=\"KorDoc AI\"")));
         assert!(s.contains(&format!("[{pdf}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"")));
-        assert!(s.contains(&format!("[{pdf}\\shell\\02versions]\r\n@=\"최종본 찾기\"")));
-        assert!(!s.contains(&format!("{pdf}\\shell\\06pdf]")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\16versions]\r\n@=\"최종본 찾기\"")));
+        assert!(!(1..=30).any(|n| s.contains(&format!("[{pdf}\\shell\\{n:02}pdf]"))));
         // 실행 줄: 경로 역슬래시·따옴표를 .reg 규칙대로
-        assert!(s.contains(r#"@="\"C:\\Users\\홍 길동\\AppData\\Local\\KorDoc AI\\kordoc-ai.exe\" --shell pdfmerge \"%1\"""#));
+        assert!(s.contains(r#"@="\"C:\\Users\\홍 길동\\AppData\\Local\\KorDoc AI\\kordoc-ai.exe\" --shell join \"%1\"""#));
         assert!(s.contains(&format!("\"KorDocMenu\"=\"{MENU_VERSION}\"")));
-        // 무리 첫 항목 앞에 구분선 (맨 앞 항목에는 없음)
+        // 묶음 첫 항목 앞에 구분선 (맨 앞 항목·묶음 안 항목에는 없음)
         let hwp = reg_root(&key(".hwp"));
-        assert!(s.contains(&format!("[{hwp}\\shell\\06pdfmerge]\r\n@=\"PDF 하나로 합치기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020")));
-        assert!(s.contains(&format!("[{hwp}\\shell\\03open]\r\n@=\"앱에서 열기\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020")));
-        assert!(!s.contains(&format!("[{hwp}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"")));
+        let sep = |root: &str, n: &str, label: &str| format!("[{root}\\shell\\{n}]\r\n@=\"{label}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\"CommandFlags\"=dword:00000020");
+        let plain = |root: &str, n: &str, label: &str| format!("[{root}\\shell\\{n}]\r\n@=\"{label}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n\r\n");
+        assert!(s.contains(&sep(&hwp, "03open", "앱에서 열기")));
+        assert!(s.contains(&sep(&hwp, "05pdf", "PDF로 저장")));
+        assert!(s.contains(&sep(&hwp, "11join", "하나로 합치기")));
+        assert!(s.contains(&sep(&hwp, "14precheck", "결재 전 점검하기")));
+        assert!(s.contains(&plain(&hwp, "01ask", "KorDoc AI 에게 맡기기…")));
+        assert!(s.contains(&plain(&hwp, "02summarize", "AI로 요약하기")));
+        assert!(s.contains(&plain(&hwp, "12split", "나누기")) && s.contains(&plain(&hwp, "13pdfwork", "PDF 쪽 편집하기")));
+        // .pdf 에는 바꾸기 묶음 첫 항목(PDF로 저장)이 빠져도 다음 항목(한글 문서로 바꾸기)에 구분선
+        assert!(s.contains(&sep(&pdf, "04hwpx", "한글 문서로 바꾸기")));
         // 폴더: 아이콘 우클릭은 %1, 빈 곳 우클릭은 %V, 폴더 이름으로
         let bg = reg_root(FOLDER_KEYS[1].0);
-        assert!(s.contains(&format!("[{bg}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"")));
-        assert!(s.contains(&format!("[{bg}\\shell\\02tools]\r\n@=\"서무 도구에서 열기\"")));
-        assert!(s.contains("--shell pdfmerge \\\"%V\\\""));
-        assert!(s.contains("@=\"PDF 하나로 합치기 (이름 차례)\""));
+        assert!(s.contains(&plain(&bg, "01ask", "KorDoc AI 에게 맡기기…")));
+        assert!(s.contains(&sep(&bg, "02tools", "서무 도구에서 열기")));
+        assert!(s.contains(&sep(&bg, "03pdf", "모두 PDF로 저장")));
+        assert!(s.contains(&plain(&bg, "04hwpx", "모두 한글 문서로 바꾸기")));
+        assert!(s.contains(&sep(&bg, "05join", "하나로 합치기 (이름 차례)")));
+        assert!(s.contains(&plain(&bg, "06xlsxmerge", "엑셀 하나로 합치기 (이름 차례)")));
+        assert!(s.contains(&plain(&bg, "07collect", "문서 수합하기")));
+        assert!(s.contains(&sep(&bg, "08redact", "개인정보 모두 가리기")));
+        assert!(s.contains("--shell join \\\"%V\\\""));
+        assert!(!s.contains("PDF 하나로 합치기") && !s.contains("한글 문서 하나로 합치기"));
+    }
+
+    #[test]
+    fn every_menu_keeps_separators_between_groups() {
+        // 모든 확장자·폴더 메뉴에서: 묶음이 바뀌는 첫 항목에만 구분선, 맨 앞·묶음 안 항목에는 없음
+        // (예전에는 구분선이 항목에 붙어 있어, .hwpx 처럼 그 항목이 빠지는 메뉴에서 구분선이 사라졌다)
+        let s = reg_script(r"C:\k.exe");
+        let menus = EXTS.iter().map(|e| (key(e), file_actions(e).map(|a| (a, a.label)).collect::<Vec<_>>()))
+            .chain(FOLDER_KEYS.iter().map(|(k, _)| (k.to_string(), ACTIONS.iter().filter_map(|a| a.folder.map(|l| (a, l))).collect())));
+        for (k, items) in menus {
+            let root = reg_root(&k);
+            let mut groups = 0;
+            for (i, (a, label)) in items.iter().enumerate() {
+                let head = format!("[{root}\\shell\\{:02}{}]\r\n@=\"{}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n", i + 1, a.id, reg_q(label));
+                let at = s.find(&head).unwrap_or_else(|| panic!("{k} 에 {} 가 없습니다", a.id)) + head.len();
+                let first = i == 0 || items[i - 1].0.group != a.group;
+                groups += first as usize;
+                assert_eq!(s[at..].starts_with("\"CommandFlags\"=dword:00000020"), first && i > 0, "{k} 의 {} 구분선", a.id);
+            }
+            // 묶음이 둘 이상 (구분선이 하나는 있다)
+            assert!(groups >= 2, "{k} 의 묶음 {groups}개");
+        }
     }
 
     #[test]
@@ -929,6 +1018,7 @@ mod tests {
     fn parses_new_actions() {
         let a = vec!["app".into(), "--shell".into(), "pdfmerge".into(), "C:\\a.pdf".into(), "C:\\b.pdf".into()];
         assert_eq!(parse_args(&a), Some(("pdfmerge".into(), vec!["C:\\a.pdf".into(), "C:\\b.pdf".into()])));
+        assert!(is_quick("pagenum") && is_quick("xlsxmerge") && is_quick("inbox") && is_quick("join") && is_quick("split"));
         assert!(is_quick("pdfsplit") && is_quick("shrink") && !is_quick("pdfwork") && !is_quick("open") && !is_quick("evil"));
         assert_eq!(parse_action_url("kordoc://pdfwork?path=%2Fa.pdf"), Some(("pdfwork".into(), "/a.pdf".into())));
     }

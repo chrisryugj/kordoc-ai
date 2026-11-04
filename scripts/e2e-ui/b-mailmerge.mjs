@@ -32,7 +32,7 @@ const ui = await openUi({ relay: RELAY, width: 1280, height: 900 });
 const { page } = ui;
 const mainText = () => page.evaluate(() => document.querySelector('.kd-batch-main')?.innerText ?? '');
 try {
-  await ui.click('서무 도구', { within: '.kd-nav' });
+  await ui.click('여러 파일 한꺼번에', { within: '.kd-nav' });
   await page.waitForFunction(() => [...document.querySelectorAll('.kd-taskitem')].some((b) => b.textContent.includes('명부로 여러 장')), { timeout: 20000 });
   await ui.click('명부로 여러 장 만들기', { within: '.kd-tasklist' });
   await ui.waitText('명부 고르기');
@@ -64,8 +64,8 @@ try {
   await page.setViewport({ width: 1280, height: 900 });
 
   // 시작
-  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-opts button')].find((b) => b.textContent.includes('시작'))?.click());
-  await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('장을 만들었습니다'), { timeout: 60000 });
+  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-go button')].find((b) => b.textContent.includes('시작'))?.click());
+  await page.waitForFunction(() => document.querySelector('.kd-batch-result')?.innerText.includes('장을 만들었습니다'), { timeout: 60000 });
   const res = await mainText();
   check('결과: 2장, 1줄 실패', res.includes('2장을 만들었습니다. 1줄은 만들지 못했습니다'));
   check('줄마다 실패 이유', res.includes("명부 4행: 양식에 넣을 값이 비어 있습니다. 명부의 '제목', '시행일' 열에 값을 넣으세요."));
@@ -77,17 +77,17 @@ try {
   await ui.shot(join(OUT, '22-mailmerge-result.png'));
 
   // 이어서 할 일
-  await ui.click('합본 PDF', { within: '.kd-batch-opts' });
-  await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('합본 PDF를 만들었습니다'), { timeout: 120000 });
+  await ui.click('합본 PDF', { within: '.kd-batch-result' });
+  await page.waitForFunction(() => document.querySelector('.kd-batch-result')?.innerText.includes('합본 PDF를 만들었습니다'), { timeout: 120000 });
   check('이어서: 합본 PDF', true);
-  await ui.click('한 파일로 합치기', { within: '.kd-batch-opts' });
-  await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('한 파일로 합쳤습니다'), { timeout: 120000 });
+  await ui.click('한 파일로 합치기', { within: '.kd-batch-result' });
+  await page.waitForFunction(() => document.querySelector('.kd-batch-result')?.innerText.includes('한 파일로 합쳤습니다'), { timeout: 120000 });
   check('이어서: 한 파일로 합치기', true);
-  await ui.click('한꺼번에 인쇄', { within: '.kd-batch-opts' });
+  await ui.click('한꺼번에 인쇄', { within: '.kd-batch-result' });
   await sleep(400);
   const pr = await mainText();
   check('이어서: 한꺼번에 인쇄는 바로 보내지 않고 확인 (또는 프린터 없음 안내)', pr.includes('한 부씩 보냅니다') || pr.includes('연결된 프린터가 없습니다'));
-  if (pr.includes('한 부씩 보냅니다')) await ui.click('취소', { exact: true, within: '.kd-batch-opts' });
+  if (pr.includes('한 부씩 보냅니다')) await ui.click('취소', { exact: true, within: '.kd-batch-result' });
   await ui.shot(join(OUT, '23-mailmerge-followups.png'));
 
   // 맞는 열이 하나도 없는 명부
@@ -96,8 +96,8 @@ try {
   await ui.click('명부 고르기', { within: '.kd-batch-opts' });
   await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('하나도 맞지 않습니다'), { timeout: 30000 });
   check('안 맞는 명부: 돌리기 전에 짝 미리보기에서 알림', true);
-  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-opts button')].find((b) => b.textContent.includes('시작'))?.click());
-  await page.waitForFunction(() => /하나도 맞지 않습니다.*고친 뒤 다시 하세요/.test(document.querySelector('.kd-batch-opts')?.innerText ?? ''), { timeout: 30000 });
+  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-go button')].find((b) => /시작|다시 하기/.test(b.textContent))?.click());
+  await page.waitForFunction(() => ((t) => t.includes('하나도 맞지 않습니다') && t.includes('고친 뒤 다시 하세요'))(document.querySelector('.kd-batch-main')?.innerText ?? ''), { timeout: 30000 });
   check('안 맞는 명부: 실행하면 고칠 것을 알리는 오류', true);
   if (SETTINGS_OUT) check('안 맞는 명부: 빈 폴더를 만들지 않음', readdirSync(SETTINGS_OUT).length === before);
   await ui.shot(join(OUT, '24-mailmerge-nomatch.png'));

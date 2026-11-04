@@ -5,7 +5,7 @@ import type { BatchTaskId } from "../../state/app";
 import type { TaskCtx } from "../../hooks/useTask";
 import { rpc, errorText, isAbort } from "../../lib/rpc";
 import { dirName, joinPath, stem } from "../../lib/format";
-import type { BatchOpts } from "./tasks";
+import { joinTo, type BatchOpts } from "./tasks";
 import { shrinkParams, shrinkSummary } from "../workbench/tools/ShrinkTool";
 
 export interface RowState {
@@ -31,6 +31,25 @@ export interface RunEnv extends TaskCtx {
   gather?: { ai: boolean; previous?: string; overwrite?: boolean };
   /** 정보공개 공개본: 가리지 않고 남길 것 (설정의 대표번호·팩스·담당자) */
   keep?: string[];
+  /** 설정의 저장 폴더 (없으면 첫 파일 옆) */
+  defaultDir?: string;
+}
+
+/** PDF 를 쪽마다·몇 쪽씩 나눠 <이름>_나누기 폴더에 */
+async function splitPdf(env: RunEnv, f: FileEntry) {
+  const { opts, signal } = env;
+  const src = await rpc("pdf_open", { path: f.path }, { signal });
+  const size = opts.pdfSplit === "each" ? 1 : Math.max(1, Math.floor(opts.pdfEvery));
+  const groups: number[][] = [];
+  for (let p = 1; p <= src.page_count; p += size) groups.push(Array.from({ length: Math.min(size, src.page_count - p + 1) }, (_, i) => p + i));
+  if (groups.length < 2) return { empty: true, note: `${src.page_count}쪽이라 나눌 것 없음` };
+  const dir = joinPath(opts.outDir || env.defaultDir || dirName(f.path), `${stem(f.name)}_나누기`);
+  const digits = Math.max(2, String(groups.length).length);
+  const r = await rpc("pdf_compose", {
+    source: f.path,
+    outputs: groups.map((g, i) => ({ output_path: joinPath(dir, `${stem(f.name)}_${String(i + 1).padStart(digits, "0")}.pdf`), pages: g.map((page) => ({ path: src.source, page })) })),
+  }, { signal });
+  return { output: dirName(r.outputs[0].output_path), note: `${r.outputs.length}개로 나눔` };
 }
 
 const outDirOf = (o: BatchOpts) => (o.outDir ? { output_dir: o.outDir } : {});
@@ -66,7 +85,24 @@ async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: 
   return { message, ...(dir ? { dir } : {}) };
 }
 
-export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
+export async function runTask(task: BatchTaskId, env0: RunEnv): Promise<Outcome | null> {
+  const last = new Map<string, RowState["status"]>();
+  const env: RunEnv = { ...env0, setRow: (p, s) => { last.set(p, s.status); env0.setRow(p, s); } };
+  try {
+    return await runOne(task, env);
+  } catch (e) {
+    for (const [p, st] of last) if (st === "run") env0.setRow(p, isAbort(e) ? { status: "wait" } : { status: "fail", error: errorText(e) });
+    throw e;
+  }
+}
+
+/** 합치기 응답의 실패 목록 (엔진이 넣지 못한 파일을 돌려준다, 계약 모양이 unknown 이라 여기서 읽는다) */
+export function mergeFailed(r: unknown): BatchItemResult[] {
+  const failed = (r as { failed?: unknown } | null)?.failed;
+  return Array.isArray(failed) ? (failed as BatchItemResult[]) : [];
+}
+
+async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
   const { files, opts, signal, onProgress } = env;
   const paths = files.map((f) => f.path);
   const o = { signal, onProgress };
@@ -108,9 +144,34 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
         if (!r.output_path) return { note: r.note };
         return { output: r.output_path, note: r.under_target === false ? `${shrinkSummary(r)}. 한도를 아직 넘습니다` : shrinkSummary(r) };
       })) };
+    case "join": {
+      // 모두 한글이면 서식 그대로 HWPX 한 파일, 아니면 PDF 한 권 (쪽 번호·워터마크 없이)
+      const first = files[0];
+      const name = `${stem(first.name)}${files.length > 1 ? `_외${files.length - 1}건` : ""}`;
+      const dir = opts.outDir || env.defaultDir || dirName(first.path);
+      paths.forEach((p) => env.setRow(p, { status: "run" }));
+      if (joinTo(files.map((f) => f.format)) === "hwpx") {
+        const out = joinPath(dir, `${name}.hwpx`);
+        // 엔진은 output_path 를 돌려준다 (같은 이름이 있으면 (2) 를 붙인 경로). 계약 모양이 unknown 이라 여기서 읽는다
+        const r = (await rpc("merge_files", { files: paths, output_path: out, mode: "native" }, o)) as { output_path?: string } | null;
+        const bad = mergeFailed(r);
+        files.forEach((f) => { const x = bad.find((b) => b.path === f.path); env.setRow(f.path, x ? { status: "fail", error: x.error } : { status: "ok" }); });
+        return { kind: "single", message: `한글 파일 ${files.length - bad.length}개를 HWPX 한 파일로 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out };
+      }
+      const r = await rpc("bundle_pdf", { paths, page_numbers: false, output_path: joinPath(dir, `${name}.pdf`) }, o);
+      r.failed.forEach((x) => env.setRow(x.path, { status: "fail", error: x.error }));
+      files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok" }));
+      return { kind: "single", message: `${r.page_count}쪽짜리 PDF 한 권으로 합쳤습니다${r.failed.length ? ` (${r.failed.length}개는 넣지 못함)` : ""}`, path: r.output_path };
+    }
+    case "split":
+      return { kind: "files", ...(await eachFile(env, async (f) => {
+        if (f.format === "pdf") return splitPdf(env, f);
+        const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: opts.outDir } : {}) }, { signal });
+        return { output: r.output_dir, note: `${r.output_files.length}개로 나눔` };
+      })) };
     case "hwpsplit":
       return { kind: "files", ...(await eachFile(env, async (f) => {
-        const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: joinPath(opts.outDir, `${stem(f.name)}_나누기`) } : {}) }, { signal });
+        const r = await rpc("split_hangul", { path: f.path, mode: opts.splitMode, ...(opts.outDir ? { output_dir: opts.outDir } : {}) }, { signal });
         return { output: r.output_dir, note: `${r.output_files.length}개로 나눔` };
       })) };
     case "ocr":
@@ -144,11 +205,13 @@ export async function runTask(task: BatchTaskId, env: RunEnv): Promise<Outcome |
         ...(opts.deadline.trim() ? { deadline: opts.deadline.trim() } : {}),
         ...(g?.previous ? { output_path: g.previous, overwrite: !!g.overwrite } : opts.outDir ? { output_dir: opts.outDir } : {}),
       }, o);
-      const dept = new Map(r.status.flatMap((s) => s.files.map((f) => [f, s.dept] as const)));
+      // 제출 현황의 전체 경로로 부서를 찾는다 (하위 폴더의 같은 이름 파일도 가른다)
+      const dept = new Map(r.status.flatMap((s) => s.paths.map((p) => [p, s.dept] as const)));
+      const deptOf = (f: FileEntry) => dept.get(f.path);
       for (const f of files) {
         const bad = r.failed.find((x) => x.path === f.path);
         const sep = r.separate.find((x) => x.path === f.path);
-        env.setRow(f.path, bad ? { status: "fail", error: bad.error } : { status: "ok", note: sep ? "따로 확인" : dept.get(f.name) || "모음" });
+        env.setRow(f.path, bad ? { status: "fail", error: bad.error } : { status: "ok", note: sep ? "따로 확인" : deptOf(f) || "모음" });
       }
       return { kind: "gather", message: `${r.rows}줄을 엑셀 한 장으로 모았습니다`, result: r };
     }

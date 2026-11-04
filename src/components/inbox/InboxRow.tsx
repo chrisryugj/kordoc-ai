@@ -10,6 +10,7 @@ import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
 import { ErrorLine, Working } from "../common/Status";
 import { LawResults } from "../workbench/tools/LawResults";
+import { useReply } from "../workbench/reply";
 import { autoDue, dueBadge, dueText, type InboxItem } from "./dday";
 
 export type InboxPatch = { status?: "todo" | "done"; due?: string | null; note?: string };
@@ -24,17 +25,21 @@ interface Props {
 }
 
 export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Props) {
-  const { startCreate } = useApp();
   const done = item.status === "done";
   const badge = item.due && !done ? dueBadge(item.due, today) : null;
   const first = item.requests[0];
   const more = item.requests.length - 1;
   const title = item.title || stem(item.name);
-  const reply = () => startCreate({ route: "ai", kind: "reply", references: [item.path] });
+  // AI 가 꺼져 있으면 서식함의 표준 기안문으로 (AI 필요 화면으로 보내지 않는다)
+  const { aiOn, start, tip } = useReply();
+  const reply = () => start(item.path);
+  const replyLabel = aiOn ? "회신 쓰기" : "서식으로 회신";
 
   return (
     <>
-      <tr className="kd-inbox-row" data-done={done} data-open={open}>
+      {/* 줄 어디를 눌러도 펼친다 (단추·끝냄 칸은 제 할 일만). 키보드는 제목 단추로 */}
+      <tr className="kd-inbox-row" data-done={done} data-open={open}
+        onClick={(e) => { if (!(e.target as HTMLElement).closest("button, input, label, a")) onToggle(); }}>
         <td>
           {item.due ? (
             <span className="kd-inbox-due">
@@ -69,13 +74,13 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
           </label>
         </td>
         <td className="text-right">
-          <Button variant="secondary" size="sm" onClick={reply}><Reply size={13} /> 회신 쓰기</Button>
+          <Button variant="secondary" size="sm" onClick={reply} data-tip={tip}><Reply size={13} /> {replyLabel}</Button>
         </td>
       </tr>
       {open && (
         <tr className="kd-inbox-detail" id={`inbox-${item.id}`}>
           <td colSpan={6}>
-            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} />
+            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} replyLabel={aiOn ? "회신 쓰기" : "서식으로 회신 쓰기"} replyTip={tip} />
           </td>
         </tr>
       )}
@@ -83,8 +88,8 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   );
 }
 
-function InboxDetail({ item, today, done, onUpdate, onRemove, onReply }: {
-  item: InboxItem; today: string; done: boolean; onUpdate: (p: InboxPatch) => void; onRemove: () => void; onReply: () => void;
+function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabel, replyTip }: {
+  item: InboxItem; today: string; done: boolean; onUpdate: (p: InboxPatch) => void; onRemove: () => void; onReply: () => void; replyLabel: string; replyTip: string;
 }) {
   const { openDocs } = useApp();
   const auto = autoDue(item);
@@ -120,7 +125,7 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply }: {
               </li>
             ))}
           </ol>
-        ) : <p className="kd-small kd-muted mt-1">요청 문장을 찾지 못했습니다. 문서를 열어 확인하고 기한은 오른쪽에서 직접 넣으세요.</p>}
+        ) : <p className="kd-small kd-muted mt-1">요청 문장을 찾지 못했습니다. 기한은 오른쪽에서 직접 넣으세요.</p>}
       </section>
 
       <section aria-label="문서 정보">
@@ -148,20 +153,18 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply }: {
       </section>
 
       <div className="kd-inbox-acts">
-        <Button variant="secondary" size="sm" onClick={() => openDocs([item.path])}><ExternalLink size={13} /> 열기</Button>
-        <Button size="sm" onClick={onReply}><Reply size={13} /> 회신 쓰기</Button>
+        <Button variant="secondary" size="sm" onClick={() => openDocs([item.path])} data-tip="문서 화면에서 본문을 읽고 검토·내보내기를 합니다."><ExternalLink size={13} /> 열기</Button>
+        <Button size="sm" onClick={onReply} data-tip={replyTip}><Reply size={13} /> {replyLabel}</Button>
         <Button variant="secondary" size="sm" onClick={() => onUpdate({ status: done ? "todo" : "done" })}>{done ? "할 일로 되돌리기" : "끝냄으로 표시"}</Button>
-        <Button variant="secondary" size="sm" onClick={checkLaw} disabled={law.busy}><Scale size={13} /> 인용 법령 확인</Button>
+        <Button variant="secondary" size="sm" onClick={checkLaw} disabled={law.busy}
+          data-tip={`공문이 인용한 법령을 법제처 원문과 맞춰 봅니다.${item.sent_date ? ` 시행일(${dueText(item.sent_date, today)}) 당시 조문과 지금 조문도 견줍니다.` : ""}`}><Scale size={13} /> 인용 법령 확인</Button>
         <span className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={onRemove}><Trash2 size={13} /> 목록에서 빼기</Button>
+        <Button variant="ghost" size="sm" onClick={onRemove} data-tip="접수함 목록에서만 뺍니다. 파일은 그대로 둡니다."><Trash2 size={13} /> 목록에서 빼기</Button>
       </div>
 
       {(law.busy || law.result || law.error) && (
         <section className="kd-inbox-law" aria-label="인용 법령 확인">
           <h3 className="kd-label">인용 법령 확인</h3>
-          {(!law.result || law.result.checked) && <p className="kd-small kd-muted text-pretty">
-            이 공문이 인용한 법령을 법제처 원문과 맞춰 봅니다.{item.sent_date ? ` 공문 시행일(${dueText(item.sent_date, today)}) 당시 조문과 지금 조문도 견줍니다.` : ""}
-          </p>}
           {law.busy && <Working label="법령 인용을 확인하는 중" progress={law.progress} onCancel={law.cancel} />}
           <ErrorLine message={law.error} />
           {law.result && <LawResults result={law.result} compact />}

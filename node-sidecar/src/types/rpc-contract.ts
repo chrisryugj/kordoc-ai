@@ -139,21 +139,29 @@ export interface RpcMethods {
   lint: [{ text?: string; path?: string; numbers?: boolean; styles?: boolean; munche?: boolean }, { findings: LintFinding[]; counts: { error: number; warning: number; info: number } }];
   /** 개인정보 마스킹 — HWPX·HWP 는 서식 그대로(+잔존 재검사), 그 밖은 가린 .md */
   /** keep: 가리지 않고 남길 글(기관 대표번호·담당 공무원 이름 등). PDF·스캔·그림은 검은 상자를 칠한 쪽 그림 PDF(글자층 없음). also_pdf: 한글 문서를 가린 뒤 PDF 로도 */
-  redact: [{ path: string; rules?: RedactRule[]; mask_char?: string; dry_run?: boolean; output_path?: string; keep?: string[]; also_pdf?: boolean }, RedactResult];
+  /** output_dir: output_path 가 없을 때 저장할 폴더. 이름은 <원래 이름>_공개용.<확장자>, 같은 이름이 있으면 (2) */
+  redact: [{ path: string; rules?: RedactRule[]; mask_char?: string; dry_run?: boolean; output_path?: string; output_dir?: string; keep?: string[]; also_pdf?: boolean }, RedactResult];
   redact_batch: [{ paths: string[]; rules?: RedactRule[]; mask_char?: string; output_dir?: string; keep?: string[] }, { results: Array<BatchItemResult & { total?: number; residual?: number }>; output_dir: string }];
-  seal: [{ path: string; image_path: string; anchor: string; output_path?: string }, { output_path: string; placed: number }];
+  /** anchor 가 "(인)" 인데 문서에 없으면 "(서명 또는 인)"·"(서명)", 그다음 발신명의(예: 가온시장)의 끝 글자에 찍는다(관인은 발신명의 끝 글자가 가운데 오게).
+   *  찍을 자리가 없으면 저장하지 않고 placed: 0, output_path: '', reason(이유와 할 일). anchor: 실제로 찍은 자리 글자 */
+  seal: [{ path: string; image_path: string; anchor: string; output_path?: string }, { output_path: string; placed: number; anchor?: string; reason?: string }];
   /** 고친 글(md)을 원본 HWPX·HWP 에 서식 그대로 반영. 글은 convert(keep_layout:true) 로 뽑은 것 */
   /** 고른 표기 지적(fix)만 문서에 반영한 사본 — 서식 그대로(kordoc 패치·무결성 검사). HWPX·HWP */
   lint_fix: [{ path: string; fixes: Array<{ from: string; to: string }>; output_path?: string }, { output_path: string; replaced: number; applied: number; skipped: Array<{ reason: string; excerpt?: string }> }];
   patch_document: [{ path: string; markdown: string; output_path?: string }, { output_path: string; applied: number; skipped: Array<{ reason: string; excerpt?: string }> }];
   validate_hwpx: [{ path: string }, { ok: boolean; issues: Array<{ severity: string; message: string; part?: string }> }];
   /** 폴더 감시 — 새 문서가 들어오면 자동 변환. 알림 `watch_event` { id, path, ok, output_path?, error? }.
-   *  out_dir 없으면 설정 출력 폴더 → 감시 폴더 안 '변환 결과'. 하위 폴더 구조 그대로, 같은 원본은 덮어씀 */
+   *  out_dir 없으면 설정 출력 폴더 → 감시 폴더 안 '변환 결과'. 하위 폴더 구조 그대로, 같은 원본은 덮어씀.
+   *  결과 이름은 원래 확장자를 넣어 <이름>_<확장자>.<형식> (공문_hwpx.md). out_dir 가 감시 폴더와 같거나 그 위면 거절 */
   watch_start: [{ dir: string; out_dir?: string; format?: 'md' | 'html' | 'txt' }, { id: string }];
   watch_stop: [{ id: string }, boolean];
   watch_list: [Record<string, never>, Array<{ id: string; dir: string; out_dir: string; format: string; processed: number; started_at: string }>];
-  merge_files: [{ files: string[]; output_path?: string; mode?: 'native' | 'markdown' }, unknown];
-  split_pdf: [{ input_path: string; output_dir?: string; mode?: 'each' | 'range'; ranges?: string }, unknown];
+  /** failed: 합치지 못한 파일과 이유 (없으면 빈 배열). 하나도 못 합치면 오류. file_count 는 실제로 합친 파일 수 */
+  merge_files: [{ files: string[]; output_path?: string; mode?: 'native' | 'markdown' }, MergeFilesResult];
+  /** output_dir 를 주면 그 안에 <원래 이름>_분리 폴더(output_dir 이름이 이미 그것이면 그 폴더). 없으면 저장 폴더의 <원래 이름>_분리.
+   *  결과 폴더가 이미 있고 비어 있지 않으면 <원래 이름>_분리 (2) … 새 폴더 (덮어쓰지 않음). output_dir 는 실제로 쓴 폴더 */
+  split_pdf: [{ input_path: string; output_dir?: string; mode?: 'each' | 'range'; ranges?: string }, { success: boolean; output_dir: string; output_files: string[]; total_pages: number }];
+  /** output_dir 를 주면 그 안에 <원래 이름>_나누기 폴더(output_dir 이름이 이미 그것이면 그 폴더). 결과 폴더가 이미 있고 비어 있지 않으면 (2) … 새 폴더. output_dir 는 실제로 쓴 폴더 */
   split_hangul: [{ path: string; output_dir?: string; mode?: 'auto' | 'section' | 'pagebreak' }, { output_dir: string; output_files: string[]; sections: number; page_breaks: number }];
   pdf_page_count: [{ input_path: string }, { page_count: number }];
   pdf_extract_pages: [{ input_path: string; pages: string; mode?: 'include' | 'exclude'; output_path?: string }, unknown];
@@ -203,10 +211,13 @@ export interface RpcMethods {
   ai_list_models: [{ base_url?: string; api_key?: string; slot?: 'openai' | 'local' }, { models: string[] }];
   /** 이 PC 에서 켜진 로컬 모델 서버 찾기 — 127.0.0.1 의 잘 알려진 포트(Ollama·LM Studio·llama.cpp 서버·vLLM 등)에 /v1/models */
   ai_local_servers: [Record<string, never>, { servers: LocalModelServer[] }];
-  /** 구독 프로그램(Claude Code·Codex) 설치·로그인 상태. provider 가 없으면 둘 다. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */
-  ai_subscription_status: [{ provider?: 'claude-code' | 'codex' }, { statuses: SubscriptionStatus[] }];
+  /** 구독 프로그램(Claude Code·Codex·Gemini CLI) 설치·로그인 상태. provider 가 없으면 모두. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */
+  ai_subscription_status: [{ provider?: 'claude-code' | 'codex' | 'gemini-cli' }, { statuses: SubscriptionStatus[] }];
   /** 구독 프로그램이 고를 수 있게 내놓는 모델 (모델을 부르지 않음). id 가 빈 값이면 프로그램 기본 모델 */
-  ai_subscription_models: [{ provider: 'claude-code' | 'codex' }, { models: Array<{ id: string; label: string }> }];
+  ai_subscription_models: [{ provider: 'claude-code' | 'codex' | 'gemini-cli' }, { models: Array<{ id: string; label: string }> }];
+  /** 구독 프로그램을 그 프로그램의 공식 업데이트 명령으로 새 판으로 (전후 판 번호). 폐쇄망·기관 차단·기관이 위치를 정한 경우는 거절.
+   *  업데이트 명령이 없는 Gemini CLI 는 실행하지 않고 터미널에서 칠 명령만 알려 준다(ok false) */
+  ai_subscription_update: [{ provider: 'claude-code' | 'codex' | 'gemini-cli' }, { ok: boolean; before?: string; after?: string; message: string }];
   ai_warmup: [Record<string, never>, { gpu: string | false; context_size: number }];
   llm_catalog: [Record<string, never>, LlmCatalogItem[]];
   llm_list: [Record<string, never>, Array<{ path: string; name: string; size: number }>];
@@ -262,7 +273,8 @@ export interface RpcMethods {
   /** 신구대조표를 한글 표(현행 | 개정안)로 — 규정·조례 개정 */
   compare_hwpx: [{ old_path: string; new_path: string; title?: string; output_path?: string }, { output_path: string; stats: CompareResult['stats'] }];
   /** 결재·공개용 합본 PDF — 본문 + 붙임 순서대로, 워터마크("대외비"·"사본" 등)·쪽번호 선택 */
-  bundle_pdf: [{ paths: string[]; output_path?: string; watermark?: string; page_numbers?: boolean }, { output_path: string; page_count: number; failed: BatchItemResult[] }];
+  /** overwrite: output_path 에 이미 있는 파일을 덮어쓴다 (화면이 사용자에게 확인한 뒤만. 합칠 원본 자리는 덮어쓰지 않고 (2)) */
+  bundle_pdf: [{ paths: string[]; output_path?: string; watermark?: string; page_numbers?: boolean; overwrite?: boolean }, { output_path: string; page_count: number; failed: BatchItemResult[] }];
   pdf_stamp: [{ path: string; watermark?: string; page_numbers?: boolean; output_path?: string }, { output_path: string }];
   /** PDF 용량 줄이기 (결재 첨부 한도) — 그림만 줄여 글자는 그대로. target_mb 를 주면 한도 안에 들 때까지 단계를 올리고,
    *  allow_raster 면 그래도 넘을 때 쪽을 그림으로(글자 복사·검색 안 됨). 한글·워드는 PDF 로 바꾼 뒤 줄인다.
@@ -520,6 +532,21 @@ export interface InboxItem {
   note?: string;
 }
 
+/** 합치기 결과 (merge_files) */
+export interface MergeFilesResult {
+  success: boolean;
+  output_path: string;
+  /** 실제로 합친 파일 수 */
+  file_count: number;
+  /** 마크다운 방식: 글자 수, 서식 유지 방식: 바이트 수 */
+  total_length: number;
+  /** 합치지 못한 파일 경로 (failed 의 path 와 같음, 옛 모양) */
+  failed_files: string[];
+  /** 합치지 못한 파일과 이유 */
+  failed: Array<{ path: string; error: string }>;
+  warnings?: string[];
+}
+
 export interface CollectGatherParams {
   paths: string[];
   /** 부서 명단 (collect_roster 로 읽은 이름). 없으면 부서 칸·파일 이름에서 짐작하고 미제출은 모른다 */
@@ -550,7 +577,8 @@ export interface CollectGatherResult {
   /** 빈 필수 칸 수 */
   blanks: number;
   /** 제출 현황 — 명단 순서, 그 뒤 명단에 없는 부서·부서를 모르는 파일(dept '') */
-  status: Array<{ dept: string; in_roster: boolean; submitted: boolean; files: string[]; blanks: number }>;
+  /** files 는 파일 이름, paths 는 같은 차례의 전체 경로 (하위 폴더의 같은 이름 파일을 가른다) */
+  status: Array<{ dept: string; in_roster: boolean; submitted: boolean; files: string[]; paths: string[]; blanks: number }>;
   missing: string[];
   /** 미제출 부서에 보낼 독촉 글 (미제출이 없으면 '') */
   reminder: string;
@@ -724,13 +752,13 @@ export interface LocalModelServer {
  *  metered: 쓴 만큼 요금(API 키 등)이라 보내지 않음 · installed: 설치만 확인(문서 보내기를 허용하기 전엔 띄우지 않음) ·
  *  offline: 폐쇄망 모드 · disabled: 기관이 막음 */
 export interface SubscriptionStatus {
-  provider: 'claude-code' | 'codex';
+  provider: 'claude-code' | 'codex' | 'gemini-cli';
   state: 'ready' | 'unknown-login' | 'metered' | 'installed' | 'signed-out' | 'not-installed' | 'needs-update' | 'error' | 'offline' | 'disabled';
   version?: string;
   plan?: string;
   /** 준비되지 않았을 때 할 일 */
   message?: string;
-  /** 터미널에서 칠 로그인 명령 (claude · codex login) */
+  /** 터미널에서 칠 로그인 명령 (claude · codex login · gemini) */
   login_command: string;
   /** 찾은 프로그램 위치 (읽기 전용. 다른 위치는 기관 배포 설정의 ai.*.cli_path 로만) */
   path?: string;

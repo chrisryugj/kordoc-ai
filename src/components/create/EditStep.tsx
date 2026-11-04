@@ -30,8 +30,8 @@ export function EditStep({ visible }: { visible: boolean }) {
         </div>
         <Tooltip content="실행 취소 (Ctrl+Z)"><button type="button" className="kd-icon-btn" disabled={!ready} onClick={() => history("undo")} aria-label="실행 취소"><Undo2 size={16} /></button></Tooltip>
         <Tooltip content="다시 실행 (Ctrl+Shift+Z)"><button type="button" className="kd-icon-btn" disabled={!ready} onClick={() => history("redo")} aria-label="다시 실행"><Redo2 size={16} /></button></Tooltip>
-        <Button variant="secondary" onClick={() => void saveCurrent()} disabled={!canSave || saving}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>
-        <Button onClick={() => setStep("output")} disabled={!canSave}>{session?.existing ? "내보내기로" : "출력으로"} <ArrowRight size={14} /></Button>
+        <Button variant="secondary" onClick={() => void saveCurrent()} disabled={!canSave || saving} data-tip="지금 문서를 한글 파일로 저장합니다"><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>
+        <Button onClick={() => setStep("output")} disabled={!canSave} data-tip="PDF 저장, 인쇄, 도장 찍기">출력으로 <ArrowRight size={14} /></Button>
         <Tooltip content={assistOpen ? "보조 패널 접기" : "보조 패널 펼치기"}>
           <button type="button" className="kd-icon-btn" onClick={() => setAssistOpen((o) => !o)} aria-label={assistOpen ? "보조 패널 접기" : "보조 패널 펼치기"} aria-pressed={assistOpen}>
             {assistOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}

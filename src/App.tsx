@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ToastContainer } from "./components/ui/Toast";
+import { TipLayer } from "./components/ui/TipLayer";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useToast } from "./hooks/useToast";
 import { useDeepLink, isLinkAction, type DeepLinkPayload, type LinkAction } from "./hooks/useDeepLink";
@@ -21,6 +22,9 @@ import { BatchScreen } from "./components/batch/BatchScreen";
 import { PdfScreen } from "./components/pdf/PdfScreen";
 import { CompareScreen } from "./components/compare/CompareScreen";
 import { AssistantScreen } from "./components/assistant/AssistantScreen";
+import { ChatScreen } from "./components/chat/ChatScreen";
+import { HelpScreen } from "./components/help/HelpScreen";
+import { ChatProvider } from "./state/chats";
 import { SettingsScreen } from "./components/settings/SettingsScreen";
 import { ImpactScreen } from "./components/impact/ImpactScreen";
 import { rpc, errorText, invokeCmd } from "./lib/rpc";
@@ -31,6 +35,7 @@ import { useInboxReminder } from "./components/inbox/reminder";
 
 const SCREENS: Array<{ id: Screen; render: (active: boolean) => React.ReactNode }> = [
   { id: "home", render: (a) => <HomeScreen active={a} /> },
+  { id: "chat", render: (a) => <ChatScreen active={a} /> },
   { id: "inbox", render: (a) => <InboxScreen active={a} /> },
   { id: "workbench", render: (a) => <WorkbenchScreen active={a} /> },
   { id: "create", render: (a) => <CreateScreen active={a} /> },
@@ -40,14 +45,18 @@ const SCREENS: Array<{ id: Screen; render: (active: boolean) => React.ReactNode 
   { id: "assistant", render: (a) => <AssistantScreen active={a} /> },
   { id: "settings", render: (a) => <SettingsScreen active={a} /> },
   { id: "impact", render: (a) => <ImpactScreen active={a} /> },
+  { id: "help", render: (a) => <HelpScreen active={a} /> },
 ];
 
 export default function App() {
   const { toasts, showToast, dismissToast } = useToast();
   return (
     <AppProvider toast={showToast}>
-      <Shell />
+      <ChatProvider>
+        <Shell />
+      </ChatProvider>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <TipLayer />
     </AppProvider>
   );
 }
@@ -113,7 +122,7 @@ function Shell() {
     else if (action === "collect") startBatch({ paths, task: "collect", autoRun: true });
     else if (action === "summarize" && ai?.is_cloud) {
       openDocs(paths, { tool: "ai" });
-      toast("인터넷 AI로 보내기 전에 확인하세요. 요약하기를 누르면 보냅니다.", "info");
+      toast("외부 AI로 보내기 전에 확인하세요. 요약하기를 누르면 보냅니다.", "info");
     } else if (action === "summarize" && !ai) {
       // 꺼진 앱이 이 동작으로 켜지면 AI 설정을 읽기 전에 들어온다. 인터넷 AI 일 수 있으니 자동으로 보내지 않는다
       openDocs(paths, { tool: "ai" });

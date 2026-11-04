@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { copyFileSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import JSZip from 'jszip';
 import { parse, validateHwpx } from 'kordoc';
@@ -66,6 +66,21 @@ describe('한글 나누기', () => {
   it('쪽 나눔마다를 고르면 합친 문서도 구역 안 쪽 나눔까지 (1 + 3)', async () => {
     const r = await call('split_hangul', { path: merged, mode: 'pagebreak', output_dir: join(env.work, '합본_쪽마다') });
     expect(r.output_files).toHaveLength(4);
+  }, 60_000);
+
+  it('output_dir 는 상위 폴더: 그 안에 <이름>_나누기, 다시 나누면 덮어쓰지 않고 (2) 폴더', async () => {
+    const parent = join(env.base, '나눈 결과');
+    const a = await call('split_hangul', { path: merged, output_dir: parent });
+    expect(a.output_dir).toBe(join(parent, '합본_나누기'));
+    const first = sha(a.output_files[0]);
+    const b = await call('split_hangul', { path: merged, output_dir: parent });
+    expect(b.output_dir).toBe(join(parent, '합본_나누기 (2)'));
+    expect(b.output_files.every((f: string) => f.startsWith(b.output_dir))).toBe(true);
+    expect(sha(a.output_files[0])).toBe(first);
+    // 이름이 이미 <이름>_나누기 인 빈 폴더를 주면 그 폴더에 (옛 화면 호환)
+    const own = join(env.base, '따로', '합본_나누기');
+    mkdirSync(own, { recursive: true });
+    expect((await call('split_hangul', { path: merged, output_dir: own })).output_dir).toBe(own);
   }, 60_000);
 
   it('나눌 곳이 없으면 알려 준다', async () => {

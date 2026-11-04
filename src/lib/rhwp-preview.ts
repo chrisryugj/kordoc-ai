@@ -42,7 +42,7 @@ export class RhwpPreview {
         if (e.data.ok) wait.resolve(e.data.value);
         else wait.reject(new Error(e.data.error));
       };
-      w.onerror = (e) => this.fail(new Error(e.message || "rhwp 일꾼을 띄우지 못했습니다"));
+      w.onerror = (e) => this.fail(new Error(e.message || "미리보기를 시작하지 못했습니다"));
       this.worker = w;
     }
     const id = ++this.seq;
@@ -56,7 +56,7 @@ export class RhwpPreview {
   async open(bytes: Uint8Array, opts: { password?: string; timeoutMs?: number } = {}): Promise<RhwpMeta> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { this.dispose(); reject(new Error("rhwp 가 제때 문서를 열지 못했습니다")); }, opts.timeoutMs ?? RHWP_OPEN_TIMEOUT_MS);
+      timer = setTimeout(() => { this.dispose(); reject(new Error("제때 문서를 열지 못했습니다")); }, opts.timeoutMs ?? RHWP_OPEN_TIMEOUT_MS);
     });
     try {
       return await Promise.race([this.call<RhwpMeta>({ op: "open", bytes, password: opts.password }, [bytes.buffer]), timeout]);

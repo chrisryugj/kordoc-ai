@@ -51,10 +51,10 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
       onClick={(e) => e.target === e.currentTarget && closable && handleClose()}
       role="dialog" aria-modal="true" aria-labelledby={titleId}
     >
-      <div ref={modalRef} className={`w-full ${sizeClasses[size]} mx-4 animate-modal-enter rounded-lg max-h-[80vh] flex flex-col`}
+      <div ref={modalRef} className={`w-full ${sizeClasses[size]} mx-4 animate-modal-enter rounded-2xl overflow-hidden max-h-[80vh] flex flex-col`}
         style={{ backgroundColor: "var(--color-bg-secondary)", boxShadow: "var(--shadow-xl)", border: "1px solid var(--color-border)" }}>
-        <div className="shrink-0 flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
-          <h2 id={titleId} className="text-base font-bold" style={{ color: "var(--color-text-primary)" }}>{title}</h2>
+        <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-3" style={{ borderColor: "var(--color-border)" }}>
+          <h2 id={titleId} className="text-lg font-bold tracking-tight" style={{ color: "var(--color-text-primary)" }}>{title}</h2>
           {closable && (
             <button type="button" onClick={handleClose} className="grid place-items-center w-8 h-8 -mr-1.5 rounded-md btn-icon-hover" aria-label="닫기">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -64,7 +64,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
           )}
         </div>
         <div className="px-6 py-4 overflow-y-auto flex-1">{children}</div>
-        {footer && <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: "var(--color-border)" }}>{footer}</div>}
+        {footer && <div className="px-6 py-4 shrink-0" style={{ background: "var(--color-bg-primary)", borderTop: "1px solid var(--color-border-subtle)" }}>{footer}</div>}
       </div>
     </div>
   );

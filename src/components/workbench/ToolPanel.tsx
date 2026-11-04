@@ -60,12 +60,16 @@ const GROUPS: Array<{ id: GroupId; label: string; sections: SectionDef[] }> = [
 ];
 
 const groupOf = (t: ToolId): GroupId => GROUPS.find((g) => g.sections.some((s) => s.id === t))!.id;
+/** 탭 안 차례. AI 가 켜져 있으면 읽기 탭은 요약이 맨 위 (탭마다 맨 위에 주 행동 하나) */
+const sectionsOf = (g: (typeof GROUPS)[number], aiOn: boolean, i: DocInfo) =>
+  g.id === "read" && aiOn && !i.encrypted ? [...g.sections.filter((s) => s.id === "ai"), ...g.sections.filter((s) => s.id !== "ai")] : g.sections;
 /** 탭 안 도구가 모두 꺼졌으면 탭도 끈다 (이유는 첫 도구의 것) */
 const groupOff = (g: (typeof GROUPS)[number], i: DocInfo) => (g.sections.every((s) => s.off?.(i)) ? g.sections[0].off!(i) : false);
 
-export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received = false }: ToolProps & {
-  received?: boolean; tool: ToolId; onTool: (t: ToolId) => void; autoRun: { kind: AutoRunKind; nonce: number } | null; onGoPage: (page: number) => void;
+export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolProps & {
+  tool: ToolId; onTool: (t: ToolId) => void; autoRun: { kind: AutoRunKind; nonce: number } | null; onGoPage: (page: number) => void;
 }) {
+  const aiOn = !!useApp().ai?.configured;
   const asked = GROUPS.find((g) => g.id === groupOf(tool))!;
   const current: GroupId = groupOff(asked, info) ? "read" : asked.id;
   // 한 번 연 탭은 다른 탭에 다녀와도 그대로 (요약·대화·검토 결과와 진행 중인 요청이 남는다)
@@ -74,11 +78,12 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // 다른 화면에서 도구를 콕 집어 열면(예: 개인정보 가리기) 탭 안에서 그 도구 자리로
+  const topId = sectionsOf(GROUPS.find((g) => g.id === current)!, aiOn, info)[0].id;
   useEffect(() => {
-    if (tool === GROUPS.find((g) => g.id === current)!.sections[0].id) { bodyRef.current?.scrollTo({ top: 0 }); return; }
+    if (tool === topId) { bodyRef.current?.scrollTo({ top: 0 }); return; }
     const el = bodyRef.current?.querySelector<HTMLElement>(`[data-tool="${tool}"]`);
     if (el && bodyRef.current) bodyRef.current.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" });
-  }, [tool, current, autoRun?.nonce]);
+  }, [tool, current, autoRun?.nonce, topId]);
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -104,38 +109,15 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received
     }
   };
 
-  // 이 문서로 먼저 해 볼 만한 일 셋 — 문서 모양으로 고른다 (도구 탭을 몰라도 시작하게)
-  const hangul = isHangul(info.format);
-  const aiOn = !!useApp().ai?.configured;
-  const offOf = (id: SectionId) => GROUPS.flatMap((g) => g.sections).find((s) => s.id === id)?.off?.(info);
-  const next: Array<[ToolId, string]> = (received
-    ? [["ai", "요약하기"], ["tables", "표 뽑기"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
-    : hangul
-      ? [["review", "결재 전 점검"], ["redact", "개인정보 가리기"], ["export", "PDF로 저장"]]
-      : info.format === "pdf"
-        ? [["shrink", "용량 줄이기"], ["export", "한글 파일로 바꾸기"], ["redact", "개인정보 가리기"]]
-        : [["export", "한글 파일로 바꾸기"], ["review", "표기법 점검"], ["redact", "개인정보 가리기"]]) as Array<[ToolId, string]>;
-  // 요약은 AI 가 있어야 한다 — AI 가 꺼져 있으면 권하지 않는다
-  const shown = next.filter(([id]) => !offOf(id) && (id !== "ai" || aiOn)).slice(0, 3);
-
+  // 할 일 입구는 머리의 주 행동 하나 + 탭 넷 (탭마다 맨 위 도구의 단추가 주 행동). 따로 바로가기 줄은 두지 않는다
   return (
     <aside className="kd-tools" aria-label="도구">
-      {shown.length > 0 && (
-        <div className="kd-next" aria-label="이 문서로 할 수 있는 일">
-          <span className="kd-next-h">이 문서로 할 수 있는 일</span>
-          <div className="kd-next-row">
-            {shown.map(([id, label]) => (
-              <button key={id} type="button" className="kd-next-btn" aria-pressed={tool === id} onClick={() => onTool(id)}>{label}</button>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="kd-tabs kd-tooltabs" role="tablist" aria-label="도구 고르기" onKeyDown={onKey}>
         {GROUPS.map((g) => {
           const off = groupOff(g, info);
           return (
             <button key={g.id} type="button" role="tab" className="kd-tab" aria-selected={current === g.id} disabled={!!off} data-group={g.id}
-              title={off || undefined} tabIndex={current === g.id ? 0 : -1} onClick={() => onTool(g.sections.find((s) => !s.off?.(info))!.id as ToolId)}>
+              title={off || undefined} tabIndex={current === g.id ? 0 : -1} onClick={() => onTool(sectionsOf(g, aiOn, info).find((s) => !s.off?.(info))!.id as ToolId)}>
               {g.label}
             </button>
           );
@@ -144,7 +126,7 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage, received
       <div className="kd-tool-body" role="tabpanel" ref={bodyRef}>
         {GROUPS.filter((g) => opened.includes(g.id) && !groupOff(g, info)).map((g) => (
           <div key={g.id} hidden={g.id !== current}>
-            {g.sections.map((s) => {
+            {sectionsOf(g, aiOn, info).map((s) => {
               const off = s.off?.(info);
               return (
                 <section key={s.id} className="kd-tool-sec" data-tool={s.id} aria-label={s.title}>

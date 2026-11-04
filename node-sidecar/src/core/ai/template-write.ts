@@ -74,7 +74,7 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
   const instruction = (p.instruction ?? '').trim();
   if (!instruction && !p.references?.length) throw new Error('무슨 문서를 쓸지 지시를 입력하거나 참고 문서를 붙이세요.');
 
-  sendProgress({ current: 1, total: 4, message: '견본 서식을 읽는 중...' });
+  sendProgress({ current: 1, total: 4, message: '견본 서식을 읽는 중' });
   const { bytes, converted } = await templateHwpx(p.path);
   const parsed = await parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, { layoutTables: 'keep' });
   const skeleton = parsed.success ? parsed.markdown : '';
@@ -88,7 +88,7 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
   const refs = await referenceText(docs, undefined, instruction, room, signal);
   let redacted = refs.redacted;
 
-  sendProgress({ current: 2, total: 4, message: '견본 서식대로 내용을 쓰는 중...' });
+  sendProgress({ current: 2, total: 4, message: '견본 서식대로 내용을 쓰는 중' });
   const parts = [
     `[작성 지시]\n${instruction || '참고 문서를 바탕으로 이 서식의 새 문서를 쓰세요.'}`,
     `[오늘 날짜]\n${todayText()}`,
@@ -102,7 +102,7 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
   let markdown = cleanOutput(first.text).trim();
   if (!markdown) throw new Error('AI가 문서를 쓰지 못했습니다. 지시를 조금 더 구체적으로 적어 다시 시도하세요.');
 
-  sendProgress({ current: 3, total: 4, message: '공문서 게이트로 검수하는 중...' });
+  sendProgress({ current: 3, total: 4, message: '공문서 점검을 하는 중' });
   let gate = gongmunGate(markdown, { parsed: true });
   const fixable = gate.blocking.filter(lineFixable);
   if (fixable.length) {
@@ -112,7 +112,7 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
     if (next.blocking.length < gate.blocking.length) { markdown = fix.markdown; gate = next; }
   }
 
-  sendProgress({ current: 4, total: 4, message: '견본 서식에 넣는 중...' });
+  sendProgress({ current: 4, total: 4, message: '견본 서식에 넣는 중' });
   const patched = await patchHwpx(bytes, markdown, { structure: true });
   if (!patched.success || !patched.data) throw new Error(`견본 서식에 내용을 넣지 못했습니다: ${patched.error ?? '알 수 없는 오류'}. 견본을 다시 등록하거나 편집기에서 직접 쓰세요.`);
   const out = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_새로쓰기.hwpx` });

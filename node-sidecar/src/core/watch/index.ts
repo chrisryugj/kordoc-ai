@@ -10,7 +10,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DocFormat } from '../../types/rpc-contract.js';
 import { DEFAULT_SETTINGS, getSettings } from '../../infra/config.js';
 import { validatePath } from '../../infra/pathGuard.js';
@@ -53,6 +53,12 @@ const inside = (child: string, parent: string) => {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
 
+/** 결과 이름 — 원래 확장자를 넣는다 (공문.hwpx·공문.pdf 가 둘 다 공문.md 가 되어 서로 덮지 않게): 공문_hwpx.md */
+export function resultName(path: string, format: WatchFormat): string {
+  const ext = extname(path).slice(1).toLowerCase();
+  return `${stemOf(path)}${ext ? `_${ext}` : ''}${EXT[format]}`;
+}
+
 let exitHooked = false;
 
 export function stopAllWatchers(): void {
@@ -77,7 +83,7 @@ async function pump(w: Watcher): Promise<void> {
       if (!st?.isFile() || w.done.get(path) === st.mtimeMs) continue;
       try {
         const r = await convert({ path, format: w.format, save: false, images: false });
-        const out = join(w.out_dir, relative(w.dir, dirname(path)), stemOf(path) + EXT[w.format]);
+        const out = join(w.out_dir, relative(w.dir, dirname(path)), resultName(path, w.format));
         await mkdir(dirname(out), { recursive: true });
         await writeFile(out, r.content, 'utf-8');
         w.done.set(path, st.mtimeMs);
@@ -147,14 +153,20 @@ function scanLoop(w: Watcher, delay: number): void {
 
 export async function watchStart(p: { dir: string; out_dir?: string; format?: WatchFormat }): Promise<{ id: string }> {
   const st = await stat(p.dir).catch(() => null);
-  if (!st?.isDirectory()) throw new Error('감시할 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.');
-  if ([...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 감시 중인 폴더입니다.');
-  if (watchers.size >= MAX_WATCHERS) throw new Error(`폴더 감시는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 감시를 멈추세요.`);
+  if (!st?.isDirectory()) throw new Error('지켜볼 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.');
+  if ([...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 지켜보는 폴더입니다.');
+  if (watchers.size >= MAX_WATCHERS) throw new Error(`폴더 지켜보기는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 폴더는 그만 보기를 누르세요.`);
   // 사용자가 정한 출력 폴더가 있으면 그곳, 기본값(문서/KorDoc AI 결과)이면 감시 폴더 안 '변환 결과'
   // (감시는 같은 원본의 결과를 덮어쓰므로 여러 감시가 한 기본 폴더를 함께 쓰면 같은 이름끼리 덮인다)
   const configured = getSettings().convert.output_dir?.trim();
   const own = configured && configured !== DEFAULT_SETTINGS.convert.output_dir ? configured : '';
-  const outDir = p.out_dir ?? (own ? validatePath(own) : join(p.dir, '변환 결과'));
+  // 결과 폴더가 지켜볼 폴더와 같거나 그 위(상위)면 들어오는 문서가 모두 결과 폴더 안이라 하나도 변환하지 못한다
+  const above = (out: string) => inside(resolve(p.dir), resolve(out));
+  if (p.out_dir && above(p.out_dir)) {
+    throw new Error('결과를 저장할 폴더가 지켜볼 폴더와 같거나 그 바깥(위) 폴더라 들어오는 문서를 변환할 수 없습니다. 결과 폴더를 지켜볼 폴더 안이나 전혀 다른 폴더로 바꾸세요.');
+  }
+  // 설정의 저장 폴더가 그렇다면 이 감시만 지켜볼 폴더 안 '변환 결과' 에
+  const outDir = p.out_dir ?? (own && !above(validatePath(own)) ? validatePath(own) : join(p.dir, '변환 결과'));
   await mkdir(outDir, { recursive: true });
 
   const id = randomUUID().slice(0, 8);
@@ -174,7 +186,7 @@ export async function watchStart(p: { dir: string; out_dir?: string; format?: Wa
     logger.warn(`[watch] ${id} 감시 중단: ${err.message}`);
     close(w);
     watchers.delete(id);
-    sendNotification('watch_event', { id, path: p.dir, ok: false, error: '감시하던 폴더를 더 볼 수 없어 감시를 멈췄습니다. 폴더가 있는지 확인하세요.' });
+    sendNotification('watch_event', { id, path: p.dir, ok: false, error: '지켜보던 폴더를 더 볼 수 없어 지켜보기를 멈췄습니다. 폴더가 있는지 확인하세요.' });
   });
   watchers.set(id, w);
   scanLoop(w, RESCAN_MS);

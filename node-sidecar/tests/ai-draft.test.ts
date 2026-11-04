@@ -1,8 +1,7 @@
 /** 초안·고쳐 쓰기·요약·K팀장 검토 — 가짜 OpenAI 호환 서버 */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lintGongmunText, markdownToHwpx, parse } from 'kordoc';
 import { startFakeOpenAi, lastUser, systemOf, type ChatBody, type FakeServer } from './ai-fake-server.js';
@@ -20,8 +19,9 @@ import { summarize } from '../src/core/summary/index.js';
 import { reviewDocument } from '../src/core/inspect/index.js';
 import { cleanOutput, dropGreeting, escapeLineDates, fixRecipientLine, fixRelatedLine, receivedDocRef } from '../src/core/ai/prompts.js';
 import { chunkText, loadDoc } from '../src/core/ai/docs.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-draft-'));
+const dir = tempDir('kordoc-ai-draft-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const signal = () => new AbortController().signal;
 

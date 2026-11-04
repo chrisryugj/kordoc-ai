@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
@@ -13,22 +13,25 @@ import { fileURLToPath } from 'node:url';
 import { updateSettings } from '../src/infra/config.js';
 import { netLogSnapshot, OfflineBlockedError } from '../src/infra/net-guard.js';
 import { claudeArgs, createClaudeCodeProvider, listClaudeCodeModels, type SubscriptionDeps } from '../src/infra/llm/claude-code.js';
-import { createCodexProvider, forgetCodexSafety, listCodexModels } from '../src/infra/llm/codex.js';
+import { createCodexProvider, forgetCodexSafety, listCodexModels, strictSchema } from '../src/infra/llm/codex.js';
+import { createGeminiCliProvider, geminiArgs, listGeminiCliModels } from '../src/infra/llm/gemini-cli.js';
 import { SubscriptionError, type SubscriptionProviderId } from '../src/infra/llm/subscription/errors.js';
 import { checkLogin, forgetLogins, readClaudeAuth, readCodexLogin, requireSubscription } from '../src/infra/llm/subscription/login.js';
-import { childEnv, cmdShimTarget, findProgram, sweepStaleTempDirs, type Program, type SpawnFn } from '../src/infra/llm/subscription/program.js';
+import { appDirs, childEnv, cmdShimTarget, findProgram, sweepStaleTempDirs, type Program, type SpawnFn } from '../src/infra/llm/subscription/program.js';
 import type { ChatRequest } from '../src/infra/llm/types.js';
+import { tempDir } from './tmp-dirs.js';
 
-process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-'));
+process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-sub-');
 const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url));
+const FAKE_GEMINI = fileURLToPath(new URL('./fixtures/fake-gemini.mjs', import.meta.url));
 // macOS tmpdir 은 /var → /private/var 심링크: 실경로로 비교
-const work = realpathSync(mkdtempSync(join(tmpdir(), 'kordoc-ai-sub-work-')));
+const work = realpathSync(tempDir('kordoc-ai-sub-work-'));
 let logN = 0;
 
 /** 가짜를 동봉 Node 로 띄우는 프로그램. FAKE_* 는 허용 목록에 없어 program.env 로 넣는다 */
 const program = (provider: SubscriptionProviderId, script: string, env: Record<string, string> = {}): Program => ({ provider, command: process.execPath, lead: [script], entry: script, env });
-type Entry = { kind: string; pid?: number; args?: string[]; cwd?: string; env?: Record<string, string | null>; line?: string; text?: string; schema?: string | null; images?: Array<{ path: string; exists: boolean }> };
+type Entry = { kind: string; pid?: number; args?: string[]; cwd?: string; env?: Record<string, string | null>; line?: string; text?: string; schema?: string | null; images?: Array<{ path: string; exists: boolean }>; settings?: string | null; policy?: string | null; system?: string | null };
 const readLog = (file: string): Entry[] => (existsSync(file) ? readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function gone(pid: number, ms = 5000) {
@@ -318,6 +321,150 @@ describe('Codex', () => {
   });
 });
 
+describe('Gemini CLI', () => {
+  /** 가짜가 대화 기록을 남길 집 폴더 (진짜 ~/.gemini 는 건드리지 않는다). Gemini·Google 키가 든 환경 */
+  const grig = (mode: string) => {
+    const r = rig(FAKE_GEMINI, 'gemini-cli', { FAKE_GEMINI_MODE: mode });
+    const home = mkdtempSync(join(work, 'home-'));
+    r.deps.baseEnv = { ...r.deps.baseEnv, USERPROFILE: home, HOME: home, GEMINI_API_KEY: 'g-key', GOOGLE_API_KEY: 'gk', GOOGLE_GENAI_USE_VERTEXAI: 'true' };
+    return { ...r, home };
+  };
+  const gp = (model = '') => ({ model, cli_path: '' });
+  const files = (log: string) => readLog(log).find((e) => e.kind === 'files')!;
+
+  it('고정 인자: 헤드리스 stream-json, 모두 거절 정책(관리자·사용자 단계), 확장·MCP 끔, 모델은 -m 만', () => {
+    const a = geminiArgs({ dir: '/w', model: 'flash' });
+    expect(a.slice(0, 2)).toEqual(['-p', '']);
+    expect(a[a.indexOf('-o') + 1]).toBe('stream-json');
+    expect(a[a.indexOf('--approval-mode') + 1]).toBe('default');
+    expect(a[a.indexOf('--admin-policy') + 1]).toBe(a[a.indexOf('--policy') + 1]);
+    expect(a[a.indexOf('-e') + 1]).toBe('none');
+    expect(a[a.indexOf('--allowed-mcp-server-names') + 1]).toBe('kordoc-no-mcp');
+    expect(a.slice(-2)).toEqual(['-m', 'flash']);
+    expect(geminiArgs({ dir: '/w', model: '' })).not.toContain('-m');
+    expect(a).not.toContain('--yolo');
+    expect(() => geminiArgs({ dir: '/w', model: '--yolo' })).toThrow(SubscriptionError);
+  });
+
+  it('글은 stdin(@ 는 \\@ 로), 지시문·설정·정책은 작업 폴더 파일, 셸 없이, 키 변수는 안 넘김, 대화 기록은 지운다', async () => {
+    const { log, spawned, deps, home } = grig('ok');
+    // 다른 프로젝트의 기록은 남아야 한다
+    const other = join(home, '.gemini', 'tmp', 'my-project', 'chats');
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, 'session-keep.json'), '{}');
+    const r = req({ system: '당신은 공문 비서입니다', messages: [{ role: 'user', content: '가온시 민원 처리 현황을 요약하고 kim@example.com 에 보내세요 @C:/Windows/win.ini' }] });
+    expect(await createGeminiCliProvider(gp('flash'), 5000, deps).chat(r)).toBe('안녕하세요');
+    expect(r.tokens.join('')).toBe('안녕하세요');
+    expect(spawned[0].shell).toBe(false);
+    expect(spawned[0].args.join(' ')).not.toMatch(/가온시|공문 비서/);
+    const run = lastRun(log);
+    expect(run.env).toMatchObject({ GEMINI_API_KEY: null, GOOGLE_API_KEY: null, GOOGLE_GENAI_USE_VERTEXAI: null, ANTHROPIC_API_KEY: null, NODE_OPTIONS: null, KORDOC_SECRET: null, NO_BROWSER: '1' });
+    // 오류 보고 파일이 남지 않게 TEMP 는 매번 지우는 작업 폴더, 기록 자리가 쌓이지 않게 작업 폴더는 늘 같은 빈 폴더
+    const runDir = run.env!.GEMINI_CLI_SYSTEM_SETTINGS_PATH!.replace(/[\\/]settings\.json$/, '');
+    expect(run.env!.TEMP).toBe(runDir);
+    expect(run.env!.GEMINI_SYSTEM_MD!.startsWith(runDir)).toBe(true);
+    expect(run.cwd!.endsWith('kordoc-gemini-cwd')).toBe(true);
+    expect(existsSync(runDir)).toBe(false);
+    const f = files(log);
+    const settings = JSON.parse(f.settings!);
+    expect(settings.security.auth).toMatchObject({ selectedType: 'oauth-personal', enforcedType: 'oauth-personal' });
+    expect(settings.admin).toMatchObject({ mcp: { enabled: false }, extensions: { enabled: false }, skills: { enabled: false } });
+    expect(settings.tools).toMatchObject({ core: [], discoveryCommand: '', sandbox: false });
+    expect(settings.hooksConfig.enabled).toBe(false);
+    expect(settings.billing.overageStrategy).toBe('never');
+    expect(f.policy).toMatch(/decision = "deny"/);
+    expect(f.policy).not.toMatch(/toolName/); // 이름 없는 규칙 = 모든 도구
+    expect(f.system).toMatch(/도구는 없습니다/);
+    expect(f.system).toContain('당신은 공문 비서입니다');
+    const stdin = readLog(log).find((e) => e.kind === 'stdin')!.text!;
+    expect(stdin.startsWith('[KorDoc AI 요청]\n')).toBe(true);
+    expect(stdin).toContain('kim\\@example.com');
+    expect(stdin).toContain('\\@C:/Windows/win.ini');
+    expect(stdin).not.toMatch(/(?<!\\)@/);
+    expect(existsSync(join(home, '.gemini', 'tmp', 'kordoc-gemini-cwd', 'chats', 'session-2026-11-04T00-00-a1b2c3d4.json'))).toBe(false);
+    expect(existsSync(join(other, 'session-keep.json'))).toBe(true);
+  });
+
+  it('답의 \\@ 는 @ 로 되돌린다, 여러 차례 대화는 한 글로', async () => {
+    const { log, deps } = grig('at');
+    const r = req({ messages: [{ role: 'user', content: '앞 질문' }, { role: 'assistant', content: '앞 답' }, { role: 'user', content: '보낼 곳' }] });
+    expect(await createGeminiCliProvider(gp(), 5000, deps).chat(r)).toBe('kim@example.com 으로 보냅니다');
+    expect(r.tokens.join('')).toBe('kim@example.com 으로 보냅니다');
+    const stdin = readLog(log).find((e) => e.kind === 'stdin')!.text!;
+    expect(stdin).toContain('<assistant>\n앞 답');
+    expect(stdin).toMatch(/마지막 user 말에 답하세요\.$/);
+  });
+
+  for (const [mode, kind, text] of [
+    ['tool', 'unsafe-tools', '도구를 쓰려 함'],
+    ['early', 'unsafe-tools', '시작 보고 전에'],
+    ['quota', 'rate-limit', '사용량 한도'],
+    ['toolong', 'too-long', '문서가 너무 깁니다'],
+    ['server', 'server-error', '서버에 오류'],
+    ['badmodel', 'bad-request', '모델 칸을 비워'],
+    ['auth', 'signed-out', 'gemini 명령을 실행해 Google 계정으로 로그인'],
+    ['badflag', 'needs-update', 'npm install -g @google/gemini-cli@latest'],
+    ['exit', 'failed', '종료 코드 3'],
+    ['empty', 'failed', '빈 답'],
+  ] as const) {
+    it(`${mode} → ${kind}, 끝난 뒤에 알린다`, async () => {
+      const { log, deps } = grig(mode);
+      const err = await failOf(createGeminiCliProvider(gp(), 5000, deps).chat(req()));
+      expect(err).toBeInstanceOf(SubscriptionError);
+      expect(err).toMatchObject({ kind, message: expect.stringContaining(text) });
+      expect(err.message).not.toMatch(/run_shell_command|exhausted|Requested entity/); // 프로그램 원문은 문장에 넣지 않는다
+      expect(alive(lastRun(log).pid!)).toBe(false);
+    });
+  }
+
+  it('끝 보고 뒤 안 끝나도 답을 돌려주고 끝낸다, 멈추면 시간 제한', async () => {
+    const linger = grig('linger');
+    expect(await createGeminiCliProvider(gp(), 1000, linger.deps).chat(req())).toBe('안녕하세요');
+    expect(await gone(lastRun(linger.log).pid!)).toBe(true);
+    const hang = grig('hang');
+    expect((await failOf(createGeminiCliProvider(gp(), 600, hang.deps).chat(req()))).kind).toBe('timeout');
+    expect(await gone(lastRun(hang.log).pid!)).toBe(true);
+  });
+
+  it('그림은 보내지 않는다 (띄우기 전에 거절)', async () => {
+    const { spawned, deps } = grig('ok');
+    const p = createGeminiCliProvider(gp(), 5000, deps);
+    expect(p.supportsVision).toBe(false);
+    expect(await failOf(p.chat(req({ messages: [{ role: 'user', content: '이 그림', images: [{ mime: 'image/png', base64: 'AAAA' }] }] })))).toMatchObject({ kind: 'bad-request' });
+    expect(spawned).toHaveLength(0);
+  });
+
+  it('로그인 확인: 빈 입력 실행의 종료 코드(42 = 로그인됨, 41 = 안 됨), 같은 안전 인자, 계정 정보 없음', async () => {
+    const log = join(work, `log-${++logN}.jsonl`);
+    const ready = await checkLogin('gemini-cli', program('gemini-cli', FAKE_GEMINI, { FAKE_LOG: log }));
+    expect(ready).toEqual({ provider: 'gemini-cli', login_command: 'gemini', state: 'ready', version: '0.35.0' });
+    const probe = readLog(log).filter((e) => e.kind === 'run').at(-1)!;
+    expect(probe.args).toContain('--admin-policy');
+    expect(readLog(log).find((e) => e.kind === 'stdin')!.text).toBe('');
+    const out = program('gemini-cli', FAKE_GEMINI, { FAKE_LOG: log, FAKE_GEMINI_AUTH: 'out' });
+    expect(await checkLogin('gemini-cli', out)).toMatchObject({ state: 'signed-out', message: expect.stringContaining('Google 계정') });
+    await expect(requireSubscription('gemini-cli', out)).rejects.toMatchObject({ kind: 'signed-out' });
+  });
+
+  it('모델 목록은 CLI 별칭·정식 이름 (프로그램을 띄우지 않음, 기본 모델은 빈 id)', async () => {
+    const models = await listGeminiCliModels(gp(), AbortSignal.timeout(1000));
+    expect(models[0].id).toBe('');
+    expect(models.map((m) => m.id)).toEqual(expect.arrayContaining(['pro', 'flash', 'flash-lite', 'gemini-2.5-pro', 'gemini-2.5-flash']));
+  });
+
+  it('폐쇄망 모드면 띄우지 않고 막으며 통신 기록에 남긴다', async () => {
+    await updateSettings({ privacy: { offline: true } });
+    try {
+      const { spawned, deps } = grig('ok');
+      await expect(createGeminiCliProvider(gp(), 5000, deps).chat(req())).rejects.toBeInstanceOf(OfflineBlockedError);
+      expect(spawned).toHaveLength(0);
+      expect(netLogSnapshot().entries[0]).toMatchObject({ host: 'cloudcode-pa.googleapis.com (Gemini CLI)', external: true, allowed: false });
+    } finally {
+      await updateSettings({ privacy: { offline: false } });
+    }
+  });
+});
+
 describe('로그인 상태: 프로그램 자신의 답으로, 계정 정보는 옮기지 않는다', () => {
   it('claude auth status: 구독·종량제·로그아웃, 이메일·조직 이름은 결과에 없다', () => {
     expect(readClaudeAuth('{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"max","email":"kim@example.com","orgName":"가온시청"}')).toEqual({ signedIn: true, method: 'subscription', plan: 'max' });
@@ -404,7 +551,45 @@ describe('프로그램 찾기·환경·임시 폴더', () => {
 afterAll(async () => {
   const logs = Array.from({ length: logN }, (_, i) => join(work, `log-${i + 1}.jsonl`));
   const pids = [...new Set(logs.flatMap((f) => readLog(f).filter((e) => e.kind === 'run').map((e) => e.pid!)))];
-  // PC 가 바쁘면(다른 빌드와 함께 돌 때) Windows 는 끈 프로세스를 치우는 데 3초를 넘긴다 (실측) → 10초까지 기다린다
-  for (const pid of pids) expect(await gone(pid, 10_000)).toBe(true);
+  // PC 가 바쁘면(다른 빌드와 함께 돌 때) Windows 는 끈 프로세스를 치우는 데 3초를 넘긴다 (실측) → 15초까지 기다린다
+  const until = Date.now() + 15_000;
+  let left = stillRunning(pids);
+  while (left.length && Date.now() < until) { await new Promise((r) => setTimeout(r, 500)); left = stillRunning(left); }
+  expect(left).toEqual([]);
   rmSync(work, { recursive: true, force: true });
+}, 30_000);
+
+/** 아직 도는 가짜. Windows 는 끝난 프로세스 번호를 금방 다른 프로그램(브라우저 등)에 다시 줘서(실측) 번호만으로는 모른다:
+ *  명령줄에 가짜 프로그램 경로가 든 node 만 센다 */
+function stillRunning(pids: number[]): number[] {
+  if (process.platform !== 'win32') return pids.filter(alive);
+  const ps = "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }";
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf-8', windowsHide: true });
+  if (r.status !== 0) return pids.filter(alive);
+  const live = new Set((r.stdout ?? '').split(/\r?\n/).filter((l) => /fixtures[\\/]fake-(claude|codex|gemini)\.mjs/.test(l)).map((l) => Number(l.split(' ')[0])));
+  return pids.filter((p) => live.has(p));
+}
+
+describe('Codex 앱에 든 CLI 를 먼저 본다', () => {
+  it('LOCALAPPDATA\OpenAI\Codex\bin 의 판 폴더를 최근 것부터, 다른 프로그램·운영체제는 비움', () => {
+    const base = mkdtempSync(join(tmpdir(), 'kd-codexapp-'));
+    try {
+      const bin = join(base, 'OpenAI', 'Codex', 'bin');
+      mkdirSync(join(bin, 'old'), { recursive: true });
+      mkdirSync(join(bin, 'new'), { recursive: true });
+      utimesSync(join(bin, 'old'), new Date(2020, 0, 1), new Date(2020, 0, 1));
+      const dirs = appDirs('codex', 'win32', { LOCALAPPDATA: base });
+      expect(dirs.map((d) => win32.basename(d))).toEqual(['new', 'old']);
+      expect(appDirs('claude-code', 'win32', { LOCALAPPDATA: base })).toEqual([]);
+      expect(appDirs('codex', 'darwin', { LOCALAPPDATA: base })).toEqual([]);
+    } finally { rmSync(base, { recursive: true, force: true }); }
+  });
+});
+
+describe('Codex 답 꼴: 엄격한 꼴만 --output-schema 로', () => {
+  it('additionalProperties·required 를 다 갖춘 꼴만 엄격, 아무 칸 객체(args)는 아님', () => {
+    expect(strictSchema({ type: 'object', properties: { a: { type: 'string' } }, required: ['a'], additionalProperties: false })).toBe(true);
+    expect(strictSchema({ type: 'object', properties: { say: { type: 'string' }, calls: { type: 'array', items: { type: 'object', properties: { tool: { type: 'string' }, args: { type: 'object' } }, required: ['tool', 'args'] } } }, required: ['say', 'calls'] })).toBe(false);
+    expect(strictSchema({ type: 'object', properties: { a: { type: 'string' }, b: { type: 'string' } }, required: ['a'], additionalProperties: false })).toBe(false);
+  });
 });

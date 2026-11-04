@@ -26,28 +26,29 @@ export function EditTool({ doc, info }: ToolProps) {
         <FilePen size={20} />
         <span className="min-w-0">
           <span className="kd-row-title block">한글 편집기로 열기</span>
-          <span className="kd-row-desc block">한글과 같은 편집기로 글·표·서식을 직접 고칩니다. 새로 쓰기의 편집 단계로 엽니다.</span>
+          <span className="kd-row-desc block">글·표·서식을 직접 고칩니다.</span>
         </span>
       </button>
       <button type="button" className="kd-bigaction" disabled={!hwpx} onClick={() => setOpen("fill")}>
         <ClipboardList size={20} />
         <span className="min-w-0">
-          <span className="kd-row-title block">양식 칸 채우기 도우미</span>
-          <span className="kd-row-desc block">{hwpx ? "표의 이름 칸을 찾아 입력란을 만들고 명부에서 값을 가져옵니다." : "HWPX 문서에서 씁니다. 한글 편집기로 열어 HWPX로 저장해 보세요."}</span>
+          <span className="kd-row-title block">양식 칸 채우기</span>
+          <span className="kd-row-desc block">{hwpx ? "표의 이름 칸에 명부 값을 넣습니다." : "HWPX 문서에서 씁니다. 한글 편집기에서 HWPX로 저장하세요."}</span>
         </span>
       </button>
       <button type="button" className="kd-bigaction" disabled={!hwpx} onClick={() => setOpen("edit")}>
         <SquarePen size={20} />
         <span className="min-w-0">
           <span className="kd-row-title block">미리보기에서 눌러 고치기</span>
-          <span className="kd-row-desc block">쪽 미리보기의 문단이나 표 칸을 눌러 글자만 바로 고칩니다.</span>
+          <span className="kd-row-desc block">문단이나 표 칸을 눌러 글자만 고칩니다.</span>
         </span>
       </button>
 
       {hwpx && (
-        <div className="mt-2 flex flex-col gap-2">
+        // 개발·문제 확인용이라 전체 화면에서만
+        <div className="kd-adv mt-2 flex flex-col gap-2">
           {check.busy ? <Working label="문서 구조를 검사하는 중" /> : (
-            <Button variant="ghost" onClick={() => void check.run(() => rpc("validate_hwpx", { path: doc.path }))}><ShieldCheck size={14} /> HWPX 구조 검사</Button>
+            <Button variant="ghost" onClick={() => void check.run(() => rpc("validate_hwpx", { path: doc.path }))} data-tip="한글에서 열리지 않을 구조 문제가 있는지 봅니다. 파일은 바꾸지 않습니다."><ShieldCheck size={14} /> HWPX 구조 검사</Button>
           )}
           <ErrorLine message={check.error} />
           {check.result && (check.result.ok

@@ -10,9 +10,9 @@ import { NO_BROWSER } from './export/chromium.js';
 
 const FS_HINTS: Record<string, string> = {
   ENOENT: '파일이나 폴더를 찾을 수 없습니다. 경로가 맞는지 확인하세요.',
-  EACCES: '이 위치에 접근할 권한이 없습니다. 다른 폴더를 고르거나 설정 > 저장 위치를 바꾸세요.',
-  EPERM: '이 위치에 접근할 권한이 없습니다. 다른 폴더를 고르거나 설정 > 저장 위치를 바꾸세요.',
-  EROFS: '읽기 전용 위치라 저장할 수 없습니다. 설정 > 저장 위치를 바꾸세요.',
+  EACCES: '이 위치에 접근할 권한이 없습니다. 다른 폴더를 고르거나 설정 › 저장 위치를 바꾸세요.',
+  EPERM: '이 위치에 접근할 권한이 없습니다. 다른 폴더를 고르거나 설정 › 저장 위치를 바꾸세요.',
+  EROFS: '읽기 전용 위치라 저장할 수 없습니다. 설정 › 저장 위치를 바꾸세요.',
   EBUSY: '다른 프로그램이 파일을 쓰고 있습니다. 한글·엑셀 등에서 파일을 닫고 다시 시도하세요.',
   ENOSPC: '디스크 공간이 부족합니다. 공간을 비우고 다시 시도하세요.',
   EISDIR: '파일 자리에 폴더가 지정됐습니다. 파일을 고르세요.',
@@ -25,6 +25,8 @@ export function cleanMessage(msg: string): string {
 }
 
 /** kordoc 이 선택 부품(pdfjs-dist·sharp·puppeteer-core 등)을 못 찾았을 때 — 개발자용 "npm install …" 안내 대신 */
+/** 확장자는 읽을 수 있는 형식인데 내용이 깨졌거나 저장이 덜 된 파일 (다른 형식이라고 하면 틀린 원인이 된다) */
+export const DAMAGED = '파일이 손상됐거나 저장이 끝나지 않은 파일일 수 있습니다. 원본을 다시 받거나, 만든 프로그램에서 다시 저장한 뒤 여세요.';
 export const MISSING_PART = '문서를 읽는 데 필요한 부품이 없습니다. 설정 › 엔진 점검을 눌러 보고, 계속되면 앱을 다시 설치하세요.';
 const MISSING_DEP = /MISSING_DEPENDENCY|\bnpm (install|i)\b|Cannot find (module|package)|ERR_MODULE_NOT_FOUND/i;
 
@@ -46,11 +48,23 @@ export function toUserError(err: unknown): unknown {
   if (/Password required or incorrect password|PDFDocument\.load` is encrypted|is encrypted/i.test(msg)) {
     return new Error('암호가 걸린 PDF입니다. 암호를 넣고 다시 시도하세요.');
   }
+  // pdf-lib "Failed to parse PDF document … No PDF header found": PDF 가 아니거나 잘린 파일
+  if (/Failed to parse PDF document|No PDF header found|Invalid PDF/i.test(msg)) {
+    return new Error('PDF로 읽을 수 없는 파일입니다. 파일이 손상됐거나 저장이 끝나지 않은 파일일 수 있습니다. PDF 보기 프로그램에서 열리는지 확인하고, 열리면 다시 저장해 넣으세요.');
+  }
+  // kordoc 렌더가 형식을 못 알아봄(unknown): 확장자는 한글인데 내용이 한글 문서가 아니다
+  if (/렌더 미지원 형식\(unknown\)/.test(msg)) {
+    return new Error('한글 문서로 읽을 수 없는 파일입니다. 파일이 손상됐거나 저장이 끝나지 않은 파일일 수 있습니다. 한글에서 열리는지 확인하고, 열리면 다시 저장해 넣으세요.');
+  }
+  // rhwp: HWP 묶음 파일 안에 머리 정보(FileHeader)가 없다
+  if (/FileHeader 스트림 없음/.test(msg)) {
+    return new Error('HWP 문서의 머리 정보가 없어 열 수 없습니다. 파일이 손상됐거나 HWP 문서가 아닐 수 있습니다. 한글에서 열리는지 확인하고, 열리면 다시 저장해 넣으세요.');
+  }
   if (/end of central directory|Corrupted zip|invalid zip|is this a zip file/i.test(msg)) {
     return new Error('파일이 손상됐거나 이 형식의 파일이 아닙니다. 원본을 다시 받아 보거나 한글에서 다시 저장해 보세요.');
   }
   if (/unsupported image format/i.test(msg)) {
-    return new Error('지원하지 않는 그림 형식입니다. PNG·JPG 로 바꿔 다시 시도하세요.');
+    return new Error('지원하지 않는 그림 형식입니다. PNG·JPG로 바꿔 다시 시도하세요.');
   }
   return new Error(cleanMessage(msg));
 }
@@ -88,15 +102,15 @@ export function parseFailure(r: { code?: string; error: string }, hadPassword = 
     case 'DRM_PROTECTED':
       return new Error('한컴 문서보안(DRM)이 걸린 문서라 열 수 없습니다. 보안을 푼 사본으로 다시 시도하세요.');
     case 'UNSUPPORTED_FORMAT':
-      return new Error('지원하지 않는 파일 형식입니다. HWP·HWPX·PDF·워드·엑셀·파워포인트·이미지 파일을 넣으세요.');
+      return new Error('지원하지 않는 파일 형식입니다. HWP·HWPX·PDF·워드·엑셀·파워포인트·그림 파일을 넣으세요.');
     case 'IMAGE_BASED_PDF':
-      return new Error('글자 층이 없는 스캔 PDF입니다. OCR을 켜고 다시 시도하세요.');
+      return new Error('글자 층이 없는 스캔 PDF입니다. 글자 읽기(OCR)를 켜고 다시 시도하세요.');
     case 'CORRUPTED':
-      return new Error('파일이 손상되어 열 수 없습니다. 원본을 다시 받아 시도하세요.');
+      return new Error(DAMAGED);
     case 'FILE_NOT_FOUND':
       return new Error('파일을 찾을 수 없습니다. 경로가 맞는지 확인하세요.');
     case 'EMPTY_INPUT':
-      return new Error('빈 파일입니다.');
+      return new Error('내용이 없는 빈 파일입니다. 저장이 끝나지 않았을 수 있으니 원본을 다시 받아 여세요.');
     case 'MISSING_DEPENDENCY':
       return new Error(MISSING_PART);
     default:

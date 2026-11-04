@@ -11,11 +11,12 @@
  *   POST /log      { clear? }  — 화면이 부른 창·알림 명령(shell_show·shell_quick_done·알림) 기록 (우클릭 빠른 동작 시험용)
  *
  * 사용: node scripts/dev-relay.mjs [--port 7717] [--data <앱 데이터 폴더>]
+ *   기본 저장 폴더(convert.output_dir)는 settings.json 에 정해 둔 것이 없으면 <데이터 폴더>/결과
  *   사이드카: node-sidecar/dist/bundle.mjs (동봉 Node 우선), 없으면 dist/main.js (시스템 Node)
  */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -25,6 +26,21 @@ const arg = (name, def) => {
 };
 const PORT = Number(arg('--port', '7717'));
 const DATA = arg('--data', mkdtempSync(join(tmpdir(), 'kordoc-relay-data-')));
+// 개발 중계기 전용: 기본 저장 폴더를 데이터 폴더 아래 '결과' 로 (E2E 가 사용자 문서 폴더의 'KorDoc AI 결과' 에 쓰지 않게).
+// settings.json 에 저장 폴더를 이미 정해 두었으면 그대로 둔다. 앱(Tauri) 동작은 바꾸지 않는다
+{
+  const file = join(DATA, 'settings.json');
+  try {
+    const cur = existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : { version: 2 };
+    if (cur && typeof cur === 'object' && !(cur.convert && typeof cur.convert === 'object' && 'output_dir' in cur.convert)) {
+      cur.convert = { ...(cur.convert ?? {}), output_dir: join(resolve(DATA), '결과') };
+      mkdirSync(DATA, { recursive: true });
+      writeFileSync(file, JSON.stringify(cur, null, 2));
+    }
+  } catch (err) {
+    console.warn(`[relay] 기본 저장 폴더를 정하지 못했습니다 (${err.message}). 결과가 문서 폴더에 쓰일 수 있습니다`);
+  }
+}
 const sidecarDir = resolve('node-sidecar');
 const bundledNode = resolve('src-tauri', 'resources', 'node', process.platform === 'win32' ? 'node.exe' : 'node');
 const useBundle = existsSync(join(sidecarDir, 'dist', 'bundle.mjs')) && existsSync(join(sidecarDir, 'dist', 'node_modules'));

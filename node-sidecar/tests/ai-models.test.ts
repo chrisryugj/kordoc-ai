@@ -2,10 +2,9 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 vi.mock('../src/infra/progress.js', async (importOriginal) => ({
@@ -16,8 +15,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 
 import { updateSettings } from '../src/infra/config.js';
 import { catalog, deleteModel, downloadModel, importModel, listModels, llmDir, type CatalogEntry } from '../src/core/ai/models.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-models-'));
+const dir = tempDir('kordoc-ai-models-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const signal = () => new AbortController().signal;
 

@@ -1,6 +1,6 @@
 /**
  * 우클릭 빠른 동작 차례대로 돌리기 — 엔진이 켜질 때까지 기다렸다가 창 없이 돌리고 알림만.
- * 1.5초 넘게 걸리면 시작 알림을 한 번 더. 실패하면 창을 열어 서무 도구·PDF 작업에 그 파일을 놓고 까닭을 알린다.
+ * 1.5초 넘게 걸리면 시작 알림을 한 번 더. 실패하면 창을 열어 서무 도구·PDF 작업에 그 파일을 놓고(공문 접수는 접수함 화면) 까닭을 알린다.
  * 다 끝나면 shell_quick_done: 꺼진 앱이 빠른 동작으로 켜졌고 그 사이 창을 열지 않았으면 Rust 가 앱을 끈다.
  */
 
@@ -9,7 +9,7 @@ import { useApp } from "../state/app";
 import { errorText, invokeCmd, isAbort } from "../lib/rpc";
 import { notifyQuick } from "../lib/native";
 import { baseName } from "../lib/format";
-import { QUICK_FALLBACK, QUICK_LABEL, runQuick, type QuickAction } from "../lib/quick-actions";
+import { QUICK_LABEL, quickFallback, runQuick, type QuickAction } from "../lib/quick-actions";
 import { keepFromSettings } from "../components/workbench/tools/ReviewTool";
 
 export function useQuickActions() {
@@ -33,11 +33,12 @@ export function useQuickActions() {
       while (queue.current.length) {
         const { action, paths } = queue.current.shift()!;
         const label = QUICK_LABEL[action];
-        const back = QUICK_FALLBACK[action];
+        const back = quickFallback(action, paths);
         const openInApp = async (why: string) => {
           await invokeCmd("shell_show").catch(() => undefined);
-          const { startPdf, startBatch, toast } = appRef.current;
+          const { startPdf, startBatch, go, toast } = appRef.current;
           if (back.screen === "pdf") startPdf({ paths });
+          else if (back.screen === "inbox") go("inbox");
           else startBatch({ paths, task: back.task });
           if (why) toast(why, "error");
         };

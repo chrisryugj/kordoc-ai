@@ -15,6 +15,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "ai_status",
     "ai_subscription_models",
     "ai_subscription_status",
+    "ai_subscription_update",
     "ai_summarize",
     "ai_template_write",
     "ai_test",

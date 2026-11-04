@@ -1,4 +1,4 @@
-/** 내보내기 — 글(마크다운)·HTML·글만(표시 없는 글, 표는 탭)·PDF·한글(HWPX) */
+/** 내보내기 — PDF·한글(HWPX)·글만(표시 없는 글, 표는 탭). 글(마크다운)·HTML 은 그 밖의 형식이라 전체 화면에서만 */
 
 import { useState } from "react";
 import { Download, FolderOpen, FilePen } from "lucide-react";
@@ -14,17 +14,18 @@ import { ErrorLine, Note, SavedFile, Working } from "../../common/Status";
 
 type Target = "md" | "html" | "txt" | "pdf" | "hwpx";
 
-const TARGETS: Array<{ value: Target; label: string; desc: string }> = [
-  { value: "md", label: "글(마크다운)", desc: "제목·표를 살린 글 파일. AI·누리집에 붙이기 좋습니다." },
-  { value: "html", label: "HTML", desc: "웹 브라우저로 여는 문서" },
-  { value: "txt", label: "글만", desc: "꾸밈 없이 글자만. 표는 칸마다 탭으로 나눕니다." },
+/** 자주 쓰는 차례. other 는 그 밖의 형식 (전체 화면에서만 보인다) */
+const TARGETS: Array<{ value: Target; label: string; desc: string; other?: true }> = [
   { value: "pdf", label: "PDF", desc: "인쇄 모양 그대로 보낼 때" },
-  { value: "hwpx", label: "한글(HWPX)", desc: "글과 표를 한글 문서로 다시 짭니다. 서식은 문서 모양을 보고 맞춥니다" },
+  { value: "hwpx", label: "한글(HWPX)", desc: "글과 표를 한글 문서로 다시 짭니다. 서식은 문서 모양을 보고 맞춥니다." },
+  { value: "txt", label: "글만", desc: "꾸밈 없이 글자만. 표는 칸마다 탭으로 나눕니다." },
+  { value: "md", label: "글(마크다운)", desc: "제목·표를 살린 글 파일. AI·누리집에 붙이기 좋습니다.", other: true },
+  { value: "html", label: "HTML", desc: "웹 브라우저로 여는 문서", other: true },
 ];
 
 export function ExportTool({ doc, info }: ToolProps) {
-  const { settings, startCreate } = useApp();
-  const [target, setTarget] = useState<Target>("md");
+  const { settings, startCreate, uiMode } = useApp();
+  const [picked, setTarget] = useState<Target | null>(null);
   const [pages, setPages] = useState("");
   const [images, setImages] = useState(true);
   const [ocr, setOcr] = useState<"auto" | "force" | "off">(settings?.convert.ocr ?? "auto");
@@ -38,7 +39,12 @@ export function ExportTool({ doc, info }: ToolProps) {
   const hangulSource = isHangul(info.format);
   // PDF·HWPX 만들기는 엔진이 아직 문서 암호를 받지 못한다 (글 변환은 암호를 받는다)
   const pwOnly = (t: Target) => info.encrypted && (t === "pdf" || t === "hwpx");
-  const options = TARGETS.filter((t) => !(t.value === "hwpx" && info.format === "hwpx")).map((t) => ({ ...t, disabled: pwOnly(t.value) }));
+  // 같은 형식으로는 저장하지 않는다 (HWPX→HWPX, PDF→PDF). 쉬운 화면은 그 밖의 형식을 뺀다
+  const options = TARGETS
+    .filter((t) => t.value !== info.format && (uiMode === "full" || !t.other))
+    .map((t) => ({ ...t, disabled: pwOnly(t.value) }));
+  // 고른 형식이 목록에서 빠지면(화면 방식을 바꿈) 쓸 수 있는 첫 칸으로. 처음 값도 첫 칸 (보통 PDF)
+  const target: Target = options.find((o) => o.value === picked && !o.disabled)?.value ?? options.find((o) => !o.disabled)?.value ?? "txt";
 
   const run = () => void task.run(async ({ signal, onProgress }) => {
     const pw = doc.password ? { password: doc.password } : {};
@@ -57,29 +63,38 @@ export function ExportTool({ doc, info }: ToolProps) {
   });
 
   const desc = TARGETS.find((t) => t.value === target)?.desc;
+  const main = options.filter((o) => !o.other);
+  const others = options.filter((o) => o.other);
+  const pick = (v: Target) => { setTarget(v); task.reset(); };
 
   return (
     <div className="flex flex-col gap-4">
-      <Field label="무엇으로 저장할까요?" hint={info.encrypted ? `${desc} 암호가 걸린 문서는 아직 PDF·한글(HWPX)로 저장할 수 없습니다.` : desc}>
-        <Seg label="저장 형식" value={target} onChange={(v) => { setTarget(v); task.reset(); }} options={options} cols={options.length <= 3 ? options.length : Math.ceil(options.length / 2)} />
+      <Field label="저장 형식" hint={info.encrypted ? `${desc} 암호 문서는 아직 PDF·한글로 저장할 수 없습니다.` : desc}>
+        <Seg label="저장 형식" value={target} onChange={pick} options={main} cols={main.length} />
       </Field>
+      {others.length > 0 && (
+        <Field label="그 밖의 형식">
+          <Seg label="그 밖의 저장 형식" value={target} onChange={pick} options={others} cols={others.length} />
+        </Field>
+      )}
 
       {target === "hwpx" && hangulSource && (
         <Note tone="info">
-          <span className="block">한글 문서는 한글 편집기에서 HWPX로 저장하면 서식이 그대로 남습니다.</span>
+          <span className="block">서식을 그대로 두려면 한글 편집기에서 HWPX로 저장하세요.</span>
           <Button className="mt-2" size="sm" variant="secondary" onClick={() => startCreate({ path: doc.path })}><FilePen size={13} /> 한글 편집기로 열기</Button>
         </Note>
       )}
 
+      {/* 쪽 범위·그림·글자 읽기는 세부 설정이라 전체 화면에서만 (쉬운 화면은 전체 쪽·그림 함께·필요한 쪽만) */}
       {(target === "md" || target === "html" || target === "txt") && (
-        <>
+        <div className="kd-adv flex flex-col gap-4">
           {!!info.page_count && info.page_count > 1 && (
             <Field label="쪽 범위" hint="비우면 전체. 예: 1-3, 5">
               <input className="kd-input" value={pages} onChange={(e) => setPages(e.target.value)} placeholder="전체" aria-label="쪽 범위" />
             </Field>
           )}
           {target !== "txt" && <Check label="그림 파일도 함께 뽑기" checked={images} onChange={setImages} />}
-        </>
+        </div>
       )}
 
       {info.needs_ocr && target !== "pdf" && (
@@ -98,7 +113,7 @@ export function ExportTool({ doc, info }: ToolProps) {
       </Field>
 
       {task.busy ? <Working label="저장하는 중" progress={task.progress} onCancel={task.cancel} /> : (
-        <Button size="lg" onClick={run} disabled={target === "hwpx" && info.format === "hwpx"}><Download size={15} /> 저장</Button>
+        <Button size="lg" onClick={run} disabled={target === "hwpx" && info.format === "hwpx"} data-tip="원본은 그대로 두고 새 파일로 저장합니다."><Download size={15} /> 저장</Button>
       )}
       <ErrorLine message={task.error} />
       {task.result && <SavedFile path={task.result} />}

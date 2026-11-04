@@ -1,8 +1,8 @@
-/** 서무 도구 — 고른 할 일의 옵션 */
+/** 여러 파일 한꺼번에: 고른 할 일의 옵션 */
 
 import { FolderOpen } from "lucide-react";
 import type { BatchTaskId } from "../../state/app";
-import type { RedactRule } from "../../lib/contract";
+import type { DocFormat, RedactRule } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { pickFolder } from "../../lib/native";
 import { baseName } from "../../lib/format";
@@ -16,10 +16,48 @@ import { MailMergeOptions } from "./MailMerge";
 import { ShrinkOptions } from "../workbench/tools/ShrinkTool";
 
 const NO_OUTPUT: BatchTaskId[] = ["search", "pdftools", "watch", "print", "compare"];
+type SetOpts = (p: Partial<BatchOpts>) => void;
 
-export function TaskOptions({ task, opts, set }: {
-  task: BatchTaskId; opts: BatchOpts; set: (p: Partial<BatchOpts>) => void;
+function HangulSplit({ opts, set }: { opts: BatchOpts; set: SetOpts }) {
+  return (
+    <Field label="한글 나누는 곳">
+      <div className="self-start" data-tip="자동: 구역이 여럿이면 구역마다, 하나면 쪽 나눔(Ctrl+Enter)마다. 서식은 그대로, 결과는 HWPX">
+        <Seg label="한글 나누는 곳" value={opts.splitMode} onChange={(v) => set({ splitMode: v })} options={[{ value: "auto", label: "자동" }, { value: "section", label: "구역마다" }, { value: "pagebreak", label: "쪽 나눔마다" }]} />
+      </div>
+    </Field>
+  );
+}
+
+function PdfSplit({ opts, set }: { opts: BatchOpts; set: SetOpts }) {
+  return (
+    <fieldset className="kd-batch-radios">
+      <legend className="kd-label">PDF 나누는 방법</legend>
+      <label className="kd-check">
+        <input type="radio" name="batch-pdf-split" checked={opts.pdfSplit === "each"} onChange={() => set({ pdfSplit: "each" })} />
+        <span>쪽마다<span className="kd-row-desc block">한 쪽이 PDF 한 개</span></span>
+      </label>
+      <label className="kd-check">
+        <input type="radio" name="batch-pdf-split" checked={opts.pdfSplit === "every"} onChange={() => set({ pdfSplit: "every" })} />
+        <span>몇 쪽씩<span className="kd-row-desc block">정한 쪽 수만큼 묶어 PDF 한 개</span></span>
+      </label>
+      {opts.pdfSplit === "every" && (
+        <label className="kd-batch-every kd-small">
+          <input className="kd-input" type="number" min={1} value={opts.pdfEvery} aria-label="몇 쪽씩"
+            onChange={(e) => set({ pdfEvery: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} />
+          쪽씩
+        </label>
+      )}
+    </fieldset>
+  );
+}
+
+export function TaskOptions({ task, opts, set, formats = [] }: {
+  task: BatchTaskId; opts: BatchOpts; set: SetOpts;
+  /** 넣은 파일 형식 (나누기: 있는 형식의 설정만) */
+  formats?: DocFormat[];
 }) {
+  const hangul = !formats.length || formats.some((x) => x === "hwp" || x === "hwpx");
+  const pdf = !formats.length || formats.includes("pdf");
   const { settings } = useApp();
 
   return (
@@ -32,14 +70,14 @@ export function TaskOptions({ task, opts, set }: {
       )}
       {task === "stylecopy" && <StyleTaskOptions styleId={opts.styleId} onChange={(id) => set({ styleId: id })} />}
       {task === "tables" && (
-        <Field label="저장 형식"><Seg label="표 저장 형식" value={opts.tablesFormat} onChange={(v) => set({ tablesFormat: v })} options={[{ value: "xlsx", label: "엑셀" }, { value: "csv", label: "CSV" }, { value: "md", label: "글 속 표" }]} /></Field>
+        <Field label="저장 형식"><Seg label="표 저장 형식" value={opts.tablesFormat} onChange={(v) => set({ tablesFormat: v })} options={[{ value: "xlsx", label: "엑셀" }, { value: "csv", label: "CSV" }, { value: "md", label: "글(마크다운)" }]} /></Field>
       )}
       {task === "redact" && (
         <Field label="가릴 것"><RuleChecks rules={new Set(opts.rules)} onChange={(r) => set({ rules: [...r] as RedactRule[] })} /></Field>
       )}
       {task === "bundle" && (
         <>
-          <p className="kd-small kd-muted">아래 파일 목록 순서대로 이어 붙입니다. 끌거나 위·아래 단추로 순서를 바꾸세요.</p>
+          <p className="kd-small kd-muted">위 목록 차례대로 붙입니다. 끌어서 차례를 바꿉니다.</p>
           <div className="flex flex-wrap items-end gap-4">
             <div style={{ width: 160 }}>
               <SelectField label="워터마크" value={opts.watermark} onChange={(v) => set({ watermark: v })} options={[{ value: "", label: "없음" }, { value: "대외비", label: "대외비" }, { value: "사본", label: "사본" }, { value: "공개용", label: "공개용" }]} />
@@ -49,12 +87,10 @@ export function TaskOptions({ task, opts, set }: {
         </>
       )}
       {task === "merge" && <p className="kd-small kd-muted">시작을 누르면 순서와 방식을 고르는 창이 열립니다.</p>}
-      {task === "hwpsplit" && (
-        <>
-          <Field label="나누는 곳"><Seg label="나누는 곳" value={opts.splitMode} onChange={(v) => set({ splitMode: v })} options={[{ value: "auto", label: "알아서" }, { value: "section", label: "구역마다" }, { value: "pagebreak", label: "쪽 나눔마다" }]} /></Field>
-          <p className="kd-small kd-muted">알아서: 여러 문서를 합친 파일처럼 구역이 여럿이면 구역마다, 하나면 쪽을 강제로 나눈 곳(Ctrl+Enter)마다 나눕니다. 서식은 그대로이고 결과는 한글 문서(HWPX)입니다.</p>
-        </>
-      )}
+      {task === "hwpsplit" && <HangulSplit opts={opts} set={set} />}
+      {task === "split" && hangul && <HangulSplit opts={opts} set={set} />}
+      {task === "split" && pdf && <PdfSplit opts={opts} set={set} />}
+      {task === "join" && <p className="kd-small kd-muted">위 목록 차례대로 붙입니다. 끌어서 차례를 바꿉니다.</p>}
       {task === "pdftools" && <p className="kd-small kd-muted">시작을 누르면 넣은 파일을 PDF 작업 화면에 놓습니다. 한글·워드·그림도 PDF로 바꿔 넣습니다.</p>}
       {task === "shrink" && <ShrinkOptions value={opts.shrink} onChange={(shrink) => set({ shrink })} />}
       {task === "collect" && <GatherOptions opts={opts} set={set} />}

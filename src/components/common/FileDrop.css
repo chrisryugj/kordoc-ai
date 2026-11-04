@@ -1,0 +1,17 @@
+/* 파일 넣는 칸 (FileDrop) */
+.kd-filedrop {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-primary);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+.kd-filedrop[data-empty] { border-style: dashed; border-color: var(--color-border-hover); }
+.kd-filedrop[data-size="lg"][data-empty] { padding: 22px 20px; }
+.kd-filedrop[data-over] { border-color: var(--color-accent); background: var(--color-accent-subtle); }
+.kd-filedrop-empty { display: flex; align-items: center; gap: 14px; }
+.kd-filedrop-icon { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--radius-md); background: var(--color-bg-secondary); color: var(--color-accent); border: 1px solid var(--color-border-subtle); }
+.kd-filedrop[data-size="sm"] .kd-filedrop-icon { width: 32px; height: 32px; }
+.kd-filedrop-text { flex: 1; min-width: 0; word-break: keep-all; text-wrap: pretty; }
+.kd-filedrop-list { display: flex; flex-direction: column; gap: 4px; }
+.kd-filedrop-item { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 2px 4px 2px 8px; border-radius: var(--radius-md); background: var(--color-bg-secondary); border: 1px solid var(--color-border-subtle); }
+.kd-filedrop-name { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); }
+.kd-filedrop-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }

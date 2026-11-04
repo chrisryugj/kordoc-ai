@@ -170,7 +170,7 @@ try {
   await page.evaluate((s) => document.querySelector(`${s} .kd-orgline input[type=checkbox]`)?.click(), scr);
 
   // ── 서식함: 우리 기관 견본 ──
-  await ui.click('서식함에서 고르기', { within: scr });
+  await ui.click('서식 골라 쓰기', { within: scr });
   await ui.waitText('우리 기관 견본', 20000);
   await page.evaluate(() => {
     const g = [...document.querySelectorAll('.kd-library-list .kd-label')].find((h) => h.textContent.includes('우리 기관 견본'));

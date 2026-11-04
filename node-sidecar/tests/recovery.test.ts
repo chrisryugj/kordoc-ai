@@ -1,10 +1,10 @@
 /** 한글 편집기 복구 사본 — 경로마다 하나, 이 실행에서 쓴 것은 "꺼진 문서" 목록에서 빠지고, 되살리면 사본 바이트에 원본의 저장 보정 정보 */
-import { mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import init, { HwpDocument } from '@rhwp/core';
+import { tempDir } from './tmp-dirs.js';
 
 const require = createRequire(import.meta.url);
 let data = '';
@@ -15,8 +15,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  data = mkdtempSync(join(tmpdir(), 'kordoc-recovery-data-'));
-  work = mkdtempSync(join(tmpdir(), 'kordoc-recovery-doc-'));
+  data = tempDir('kordoc-recovery-data-');
+  work = tempDir('kordoc-recovery-doc-');
   process.env.KORDOC_AI_DATA_DIR = data;
   vi.resetModules(); // 이 실행에서 쓴 사본 표(live)를 새로
 });

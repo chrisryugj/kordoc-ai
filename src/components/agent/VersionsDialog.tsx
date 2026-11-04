@@ -29,7 +29,7 @@ export function VersionsDialog({ path, onClose }: { path: string | null; onClose
       {r && others === 0 && <p className="kd-text">같은 문서의 다른 판을 찾지 못했습니다. 이 문서가 하나뿐입니다.</p>}
       {r && others > 0 && (
         <div className="flex flex-col gap-3">
-          <p className="kd-text">다른 판 <b>{others}개</b>를 찾았습니다. 최종으로 보이는 것은 <b>{r.latest === path ? "고른 이 문서" : baseName(r.latest)}</b> 입니다.</p>
+          <p className="kd-text">다른 판 <b>{others}개</b>를 찾았습니다. 최종으로 보이는 것은 <b>{r.latest === path ? "고른 이 문서" : baseName(r.latest)}</b>입니다.</p>
           <VersionsPanel result={r} onCompare={(a, b) => { onClose(); startCompare(a, b); }} />
         </div>
       )}

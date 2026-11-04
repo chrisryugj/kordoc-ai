@@ -1,7 +1,7 @@
 /** 보안·손질·취합 — redact(서식 보존·잔존 재검사·결과에 원문 없음)·redact_batch·seal·patch_document·validate_hwpx·collect·write/read */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { markdownToHwpx, parse, redactMarkdown } from 'kordoc';
 import { call, makePng, sample, setupEnv, SAMPLES } from './doc-helpers.js';
@@ -43,6 +43,15 @@ describe('redact', () => {
     const r = await call('redact', { path: CLAIM, dry_run: true, mask_char: '*' });
     expect(r.output_path).toBeUndefined();
     expect(r.hits.flatMap((h: { samples: string[] }) => h.samples).join('')).toContain('*');
+  });
+
+  it('output_dir — 그 폴더에 <이름>_공개용 사본, 같은 이름은 (2) (화면 공개용 사본)', async () => {
+    const dir = join(env.base, '공개용 폴더');
+    const a = await call('redact', { path: CLAIM, output_dir: dir });
+    expect(a.output_path).toBe(join(dir, '3-민원서류_정보공개 청구서_공개용.hwpx'));
+    const b = await call('redact', { path: CLAIM, output_dir: dir });
+    expect(b.output_path).toBe(join(dir, '3-민원서류_정보공개 청구서_공개용 (2).hwpx'));
+    expect(existsSync(a.output_path) && existsSync(b.output_path)).toBe(true);
   });
 
   it('PDF — 검은 상자를 칠한 쪽 그림 PDF, 글자층이 없어 원문을 뽑을 수 없다', async () => {
@@ -126,7 +135,45 @@ describe('seal·patch_document·validate_hwpx', () => {
     const r = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
     expect(r.placed).toBe(1);
     expect((await call('validate_hwpx', { path: r.output_path })).ok).toBe(true);
-    await expect(call('seal', { path: doc, image_path: img, anchor: '(없는 문구)' })).rejects.toThrow();
+    // 없는 자리 글: 오류 대신 placed 0 + 할 일, 파일을 만들지 않는다
+    const none = await call('seal', { path: doc, image_path: img, anchor: '(없는 문구)' });
+    expect(none).toMatchObject({ placed: 0, output_path: '' });
+    expect(none.reason).toContain('찾지 못해');
+    expect(none.reason).not.toMatch(/occurrence|place_seal/);
+  });
+
+  it('도장 — 띄어 쓴 "( 인 )" 도 (인) 자리로 찾는다', async () => {
+    const doc = join(env.work, '신청서2.hwpx');
+    writeFileSync(doc, Buffer.from(await markdownToHwpx('# 신청서\n\n신청인 홍길동 ( 인 )\n')));
+    const img = join(env.work, '도장.png');
+    writeFileSync(img, await makePng(200, 200, '印'));
+    const r = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
+    expect(r).toMatchObject({ placed: 1, anchor: '( 인 )' });
+  });
+
+  it('도장 — (인) 이 없는 공문은 발신명의(가온도지사) 끝 글자에 찍는다', async () => {
+    const img = join(env.work, '도장.png');
+    writeFileSync(img, await makePng(200, 200, '印'));
+    const r = await call('seal', { path: sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx'), image_path: img, anchor: '(인)' });
+    expect(r).toMatchObject({ placed: 1, anchor: '사' });
+    expect((await call('validate_hwpx', { path: r.output_path })).ok).toBe(true);
+    // 도장 그림이 발신명의 문단에 들어갔다
+    const JSZip = (await import('jszip')).default;
+    const xml = await (await JSZip.loadAsync(readFileSync(r.output_path))).file('Contents/section0.xml')!.async('text');
+    const name = xml.indexOf('가온도지사');
+    const at = xml.indexOf('kordoc seal');
+    expect(at).toBeGreaterThan(name);
+    expect(at).toBeLessThan(xml.indexOf('</hp:p>', name));
+  });
+
+  it('도장 — (인)도 발신명의도 없는 보고서는 placed 0 과 이유, 개발자 문장 없음', async () => {
+    const img = join(env.work, '도장.png');
+    writeFileSync(img, await makePng(200, 200, '印'));
+    const before = readdirSync(env.out).length;
+    const r = await call('seal', { path: sample('4-보고서_디지털 행정 혁신 추진계획.hwpx'), image_path: img, anchor: '(인)' });
+    expect(r).toMatchObject({ placed: 0, output_path: '' });
+    expect(r.reason).toContain('(인)');
+    expect(readdirSync(env.out).length).toBe(before);
   });
 
   it('고친 글 반영 — 서식 그대로', async () => {

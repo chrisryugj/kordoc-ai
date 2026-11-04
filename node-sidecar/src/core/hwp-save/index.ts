@@ -29,7 +29,7 @@ const opened = new Map<string, OpenedDoc>();
 const KEEP = 8;
 const TRACKED = 0x4000;
 
-export const EDITOR_REOPEN_NEEDED = '편집기 엔진이 다시 시작돼 이 문서의 저장 보정 정보가 없어졌습니다. 원본을 지키려고 저장하지 않았습니다. HWPX 로 저장하거나, 문서를 닫고 다시 연 뒤 고쳐 주세요.';
+export const EDITOR_REOPEN_NEEDED = '편집기 엔진이 다시 시작돼 이 문서의 저장 보정 정보가 없어졌습니다. 원본을 지키려고 저장하지 않았습니다. HWPX로 저장하거나, 문서를 닫고 다시 연 뒤 고쳐 주세요.';
 export const RECOVERY_GONE = '되살릴 사본이 없습니다. 이미 저장했거나 버린 문서입니다. 문서를 그냥 여세요.';
 
 export async function editorOpen(path: string, recover = false): Promise<{ data_b64: string; name: string; size: number; token: string; tracked: boolean }> {

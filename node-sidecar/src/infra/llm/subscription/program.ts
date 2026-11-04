@@ -1,4 +1,4 @@
-/** 구독 프로그램(Claude Code·Codex) 찾기·띄우기·끝내기
+/** 구독 프로그램(Claude Code·Codex·Gemini CLI) 찾기·띄우기·끝내기
  *
  * - 셸 없이 띄운다. Windows 의 npm 껍데기(.cmd)는 셸이 있어야 돌아서, 껍데기가 부르는 실제 파일(.exe·.js)을 찾아 띄운다.
  *   JS 입구는 동봉 Node(process.execPath)로 띄운다: PC 에 Node 가 없어도 된다.
@@ -26,7 +26,7 @@ export interface Program {
   env?: Record<string, string>;
 }
 
-const BASE_NAME: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex' };
+const BASE_NAME: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex', 'gemini-cli': 'gemini' };
 const JS = /\.(c|m)?js$/i;
 
 export interface FindOptions {
@@ -41,6 +41,21 @@ export interface FindOptions {
 /** 폴더 아래 한 단계 하위 폴더들의 sub (nvm 의 Node 판마다 bin 같은 곳) */
 function eachChild(dir: string, sub: string[], join2: (...p: string[]) => string): string[] {
   try { return readdirSync(dir).sort().reverse().map((v) => join2(dir, v, ...sub)); } catch { return []; }
+}
+
+/** 공식 데스크톱 앱이 함께 깔아 두고 앱과 같이 업데이트하는 CLI 폴더 (Windows Codex 앱: %LOCALAPPDATA%/OpenAI/Codex/bin/<판>/codex.exe).
+ *  npm 으로 깐 CLI 가 오래돼 계정 모델을 못 쓰는 일이 실제로 있어(0.138: "model is not supported when using Codex with a ChatGPT account")
+ *  앱 쪽을 먼저 본다. 판 폴더가 여럿이면 최근에 바뀐 것부터 */
+export function appDirs(provider: SubscriptionProviderId, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+  if (provider !== 'codex' || platform !== 'win32' || !env.LOCALAPPDATA) return [];
+  const base = win32.join(env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin');
+  try {
+    return readdirSync(base)
+      .map((v) => win32.join(base, v))
+      .map((d) => { try { return { d, t: statSync(d).mtimeMs }; } catch { return { d, t: 0 }; } })
+      .sort((a, b) => b.t - a.t)
+      .map((x) => x.d);
+  } catch { return []; }
 }
 
 /** PATH 에 없을 때 볼 폴더. 앱을 Finder·시작 메뉴로 켜면 PATH 가 짧아 셸에서 보이던 프로그램이 안 보인다.
@@ -105,7 +120,7 @@ export async function findProgram(provider: SubscriptionProviderId, opts: FindOp
   if (opts.configured) return isFile(opts.configured) ? launchable(provider, opts.configured, platform) : null;
   const pathVar = Object.entries(env).find(([k]) => k.toUpperCase() === 'PATH')?.[1] ?? '';
   const sep = platform === 'win32' ? win32.delimiter : posix.delimiter;
-  const dirs = [...pathVar.split(sep).filter(Boolean), ...(opts.dirs ?? installDirs(platform, env))];
+  const dirs = [...(opts.dirs ? [] : appDirs(provider, platform, env)), ...pathVar.split(sep).filter(Boolean), ...(opts.dirs ?? installDirs(platform, env))];
   const names = platform === 'win32' ? ['exe', 'cmd'].map((x) => `${BASE_NAME[provider]}.${x}`) : [BASE_NAME[provider]];
   const join2 = platform === 'win32' ? win32.join : posix.join;
   for (const dir of dirs) {

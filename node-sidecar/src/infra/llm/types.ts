@@ -65,8 +65,8 @@ export async function* sseData(res: Response, signal: AbortSignal): AsyncGenerat
 /** HTTP 오류를 사람이 읽을 문장으로 */
 export async function httpError(res: Response, who: string): Promise<Error> {
   const body = (await res.text().catch(() => '')).slice(0, 300);
-  if (res.status === 401 || res.status === 403) return new Error(`${who}: 인증에 실패했습니다 (${res.status}). 설정 > AI 연결에서 API 키를 확인하세요.`);
-  if (res.status === 404) return new Error(`${who}: 모델이나 주소를 찾을 수 없습니다 (404). 설정 > AI 연결에서 주소와 모델 이름을 확인하세요. ${body}`);
+  if (res.status === 401 || res.status === 403) return new Error(`${who}: 인증에 실패했습니다 (${res.status}). 설정 › AI 연결에서 API 키를 확인하세요.`);
+  if (res.status === 404) return new Error(`${who}: 모델이나 주소를 찾을 수 없습니다 (404). 설정 › AI 연결에서 주소와 모델 이름을 확인하세요. ${body}`);
   if (res.status === 429) return new Error(`${who}: 요청 한도를 넘었습니다 (429). 잠시 후 다시 시도하세요.`);
   return new Error(`${who}: 오류 ${res.status} ${body}`);
 }

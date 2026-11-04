@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 시험용 가짜 Codex (실제 codex 는 구독 사용량을 쓴다). 공식 CLI 의 `exec --json` 줄 모양만 흉내 낸다.
-// FAKE_CODEX_MODE: ok · oldcodex(셸 기능 없음) · stuck(셸 기능이 안 꺼짐) · toolitem · usage · toolong · signedout · server · badflag · hang
+// FAKE_CODEX_MODE: ok · oldcodex(셸 기능 없음) · stuck(셸 기능이 안 꺼짐) · toolitem · usage · toolong · signedout · server · oldmodel(오래된 CLI, 계정 모델 못 씀) · badflag · hang
 //   · todo(계획 항목) · empty · linger(끝 알림 뒤 안 끝남) · slowfeatures(기능 확인이 0.5초)
 // FAKE_CODEX_AUTH: chatgpt(기본) · apikey · out  (`login status` 의 답)
 // FAKE_LOG: 기록 파일 (없으면 임시 폴더의 kordoc-fake-codex.jsonl)
@@ -67,6 +67,7 @@ process.stdin.on('end', () => {
       out({ type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: '안녕하세요' } });
       return out({ type: 'turn.completed' });
     case 'server': return failed('unexpected status 500 Internal Server Error');
+    case 'oldmodel': return failed('{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The gpt-5.5 model is not supported when using Codex with a ChatGPT account.","code":"model_not_found"}}');
     case 'signedout':
       out({ type: 'error', message: 'Reconnecting... 1/5 (unexpected status 401 Unauthorized)' });
       return failed('unexpected status 401 Unauthorized: Missing bearer or basic authentication in header');

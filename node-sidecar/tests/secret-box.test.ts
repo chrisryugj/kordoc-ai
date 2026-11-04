@@ -1,12 +1,12 @@
 /** 설정 파일 API 키 암호화 — Windows 앱이 넘기는 KORDOC_SECRET_KEY 가 있으면 enc:v1 로 쓰고, 없으면 평문(0600) */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { reload, updateSettings, getSettings } from '../src/infra/config.js';
 import { resetSecretKey, seal, unseal } from '../src/infra/secret-box.js';
+import { tempDir } from './tmp-dirs.js';
 
 const KEY = randomBytes(32).toString('base64');
 let dir: string;
@@ -18,7 +18,7 @@ const useKey = (k?: string) => {
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-secret-'));
+  dir = tempDir('kordoc-ai-secret-');
   process.env.KORDOC_AI_DATA_DIR = dir;
 });
 

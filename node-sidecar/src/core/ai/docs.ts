@@ -116,7 +116,7 @@ async function readDoc(path: string, signal: AbortSignal): Promise<LoadedDoc> {
   const r = await parseBytes(buf, { images: false, tableFormat: 'gfm', ocr: ocrOption() }, undefined, signal);
   if (!r.success) {
     if (r.code === 'ENCRYPTED') throw new Error(`암호가 걸린 문서입니다: ${name}. 문서 메뉴에서 암호를 넣어 변환한 뒤 그 결과(.md)로 다시 시도하세요.`);
-    if (r.code === 'DRM_PROTECTED') throw new Error(`문서 보안(DRM)이 걸려 읽을 수 없습니다: ${name}. 보안을 해제한 사본으로 시도하세요.`);
+    if (r.code === 'DRM_PROTECTED') throw new Error(`문서 보안(DRM)이 걸려 읽을 수 없습니다: ${name}. 보안을 푼 사본으로 다시 시도하세요.`);
     throw new Error(`문서를 읽지 못했습니다: ${name} (${r.error})`);
   }
   const chunks = blocksToChunks(r.blocks, { granularity: 'block', tableFormat: 'gfm' });
@@ -137,7 +137,7 @@ export async function loadDoc(path: string, signal: AbortSignal): Promise<Loaded
   }
   const doc = await readDoc(path, signal);
   if (!doc.markdown.trim()) {
-    throw new Error(`문서에서 글자를 찾지 못했습니다: ${doc.name}. 스캔 문서라면 설정에서 OCR을 켜고 다시 시도하세요.`);
+    throw new Error(`문서에서 글자를 찾지 못했습니다: ${doc.name}. 스캔 문서라면 설정에서 글자 읽기(OCR)를 켜고 다시 시도하세요.`);
   }
   cache.set(key, doc);
   while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);

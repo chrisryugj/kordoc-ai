@@ -3,7 +3,7 @@
  *  - 메뉴에 새 명령(한 줄 지우기·날짜/시간 문자열·보통 모양)과 한컴 키 글자
  *  - Ctrl+K,D 날짜 넣기 · Ctrl+Y 한 줄 지우기 · Ctrl+M,R 빨강 글자 · Ctrl+N,T 표 만들기 대화상자
  *  - 고친 채 30초 안에 복구 사본이 생기고, 저장하지 않고 앱이 꺼진 뒤 홈에서 되살리면 고친 내용으로 열린다
- *  - 되살린 문서를 저장하면 저장 창 없이 원래 파일에 들어가고(.bak) 사본은 지워진다
+ *  - 되살린 문서를 저장하면 원본은 두고 저장 창으로 새 파일에 들어가고 사본은 지워진다
  *
  * 중계기를 스스로 두 번 띄운다(같은 데이터 폴더, 두 번째가 "다시 켠 앱").
  * 사용: node scripts/e2e-ui/h-editor.mjs --port 7728 --out <스크린샷·작업 폴더>
@@ -28,6 +28,8 @@ const IN = join(OUT, 'fixtures');
 mkdirSync(IN, { recursive: true });
 const DOC = join(IN, '보고서.hwpx');
 copyFileSync(join(SAMPLES, '4-보고서_디지털 행정 혁신 추진계획.hwpx'), DOC);
+const ORIGINAL = readFileSync(DOC);
+const SAVED = join(OUT, '보고서_되살림.hwpx');
 
 const checks = [];
 const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` : ${detail}` : ''}`); };
@@ -62,8 +64,7 @@ let rp = await relay();
 let ui = await openUi({ relay: RELAY, width: 1280, height: 860, prefs: { 'kordoc-first-run-done': true } });
 let { page } = ui;
 try {
-  await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [DOC] }) });
-  await ui.waitText('한글 편집기로 열기', 30000);
+  await ui.emitOpen([DOC], '한글 편집기로 열기');
   await ui.click('한글 편집기로 열기');
   await waitEditor(page);
   await sleep(2000);
@@ -141,12 +142,15 @@ try {
   await ui.waitText('저장하지 않았던 고친 내용으로 열었습니다', 20000);
   const bar = await page.evaluate(() => document.querySelector('.kd-edit-bar')?.innerText ?? '');
   check('되살린 문서는 저장 안 됨 표시', bar.includes('고친 내용이 아직 저장되지 않았습니다'), bar.replace(/\n/g, ' / '));
-  await ui.clearDialog(); // 되살린 사용자 파일은 저장 창 없이 원래 자리로 (창이 뜨면 답이 없어 저장이 취소된다)
+  // 되살린 사본은 디스크 파일과 다르다 → 원본은 두고 저장 창으로 새 파일에 (원본 보호)
+  await ui.dialog([SAVED]);
   await ui.click('저장', { exact: true, within: '.kd-edit-bar' });
   await ui.waitText('저장했습니다', 30000);
   await sleep(800);
   await ui.shot(join(OUT, '03-saved.png'));
-  const zip = await JSZip.loadAsync(readFileSync(DOC));
+  check('되살린 문서 저장은 저장 창에서 고른 새 파일로', existsSync(SAVED), SAVED);
+  check('원본은 그대로 (덮어쓰지 않음)', readFileSync(DOC).equals(ORIGINAL) && !existsSync(`${DOC}.bak`));
+  const zip = await JSZip.loadAsync(readFileSync(SAVED));
   const xml = await zip.file('Contents/section0.xml').async('string');
   const text = xml.replace(/<[^>]+>/g, '');
   const today = new Date();
@@ -155,7 +159,6 @@ try {
   const head = await zip.file('Contents/header.xml').async('string');
   const red = [...head.matchAll(/<hh:charPr id="(\d+)"[^>]*textColor="#FF0000"/g)].map((m) => m[1]);
   check('Ctrl+M,R 로 친 글이 빨강', red.some((id) => new RegExp(`charPrIDRef="${id}"[^>]*>\\s*<hp:t>RED-TEXT`).test(xml)), red.join(','));
-  check('덮어쓰기 전 원본은 .bak', existsSync(`${DOC}.bak`));
   check('저장 뒤 복구 사본 지워짐', recoveryFiles().length === 0, recoveryFiles().join(','));
   await page.evaluate(() => document.querySelector('.kd-nav-item[data-screen="home"]')?.click());
   await sleep(800);

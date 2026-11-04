@@ -13,6 +13,11 @@ export interface MergeFilesParams {
   mode?: MergeMode;
 }
 
+export interface MergeFailure {
+  path: string;
+  error: string;
+}
+
 export interface MergeFilesResult {
   success: boolean;
   output_path: string;
@@ -20,6 +25,8 @@ export interface MergeFilesResult {
   /** 마크다운 모드: 글자 수, native 모드: 바이트 수 */
   total_length: number;
   failed_files: string[];
+  /** 합치지 못한 파일과 이유 (없으면 failed_files 로 채운다) */
+  failed?: MergeFailure[];
   /** 경고 메시지 (폴백 발생 시 등) */
   warnings?: string[];
 }

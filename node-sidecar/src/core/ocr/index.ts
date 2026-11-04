@@ -37,10 +37,10 @@ const AI_OCR_SYSTEM = '당신은 한국어 문서 OCR 전문가입니다. 이미
 function aiOcrProvider(signal: AbortSignal): OcrProvider {
   const provider = getProvider();
   if (!provider.supportsVision) {
-    throw new Error('지금 연결된 AI는 이미지를 못 읽습니다. 내장 OCR을 쓰거나 설정 > AI 연결에서 비전 모델을 고르세요.');
+    throw new Error('지금 연결된 AI는 그림을 읽지 못합니다. 내장 글자 읽기(OCR)를 쓰거나 설정 › AI 연결에서 그림 읽기 모델을 고르세요.');
   }
   return async (pageImage, pageNumber, mimeType) => {
-    sendProgress({ current: pageNumber, total: 0, message: `AI가 ${pageNumber}쪽을 읽는 중...` });
+    sendProgress({ current: pageNumber, total: 0, message: `AI가 ${pageNumber}쪽을 읽는 중` });
     const { text } = await ask({
       system: AI_OCR_SYSTEM,
       messages: [{ role: 'user', content: '이 쪽의 모든 글자를 옮겨 주세요.', images: [{ mime: mimeType, base64: Buffer.from(pageImage).toString('base64') }] }],

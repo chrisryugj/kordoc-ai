@@ -1,10 +1,11 @@
 /**
  * 새로 쓰기 → 출력 화면 검증 (구현 B)
  *  - AI 없을 때 AI 초안은 안내 + 서식함·빈 문서 길만 (직접 쓰기 중복 없음)
- *  - 빈 문서로 시작 → 초안은 앱 작업 사본 폴더에 (문서 폴더에 쌓이지 않음)
+ *  - 작성 첫 화면은 큰 선택 4개, AI 꺼짐이면 AI 초안에 "AI 필요" 표시와 [AI 켜기]
+ *  - 빈 문서로 시작 → 서식함의 빈 문서 묶음(빈 기안문) → 초안은 앱 작업 사본 폴더에 (문서 폴더에 쌓이지 않음)
  *  - 편집기 상태 줄에 "(123.4ms)" 시간 표시 없음
  *  - 출력: PDF로 저장은 PDF 저장 창 하나만, 빈칸 안내 질문 뒤에 진행 표시 없음, 한글 파일도 저장 권유
- *  - 작업대에서 연 기존 문서는 단계 "1. 편집 · 2. 내보내기"
+ *  - 작업대에서 연 기존 문서는 단계 "1. 편집 · 2. 출력"
  *  - 외톨이 줄 (1280·1024)
  *
  * 사용: KORDOC_DATA=<앱 데이터 폴더> node scripts/e2e-ui/b-create-output.mjs <결과 폴더> [중계기 주소]
@@ -23,34 +24,39 @@ const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`); };
 const docsBefore = existsSync(join(homedir(), 'Documents')) ? readdirSync(join(homedir(), 'Documents')).sort().join('\n') : '';
 
-const ui = await openUi({ relay: RELAY, width: 1280, height: 860 });
+const ui = await openUi({ relay: RELAY, width: 1280, height: 860, prefs: { 'kordoc-first-run-done': true } });
 const { page } = ui;
 const remaining = async () => (await (await fetch(`${RELAY}/dialog`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"queue":[]}' })).json()).queued;
 const spinnerVisible = () => page.evaluate(() => [...document.querySelectorAll('.kd-output .kd-spin, .kd-output [data-tone="busy"]')].some((e) => e.offsetParent !== null));
 
 try {
   await ui.click('새로 쓰기', { within: '.kd-nav' });
-  await ui.waitText('서식함에서 고르기');
+  await ui.waitText('서식 골라 쓰기');
+  const start = await page.evaluate(() => ({ cards: document.querySelectorAll('.kd-start-card').length, aiBadge: [...document.querySelectorAll('.kd-start-card')].some((c) => c.textContent.includes('AI 초안') && c.textContent.includes('AI 필요')) }));
+  check('작성 첫 화면: 큰 선택 4개', start.cards === 4, String(start.cards));
+  check('AI 꺼짐: AI 초안 카드에 AI 필요 표시', start.aiBadge);
 
   // ── AI 초안 (AI 없음) ──
   await ui.click('AI 초안', { within: '.kd-routes' });
   await ui.waitText('AI가 연결되어 있지 않아');
   const ai = await page.evaluate(() => ({ text: document.querySelector('.kd-draft')?.innerText ?? '', textarea: !!document.querySelector('.kd-draft .kd-mdeditor') }));
-  check('AI 없음: 안내와 서식함·빈 문서 길', ai.text.includes('서식함에서 고르기') && ai.text.includes('빈 문서로 시작'));
+  check('AI 없음: AI 켜기와 서식·빈 문서 길', ai.text.includes('AI 켜기') && ai.text.includes('서식 골라 쓰기') && ai.text.includes('빈 문서로 시작'));
   check('AI 없음: 직접 쓰기 글 상자 없음 (빈 문서로 시작 한 곳)', !ai.textarea && !ai.text.includes('직접 쓰기'));
   check('마크다운 기호 안내 없음', !ai.text.includes('# 제목'));
   await ui.shot(join(OUT, '01-ai-none.png'));
   for (const w of [1280, 1024]) {
     await page.setViewport({ width: w, height: 860 });
     await sleep(300);
-    const o = await ui.orphans('.kd-draft p, .kd-route .kd-row-desc');
+    const o = await ui.orphans('.kd-draft p');
     check(`AI 초안 외톨이 줄 0 @${w}`, o.length === 0, JSON.stringify(o));
   }
   await page.setViewport({ width: 1280, height: 860 });
 
-  // ── 빈 문서로 시작 → 편집 ──
+  // ── 빈 문서로 시작 → 서식함 빈 문서 묶음 → 편집 ──
   await ui.click('빈 문서로 시작', { within: '.kd-draft' });
-  await ui.waitText('어떤 문서를 쓸까요?');
+  await ui.waitText('이 서식으로 시작');
+  const blank = await page.evaluate(() => document.querySelector('.kd-library-detail h2')?.textContent ?? '');
+  check('빈 문서로 시작: 서식함의 빈 기안문이 골라짐', blank === '빈 기안문', blank);
   await ui.click('이 서식으로 시작');
   await page.waitForFunction(() => { const e = document.querySelector('.kd-edit'); return e && !e.hidden && !document.querySelector('.kd-editor-cover'); }, { timeout: 120000 });
   await sleep(1500);
@@ -68,7 +74,7 @@ try {
   const step3 = await page.evaluate(() => { const b = [...document.querySelectorAll('.kd-step button')].find((x) => x.textContent.includes('출력')); return b ? !b.disabled : null; });
   check('3. 출력 단계 누를 수 있음', step3 === true);
   await ui.click('3. 출력', { within: '.kd-steps' });
-  await ui.waitText('작업 사본으로 앱 작업 폴더에만 있습니다');
+  await ui.waitText('앱 작업 폴더에만 있는 작업 사본입니다');
   await ui.shot(join(OUT, '03-output.png'));
   for (const w of [1280, 1024]) {
     await page.setViewport({ width: w, height: 860 });
@@ -101,29 +107,29 @@ try {
   const hwpxPath = join(OUT, `초안 ${Date.now()}.hwpx`);
   await ui.dialog([hwpxPath]);
   await ui.click('한글 파일도 저장', { within: '.kd-output-side' });
-  await page.waitForFunction(() => !document.querySelector('.kd-output-side')?.innerText.includes('작업 사본으로'), { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector('.kd-output-side')?.innerText.includes('작업 사본입니다'), { timeout: 60000 });
   check('한글 파일도 저장: 고른 경로에 HWPX', existsSync(hwpxPath), hwpxPath);
   await ui.shot(join(OUT, '06-hangul-saved.png'));
 
-  // ── 작업대에서 연 기존 문서: 편집 · 내보내기 ──
+  // ── 작업대에서 연 기존 문서: 편집 · 출력 ──
   await ui.click('문서', { within: '.kd-nav' });
   await sleep(500);
   await ui.dialog([[join(SAMPLES, '4-보고서_디지털 행정 혁신 추진계획.hwpx')]]);
-  await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent && /파일 (고르기|열기)/.test(x.textContent)); b?.click(); });
+  await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent && /(파일|문서) (고르기|열기)/.test(x.textContent)); b?.click(); });
   await ui.waitText('한글 편집기로 열기', 30000);
   await ui.click('한글 편집기로 열기');
   await page.waitForFunction(() => { const e = document.querySelector('.kd-edit'); return e && !e.hidden; }, { timeout: 60000 });
   // 앞 문서는 저장했으니 묻지 않는다
   await sleep(800);
   const steps = await page.evaluate(() => [...document.querySelectorAll('.kd-step-label')].map((e) => e.textContent.trim()));
-  check('기존 문서: 단계는 편집 · 내보내기만', JSON.stringify(steps) === JSON.stringify(['1. 편집', '2. 내보내기']), steps.join(' | '));
+  check('기존 문서: 단계는 편집 · 출력만', JSON.stringify(steps) === JSON.stringify(['1. 편집', '2. 출력']), steps.join(' | '));
   const title = await page.evaluate(() => document.querySelector('.kd-create-head .kd-head-title')?.textContent);
   check('기존 문서: 제목 "문서 고치기"', title === '문서 고치기', title);
   await ui.shot(join(OUT, '07-existing.png'));
 
   // ── 서식함 기안문(빈칸 남김) → 출력: 빈칸 안내 질문 뒤에 진행 표시가 없어야 ──
   await ui.click('새 문서 쓰기', { within: '.kd-create-head' });
-  await ui.click('서식함에서 고르기', { within: '.kd-routes' });
+  await ui.click('서식 골라 쓰기', { within: '.kd-routes' });
   await page.waitForFunction(() => [...document.querySelectorAll('.kd-library-list button')].some((b) => b.offsetParent && b.textContent.includes('일반')), { timeout: 30000 });
   await ui.click('일반', { within: '.kd-library-list' });
   await page.waitForSelector('.kd-library-detail input[aria-label="제목"]', { timeout: 30000 });

@@ -1,4 +1,4 @@
-/** 편집 보조 패널 — AI 대화(열린 문서를 말로 고치기) · 칸 채우기 · 표기법 검사 · 법령 근거 확인 · AI 다듬기 · K팀장 검토 (편집기와 postMessage 로 주고받음) */
+/** 편집 보조 패널 — AI 대화(열린 문서를 말로 고치기) · 칸 채우기 · 점검(표기법 검사·법령 근거 확인·팀장 눈으로 검토) · AI 다듬기 (편집기와 postMessage 로 주고받음) */
 
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { ClipboardCheck, Download, Replace, Scale, Sparkles, SpellCheck, Square, Undo2 } from "lucide-react";
@@ -13,15 +13,14 @@ import { ErrorLine, Note, Working } from "../common/Status";
 import { IssueList, LawResults, LintList } from "../workbench/tools/ReviewTool";
 import { TemplateForm, type FormField } from "./TemplateForm";
 import { AgentChat } from "./AgentChat";
+import { AiNeedBadge, AiOffNote } from "./AiOffNote";
 
-type Tab = "agent" | "fields" | "lint" | "law" | "rewrite" | "review";
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "agent", label: "AI 대화" },
-  { id: "fields", label: "칸 채우기" },
-  { id: "lint", label: "표기법" },
-  { id: "law", label: "법령" },
-  { id: "rewrite", label: "AI 다듬기" },
-  { id: "review", label: "K팀장" },
+type Tab = "agent" | "fields" | "check" | "rewrite";
+const TABS: Array<{ id: Tab; label: string; tip: string }> = [
+  { id: "agent", label: "AI 대화", tip: "열린 문서를 말로 고칩니다. 고친 것은 한 번에 되돌릴 수 있습니다" },
+  { id: "fields", label: "칸 채우기", tip: "서식의 이름 붙은 칸(누름틀)에 값을 넣습니다" },
+  { id: "check", label: "점검", tip: "표기법 검사, 법령 근거 확인, 팀장 눈으로 검토(AI)" },
+  { id: "rewrite", label: "AI 다듬기", tip: "고른 글을 간결하게·개조식·공문체 등으로 바꿉니다" },
 ];
 
 function FieldsTab() {
@@ -74,10 +73,10 @@ function LintTab() {
     void call("find", { text: f.excerpt }).then((r) => { if (!r.found) toast("편집기에서 그 글자를 찾지 못했습니다", "info"); }).catch((e) => toast(errorText(e), "error"));
   };
   return (
-    <div className="flex flex-col gap-3">
-      <p className="kd-small kd-muted">지금 편집기에 있는 글을 공문서 표기 규칙으로 검사합니다. 결과를 누르면 그 자리로 갑니다.</p>
+    <div className="kd-assist-sec">
+      <h3 className="kd-h3">표기법 검사</h3>
       {lint.busy ? <Working label="검사하는 중" /> : (
-        <Button disabled={editorState !== "ready"} onClick={() => void lint.run(async () => rpc("lint", { text: (await call("text", {})).text, numbers: true }))}><SpellCheck size={14} /> 검사하기</Button>
+        <Button variant="secondary" disabled={editorState !== "ready"} data-tip="지금 편집기 글을 공문서 표기 규칙으로 봅니다. 결과를 누르면 그 자리로 갑니다" onClick={() => void lint.run(async () => rpc("lint", { text: (await call("text", {})).text, numbers: true }))}><SpellCheck size={14} /> 검사하기</Button>
       )}
       <ErrorLine message={lint.error} />
       {lint.result && (
@@ -98,10 +97,10 @@ function LawTab() {
     void call("find", { text: c.text }).then((r) => { if (!r.found) toast("편집기에서 그 인용을 찾지 못했습니다", "info"); }).catch((e) => toast(errorText(e), "error"));
   };
   return (
-    <div className="flex flex-col gap-3">
-      <p className="kd-small kd-muted">지금 편집기 글에서 「법령명」 제N조 인용을 찾아 법제처 현행 법령과 대조합니다. 인용을 누르면 그 자리로 갑니다.</p>
+    <div className="kd-assist-sec">
+      <h3 className="kd-h3">법령 근거 확인</h3>
       {law.busy ? <Working label="법령 인용을 찾는 중" progress={law.progress} onCancel={law.cancel} /> : (
-        <Button disabled={editorState !== "ready"} onClick={() => void law.run(async ({ signal, onProgress }) => rpc("law_check", { text: (await call("text", {})).text }, { signal, onProgress }))}><Scale size={14} /> 법령 근거 확인</Button>
+        <Button variant="secondary" disabled={editorState !== "ready"} data-tip="「법령명」 제N조 인용을 찾아 법제처 현행 법령과 대조합니다. 인용을 누르면 그 자리로 갑니다" onClick={() => void law.run(async ({ signal, onProgress }) => rpc("law_check", { text: (await call("text", {})).text }, { signal, onProgress }))}><Scale size={14} /> 법령 근거 확인</Button>
       )}
       <ErrorLine message={law.error} />
       {law.result && <LawResults result={law.result} onPick={pick} />}
@@ -153,10 +152,10 @@ function RewriteTab() {
     throw new Error(r.reason || "바꿔 넣지 못했습니다. 글을 복사해 직접 붙여 넣으세요.");
   });
 
-  if (!ai?.configured) return <Note tone="info">AI 연결이 필요합니다. 설정의 AI 연결에서 고르세요.</Note>;
+  if (!ai?.configured) return <AiOffNote>고른 글을 다듬으려면 AI가 필요합니다.</AiOffNote>;
   return (
     <div className="flex flex-col gap-3">
-      <Button variant="secondary" disabled={editorState !== "ready" || grab.busy} onClick={take}><Download size={14} /> 고른 글 가져오기</Button>
+      <Button variant="secondary" disabled={editorState !== "ready" || grab.busy} onClick={take} data-tip="편집기에서 고른 글(고른 게 없으면 커서가 있는 문단)을 가져옵니다"><Download size={14} /> 고른 글 가져오기</Button>
       <ErrorLine message={grab.error} />
       <textarea className="kd-textarea" rows={4} value={source} onChange={(e) => setSource(e.target.value)} placeholder="편집기에서 글을 고른 뒤 가져오거나, 여기에 붙여 넣으세요" aria-label="고칠 글" />
       <Seg label="다듬는 방식" value={mode} onChange={setMode} options={MODES} />
@@ -170,7 +169,7 @@ function RewriteTab() {
           <p className="kd-text kd-pre" aria-live="polite">{out}</p>
           {!rewrite.busy && (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={put} disabled={replace.busy || editorState !== "ready"}><Replace size={13} /> 바꿔 넣기</Button>
+              <Button size="sm" onClick={put} disabled={replace.busy || editorState !== "ready"} data-tip="편집기의 그 글을 이 글로 바꿉니다. 되돌리기로 돌아갈 수 있습니다"><Replace size={13} /> 바꿔 넣기</Button>
               {replaced && <Button size="sm" variant="secondary" onClick={() => void call("undo", {}).then(() => setReplaced(false))}><Undo2 size={13} /> 되돌리기</Button>}
             </div>
           )}
@@ -187,12 +186,12 @@ function ReviewTab() {
   const review = useTask<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }>();
   // 지금 편집기 내용으로 검토한다 (저장 창 없이, 고친 게 있으면 작업 사본으로)
   const run = () => void review.run(async ({ signal }) => rpc("ai_review", { path: await outputFile() }, { signal }));
-  if (!ai?.configured) return <Note tone="info">AI 연결이 필요합니다. 설정의 AI 연결에서 고르세요.</Note>;
   return (
-    <div className="flex flex-col gap-3">
-      <p className="kd-small kd-muted">결재 올리기 전 팀장 눈으로 앞뒤 논리, 숫자, 날짜와 요일을 봅니다. 지금 편집기 내용 그대로 봅니다.</p>
-      {review.busy ? <Working label="검토하는 중" onCancel={review.cancel} /> : (
-        <Button onClick={run}><ClipboardCheck size={14} /> 검토 받기</Button>
+    <div className="kd-assist-sec">
+      <h3 className="kd-h3 flex items-center gap-2">팀장 눈으로 검토 <span className="kd-muted">(AI)</span>{!ai?.configured && <AiNeedBadge />}</h3>
+      {!ai?.configured ? <AiOffNote>앞뒤 논리, 숫자, 날짜와 요일을 AI가 봅니다.</AiOffNote>
+        : review.busy ? <Working label="검토하는 중" onCancel={review.cancel} /> : (
+        <Button variant="secondary" onClick={run} data-tip="결재 올리기 전 앞뒤 논리, 숫자, 날짜와 요일을 봅니다. 지금 편집기 내용 그대로 봅니다"><ClipboardCheck size={14} /> 검토 받기</Button>
       )}
       <ErrorLine message={review.error} />
       {review.result && (
@@ -220,16 +219,14 @@ export function EditorAssist() {
     <aside className="kd-assist" aria-label="편집 보조">
       <div className="kd-tabs px-2" role="tablist" aria-label="보조 도구" onKeyDown={onKey}>
         {TABS.map((t) => (
-          <button key={t.id} type="button" role="tab" className="kd-tab" aria-selected={tab === t.id} tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}>{t.label}</button>
+          <button key={t.id} type="button" role="tab" className="kd-tab" aria-selected={tab === t.id} tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)} data-tip={t.tip}>{t.label}</button>
         ))}
       </div>
       <div className="kd-assist-body" role="tabpanel">
         <div hidden={tab !== "agent"}><AgentChat /></div>
         <div hidden={tab !== "fields"}><FieldsTab /></div>
-        <div hidden={tab !== "lint"}><LintTab /></div>
-        <div hidden={tab !== "law"}><LawTab /></div>
+        <div hidden={tab !== "check"}><LintTab /><LawTab /><ReviewTab /></div>
         <div hidden={tab !== "rewrite"}><RewriteTab /></div>
-        <div hidden={tab !== "review"}><ReviewTab /></div>
       </div>
     </aside>
   );

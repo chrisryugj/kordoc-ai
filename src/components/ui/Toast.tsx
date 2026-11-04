@@ -9,17 +9,18 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
 
   const handleDismiss = () => { setIsVisible(false); setTimeout(() => onDismiss(toast.id), 200); };
 
-  const iconColor = { success: "var(--color-success)", error: "var(--color-error)", loading: "var(--color-accent)", info: "var(--color-accent)" }[toast.type];
+  // 어두운 알림 바탕 위라 밝은 색 (흰 면용 토큰은 너무 어둡다)
+  const iconColor = { success: "#5EE39A", error: "#FF8A80", loading: "#6EE7C0", info: "#8FC3FF" }[toast.type];
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 rounded-md text-sm shadow-lg transition-all duration-200 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"}`}
-      style={{ backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", minWidth: 280, maxWidth: 420 }} role="alert">
+    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"}`}
+      style={{ backgroundColor: "#1F242B", color: "#F3F5F7", boxShadow: "var(--shadow-xl)", minWidth: 280, maxWidth: 460 }} role="alert">
       <span className="w-4 h-4" style={{ color: iconColor }}>
         {toast.type === "success" ? "✓" : toast.type === "error" ? "✕" : "●"}
       </span>
       <span className="flex-1 line-clamp-3">{toast.message}</span>
       {toast.type !== "loading" && (
-        <button type="button" onClick={handleDismiss} className="grid place-items-center w-8 h-8 -my-1.5 -mr-2 rounded hover-bg-tertiary" aria-label="닫기">
+        <button type="button" onClick={handleDismiss} className="grid place-items-center w-8 h-8 -my-1.5 -mr-2 rounded-md hover:bg-white/10" aria-label="닫기">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>

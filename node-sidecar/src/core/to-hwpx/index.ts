@@ -43,7 +43,7 @@ export async function toHwpx(
     }
   }
   const r = await parseDoc(p.path, { ocr: p.ocr, images: true, progressLabel: quiet ? undefined : `${basename(p.path)} 읽는 중`, signal });
-  if (!r.markdown.trim()) throw new Error('문서에서 글자를 찾지 못했습니다. 스캔본이면 OCR을 켜고 다시 시도하세요.');
+  if (!r.markdown.trim()) throw new Error('문서에서 글자를 찾지 못했습니다. 스캔본이면 글자 읽기(OCR)를 켜고 다시 시도하세요.');
   // 'auto': 문서 모양(수신·시행 줄, □○ 항목, 회의록·보도자료 등)을 보고 갈래를 고른다
   const preset = p.preset === 'auto' ? guessPreset(r.markdown) : p.preset ? presetOf(p.preset) : undefined;
   const images = Object.fromEntries((r.images ?? []).map((i) => [i.filename, i.data]));

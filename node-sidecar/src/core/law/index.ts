@@ -24,7 +24,7 @@ import { LawAuthError, LawNetError, articleKey, lawArticles, searchLaws, type Ar
 
 export const NOTE_OFFLINE = '폐쇄망 모드라 법제처에 묻지 않았습니다. 인용만 찾았습니다.';
 export const NOTE_NO_OC = '설정 › 법령 확인에서 법제처 Open API 아이디(OC)를 넣으면 현행 법령과 대조합니다.';
-const NOTE_NONE = '「법령명」 제N조 꼴의 법령 인용을 찾지 못했습니다.';
+const NOTE_NONE = '법령 인용이 없어 확인할 것이 없습니다.';
 const NOTE_AUTH = '법제처가 아이디(OC)를 확인하지 못해 대조하지 않았습니다. 설정 › 법령 확인에서 아이디를 고치고 연결 확인을 눌러 보세요.';
 const NOTE_NET = '법제처에 연결하지 못한 인용은 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 확인하세요.';
 const NOTE_LOCAL = '조례 같은 자치법규는 법제처 현행 법령 목록에 없어 대조하지 않았습니다.';

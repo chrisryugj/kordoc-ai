@@ -158,13 +158,13 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
 
   // ── 행 ──
   const rows: GatherRow[] = [];
-  const filed: Array<{ file: string; dept: string; in_roster: boolean }> = [];
+  const filed: Array<{ file: string; path: string; dept: string; in_roster: boolean }> = [];
   const separate: CollectGatherResult['separate'] = [];
   const docDept = (d: DocSub) => matchDept(roster, { path: d.path, values: d.fields.filter((f) => colKey(f.label) === DEPT_KEY).map((f) => f.value), text: d.text });
   const pushDoc = (d: DocSub, cells: Map<string, string>, note?: string, skip = false) => {
     const m = docDept(d);
     rows.push({ file: basename(d.path), dept: m.dept, cells, ...(note ? { note } : {}), ...(skip ? { skip } : {}) });
-    filed.push({ file: basename(d.path), ...m });
+    filed.push({ file: basename(d.path), path: d.path, ...m });
     return m;
   };
   for (const d of same) {
@@ -189,7 +189,7 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
       depts.set(m.dept, m.in_roster);
     }
     if (!depts.size) depts.set(fileM.dept, fileM.in_roster);
-    for (const [dept, in_roster] of depts) filed.push({ file, dept, in_roster });
+    for (const [dept, in_roster] of depts) filed.push({ file, path: x.path, dept, in_roster });
   }
 
   let aiCount = 0;
@@ -229,7 +229,7 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   for (const f of failed) {
     const m = matchDept(roster, { path: f.path, values: [], text: '' });
     rows.push({ file: basename(f.path), dept: m.dept, cells: new Map(), note: '읽지 못함', skip: true });
-    filed.push({ file: basename(f.path), ...m });
+    filed.push({ file: basename(f.path), path: f.path, ...m });
   }
   // 명단 순서 → 파일 이름 순 (부서를 모르면 뒤로)
   const rank = (d: string) => { const i = roster.indexOf(d); return i >= 0 ? i : d ? roster.length : roster.length + 1; };

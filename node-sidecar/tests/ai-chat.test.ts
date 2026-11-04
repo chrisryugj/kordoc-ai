@@ -1,8 +1,7 @@
 /** 문서와 대화 — 번호 붙인 조각·[n] 인용 → Citation, BM25 검색, 파싱 캐시 (가짜 OpenAI 호환 서버) */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { markdownToHwpx } from 'kordoc';
 import { startFakeOpenAi, lastUser, type FakeServer } from './ai-fake-server.js';
@@ -18,8 +17,9 @@ import { chatWithDocs, extractCitations } from '../src/core/ai/chat.js';
 import { bm25Scores, tokenize } from '../src/core/ai/bm25.js';
 import { loadDoc } from '../src/core/ai/docs.js';
 import { extractNumbers, indexKeys, splitSentences, verifyCitations } from '../src/core/ai/verify.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-chat-'));
+const dir = tempDir('kordoc-ai-chat-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const signal = () => new AbortController().signal;
 /** 가짜 모델이 제대로 인용하게 — needle 이 든 조각의 번호 */

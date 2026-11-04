@@ -1,9 +1,10 @@
-/** 구독 로그인 상태: 프로그램 자신의 답(`claude auth status --json`·`codex login status`)만 읽는다.
+/** 구독 로그인 상태: 프로그램 자신의 답(`claude auth status --json`·`codex login status`, Gemini CLI 는 상태 명령이 없어 빈 입력 실행의 종료 코드)만 읽는다.
  * 계정 파일은 열지 않고, 답에 든 이메일·조직 이름은 옮기지 않는다(쓰는 값은 로그인 여부·방식·요금제 이름뿐).
  */
 
 import type { SubscriptionStatus } from '../../../types/rpc-contract.js';
 import { LOGIN_COMMAND, PROGRAM_LABEL, SubscriptionError, type SubscriptionProviderId } from './errors.js';
+import { readGeminiLogin } from '../gemini-cli.js';
 import { runProgram, type Program, type SpawnFn } from './program.js';
 
 export interface Login {
@@ -39,8 +40,9 @@ export function readCodexLogin(text: string): Login | null {
   return null;
 }
 
-const STATUS_ARGS: Record<SubscriptionProviderId, string[]> = { 'claude-code': ['auth', 'status', '--json'], codex: ['login', 'status'] };
-const STATUS_TIMEOUT_MS = 20_000;
+const STATUS_ARGS: Record<'claude-code' | 'codex', string[]> = { 'claude-code': ['auth', 'status', '--json'], codex: ['login', 'status'] };
+/** Gemini CLI 는 한 번 뜨는 데 15초쯤 걸린다 (실측, Windows) */
+const STATUS_TIMEOUT_MS: Record<SubscriptionProviderId, number> = { 'claude-code': 20_000, codex: 20_000, 'gemini-cli': 60_000 };
 /** 쓸 수 있다고 확인한 결과만 1분 기억한다 (로그인 안 됨·종량제는 고친 뒤 바로 다시 확인되게 기억하지 않는다) */
 const CACHE_MS = 60_000;
 
@@ -51,9 +53,19 @@ export interface CheckOptions { signal?: AbortSignal; baseEnv?: NodeJS.ProcessEn
 const cache = new Map<string, { at: number; report: LoginReport }>();
 export function forgetLogins(): void { cache.clear(); }
 
+const limits = (provider: SubscriptionProviderId, o: CheckOptions) => {
+  const ms = STATUS_TIMEOUT_MS[provider];
+  return { signal: AbortSignal.any([o.signal ?? new AbortController().signal, AbortSignal.timeout(ms)]), idleMs: ms, baseEnv: o.baseEnv, spawn: o.spawn };
+};
+
 async function ask(program: Program, args: string[], o: CheckOptions) {
-  const signal = AbortSignal.any([o.signal ?? new AbortController().signal, AbortSignal.timeout(STATUS_TIMEOUT_MS)]);
-  return runProgram(program, args, { signal, idleMs: STATUS_TIMEOUT_MS, baseEnv: o.baseEnv, spawn: o.spawn });
+  return runProgram(program, args, limits(program.provider, o));
+}
+
+async function readLogin(provider: SubscriptionProviderId, program: Program, o: CheckOptions): Promise<Login | null> {
+  if (provider === 'gemini-cli') return readGeminiLogin(program, limits(provider, o));
+  const s = await ask(program, STATUS_ARGS[provider], o);
+  return provider === 'claude-code' ? readClaudeAuth(s.stdout) : readCodexLogin(`${s.stdout}\n${s.stderr}`);
 }
 
 /** 설치·로그인 상태 (프로그램을 두 번 띄운다: 버전, 로그인) */
@@ -67,8 +79,7 @@ export async function checkLogin(provider: SubscriptionProviderId, program: Prog
   try {
     const v = await ask(program, ['--version'], o);
     const version = (v.stdout + v.stderr).match(/\d+\.\d+\.\d+/)?.[0];
-    const s = await ask(program, STATUS_ARGS[provider], o);
-    const login = provider === 'claude-code' ? readClaudeAuth(s.stdout) : readCodexLogin(`${s.stdout}\n${s.stderr}`);
+    const login = await readLogin(provider, program, o);
     const ver = version ? { version } : {};
     if (!login) {
       report = { ...base, ...ver, state: 'needs-update', message: new SubscriptionError('needs-update', provider, { why: '로그인 상태를 알려 주지 않음' }).message };

@@ -8,12 +8,12 @@ import "./pdf.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDownToLine, ArrowUpToLine, ArrowLeftRight, Combine, Copy, Ellipsis, FilePlus2, FileStack, ImageDown, ListChecks, Maximize2,
-  Redo2, RotateCcw, RotateCw, Scissors, Shrink, Split, Trash2, Undo2, X, FileOutput, Hash,
+  Keyboard, Redo2, RotateCcw, RotateCw, Scissors, Shrink, Split, Trash2, Undo2, X, FileOutput, Hash,
 } from "lucide-react";
 import { useApp } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
 import { DOC_EXTENSIONS, notifySystem, pickFiles } from "../../lib/native";
-import { dirName, num } from "../../lib/format";
+import { dirName, joinPath, num } from "../../lib/format";
 import { readPref, writePref } from "../../lib/recent";
 import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
@@ -63,19 +63,20 @@ function blankImage(url: string): Promise<boolean> {
 }
 
 export function PdfScreen({ active }: { active: boolean }) {
-  const { registerDrop, dragTarget, toast, pdfIntent, settings, setBadge } = useApp();
+  const { registerDrop, dragTarget, toast, pdfIntent, settings, setBadge, uiMode } = useApp();
   const [board, setBoardState] = useState<Board>(EMPTY);
   const boardRef = useRef(board);
   const past = useRef<Board[]>([]);
   const future = useRef<Board[]>([]);
   const [sel, setSel] = useState<Selection>(NO_SELECTION);
   const [focus, setFocus] = useState<string | null>(null);
-  const [zoom, setZoomState] = useState<Zoom>(() => readPref<Zoom>("kordoc-pdf-zoom", "m"));
+  const [zoom, setZoomState] = useState<Zoom>(() => readPref<Zoom>("kordoc-pdf-zoom", "l"));
   const [opening, setOpening] = useState<{ done: number; total: number; name: string } | null>(null);
   const [finding, setFinding] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuEntry[] } | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [spec, setSpec] = useState<string | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
   const [opts, setOpts] = useState<SaveOpts>(DEFAULT_SAVE);
   const thumbs = useThumbs(ZOOM[zoom]);
   const save = useTask<SaveResult>();
@@ -188,7 +189,7 @@ export function PdfScreen({ active }: { active: boolean }) {
         if (it.blank || (url && (await blankImage(url)))) found.push(it.key);
       }
       setSel(selectKeys(found, found[0] ?? null));
-      toast(found.length ? `빈 쪽 ${num(found.length)}개를 골랐습니다. 지우려면 Delete 를 누르세요.` : "빈 쪽이 없습니다.", "info");
+      toast(found.length ? `빈 쪽 ${num(found.length)}개를 골랐습니다. 지우려면 Delete를 누르세요.` : "빈 쪽이 없습니다.", "info");
     } finally {
       setFinding(false);
     }
@@ -198,8 +199,10 @@ export function PdfScreen({ active }: { active: boolean }) {
   const names = useMemo(() => {
     const typed = opts.name.trim().replace(/\.pdf$/i, "");
     const base = typed || boardName(board);
+    // _합본 은 쪽이 실제로 두 파일 이상에서 왔을 때만 (넣었다가 쪽을 다 지운 파일은 세지 않는다)
+    const used = new Set(board.items.map((it) => it.file).filter(Boolean)).size;
     return {
-      all: typed || (board.files.length ? `${base}${board.files.length > 1 ? "_합본" : "_정리"}` : ""),
+      all: typed || (board.files.length ? `${base}${used > 1 ? "_합본" : "_정리"}` : ""),
       selected: selectedName(base, board.items, sel.keys),
       split: base,
     };
@@ -213,7 +216,10 @@ export function PdfScreen({ active }: { active: boolean }) {
     void save.run(async ({ signal, onProgress }) => {
       const common = { source: b.files[0]?.path, ...(opts.outDir ? { output_dir: opts.outDir } : {}) };
       if (kind === "images") {
-        const r = await rpc("pdf_to_images", { ...common, items: imageItems(b, keys), format: opts.imageFormat, dpi: opts.dpi }, { signal, onProgress });
+        // 이름 칸에 적은 이름이 있으면 그 이름으로 (<이름>_그림 폴더). 엔진은 source 의 이름·폴더를 쓴다
+        const typed = opts.name.trim().replace(/.pdf$/i, "");
+        const source = typed && b.files[0] ? joinPath(dirName(b.files[0].path), `${typed}.pdf`) : common.source;
+        const r = await rpc("pdf_to_images", { ...common, source, items: imageItems(b, keys), format: opts.imageFormat, dpi: opts.dpi }, { signal, onProgress });
         void notifySystem("KorDoc AI: PDF 작업 끝", `그림 ${r.files.length}장을 저장했습니다`);
         return { kind: "images", dir: r.output_dir, count: r.files.length };
       }
@@ -354,11 +360,11 @@ export function PdfScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="PDF 작업" sub="파일을 넣고 쪽을 고르거나 옮긴 뒤 저장합니다. 원본 파일은 그대로 둡니다."
-        actions={<Button variant="secondary" onClick={pick}><FilePlus2 size={15} /> 파일 추가</Button>} />
-      <div className="kd-pdf">
+      <ScreenHeader title="PDF 작업" sub="쪽을 고르고 옮긴 뒤 새 PDF로 저장합니다. 원본은 그대로 둡니다."
+        actions={!opening && items.length > 0 && <Button variant="secondary" onClick={pick} data-tip="파일을 더 넣으면 쪽이 맨 뒤에 이어 붙습니다"><FilePlus2 size={15} /> 파일 추가</Button>} />
+      <div className="kd-pdf" data-side={items.length > 0}>
         <div className="kd-pdf-main">
-          {(board.files.length > 0 || opening) && (
+          {board.files.length > 0 && (
             <div className="kd-pdf-top">
             <div className="kd-pdf-files" role="list" aria-label="넣은 파일">
               {board.files.map((f) => {
@@ -375,7 +381,7 @@ export function PdfScreen({ active }: { active: boolean }) {
                   </div>
                 );
               })}
-              {opening && <div className="kd-pdf-chip kd-pdf-chip-wait" role="status">여는 중 ({opening.done + 1}/{opening.total}) {opening.name}</div>}
+              {opening && <Opening {...opening} />}
             </div>
             <div className="kd-seg" role="group" aria-label="쪽 크기">
               {(["s", "m", "l"] as const).map((z) => <button key={z} type="button" aria-pressed={zoom === z} onClick={() => setZoom(z)}>{z === "s" ? "작게" : z === "m" ? "보통" : "크게"}</button>)}
@@ -398,7 +404,7 @@ export function PdfScreen({ active }: { active: boolean }) {
               <button type="button" className="kd-pdf-tool" title={picked ? "고른 쪽을 오른쪽으로 (R)" : "모든 쪽을 오른쪽으로"} onClick={() => commit(rotate(boardRef.current, pickedOr(all), 90))}><RotateCw size={16} /><span className="kd-pdf-tool-label">{picked ? "오른쪽으로" : "모두 오른쪽"}</span></button>
               <button type="button" className="kd-pdf-tool" data-danger="true" disabled={!picked} title="고른 쪽 지우기 (Delete)" onClick={() => doRemove(sel.keys)}><Trash2 size={16} /><span className="kd-pdf-tool-label">지우기</span></button>
               <button type="button" className="kd-pdf-tool" disabled={!picked} title="고른 쪽 복제 (Ctrl+D)" onClick={() => commit(duplicate(boardRef.current, sel.keys))}><Copy size={16} /><span className="kd-pdf-tool-label">복제</span></button>
-              <button type="button" className="kd-pdf-tool" title="고른 쪽 뒤에(없으면 맨 뒤에) 빈 쪽" onClick={() => commit(insertBlank(boardRef.current, lastPicked()))}><FilePlus2 size={16} /><span className="kd-pdf-tool-label">빈 쪽</span></button>
+              <button type="button" className="kd-pdf-tool" data-tip="고른 쪽 뒤에 빈 쪽을 넣습니다. 고른 쪽이 없으면 지금 쪽 뒤, 지금 쪽도 없으면 맨 뒤에 넣습니다." onClick={() => commit(insertBlank(boardRef.current, lastPicked()))}><FilePlus2 size={16} /><span className="kd-pdf-tool-label">빈 쪽</span></button>
               <button type="button" className="kd-pdf-tool" onClick={moreMenu} aria-haspopup="menu" aria-label="더 보기"><Ellipsis size={16} /></button>
               <span className="kd-sep" />
               <button type="button" className="kd-pdf-tool" disabled={!past.current.length} title="되돌리기 (Ctrl+Z)" onClick={undo}><Undo2 size={16} /><span className="kd-pdf-tool-label">되돌리기</span></button>
@@ -412,19 +418,29 @@ export function PdfScreen({ active }: { active: boolean }) {
               onCut={(key) => commit(toggleCut(boardRef.current, key))} onMenu={cardMenu} onOpen={setPreview} onKey={onGridKey} />
           ) : (
             <div className="kd-pdf-desk" data-drop="pdf" data-over={dragTarget === "pdf"}>
-              <EmptyDesk onPick={pick} opening={!!opening} />
+              <EmptyDesk onPick={pick} opening={opening} />
             </div>
           )}
           {items.length > 0 && (
-            <div className="kd-pdf-foot" aria-hidden="true">
-              <span><kbd>끌기</kbd> 옮기기</span><span><kbd>Shift·Ctrl</kbd>+누르기 여러 쪽</span><span><kbd>R</kbd> 돌리기</span>
-              <span><kbd>Delete</kbd> 지우기</span><span><kbd>Alt+화살표</kbd> 한 칸 옮기기</span><span><kbd>두 번 누르기</kbd> 크게 보기</span><span><kbd>쪽 사이 가위</kbd> 나눌 곳</span>
+            <div className="kd-pdf-foot">
+              <button type="button" className="kd-pdf-keys" aria-expanded={keysOpen} aria-controls="pdf-keys" onClick={() => setKeysOpen((o) => !o)}>
+                <Keyboard size={14} /> 단축키
+              </button>
+              {keysOpen && (
+                <div id="pdf-keys" className="kd-pdf-keylist">
+                  <span><kbd>끌기</kbd> 옮기기</span><span><kbd>Shift·Ctrl</kbd>+누르기 여러 쪽</span><span><kbd>R</kbd> 돌리기</span>
+                  <span><kbd>Delete</kbd> 지우기</span><span><kbd>Alt+화살표</kbd> 한 칸 옮기기</span><span><kbd>두 번 누르기</kbd> 크게 보기</span><span><kbd>쪽 사이 가위</kbd> 나눌 곳</span>
+                  <span><kbd>Ctrl+S</kbd> PDF 하나로 저장</span><span><kbd>Ctrl+Z</kbd> 되돌리기</span>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <SavePanel board={board} sel={sel} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} names={names} defaultDir={defaultDir} configuredDir={!!outSetting}
-          busy={save.busy} progress={save.progress} error={save.error} result={save.result} onSave={doSave} onCancel={save.cancel} />
+        {items.length > 0 && (
+          <SavePanel board={board} sel={sel} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} names={names} defaultDir={defaultDir} configuredDir={!!outSetting}
+            full={uiMode === "full"} busy={save.busy} progress={save.progress} error={save.error} result={save.result} onSave={doSave} onCancel={save.cancel} />
+        )}
       </div>
 
       {menu && <ContextMenu items={menu.items} position={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} />}
@@ -444,23 +460,41 @@ export function PdfScreen({ active }: { active: boolean }) {
   );
 }
 
-function EmptyDesk({ onPick, opening }: { onPick: () => void; opening: boolean }) {
+/** 여는 중: "2개 중 1개 여는 중" + 진행 막대 (파일 하나면 움직이는 막대) */
+function Opening({ done, total, name, big }: { done: number; total: number; name: string; big?: boolean }) {
+  const pct = total > 1 ? Math.round((done / total) * 100) : null;
+  return (
+    <div className="kd-pdf-opening" data-big={big} role="status" aria-live="polite">
+      <span className="kd-pdf-opening-t">{total > 1 ? `${total}개 중 ${done + 1}개 여는 중` : "파일 여는 중"}</span>
+      <span className="kd-pdf-opening-name" title={name}>{name}</span>
+      <div className="kd-progress" data-indeterminate={pct == null} role="progressbar" aria-valuenow={pct ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+        <div style={pct != null ? { width: `${pct}%` } : undefined} />
+      </div>
+    </div>
+  );
+}
+
+function EmptyDesk({ onPick, opening }: { onPick: () => void; opening: { done: number; total: number; name: string } | null }) {
   const can: Array<[React.ReactNode, string, string]> = [
     [<Combine size={15} />, "합치기", "파일을 여러 개 넣고 PDF 하나로 저장"],
     [<Split size={15} />, "나누기", "쪽 사이 가위로 자르거나 쪽마다·몇 쪽씩"],
     [<FileOutput size={15} />, "쪽 뽑기·지우기", "쪽을 골라 그것만 저장하거나 Delete"],
-    [<FileStack size={15} />, "순서·돌리기", "끌어서 옮기고 R 로 90도씩 돌리기"],
+    [<FileStack size={15} />, "순서·돌리기", "끌어서 옮기고 R로 90도씩 돌리기"],
     [<ImageDown size={15} />, "그림으로 저장", "쪽마다 PNG·JPG, 그림 파일은 PDF로"],
     [<Shrink size={15} />, "용량 줄이기", "쪽 번호·워터마크와 함께 저장할 때"],
   ];
   return (
     <div className="kd-pdf-empty">
       <div className="kd-pdf-empty-sheets" aria-hidden="true"><span /><span /><span /></div>
-      <div>
-        <h2>{opening ? "파일을 여는 중입니다" : "PDF·그림·한글 문서를 끌어다 놓으세요"}</h2>
-        <p className="mt-1.5">한글·워드·엑셀은 PDF로 바꿔서 넣습니다. 여러 파일을 넣으면 쪽이 한 줄로 이어집니다.</p>
-      </div>
-      <Button size="lg" onClick={onPick}><FilePlus2 size={15} /> 파일 고르기</Button>
+      {opening ? <Opening {...opening} big /> : (
+        <>
+          <div>
+            <h2>PDF·그림·한글 문서를 끌어다 놓기</h2>
+            <p className="mt-1.5">한글·워드·엑셀은 PDF로 바꿔 넣습니다.</p>
+          </div>
+          <Button size="lg" onClick={onPick} data-tip="여러 개를 고르면 이름 차례로 쪽이 이어집니다"><FilePlus2 size={15} /> 파일 고르기</Button>
+        </>
+      )}
       <div className="kd-pdf-can">
         {can.map(([icon, t, d]) => <div key={t}><b>{icon}{t}</b><span>{d}</span></div>)}
       </div>

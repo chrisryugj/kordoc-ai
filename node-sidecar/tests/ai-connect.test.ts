@@ -148,7 +148,7 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     expect(getSettings().ai.codex.cli_path).toBe('');
   });
 
-  it('허용하면 인터넷 AI 로 보고 보내기 전에 개인정보를 가린다(system 까지). 통신 기록에 프로그램 이름으로 남는다', async () => {
+  it('허용하면 외부 AI로 보고 보내기 전에 개인정보를 가린다(system 까지). 통신 기록에 프로그램 이름으로 남는다', async () => {
     await useClaude({ allow_subscription: true });
     forgetLogins();
     expect(aiStatus()).toMatchObject({ provider: 'claude-code', configured: true, is_cloud: true });
@@ -177,10 +177,10 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     await updateSettings({ privacy: { offline: true } });
     const before = runs();
     try {
-      expect(aiStatus().error).toMatch(/폐쇄망 모드에서는 인터넷 AI를 쓸 수 없습니다/);
+      expect(aiStatus().error).toMatch(/폐쇄망 모드에서는 외부 AI를 쓸 수 없습니다/);
       await expect(ask({ messages: [{ role: 'user', content: 'x' }], signal: signal() })).rejects.toThrow(/폐쇄망/);
       const st = await subscriptionStatus({});
-      expect(st.statuses.map((x) => x.state)).toEqual(['offline', 'offline']);
+      expect(st.statuses.map((x) => x.state)).toEqual(['offline', 'offline', 'offline']);
       await expect(subscriptionModels({ provider: 'codex' }, signal())).rejects.toThrow(/폐쇄망/);
       expect(runs()).toBe(before);
     } finally {
@@ -200,7 +200,7 @@ describe('구독 계정 — 앱 쪽 규칙', () => {
     try {
       await updateSettings({ ai: { provider: 'claude-code', allow_subscription: true } }); // 고정값은 못 바꾼다
       expect(aiStatus().error).toMatch(/기관에서 구독 계정/);
-      expect((await subscriptionStatus({})).statuses.map((x) => x.state)).toEqual(['disabled', 'disabled']);
+      expect((await subscriptionStatus({})).statuses.map((x) => x.state)).toEqual(['disabled', 'disabled', 'disabled']);
       expect(runs()).toBe(before);
     } finally {
       usePolicy();

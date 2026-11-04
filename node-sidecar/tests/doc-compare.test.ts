@@ -91,7 +91,7 @@ describe('compare_hwpx', () => {
   });
 
   it('같은 문서는 안내', async () => {
-    await expect(call('compare_hwpx', { old_path: oldPath, new_path: oldPath })).rejects.toThrow(/바뀐 곳을 찾지 못했습니다/);
+    await expect(call('compare_hwpx', { old_path: oldPath, new_path: oldPath })).rejects.toThrow(/두 문서 내용이 같습니다/);
   });
 
   it.skipIf(!hasCorpus('hwp5/source.hwp', 'hwp5/target.hwp'))('HWP5 실문서끼리', async () => {

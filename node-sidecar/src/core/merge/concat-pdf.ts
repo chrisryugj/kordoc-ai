@@ -6,6 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
+import { resultDir } from '../output/index.js';
 
 /** 여러 PDF를 하나로 병합 */
 export async function concatPdf(
@@ -24,7 +25,7 @@ export async function concatPdf(
     sendProgress({
       current: i + 1,
       total: files.length,
-      message: `PDF 병합 ${i + 1}/${files.length}: ${basename(files[i])}`,
+      message: `PDF 합치는 중 ${i + 1}/${files.length}: ${basename(files[i])}`,
     });
 
     try {
@@ -38,7 +39,7 @@ export async function concatPdf(
     }
   }
 
-  if (merged.getPageCount() === 0) throw new Error('병합할 수 있는 PDF 파일이 없습니다');
+  if (merged.getPageCount() === 0) throw new Error('합칠 수 있는 PDF 파일이 없습니다');
 
   await mkdir(dirname(output_path), { recursive: true });
   const outputBytes = await merged.save();
@@ -67,6 +68,8 @@ export interface SplitPdfParams {
 
 export interface SplitPdfResult {
   success: boolean;
+  /** 실제로 쓴 폴더 (전에 나눈 결과가 있으면 (2) 폴더) */
+  output_dir: string;
   output_files: string[];
   total_pages: number;
 }
@@ -134,8 +137,8 @@ export async function extractPdfPages(
 
   if (targetIndices.length === 0) {
     throw new Error(mode === 'include'
-      ? '추출할 페이지가 없습니다'
-      : '제외 후 남은 페이지가 없습니다');
+      ? '뽑을 쪽이 없습니다'
+      : '빼고 나면 남는 쪽이 없습니다');
   }
 
   signal.throwIfAborted();
@@ -174,14 +177,15 @@ export async function splitPdf(
   params: SplitPdfParams,
   signal: AbortSignal,
 ): Promise<SplitPdfResult> {
-  const { file, output_dir, mode = 'each', ranges } = params;
+  const { file, mode = 'each', ranges } = params;
   const buffer = await readFile(file);
   const srcDoc = await PDFDocument.load(buffer);
   const totalPages = srcDoc.getPageCount();
   const outputFiles: string[] = [];
   const baseName = basename(file, '.pdf');
 
-  await mkdir(output_dir, { recursive: true });
+  // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
+  const output_dir = resultDir(params.output_dir);
 
   logger.info(`[split-pdf] ${file} (${totalPages}p) → ${mode} 모드`);
 
@@ -192,7 +196,7 @@ export async function splitPdf(
       const doc = await PDFDocument.create();
       const pages = await doc.copyPages(srcDoc, groups[gi]);
       for (const page of pages) doc.addPage(page);
-      const outPath = `${output_dir}/${baseName}_${gi + 1}.pdf`;
+      const outPath = join(output_dir, `${baseName}_${gi + 1}.pdf`);
       await writeFile(outPath, await doc.save());
       outputFiles.push(outPath);
     }
@@ -203,13 +207,13 @@ export async function splitPdf(
       sendProgress({
         current: i + 1,
         total: totalPages,
-        message: `PDF 분리 ${i + 1}/${totalPages}쪽`,
+        message: `PDF 나누는 중 ${i + 1}/${totalPages}쪽`,
       });
 
       const doc = await PDFDocument.create();
       const [page] = await doc.copyPages(srcDoc, [i]);
       doc.addPage(page);
-      const outPath = `${output_dir}/${baseName}_p${String(i + 1).padStart(3, '0')}.pdf`;
+      const outPath = join(output_dir, `${baseName}_p${String(i + 1).padStart(3, '0')}.pdf`);
       await writeFile(outPath, await doc.save());
       outputFiles.push(outPath);
     }
@@ -219,6 +223,7 @@ export async function splitPdf(
 
   return {
     success: true,
+    output_dir,
     output_files: outputFiles,
     total_pages: totalPages,
   };

@@ -101,11 +101,6 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="kd-small kd-muted text-pretty">
-        {keeps ? "한글 문서는 서식을 그대로 두고 글자만 가린 사본을 만듭니다."
-          : asPdf ? "PDF·스캔·그림은 개인정보 자리를 검게 칠한 PDF를 만듭니다. 글자층을 지워 가린 글이 복사되지 않습니다."
-          : "이 형식은 가린 글을 글 파일(.md)로 만듭니다."} 원본은 건드리지 않습니다.
-      </p>
       <Field label="쓰임">
         <div className="flex flex-wrap gap-1.5 pb-1">
           <button type="button" className="kd-chip kd-chip-lg" aria-pressed={people}
@@ -135,7 +130,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
       {keeps && <Check label="가린 사본을 PDF로도 저장" checked={alsoPdf} onChange={setAlsoPdf} />}
 
       {preview.busy ? <Working label="개인정보를 찾는 중" /> : (
-        <div><Button variant="secondary" onClick={runPreview} disabled={!rules.size}><ScanSearch size={14} /> 미리 찾아보기</Button></div>
+        <div><Button variant="secondary" onClick={runPreview} disabled={!rules.size}
+          data-tip={`${keeps ? "서식을 그대로 두고 글자만 가린 사본을 만듭니다." : asPdf ? "개인정보 자리를 검게 칠하고 글자층을 지운 PDF를 만듭니다." : "가린 글을 글 파일(.md)로 만듭니다."} 먼저 찾은 곳을 보여 주고, 원본은 그대로 둡니다.`}><ScanSearch size={14} /> 미리 찾아보기</Button></div>
       )}
       <ErrorLine message={preview.error} />
 
@@ -170,11 +166,11 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
               <span className="block font-semibold">아직 다 가려지지 않았을 수 있습니다: 의심 {num(s.residual)}곳</span>
               <span className="block mt-0.5">
                 {s.unscanned ? `글자를 읽지 못한 곳이 ${num(s.unscanned)}곳${s.unscanned_pages?.length ? `(${s.unscanned_pages.join("·")}쪽)` : ""} 있습니다. ` : ""}
-                가린 뒤 다시 검사했더니 개인정보로 보이는 곳이 남았습니다. 작업대에 연 사본을 직접 확인한 뒤 내보내세요.
+                가린 뒤 다시 검사했더니 개인정보로 보이는 곳이 남았습니다. 문서 화면에 연 사본을 직접 확인한 뒤 내보내세요.
               </span>
             </Note>
           )}
-          <SavedFile path={s.output_path} label={`${num(s.total)}건을 가린 사본을 저장하고 작업대에 열었습니다`} />
+          <SavedFile path={s.output_path} label={`${num(s.total)}건을 가린 사본을 저장하고 문서 화면에 열었습니다`} />
           {s.pdf_path && <SavedFile path={s.pdf_path} label="PDF로도 저장했습니다" />}
           {s.residual === 0 && <Note tone="ok">가린 뒤 다시 검사했더니 고른 항목에서 남은 곳이 없습니다.{uncheckedLine(s)}</Note>}
           {s.kept ? <p className="kd-small kd-muted kd-num">남길 것 {num(s.kept)}곳은 가리지 않았습니다.</p> : null}

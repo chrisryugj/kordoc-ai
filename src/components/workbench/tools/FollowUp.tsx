@@ -30,9 +30,10 @@ export function FollowUp({ doc }: { doc: OpenDoc }) {
 
   return (
     <section className="flex flex-col gap-2.5" aria-label="이 공문으로 이어서">
-      <h3 className="kd-h2">이 공문으로 이어서</h3>
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" onClick={addInbox} disabled={inbox.busy}><Inbox size={14} /> 접수함에 넣기</Button>
+        <Button variant="secondary" onClick={addInbox} disabled={inbox.busy} data-tip="보낸 곳·요청 사항·제출 기한을 뽑아 접수함에 기한 순으로 둡니다.">
+          <Inbox size={14} /> 접수함에 넣기
+        </Button>
       </div>
       <ErrorLine message={inbox.error} />
       {inbox.result ? (
@@ -42,7 +43,7 @@ export function FollowUp({ doc }: { doc: OpenDoc }) {
             <button type="button" className="kd-link kd-small kd-hit32" onClick={() => go("inbox")}>접수함에서 보기</button>
           </Note>
         </div>
-      ) : <p className="kd-small kd-muted">접수함에 넣으면 보낸 곳과 요청 사항, 제출 기한을 뽑아 기한이 가까운 차례로 챙겨 줍니다.</p>}
+      ) : null}
     </section>
   );
 }

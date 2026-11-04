@@ -1,8 +1,7 @@
 /** 문서 수합 — 서식이 다른 문서를 AI 로 뽑기 (가짜 OpenAI 호환 서버) · AI 가 없으면 따로 볼 문서로 */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { markdownToHwpx } from 'kordoc';
 import { startFakeOpenAi, type FakeServer } from './ai-fake-server.js';
@@ -15,8 +14,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 
 import { updateSettings } from '../src/infra/config.js';
 import { collectGather } from '../src/core/collect/gather.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-gather-ai-'));
+const dir = tempDir('kordoc-gather-ai-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const SAMPLE = (d: string) => join(__dirname, '..', 'samples', '취합', `교육수요조사서_${d}.hwpx`);
 const signal = () => new AbortController().signal;

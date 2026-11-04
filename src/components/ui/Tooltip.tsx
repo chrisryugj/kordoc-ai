@@ -98,6 +98,7 @@ export function Tooltip({ children, content, position = "top", delay = 300, disa
         onPointerDown={hide}
         onFocus={showOnFocus}
         onBlur={hide}
+        className="kd-tooltip-host"
         style={{ display: "inline-flex" }}
       >
         {children}

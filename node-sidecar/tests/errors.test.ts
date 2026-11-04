@@ -29,6 +29,17 @@ describe('파일 오류·이름·글자 코드', () => {
     expect(text(toUserError(new Error('Input buffer contains unsupported image format')))).toMatch(/PNG·JPG/);
   });
 
+  it('깨진 PDF·한글 문서의 개발자 문장을 원인별 할 일로', async () => {
+    const { toUserError } = await import('../src/core/errors.js');
+    const pdf = text(toUserError(new Error('Failed to parse PDF document (line:0 col:18 offset=9): No PDF header found')));
+    expect(pdf).toMatch(/^PDF로 읽을 수 없는 파일입니다\. 파일이 손상됐거나 저장이 끝나지 않은 파일일 수 있습니다\. PDF 보기 프로그램에서 열리는지/);
+    const hangul = text(toUserError(new Error('렌더 미지원 형식(unknown): 레이아웃 렌더는 HWPX·HWP 만 지원합니다')));
+    expect(hangul).toMatch(/^한글 문서로 읽을 수 없는 파일입니다\..*한글에서 열리는지 확인/);
+    const hwp = text(toUserError(new Error('FileHeader 스트림 없음')));
+    expect(hwp).toMatch(/^HWP 문서의 머리 정보가 없어 열 수 없습니다\..*한글에서 열리는지 확인/);
+    for (const m of [pdf, hangul, hwp]) expect(m).not.toMatch(/[A-Za-z]{4,}/);
+  });
+
   it('윈도 예약 이름은 확장자가 붙어도 피한다', async () => {
     const { safeFileName } = await import('../src/core/output/index.js');
     expect(safeFileName('con.2024')).toBe('_con.2024');
@@ -54,5 +65,32 @@ describe('빠진 부품 (kordoc MISSING_DEPENDENCY)', () => {
       expect(m).not.toMatch(/npm/i);
     }
     expect(MISSING_PART).toMatch(/설정 › 엔진 점검/);
+  });
+});
+
+describe('깨진 문서 열기 (doc_info)', () => {
+  it('한글·PDF 확장자인데 내용을 못 알아보면 형식 탓이 아니라 손상·저장 덜 됨으로 알린다', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { docInfo } = await import('../src/core/files/index.js');
+    const dir = await mkdtemp(join(tmpdir(), 'kd-broken-'));
+    try {
+      const cases: Array<[string, Buffer]> = [
+        ['내용이 엉뚱한.hwpx', Buffer.from('저장이 끝나지 않은 파일 '.repeat(20))],
+        ['반쯤 저장된.hwpx', Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(300, 7)])],
+        ['깨진.pdf', Buffer.from('%PDF-1.7\n깨진 내용')],
+      ];
+      for (const [name, bytes] of cases) {
+        await writeFile(join(dir, name), bytes);
+        const msg = await docInfo(join(dir, name)).then(() => '열림', (e: Error) => e.message);
+        expect(msg, name).toMatch(/손상됐거나 저장이 끝나지 않은/);
+        expect(msg, name).not.toMatch(/지원하지 않는/);
+      }
+      await writeFile(join(dir, '빈.hwpx'), Buffer.alloc(0));
+      expect(await docInfo(join(dir, '빈.hwpx')).then(() => '', (e: Error) => e.message)).toMatch(/빈 파일.*원본을 다시 받아/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

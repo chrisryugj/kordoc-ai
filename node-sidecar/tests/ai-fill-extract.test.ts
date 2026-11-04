@@ -1,8 +1,7 @@
 /** 서식 칸 값 제안·여러 문서 표 추출 — 가짜 OpenAI 호환 서버 */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import { startFakeOpenAi, lastUser, systemOf, type ChatBody, type FakeServer } from './ai-fake-server.js';
@@ -16,8 +15,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 import { updateSettings } from '../src/infra/config.js';
 import { suggestFill } from '../src/core/ai/fill.js';
 import { extractTable } from '../src/core/ai/extract.js';
+import { tempDir } from './tmp-dirs.js';
 
-const dir = mkdtempSync(join(tmpdir(), 'kordoc-ai-fill-'));
+const dir = tempDir('kordoc-ai-fill-');
 process.env.KORDOC_AI_DATA_DIR = dir;
 const signal = () => new AbortController().signal;
 

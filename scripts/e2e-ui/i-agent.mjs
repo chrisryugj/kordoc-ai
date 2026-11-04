@@ -72,8 +72,7 @@ await invoke('update_settings', { settings: { ai: { provider: 'openai', openai: 
 const ui = await openUi({ relay: RELAY, width: 1400, height: 900, prefs: { 'kordoc-first-run-done': true } });
 const { page } = ui;
 try {
-  await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [DOC] }) });
-  await ui.waitText('한글 편집기로 열기', 30000);
+  await ui.emitOpen([DOC], '한글 편집기로 열기');
   await ui.click('한글 편집기로 열기');
   await page.waitForFunction(() => { const e = document.querySelector('.kd-edit'); return e && !e.hidden && !document.querySelector('.kd-editor-cover'); }, { timeout: 120000 });
   await sleep(1500);
@@ -88,8 +87,8 @@ try {
   const before = { old: await count('가온시'), paras: await probe('(w) => w.getParagraphCount(0)') };
 
   await ui.click('AI 대화', { exact: true });
-  await page.waitForSelector('textarea[aria-label="편집기 AI 에게 요청"]');
-  await page.type('textarea[aria-label="편집기 AI 에게 요청"]', '기관명을 나온시로 바꾸고 목표 표를 넣어 줘');
+  await page.waitForSelector('textarea[aria-label="편집기 AI에게 요청"]');
+  await page.type('textarea[aria-label="편집기 AI에게 요청"]', '기관명을 나온시로 바꾸고 목표 표를 넣어 줘');
   await page.keyboard.press('Enter');
   await ui.waitText('기관명을 바꾸고 목표 표를 넣었습니다', 60000);
   await sleep(800);

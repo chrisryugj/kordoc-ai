@@ -24,10 +24,10 @@ import { printFiles, listPrinters } from '../../core/print/index.js';
 import { formSchema, formFill, patchBlocks } from '../../core/fill/index.js';
 import { renderPreview } from '../../core/preview/index.js';
 import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '../../core/edit/index.js';
-import { outputDir, outputFile, stemOf, uniquePath } from '../../core/output/index.js';
+import { outputFile, splitDirOf, stemOf } from '../../core/output/index.js';
 import { bool, num, oneOf, optPath, registrar, reqPath, reqPaths, str, strList } from './params.js';
 import { registerDocumentWork } from './documents-work.js';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 
 const REDACT_RULES: readonly RedactRule[] = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'crn', 'ip', 'name', 'address'];
 
@@ -80,15 +80,21 @@ export function registerDocuments(router: RpcRouter): void {
     allow_empty: bool(p.allow_empty),
   }, signal), { heavy: true });
   reg('lint', (p, signal) => lintDoc({ text: typeof p.text === 'string' ? p.text : undefined, path: optPath(p.path), numbers: bool(p.numbers), styles: bool(p.styles), munche: bool(p.munche) }, signal));
-  reg('redact', (p, signal) => redact({
-    path: reqPath(p.path),
-    rules: rules(p.rules),
-    mask_char: str(p.mask_char),
-    dry_run: bool(p.dry_run),
-    output_path: optPath(p.output_path),
-    keep: strList(p.keep),
-    also_pdf: bool(p.also_pdf),
-  }, signal), { heavy: true });
+  reg('redact', (p, signal) => {
+    const output_path = optPath(p.output_path);
+    const output_dir = output_path ? undefined : optPath(p.output_dir);
+    return redact({
+      path: reqPath(p.path),
+      rules: rules(p.rules),
+      mask_char: str(p.mask_char),
+      dry_run: bool(p.dry_run),
+      output_path,
+      // 폴더만 받으면 공개용 사본 이름 (<이름>_공개용.<확장자>, 같은 이름은 (2))
+      ...(output_dir ? { output_dir, suffix: '공개용' } : {}),
+      keep: strList(p.keep),
+      also_pdf: bool(p.also_pdf),
+    }, signal);
+  }, { heavy: true });
   reg('redact_batch', (p, signal) => redactBatch({ paths: reqPaths(p.paths), rules: rules(p.rules), mask_char: str(p.mask_char), output_dir: optPath(p.output_dir), keep: strList(p.keep) }, signal), { heavy: true });
 
   // ── 한글 문서 손질 ──
@@ -116,13 +122,14 @@ export function registerDocuments(router: RpcRouter): void {
   }, { heavy: true });
   reg('split_pdf', (p, signal) => {
     const file = reqPath(p.input_path);
-    const output_dir = optPath(p.output_dir) ?? uniquePath(join(outputDir({ source: file }), `${stemOf(file)}_분리`));
+    // output_dir 는 상위 폴더: 그 안에 <이름>_분리 (이미 있고 비어 있지 않으면 core 가 (2) 폴더로)
+    const output_dir = splitDirOf(optPath(p.output_dir), file, `${stemOf(file)}_분리`);
     return splitPdf({ file, output_dir, mode: oneOf(p.mode, ['each', 'range'] as const), ranges: str(p.ranges) }, signal);
   }, { heavy: true });
-  // 한글 나누기: 구역·강제 쪽 나눔마다 서식 그대로 HWPX 여러 개 (결과 폴더 <이름>_나누기)
+  // 한글 나누기: 구역·강제 쪽 나눔마다 서식 그대로 HWPX 여러 개 (결과 폴더 <이름>_나누기, output_dir 는 상위 폴더)
   reg('split_hangul', (p, signal) => {
     const file = reqPath(p.path);
-    const output_dir = optPath(p.output_dir) ?? uniquePath(join(outputDir({ source: file }), `${stemOf(file)}_나누기`));
+    const output_dir = splitDirOf(optPath(p.output_dir), file, `${stemOf(file)}_나누기`);
     return splitHangul({ path: file, output_dir, mode: oneOf(p.mode, ['auto', 'section', 'pagebreak'] as const) }, signal);
   }, { heavy: true });
   reg('pdf_page_count', (p) => getPdfPageCount(reqPath(p.input_path)));

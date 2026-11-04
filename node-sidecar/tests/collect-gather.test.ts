@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import JSZip from 'jszip';
 import { markdownToHwpx } from 'kordoc';
 import { call, sample, setupEnv } from './doc-helpers.js';
@@ -202,6 +202,25 @@ describe('collect_gather', () => {
     expect(r.missing).toEqual([]);
     expect(r.reminder).toBe('');
     expect(r.status.map((s: { dept: string }) => s.dept)).toEqual(['기획예산과', '도시계획과', '민원봉사과', '복지정책과', '총무과']);
+    // 제출 현황에 전체 경로도 (files 와 같은 차례)
+    for (const s of r.status as Array<{ files: string[]; paths: string[] }>) {
+      expect(s.paths).toHaveLength(s.files.length);
+      s.paths.forEach((p, i) => { expect(files.slice(0, 5)).toContain(p); expect(basename(p)).toBe(s.files[i]); });
+    }
+  }, 60_000);
+
+  it('하위 폴더의 같은 이름 파일을 경로로 가른다', async () => {
+    const a = join(dir, '가', '조사서.hwpx');
+    const b = join(dir, '나', '조사서.hwpx');
+    mkdirSync(dirname(a), { recursive: true });
+    mkdirSync(dirname(b), { recursive: true });
+    copyFileSync(files[0], a);
+    copyFileSync(files[1], b);
+    const r = await call('collect_gather', { paths: [a, b] });
+    const deptOf = (p: string) => (r.status as Array<{ dept: string; paths: string[] }>).find((s) => s.paths.includes(p))?.dept;
+    expect(deptOf(a)).toBeTruthy();
+    expect(deptOf(b)).toBeTruthy();
+    expect(deptOf(a)).not.toBe(deptOf(b));
   }, 60_000);
 
   it('읽지 못한 파일은 실패로 남기고 나머지는 모은다', async () => {

@@ -133,8 +133,9 @@ function RecentDocs() {
 }
 
 export function HomeScreen({ active }: { active: boolean }) {
-  const { openDocs, startBatch, startCreate, go, askAbout, recent } = useApp();
-  const [allOpen, setAllOpen] = useState(() => readPref<boolean>("kordoc-home-all", false));
+  const { openDocs, startBatch, startCreate, go, askAbout, recent, uiMode } = useApp();
+  const easy = uiMode === "easy";
+  const [allOpen, setAllOpen] = useState(() => readPref<boolean>("kordoc-home-all", true));
 
   const openWith = useCallback(async (tool?: ToolId, hwpxOnly?: boolean) => {
     const paths = await pickFiles(hwpxOnly ? { filters: [{ name: "HWPX 문서", extensions: ["hwpx"] }] } : {});
@@ -145,15 +146,16 @@ export function HomeScreen({ active }: { active: boolean }) {
     <div className="kd-screen" hidden={!active}>
       <div className="kd-body">
         <div className="kd-home">
-          <HomeAgent />
-          <ImpactLine />
-          <Recovered active={active} />
+          {/* 급한 것(기한 공문·꺼진 문서)을 맨 위에, 그다음 입력창과 할 일 */}
           <DueSoon active={active} />
+          <Recovered active={active} />
+          <HomeAgent />
+          {!easy && <ImpactLine />}
           <HomeTasks />
           {/* 문서를 놓는 자리는 맨 위 말로 시키기 입력창 (홈 어디에 놓아도 거기 붙는다) */}
           {recent.length > 0 ? <RecentDocs /> : <HomeSamples />}
           {/* 기능 전체 목차는 접어 둔다 (처음 쓰는 사람에게 할 일 25개는 많다). 연 상태는 기억 */}
-          <details className="kd-allfeatures" open={allOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setAllOpen(o); writePref("kordoc-home-all", o); }}>
+          <details className="kd-allfeatures kd-adv" open={allOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setAllOpen(o); writePref("kordoc-home-all", o); }}>
             <summary><LayoutGrid size={15} /> 모든 기능 보기</summary>
             <HomeIndex
               onOpen={openWith}
@@ -165,7 +167,6 @@ export function HomeScreen({ active }: { active: boolean }) {
               onPdf={() => go("pdf")}
             />
           </details>
-          {recent.length > 0 && <HomeSamples />}
         </div>
       </div>
     </div>

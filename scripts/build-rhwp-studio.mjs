@@ -13,7 +13,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AI_PLUGIN_FILES, ALLOW_FILE, allowAiPlugin } from './rhwp-patches.mjs';
@@ -102,6 +102,12 @@ if (/registerSW|serviceWorker\.register/.test(html)) throw new Error('[rhwp-stud
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 cpSync(dist, join(OUT, 'studio'), { recursive: true, dereference: true });
+// 윈도 git 은 public/fonts 심볼릭 링크(→ ../../assets/fonts)를 경로 한 줄짜리 글 파일로 받는다 → 글꼴이 빠져 편집기가 404
+const studioFonts = join(OUT, 'studio', 'fonts');
+if (!statSync(studioFonts, { throwIfNoEntry: false })?.isDirectory()) {
+  rmSync(studioFonts, { force: true });
+  cpSync(join(src, 'assets', 'fonts'), studioFonts, { recursive: true });
+}
 mkdirSync(join(OUT, 'sdk'), { recursive: true });
 for (const f of ['index.js', 'transport.js', 'document-agent-contract.js']) cpSync(join(sdkPkg, f), join(OUT, 'sdk', f));
 for (const f of readdirSync(HOST_SRC)) cpSync(join(HOST_SRC, f), join(OUT, f));

@@ -1,7 +1,7 @@
 /** AI 비서 — 문서 여러 개를 대화에 붙이고 묻기(근거 [n] 누르면 작업대 그 쪽) + 글 다듬기 */
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpenText, Copy, FilePen, FileUp, MessageSquareText, Send, Sparkles, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenText, Copy, FilePen, FileUp, MessageSquareText, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import type { Citation } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { rpc } from "../../lib/rpc";
@@ -154,13 +154,14 @@ function Rewrite() {
 }
 
 export function AssistantScreen({ active }: { active: boolean }) {
-  const { assistantIntent } = useApp();
+  const { assistantIntent, go } = useApp();
   const [tab, setTab] = useState<"ask" | "rewrite">("ask");
   useEffect(() => { if (assistantIntent?.value.tab) setTab(assistantIntent.value.tab); }, [assistantIntent]);
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="물어보기" sub="문서를 붙여 놓고 묻거나, 쓴 글을 공문서답게 다듬습니다. 일을 시킬 땐 홈의 '무엇을 할까요?'">
+      <ScreenHeader title="문서에 묻기·글 다듬기" sub="붙인 문서에 물으면 답마다 근거 쪽을 달아 줍니다. 쓴 글은 공문서 말투로 다듬습니다."
+        actions={<Button variant="ghost" onClick={() => go("chat")}><ArrowLeft size={15} /> AI 대화로</Button>}>
         <div className="kd-tabs kd-head-tabs" role="tablist" aria-label="물어보기">
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "ask"} onClick={() => setTab("ask")}>묻기</button>
           <button type="button" role="tab" className="kd-tab" aria-selected={tab === "rewrite"} onClick={() => setTab("rewrite")}>다듬기</button>

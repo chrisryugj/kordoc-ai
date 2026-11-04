@@ -37,7 +37,7 @@ export function ShrinkOptions({ value, onChange }: { value: ShrinkChoice; onChan
   const badLimit = custom && !limited;
   return (
     <>
-      <Field label="첨부 한도" hint={badLimit ? "한도를 MB 숫자로 넣으세요. 예: 15" : limited ? "한도 안에 들 때까지 가볍게부터 차례로 줄입니다. 한도는 기관 전자결재 첨부 기준에 맞춰 고르세요." : "한도를 고르면 그 안에 들 때까지 알아서 줄입니다."}>
+      <Field label="첨부 한도" hint={badLimit ? "한도를 MB 숫자로 넣으세요. 예: 15" : limited ? "한도 안에 들 때까지 가볍게부터 차례로 줄입니다. 한도는 기관 전자결재 첨부 기준에 맞춰 고르세요." : "한도를 고르면 그 안에 들 때까지 줄입니다."}>
         <Seg label="첨부 한도" value={preset} onChange={(v) => {
           setCustom(v === "custom");
           set({ limit: v === "custom" ? (LIMITS.includes(value.limit) ? "15" : value.limit) : v });
@@ -76,11 +76,9 @@ export function ShrinkTool({ doc, info }: ToolProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="kd-small kd-muted text-pretty">결재 첨부 한도에 맞춰 PDF 속 그림을 줄입니다. 글자·표는 그대로라 복사·검색이 됩니다.</p>
-      {info.format !== "pdf" && <p className="kd-small kd-muted">이 문서는 PDF로 바꾼 뒤 줄입니다.</p>}
       <ShrinkOptions value={choice} onChange={(v) => { setChoice(v); task.reset(); }} />
       {task.busy ? <Working label="용량을 줄이는 중" progress={task.progress} onCancel={task.cancel} /> : (
-        <div><Button onClick={run}><FileDown size={14} /> 용량 줄이기</Button></div>
+        <div><Button onClick={run} data-tip={`결재 첨부 한도에 맞춰 PDF 속 그림을 줄인 새 PDF를 만듭니다. 글자·표는 그대로라 복사·검색이 됩니다.${info.format !== "pdf" ? " 이 문서는 PDF로 바꾼 뒤 줄입니다." : ""}`}><FileDown size={14} /> 용량 줄이기</Button></div>
       )}
       <ErrorLine message={task.error} />
       {r && (r.output_path ? (

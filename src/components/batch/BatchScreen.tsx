@@ -1,7 +1,8 @@
-/** 서무 도구 — 파일·폴더 여러 개 + 업무별 할 일 고르기 → 파일별 진행·결과·취소. 문서 수합(늦게 온 파일 이어 넣기)·폴더 지켜보기 */
+/** 여러 파일 한꺼번에: 파일 넣기 → 할 일·설정 → 아래 고정 시작, 끝나면 결과를 맨 위에. 문서 수합(늦게 온 파일 이어 넣기)·폴더 지켜보기 */
 
+import "./batch.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Circle, FilePlus2, FolderPlus, Loader2, Play, Trash2, XCircle, Layers } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, FilePlus2, FolderPlus, Loader2, Play, RotateCcw, Sparkles, Trash2, XCircle, Layers } from "lucide-react";
 import type { FileEntry } from "../../lib/contract";
 import { useApp, type BatchTaskId } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
@@ -11,13 +12,13 @@ import { useTask } from "../../hooks/useTask";
 import { detectFileType } from "../../utils/fileType";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
-import { Empty, ErrorLine, Note, Working } from "../common/Status";
+import { ErrorLine, Note, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 import { OrderList } from "../common/OrderList";
 import { MergeOrderDialog } from "../pipeline/MergeOrderDialog";
 import type { ImportedFile, MergeMode } from "../../types/pipeline";
-import { TASKS, GROUPS, DEFAULT_OPTS, accepts, type BatchOpts } from "./tasks";
-import { runTask, type Outcome, type RowState } from "./runners";
+import { TASKS, GROUPS, DEFAULT_OPTS, accepts, resultLine, type BatchOpts } from "./tasks";
+import { mergeFailed, runTask, type Outcome, type RowState } from "./runners";
 import { TaskOptions } from "./TaskOptions";
 import { keepFromSettings } from "../workbench/tools/ReviewTool";
 import { BatchResults } from "./BatchResults";
@@ -34,7 +35,8 @@ function RowStatus({ s }: { s?: RowState }) {
 }
 
 export function BatchScreen({ active }: { active: boolean }) {
-  const { batchIntent, registerDrop, dragTarget, setBadge, ai, toast, settings, startCompare, startPdf } = useApp();
+  const { batchIntent, registerDrop, dragTarget, setBadge, ai, toast, settings, startCompare, startPdf, uiMode, setUiMode, openSettings } = useApp();
+  const mainRef = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [skipped, setSkipped] = useState(0);
   // 서무가 가장 품이 많이 드는 일 (부서 제출물 모으기)
@@ -49,8 +51,14 @@ export function BatchScreen({ active }: { active: boolean }) {
   const lateRef = useRef({ task, gatherPrev });
   lateRef.current = { task, gatherPrev };
   const run = useTask<Outcome | null>();
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const busyRef = useRef(false);
+  busyRef.current = run.busy;
   const handled = useRef(0);
   const def = TASKS.find((t) => t.id === task)!;
+  // 쉬운 화면은 자주 쓰는 일만 (지금 고른 일은 늘 보임)
+  const shown = TASKS.filter((t) => uiMode === "full" || !t.adv || t.id === task);
   const usable = useMemo(() => files.filter((f) => accepts(def, f.format)), [files, def]);
 
   const add = useCallback(async (paths: string[], replace = false) => {
@@ -58,16 +66,13 @@ export function BatchScreen({ active }: { active: boolean }) {
     try {
       const r = await rpc("scan_paths", { paths });
       setSkipped(r.skipped);
-      let merged: FileEntry[] = [];
-      let added = 0;
-      setFiles((prev) => {
-        const base = replace ? [] : prev;
-        const have = new Set(base.map((f) => f.path));
-        const fresh = r.files.filter((f) => !have.has(f.path));
-        added = fresh.length;
-        merged = [...base, ...fresh];
-        return merged;
-      });
+      const base = replace ? [] : filesRef.current;
+      const have = new Set(base.map((f) => f.path));
+      const fresh = r.files.filter((f) => !have.has(f.path));
+      const added = fresh.length;
+      const merged = [...base, ...fresh];
+      filesRef.current = merged;
+      setFiles(merged);
       const { task: t, gatherPrev: prev } = lateRef.current;
       if (!replace && t === "collect" && prev && added) setLate((n) => n + added);
       if (replace) { setGatherPrev(""); setLate(0); }
@@ -80,10 +85,13 @@ export function BatchScreen({ active }: { active: boolean }) {
     }
   }, [toast, run]);
 
-  useEffect(() => registerDrop("batch", (p) => void add(p)), [registerDrop, add]);
+  useEffect(() => registerDrop("batch", (p) => {
+    if (busyRef.current) { toast("작업 중에는 파일을 넣을 수 없습니다. 끝나거나 멈춘 뒤 넣으세요.", "info"); return; }
+    void add(p);
+  }), [registerDrop, add, toast]);
   // 늦게 온 파일을 넣으면 다시 만들기 묻는 곳이 보이게 (결과 아래쪽에서 눌러도)
   useEffect(() => { if (late > 0) document.getElementById("gather-late")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [late]);
-  useEffect(() => setBadge("batch", run.busy ? "진행" : watchCount ? `감시 ${watchCount}` : undefined), [run.busy, watchCount, setBadge]);
+  useEffect(() => setBadge("batch", run.busy ? "진행" : watchCount ? `지켜봄 ${watchCount}` : undefined), [run.busy, watchCount, setBadge]);
 
   /** again: 문서 수합을 앞서 만든 엑셀로 다시 만들기 (overwrite 면 같은 파일을 바꾸고, 아니면 번호 붙은 새 파일) */
   const start = useCallback(async (list = usable, t = task, again?: { overwrite: boolean }) => {
@@ -91,9 +99,11 @@ export function BatchScreen({ active }: { active: boolean }) {
     // 쪽 다루기는 PDF 작업 화면에서 (쪽 그림을 보며 고르고 옮긴다)
     if (t === "pdftools") { startPdf({ paths: list.map((f) => f.path) }); return; }
     const gather = { ai: !!ai?.configured, ...(again && gatherPrev ? { previous: gatherPrev, overwrite: again.overwrite } : {}) };
-    const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
+    const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), defaultDir: settings?.convert.output_dir || undefined, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
     if (outcome?.kind === "gather") { setGatherPrev(outcome.result.output_path); setLate(0); }
-    if (outcome) void notifySystem("KorDoc AI: 서무 도구 작업 끝", outcome.message);
+    // 결과는 맨 위에 나온다: 작은 화면에서도 보이게 올린다
+    if (outcome) mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    if (outcome) void notifySystem("KorDoc AI: 여러 파일 작업 끝", outcome.message);
   }, [usable, task, opts, run, ai, gatherPrev, startPdf]);
 
   // 홈·우클릭·예제에서 넘어온 파일과 할 일 (우클릭은 바로 시작)
@@ -122,22 +132,24 @@ export function BatchScreen({ active }: { active: boolean }) {
     const ext = mode === "native" ? (ordered[0].type === "hwp" ? "hwpx" : ordered[0].type) : "md";
     const out = joinPath(dir, `수합_${stem(ordered[0].name)}${ordered.length > 1 ? `_외${ordered.length - 1}건` : ""}.${ext}`);
     // PDF 끼리 합치기는 합본 PDF 와 같은 길 하나로 (쪽 번호·워터마크 선택도 같다)
-    if (ext === "pdf") { void bundle(ordered.map((f) => f.path)); return; }
+    if (ext === "pdf") { void bundle(ordered.map((f) => f.path), outDir); return; }
     void run.run(async ({ signal }) => {
-      await rpc("merge_files", { files: ordered.map((f) => f.path), output_path: out, mode }, { signal });
-      return { kind: "single", message: `문서 ${ordered.length}개를 합쳤습니다`, path: out };
+      const r = (await rpc("merge_files", { files: ordered.map((f) => f.path), output_path: out, mode }, { signal })) as { output_path?: string } | null;
+      const bad = mergeFailed(r);
+      setRows(Object.fromEntries(ordered.map((f) => { const x = bad.find((b) => b.path === f.path); return [f.path, x ? { status: "fail", error: x.error } : { status: "ok" }]; })));
+      return { kind: "single", message: `문서 ${ordered.length - bad.length}개를 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out };
     });
   };
 
-  const bundle = (paths: string[]) => {
+  const bundle = (paths: string[], outDir?: string) => {
     const list = paths.map((p) => files.find((f) => f.path === p)!).filter(Boolean);
-    return run.run((ctx) => runTask("bundle", { ...ctx, files: list, opts, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
+    return run.run((ctx) => runTask("bundle", { ...ctx, files: list, opts: { ...opts, outDir: outDir || opts.outDir }, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
   };
 
-  const needAi = task === "extract" && !ai?.configured;
+  const needAi = !!def.ai && !ai?.configured;
   // 시작을 못 누르는 까닭 (단추 옆에 글로)
-  const blockReason = needAi ? "AI 연결이 필요합니다. 설정의 AI 연결에서 고르세요."
-    : def.min > 0 && !files.length ? "파일을 먼저 넣으세요. 아래에 끌어다 놓거나 파일 추가를 누르세요."
+  const blockReason = needAi ? "이 일은 AI가 문서를 읽습니다. AI를 켠 뒤 다시 오세요."
+    : def.min > 0 && !files.length ? "파일을 먼저 넣으세요."
     : usable.length < def.min ? (usable.length ? `파일이 ${def.min}개 이상 있어야 합니다.` : "넣은 파일 중에 이 일에 쓸 수 있는 형식이 없습니다.")
     : task === "extract" && !opts.columns.trim() ? "뽑을 항목을 적으세요."
     : task === "search" && !opts.query.trim() ? "찾을 낱말을 적으세요."
@@ -157,101 +169,153 @@ export function BatchScreen({ active }: { active: boolean }) {
   const done = Object.values(rows).filter((r) => r.status === "ok").length;
   const failed = Object.values(rows).filter((r) => r.status === "fail").length;
 
+  const pickIn = () => void pickFiles().then((p) => add(p));
+  const pickDir = () => void pickFolder().then((d) => { if (d) void add([d]); });
+  const clearAll = () => { setFiles([]); setRows({}); run.reset(); setGatherPrev(""); setLate(0); };
+  const showFiles = def.min > 0;
+  const ordered = task === "bundle" || task === "join";
+  const plan = resultLine(task, usable.map((f) => f.format), opts);
+  const lateNote = task === "collect" && late > 0 && !!gatherPrev && !run.busy;
+  const hasResult = !!run.result || !!run.error || lateNote;
+
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="서무 도구" sub="여러 파일을 골라 같은 일을 한 번에 돌립니다. 폴더째 넣어도 됩니다."
-        actions={task !== "watch" && (
-          <>
-            <Button variant="secondary" onClick={() => void pickFiles().then((p) => add(p))}><FilePlus2 size={15} /> 파일 추가</Button>
-            <Button variant="secondary" onClick={() => void pickFolder().then((d) => { if (d) void add([d]); })}><FolderPlus size={15} /> 폴더 추가</Button>
-          </>
-        )} />
+      <ScreenHeader title="여러 파일 한꺼번에" sub="파일마다 같은 일을 한 번에 합니다. 원본은 그대로 둡니다." />
       <div className="kd-batch">
         <nav className="kd-tasklist" aria-label="할 일">
-          {GROUPS.map((g) => (
+          {GROUPS.filter((g) => shown.some((t) => t.group === g)).map((g) => (
             <div key={g} className="mb-3">
               <h2 className="kd-label px-2 pb-1">{g}</h2>
-              {TASKS.filter((t) => t.group === g).map((t) => (
+              {shown.filter((t) => t.group === g).map((t) => (
                 <button key={t.id} type="button" className="kd-taskitem" data-task={t.id} aria-pressed={task === t.id} disabled={run.busy} onClick={() => pickTask(t.id)}>
-                  <span className="kd-row-title block">{t.title}</span>
+                  <span className="kd-row-title block">{t.title}{t.ai && !ai?.configured && <span className="kd-badge" data-tone="warn">AI 필요</span>}</span>
                   <span className="kd-row-desc block">{t.desc}</span>
                 </button>
               ))}
             </div>
           ))}
+          {shown.length < TASKS.length && (
+            <button type="button" className="kd-link kd-small px-2" onClick={() => setUiMode("full")}>
+              다른 일 {TASKS.length - shown.length}가지 더 보기 (전체 화면으로)
+            </button>
+          )}
         </nav>
 
-        <div className="kd-batch-main">
-          <WatchPanel active={task === "watch"} onCount={setWatchCount} />
-          {task !== "watch" && (
-            <>
-              <section className="kd-panel kd-batch-opts" aria-labelledby="task-t">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="kd-batch-col">
+          <div ref={mainRef} className="kd-batch-main">
+            <WatchPanel active={task === "watch"} onCount={setWatchCount} />
+            {task !== "watch" && (
+              <>
+                {hasResult && (
+                  <section className="kd-panel kd-batch-result" aria-label="결과" aria-live="polite">
+                    {lateNote && (
+                      <div id="gather-late"><Note tone="info">
+                        <p>늦게 온 파일 {num(late)}개를 넣었습니다. 앞서 만든 엑셀({baseName(gatherPrev)})을 다시 만듭니다.</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Button size="sm" data-tip="앞서 만든 엑셀을 새 내용으로 덮어씁니다" onClick={() => void start(usable, "collect", { overwrite: true })}>같은 파일 바꾸기</Button>
+                          <Button size="sm" variant="secondary" data-tip="앞 엑셀은 두고 이름에 번호를 붙인 새 엑셀을 만듭니다" onClick={() => void start(usable, "collect", { overwrite: false })}>새 파일로 만들기</Button>
+                        </div>
+                      </Note></div>
+                    )}
+                    <ErrorLine message={run.error} />
+                    {run.result && <BatchResults outcome={run.result} onAddLate={pickIn} />}
+                  </section>
+                )}
+
+                {showFiles && (
+                  <section className="kd-batch-files" data-drop="batch" aria-labelledby="batch-files-t">
+                    <div className="kd-block-head">
+                      <h2 id="batch-files-t" className="kd-h3 kd-batch-step"><span className="kd-batch-step-n" aria-hidden="true">1</span>파일</h2>
+                      {files.length > 0 && (
+                        <div className="kd-batch-files-act">
+                          <span className="kd-small kd-muted kd-num">파일 {num(files.length)}개{usable.length !== files.length ? ` (이 일에 쓰는 것 ${num(usable.length)}개)` : ""}</span>
+                          <button type="button" className="kd-link kd-small kd-hit32" disabled={run.busy} data-tip="목록에서만 뺍니다. 파일은 지우지 않습니다" onClick={clearAll}>모두 빼기</button>
+                          <Button size="sm" variant="secondary" disabled={run.busy} onClick={pickIn}><FilePlus2 size={14} /> 파일 추가</Button>
+                          <Button size="sm" variant="secondary" disabled={run.busy} data-tip="폴더 안 문서를 모두 넣습니다" onClick={pickDir}><FolderPlus size={14} /> 폴더 추가</Button>
+                        </div>
+                      )}
+                    </div>
+                    {skipped > 0 && <p className="kd-small kd-muted py-1">지원하지 않는 파일 {num(skipped)}개는 뺐습니다.</p>}
+                    {files.length === 0 ? (
+                      <div className="kd-dropzone kd-batch-drop mt-3" data-over={dragTarget === "batch"} data-tip="폴더를 놓으면 안쪽 문서까지 모두 넣습니다">
+                        <Layers size={28} className="kd-muted" aria-hidden="true" />
+                        <p className="kd-h3">파일·폴더를 끌어다 놓기</p>
+                        <div className="kd-batch-drop-btns">
+                          <Button onClick={pickIn}><FilePlus2 size={15} /> 파일 고르기</Button>
+                          <Button variant="secondary" data-tip="폴더 안 문서를 모두 넣습니다" onClick={pickDir}><FolderPlus size={15} /> 폴더 고르기</Button>
+                        </div>
+                      </div>
+                    ) : ordered ? (
+                      <div className="mt-2"><OrderList items={usable.map((f) => f.path)} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
+                    ) : (
+                      <ul className="kd-filetable">
+                        {files.map((f) => {
+                          const s = rows[f.path];
+                          const off = !accepts(def, f.format);
+                          return (
+                            <li key={f.path} className="kd-filerow" data-off={off}>
+                              <FormatBadge format={f.format} />
+                              <span className="min-w-0 flex-1">
+                                <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{f.name}</span>
+                                <span className="kd-row-desc block" title={s?.output ?? f.path}>{off ? "이 일에는 쓰지 않는 형식" : s?.error ?? (s?.output ? baseName(s.output) : `${baseName(dirName(f.path))} 폴더 · ${fileSize(f.size)}`)}</span>
+                              </span>
+                              <RowStatus s={s} />
+                              {s?.output && <button type="button" className="kd-link kd-small kd-hit32 flex-none" onClick={() => void rpc("reveal_file", { path: s.output! }).catch(() => undefined)}>폴더에서 보기</button>}
+                              <button type="button" className="kd-icon-btn" disabled={run.busy} onClick={() => setFiles((prev) => prev.filter((x) => x.path !== f.path))} aria-label={`${f.name} 빼기`}><Trash2 size={14} /></button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
+                )}
+
+                <section className="kd-panel kd-batch-opts" aria-labelledby="task-t">
                   <div className="min-w-0">
-                    <h2 id="task-t" className="kd-h2">{def.title}</h2>
+                    <h2 id="task-t" className="kd-h2 kd-batch-step">{showFiles && <span className="kd-batch-step-n" aria-hidden="true">2</span>}{def.title}</h2>
                     <p className="kd-small kd-muted mt-0.5">{def.desc}{def.accepts ? ` (${def.accepts.map((a) => (a === "image" ? "그림" : a.toUpperCase())).join("·")} 파일만)` : ""}</p>
                   </div>
-                  {run.busy ? null : (
-                    <Button size="lg" disabled={blocked} onClick={() => void start()} aria-describedby={blocked ? "task-block" : undefined}>
+                  {plan && <p className="kd-batch-plan" role="status"><ArrowRight size={16} aria-hidden="true" />{plan}</p>}
+                  <div onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLElement).dataset.runOnEnter !== undefined && !blocked) void start(); }}>
+                    <TaskOptions task={task} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} formats={usable.map((f) => f.format)} />
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+
+          {task !== "watch" && (
+            <div className="kd-batch-go" role="group" aria-label="시작">
+              {run.busy ? (
+                <div className="kd-batch-go-work"><Working label={`${def.title}: 진행 중`} progress={run.progress} onCancel={run.cancel} /></div>
+              ) : (
+                <>
+                  <div className="kd-batch-go-msg">
+                    {blocked ? (
+                      <>
+                        <p id="task-block" className="kd-small kd-muted">{blockReason}</p>
+                        {needAi && <Button size="sm" variant="secondary" onClick={() => openSettings("set-ai")}><Sparkles size={13} /> AI 켜기</Button>}
+                      </>
+                    ) : (done > 0 || failed > 0) && !run.result ? (
+                      <p className="kd-small kd-num">완료 {num(done)} · 실패 {num(failed)}</p>
+                    ) : run.result ? (
+                      <p className="kd-small kd-muted">완료. 결과는 위에 있습니다.</p>
+                    ) : (
+                      <p className="kd-small kd-muted">{def.title}{usable.length ? ` · 파일 ${num(usable.length)}개` : ""}</p>
+                    )}
+                  </div>
+                  {run.result ? (
+                    <Button size="lg" disabled={blocked} data-tip="같은 파일과 지금 설정으로 한 번 더 합니다" onClick={() => void start()}>
+                      <RotateCcw size={15} /> 다시 하기
+                    </Button>
+                  ) : (
+                    <Button size="lg" disabled={blocked} data-tip="넣은 파일마다 고른 일을 합니다. 원본 파일은 바꾸지 않습니다" onClick={() => void start()} aria-describedby={blocked ? "task-block" : undefined}>
                       <Play size={15} /> 시작{usable.length ? ` (${num(usable.length)}개)` : ""}
                     </Button>
                   )}
-                </div>
-                {!run.busy && blocked && <p id="task-block" className="kd-small kd-muted">{blockReason}</p>}
-                {task === "collect" && late > 0 && gatherPrev && !run.busy && (
-                  <div id="gather-late"><Note tone="info">
-                    <p>늦게 온 파일 {num(late)}개를 넣었습니다. 앞서 만든 엑셀({baseName(gatherPrev)})을 다시 만듭니다.</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Button size="sm" onClick={() => void start(usable, "collect", { overwrite: true })}>같은 파일 바꾸기</Button>
-                      <Button size="sm" variant="secondary" onClick={() => void start(usable, "collect", { overwrite: false })}>새 파일로 만들기</Button>
-                    </div>
-                  </Note></div>
-                )}
-                <div onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLElement).dataset.runOnEnter !== undefined && !blocked) void start(); }}>
-                  <TaskOptions task={task} opts={opts} set={(p) => setOpts((o) => ({ ...o, ...p }))} />
-                </div>
-                {run.busy && <Working label={`${def.title}: 진행 중`} progress={run.progress} onCancel={run.cancel} />}
-                {!run.busy && !run.result && (done > 0 || failed > 0) && <p className="kd-small kd-num">완료 {num(done)} · 실패 {num(failed)}</p>}
-                <ErrorLine message={run.error} />
-                {run.result && <BatchResults outcome={run.result} onAddLate={() => void pickFiles().then((p) => add(p))} />}
-              </section>
-
-              <section className="kd-batch-files" data-drop="batch" aria-label="파일 목록">
-                <div className="kd-block-head">
-                  <h2 className="kd-h3">파일 {num(files.length)}개{usable.length !== files.length ? ` (이 일에 쓰는 것 ${num(usable.length)}개)` : ""}</h2>
-                  {files.length > 0 && <button type="button" className="kd-link kd-small kd-hit32" disabled={run.busy} onClick={() => { setFiles([]); setRows({}); run.reset(); setGatherPrev(""); setLate(0); }}>모두 빼기</button>}
-                </div>
-                {skipped > 0 && <p className="kd-small kd-muted py-1">지원하지 않는 파일 {num(skipped)}개는 뺐습니다.</p>}
-                {files.length === 0 ? (
-                  <div className="kd-dropzone mt-3" data-over={dragTarget === "batch"}>
-                    <Empty icon={<Layers size={28} />} title="파일을 끌어다 놓으세요" action={<Button variant="secondary" onClick={() => void pickFiles().then((p) => add(p))}><FilePlus2 size={14} /> 파일 고르기</Button>}>
-                      폴더를 놓으면 안쪽 문서까지 모두 넣습니다.
-                    </Empty>
-                  </div>
-                ) : task === "bundle" ? (
-                  <div className="mt-2"><OrderList items={usable.map((f) => f.path)} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
-                ) : (
-                  <ul className="kd-filetable">
-                    {files.map((f) => {
-                      const s = rows[f.path];
-                      const off = !accepts(def, f.format);
-                      return (
-                        <li key={f.path} className="kd-filerow" data-off={off}>
-                          <FormatBadge format={f.format} />
-                          <span className="min-w-0 flex-1">
-                            <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{f.name}</span>
-                            <span className="kd-row-desc block" title={s?.output ?? f.path}>{off ? "이 일에는 쓰지 않는 형식" : s?.error ?? (s?.output ? baseName(s.output) : `${baseName(dirName(f.path))} 폴더 · ${fileSize(f.size)}`)}</span>
-                          </span>
-                          <RowStatus s={s} />
-                          {s?.output && <button type="button" className="kd-link kd-small kd-hit32 flex-none" onClick={() => void rpc("reveal_file", { path: s.output! }).catch(() => undefined)}>폴더에서 보기</button>}
-                          <button type="button" className="kd-icon-btn" disabled={run.busy} onClick={() => setFiles((prev) => prev.filter((x) => x.path !== f.path))} aria-label={`${f.name} 빼기`}><Trash2 size={14} /></button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-            </>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

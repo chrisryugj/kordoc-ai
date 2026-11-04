@@ -163,7 +163,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         setSvg(annotateBlocks(res.pages[0].svg, annotations));
       }
     } catch (e) {
-      setRenderError(`미리보기 표시 실패: ${e}`);
+      setRenderError(`미리보기를 그리지 못했습니다: ${e}`);
     }
   }, [annotations, sidecarCall]);
 
@@ -202,7 +202,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       try {
         const res = await sidecarCall("edit_open", { input_path: file.path }) as EditStateRes;
         if (cancelled) return;
-        if (!res.success) { setLoadError(res.error || "문서 열기 실패"); return; }
+        if (!res.success) { setLoadError(res.error || "문서를 열지 못했습니다"); return; }
         openedId = res.session_id;
         setSessionId(res.session_id);
         await applyState(res);
@@ -276,19 +276,19 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         : { blockIndex: editing.block, newText: editing.value };
       const res = await sidecarCall("edit_patch", { session_id: sessionId, edits: [edit] }) as EditPatchRes;
       if (!res.success) {
-        showToast(res.error || "편집 적용 실패", "error");
+        showToast(res.error || "고친 내용을 넣지 못했습니다", "error");
         return;
       }
       if (res.applied === 0) {
         const why = res.skipped[0]?.reason;
-        showToast(why ? `적용 안 됨: ${why}` : "변경 없음", why ? "error" : "info");
+        showToast(why ? `넣지 못했습니다: ${why}` : "바뀐 곳이 없습니다", why ? "error" : "info");
       } else {
         setDirty(true);
       }
       await applyState(res);
       setEditing(null);
     } catch (e) {
-      showToast(`편집 실패: ${e}`, "error");
+      showToast(`고치지 못했습니다: ${e}`, "error");
     } finally {
       setBusy("");
     }
@@ -304,7 +304,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       setDirty(true);
       await applyState(res);
     } catch (e) {
-      showToast(`${kind === "undo" ? "되돌리기" : "다시 실행"} 실패: ${e}`, "error");
+      showToast(`${kind === "undo" ? "되돌리지" : "다시 실행하지"} 못했습니다: ${e}`, "error");
     } finally {
       setBusy("");
     }
@@ -365,11 +365,11 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     if (cell) {
       const cc = cap.cells?.[cell.row]?.[cell.col];
       if (cap.capability !== "cell-text" || !cc?.editable) {
-        showToast(`편집 불가: ${cc?.reason || cap.reason || "지원하지 않는 영역"}`, "info");
+        showToast(`여기는 고칠 수 없습니다: ${cc?.reason || cap.reason || "지원하지 않는 영역"}`, "info");
         return;
       }
     } else if (cap.capability !== "text") {
-      showToast(`편집 불가: ${cap.reason || "지원하지 않는 영역"}`, "info");
+      showToast(`여기는 고칠 수 없습니다: ${cap.reason || "지원하지 않는 영역"}`, "info");
       return;
     }
 
@@ -422,28 +422,28 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       className="fixed inset-0 z-50 flex flex-col outline-none" style={{ backgroundColor: "var(--color-bg-primary)" }}>
       {/* 헤더 + 툴바 */}
       <div className="flex items-center gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
-        <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, #9333EA 12%, transparent)", color: "#9333EA" }}>
+        <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
           <SquarePen size={16} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 id={titleId} className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>문서 편집: {file.name}</h2>
-          <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
-            미리보기에서 문단·셀을 클릭해 수정 · 원본 서식 그대로
-            {wasmOk === false && " · 미리보기: 문서 엔진으로 표시(WASM 대신)"}
+          <h2 id={titleId} className="kd-h3 truncate">문서 편집: {file.name}</h2>
+          <p className="kd-small kd-muted">
+            미리보기에서 문단이나 표 칸을 눌러 고칩니다 · 원본 서식은 그대로
+            {wasmOk === false && " · 미리보기는 문서 엔진이 그린 그림입니다"}
           </p>
         </div>
 
         {closeFailed && (
           <span className="flex items-center gap-2 shrink-0" role="alert">
-            <span className="ts-2xs" style={{ color: "var(--color-error)" }}>저장하지 못해 닫지 않았습니다</span>
-            <button type="button" className="kd-link ts-2xs" onClick={onClose}>고친 것 버리고 닫기</button>
-            <button type="button" className="kd-link ts-2xs" onClick={() => setCloseFailed(false)}>계속 고치기</button>
+            <span className="kd-small" style={{ color: "var(--color-error)" }}>저장하지 못해 닫지 않았습니다</span>
+            <button type="button" className="kd-link kd-small" onClick={onClose}>고친 것 버리고 닫기</button>
+            <button type="button" className="kd-link kd-small" onClick={() => setCloseFailed(false)}>계속 고치기</button>
           </span>
         )}
 
         {/* 저장 상태 */}
-        <span className="ts-2xs shrink-0" style={{ color: dirty ? "var(--color-warning)" : "var(--color-text-muted)" }}>
-          {busy === "save" ? "저장 중..." : dirty ? "● 저장 안 됨 (30초 후 자동 저장)" : savedAt ? `저장됨 ${savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : ""}
+        <span className="kd-small shrink-0" style={{ color: dirty ? "var(--color-warning)" : "var(--color-text-muted)" }}>
+          {busy === "save" ? "저장하는 중" : dirty ? "● 저장 안 됨 (30초 후 자동 저장)" : savedAt ? `저장됨 ${savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : ""}
         </span>
 
         <div className="flex items-center gap-1 shrink-0">
@@ -456,8 +456,8 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
           <button
             onClick={() => setShowLocks((v) => !v)}
             className="p-1.5 rounded-md hover-bg-tertiary"
-            aria-label="잠금 영역 표시"
-            title="잠금 영역 표시: 편집 가능(밑줄), 불가(흐림)"
+            aria-label="고칠 수 있는 곳 표시"
+            title="고칠 수 있는 곳 표시: 고칠 수 있으면 밑줄, 못 고치면 흐리게"
             style={showLocks ? { backgroundColor: "var(--color-bg-tertiary)" } : undefined}
           >
             <Lock size={15} style={{ color: showLocks ? "var(--color-accent)" : "var(--color-text-secondary)" }} />
@@ -480,28 +480,28 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center gap-2" style={{ color: "var(--color-text-muted)" }}>
-          <Loader2 size={18} className="animate-spin" /> <span className="ts-sm">문서 분석 중...</span>
+          <Loader2 size={18} className="animate-spin" /> <span className="kd-text">문서를 읽는 중</span>
         </div>
       ) : loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
           <AlertTriangle size={28} style={{ color: "var(--color-warning)" }} />
-          <p className="ts-sm" style={{ color: "var(--color-text-secondary)" }}>{loadError}</p>
+          <p className="kd-text">{loadError}</p>
           <Button variant="secondary" size="sm" onClick={onClose}>닫기</Button>
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-secondary)" }}>
           {/* 페이지 내비 + 편집 가능 카운트 */}
           <div className="flex items-center justify-center gap-3 py-2 shrink-0">
-            <button onClick={() => { setEditing(null); setPage((p) => Math.max(0, p - 1)); }} disabled={page === 0} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="이전 페이지">
+            <button onClick={() => { setEditing(null); setPage((p) => Math.max(0, p - 1)); }} disabled={page === 0} className="kd-icon-btn" aria-label="앞 쪽">
               <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
             </button>
-            <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+            <span className="kd-small kd-muted kd-num">
               {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
             </span>
-            <button onClick={() => { setEditing(null); setPage((p) => Math.min(pageCount - 1, p + 1)); }} disabled={page >= pageCount - 1} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="다음 페이지">
+            <button onClick={() => { setEditing(null); setPage((p) => Math.min(pageCount - 1, p + 1)); }} disabled={page >= pageCount - 1} className="kd-icon-btn" aria-label="다음 쪽">
               <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
             </button>
-            <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+            <span className="kd-small kd-muted kd-num">
               편집 가능 {editableCount}곳
             </span>
           </div>
@@ -515,17 +515,17 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
             onMouseLeave={() => setHoverKey("")}
           >
             {renderError ? (
-              <p className="ts-2xs text-center mt-8" style={{ color: "var(--color-error)" }}>{renderError}</p>
+              <p className="kd-small text-center mt-8" style={{ color: "var(--color-error)" }}>{renderError}</p>
             ) : svg ? (
               <div
                 className="kd-preview mx-auto rounded shadow-lg"
-                style={{ maxWidth: 900, backgroundColor: "white" }}
+                style={{ maxWidth: 900, backgroundColor: "var(--color-paper)" }}
                 // rhwp WASM이 생성한 SVG (로컬 신뢰 소스) — 블록 어노테이션만 후처리
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             ) : (
               <div className="flex items-center justify-center gap-2 mt-12" style={{ color: "var(--color-text-muted)" }}>
-                <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">그리는 중...</span>
+                <Loader2 size={16} className="animate-spin" /> <span className="kd-small">그리는 중</span>
               </div>
             )}
 
@@ -535,15 +535,14 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
                 style={{ left: editing.x, top: editing.y, width: 360, backgroundColor: "var(--color-bg-primary)", border: "1px solid var(--color-border)" }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <p className="ts-2xs font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>
-                  {editing.cell ? `표 셀 (${editing.cell.row + 1}행 ${editing.cell.col + 1}열)` : "문단"} 수정
+                <p className="kd-label mb-1.5">
+                  {editing.cell ? `표 칸 (${editing.cell.row + 1}행 ${editing.cell.col + 1}열)` : "문단"} 고치기
                 </p>
                 <textarea
                   autoFocus
                   value={editing.value}
                   rows={Math.min(6, Math.max(2, editing.value.split("\n").length))}
-                  className="w-full px-2.5 py-2 rounded-md ts-xs resize-y"
-                  style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", outline: "none" }}
+                  className="kd-textarea w-full resize-y"
                   onChange={(e) => setEditing((s) => (s ? { ...s, value: e.target.value } : s))}
                   onKeyDown={(e) => {
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return; // 한글 조합 중 Enter 는 글자 확정이다
@@ -552,7 +551,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
                   }}
                 />
                 <div className="flex items-center justify-between mt-2">
-                  <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+                  <span className="kd-small kd-muted">
                     {editing.cell ? "Ctrl+Enter 적용" : "Enter 적용"} · Esc 취소
                   </span>
                   <div className="flex gap-1.5">

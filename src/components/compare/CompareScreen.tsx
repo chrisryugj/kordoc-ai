@@ -12,7 +12,7 @@ import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { Check } from "../common/Field";
-import { Empty, ErrorLine, SavedFile, Working } from "../common/Status";
+import { Empty, ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 
 type Row = CompareResult["rows"][number];
@@ -79,15 +79,22 @@ export function CompareScreen({ active }: { active: boolean }) {
   const [newPath, setNewPath] = useState("");
   const [onlyChanged, setOnlyChanged] = useState(true);
   const [formatError, setFormatError] = useState("");
-  // 끌어다 놓기·고르기 모두 여기서 형식을 본다
-  const putOld = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setOldPath(p); }, []);
-  const putNew = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setNewPath(p); }, []);
   const cmp = useTask<CompareResult>();
   const exp = useTask<string>();
+  // 문서를 바꾸거나 맞바꾸면 앞 비교표·저장 결과를 보이지 않는다 (남아 있으면 저장하는 대조표와 화면이 다르다).
+  // 비교표는 그 결과를 낸 두 문서가 지금 두 칸과 같을 때만 보인다 (돌던 비교가 늦게 끝나도 섞이지 않게)
+  const [ranFor, setRanFor] = useState("");
+  const pairKey = (o: string, n: string) => [o, n].join("|");
+  const { reset: clearExp } = exp;
+  const clear = clearExp;
+  // 끌어다 놓기·고르기 모두 여기서 형식을 본다
+  const putOld = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setOldPath(p); clear(); }, [clear]);
+  const putNew = useCallback((p: string) => { if (!comparable(p)) { setFormatError(UNSUPPORTED); return; } setFormatError(""); setNewPath(p); clear(); }, [clear]);
   const handled = useRef(0);
 
   const runCompare = useCallback((o = oldPath, n = newPath) => {
     exp.reset();
+    setRanFor(pairKey(o, n));
     void cmp.run(() => rpc("compare", { old_path: o, new_path: n }));
   }, [oldPath, newPath, cmp, exp]);
 
@@ -115,17 +122,21 @@ export function CompareScreen({ active }: { active: boolean }) {
     return (await rpc("compare", { old_path: oldPath, new_path: newPath, export: kind, output_path })).output_path ?? output_path;
   });
 
-  const rows = useMemo(() => (cmp.result?.rows ?? []).filter((r) => !onlyChanged || r.type !== "unchanged"), [cmp.result, onlyChanged]);
-  const st = cmp.result?.stats;
+  const fresh = ranFor === pairKey(oldPath, newPath);
+  const result = fresh ? cmp.result : null;
+  const rows = useMemo(() => (result?.rows ?? []).filter((r) => !onlyChanged || r.type !== "unchanged"), [result, onlyChanged]);
+  const st = result?.stats;
+  /** 바뀐 곳이 하나도 없다 (같은 파일을 두 번 넣었거나 내용이 같다) */
+  const same = !!st && st.modified + st.added + st.removed === 0;
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="비교" sub="옛 문서와 새 문서를 나란히 놓고 바뀐 곳을 찾아 신구대조표로 만듭니다." />
+      <ScreenHeader title="비교" sub="옛 문서와 새 문서의 바뀐 곳을 신구대조표로" />
       <div className="kd-body">
         <div className="kd-compare">
           <div className="kd-slots">
             <Slot id="compare-old" label="옛 문서 (현행)" path={oldPath} onPick={putOld} />
-            <button type="button" className="kd-icon-btn kd-swap" onClick={() => { setOldPath(newPath); setNewPath(oldPath); }} aria-label="옛 문서와 새 문서 바꾸기" disabled={!oldPath && !newPath}>
+            <button type="button" className="kd-icon-btn kd-swap" onClick={() => { setOldPath(newPath); setNewPath(oldPath); clear(); }} aria-label="옛 문서와 새 문서 바꾸기" disabled={!oldPath && !newPath}>
               <ArrowLeftRight size={16} />
             </button>
             <Slot id="compare-new" label="새 문서 (개정안)" path={newPath} onPick={putNew} />
@@ -137,13 +148,15 @@ export function CompareScreen({ active }: { active: boolean }) {
             <span className="kd-small kd-muted">형식이 달라도 됩니다. 예: 옛 HWP와 새 PDF</span>
           </div>
           <ErrorLine message={formatError} />
-          <ErrorLine message={cmp.error} />
+          <ErrorLine message={fresh ? cmp.error : ""} />
 
-          {!cmp.result && !cmp.busy && (
-            <Empty icon={<Columns2 size={30} />} title="두 문서를 넣고 비교하기를 누르세요">규정·조례·지침 개정안에서 바뀐 조문만 골라 현행과 개정안을 나란히 보여 줍니다.</Empty>
+          {!result && !cmp.busy && (
+            <Empty icon={<Columns2 size={30} />} title="비교할 두 문서를 넣으세요">바뀐 조문만 골라 현행과 개정안을 나란히 보여 줍니다.</Empty>
           )}
 
-          {cmp.result && st && (
+          {same && <Note tone="ok">두 문서 내용이 같습니다. 바뀐 곳이 없어 대조표를 만들지 않았습니다.</Note>}
+
+          {result && st && !same && (
             <section className="flex flex-col gap-3" aria-labelledby="cmp-t">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 id="cmp-t" className="kd-h2 kd-num">바뀜 {num(st.modified)} · 새로 넣음 {num(st.added)} · 뺌 {num(st.removed)} · 같음 {num(st.unchanged)}</h2>
@@ -154,7 +167,7 @@ export function CompareScreen({ active }: { active: boolean }) {
                 <Button size="sm" onClick={() => save("hwpx")} disabled={exp.busy}>한글(HWPX) 신구대조표</Button>
                 <Button size="sm" variant="secondary" onClick={() => save("xlsx")} disabled={exp.busy}>엑셀</Button>
                 <Button size="sm" variant="secondary" onClick={() => save("html")} disabled={exp.busy}>HTML</Button>
-                <Button size="sm" variant="secondary" onClick={() => save("md")} disabled={exp.busy}>마크다운</Button>
+                <Button size="sm" variant="secondary" onClick={() => save("md")} disabled={exp.busy}>글(마크다운)</Button>
               </div>
               {exp.busy && <Working label="저장하는 중" />}
               <ErrorLine message={exp.error} />

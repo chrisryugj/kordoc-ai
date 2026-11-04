@@ -54,7 +54,7 @@ export async function resolveOpenAiHost(baseUrl: string): Promise<void> {
 function refuseRedirect(res: Response): void {
   if (res.status >= 300 && res.status < 400) {
     const to = res.headers.get('location') ?? '';
-    throw new Error(`AI 서버가 다른 주소(${to})로 넘겨 보냅니다. 설정 > AI 연결의 주소를 그 주소로 바꾸세요.`);
+    throw new Error(`AI 서버가 다른 주소(${to})로 넘겨 보냅니다. 설정 › AI 연결의 주소를 그 주소로 바꾸세요.`);
   }
 }
 
@@ -147,7 +147,7 @@ export function createOpenAiProvider(cfg: OpenAiConfig, timeoutMs: number): LlmP
     async chat(req: ChatRequest) {
       const hasImages = req.messages.some((m) => m.images?.length);
       const model = (hasImages && cfg.vision_model) || cfg.model;
-      if (!model) throw new Error('AI 모델 이름이 비어 있습니다. 설정 > AI 연결에서 모델을 고르세요.');
+      if (!model) throw new Error('AI 모델 이름이 비어 있습니다. 설정 › AI 연결에서 모델을 고르세요.');
       const url = `${base}/chat/completions`;
       await assertAllowed(url);
 

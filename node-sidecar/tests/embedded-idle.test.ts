@@ -1,8 +1,7 @@
 /** 내장 모델 — 10분 동안 쓰지 않으면 내리고, 쓰는 중에는 내리지 않는다 (node-llama-cpp 는 가짜) */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const disposed = vi.fn();
@@ -27,8 +26,9 @@ vi.mock('node-llama-cpp', () => ({
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: () => {} }));
 
 import { createEmbeddedProvider, isEmbeddedLoaded, warmupEmbedded } from '../src/infra/llm/embedded.js';
+import { tempDir } from './tmp-dirs.js';
 
-const model = join(mkdtempSync(join(tmpdir(), 'kordoc-ai-embedded-')), 'm.gguf');
+const model = join(tempDir('kordoc-ai-embedded-'), 'm.gguf');
 writeFileSync(model, 'gguf');
 const cfg = { model_path: model, context_size: 4096, gpu: 'auto' as const };
 const MIN = 60_000;

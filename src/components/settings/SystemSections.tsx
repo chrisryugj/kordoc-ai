@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, BarChart3, FileText, FolderInput, FolderOpen, MousePointerClick, Plug, Stethoscope } from "lucide-react";
 import { resolveResource } from "@tauri-apps/api/path";
 import type { RpcResult } from "../../lib/contract";
-import { useApp, type ThemePref } from "../../state/app";
+import { useApp, type ThemePref, type UiMode } from "../../state/app";
 import { rpc, errorText, invokeCmd, isTauri } from "../../lib/rpc";
 import { notifyQuick, pickFolder } from "../../lib/native";
 import { applyZoom, currentZoom, maxZoom, zoomLabel, ZOOM_STEPS } from "../../lib/zoom";
@@ -24,6 +24,7 @@ const STEP_LABEL: Record<string, string> = {
   kordoc_cli: "서식 보존 도구 실행",
   ocr_image: "글자 읽기(OCR)",
   llama_binding: "내장 AI 엔진",
+  pdf_pages: "PDF 쪽 그림·쪽 조립",
 };
 
 export function EngineSection() {
@@ -158,8 +159,8 @@ export function StorageSection() {
         <span className="kd-row-main">
           <span className="kd-row-title block">{isMac ? "Finder 빠른 동작" : "탐색기 우클릭 메뉴"}</span>
           <span className="kd-row-desc block" style={{ textWrap: "balance" }}>{isMac
-            ? "Finder에서 파일을 우클릭해 PDF 합치기·용량 줄이기, 한글 문서로 바꾸기를 창 없이 끝냅니다. 끝나면 알림이 뜹니다."
-            : "파일·폴더를 우클릭해 PDF 합치기·나누기, 한글 문서로 바꾸기, 개인정보 가리기를 창 없이 끝냅니다. 끝나면 알림이 뜹니다."}</span>
+            ? "Finder에서 파일을 우클릭해 하나로 합치기·용량 줄이기, 한글 문서로 바꾸기를 창 없이 끝냅니다. 끝나면 알림이 뜹니다."
+            : "파일·폴더를 우클릭하면 열기·바꾸기·합치기와 나누기·점검과 가리기로 묶인 메뉴가 뜹니다. 하나로 합치기, 나누기, 쪽 번호 넣기, 받은 공문 접수 같은 일은 창 없이 끝내고 알림만 띄웁니다."}</span>
           {shell && !shell.supported && <span className="kd-row-desc block">이 운영체제에서는 지원하지 않습니다.</span>}
           {shellErr && <span className="block mt-1"><StatusLine tone="err">{shellErr}</StatusLine></span>}
         </span>
@@ -175,7 +176,7 @@ export function StorageSection() {
           <Plug size={18} className="kd-muted mt-0.5 flex-none" />
           <span className="kd-row-main">
             <span className="kd-row-title block">다른 AI 프로그램과 연결 (MCP)</span>
-            <span className="kd-row-desc block">Claude Code·Codex·Claude·Cursor 같은 AI 프로그램이 이 앱과 같은 도구로 한글 문서를 읽고, 만들고, 점검하게 합니다.</span>
+            <span className="kd-row-desc block" style={{ textWrap: "balance" }}>Claude·Claude Code·Codex·Gemini CLI·Cursor·VS Code 등 PC의 AI 프로그램이 이 앱과 같은 도구로 한글 문서를 읽고, 만들고, 점검하게 합니다.</span>
           </span>
           <span className="kd-row-aside"><Button variant="secondary" size="sm" onClick={() => setMcp(true)}>연결 설정</Button></span>
         </div>
@@ -186,7 +187,7 @@ export function StorageSection() {
 }
 
 export function AboutSection() {
-  const { theme, setTheme, system, go, toast } = useApp();
+  const { theme, setTheme, system, go, toast, uiMode, setUiMode } = useApp();
   const [zoom, setZoom] = useState(() => currentZoom());
   // 창이 좁으면 더 큰 단계는 못 고른다 (키우면 화면 오른쪽이 잘린다)
   const [maxZ, setMaxZ] = useState(maxZoom);
@@ -211,11 +212,15 @@ export function AboutSection() {
       path = (await resolveResource("THIRD_PARTY_NOTICES.txt")).replace(/^\\\\\?\\/, "");
       await rpc("open_file", { path });
     } catch {
-      toast(path ? `오픈소스 고지를 열지 못했습니다. 이 파일을 직접 여세요: ${path}` : "오픈소스 고지는 설치 폴더의 THIRD_PARTY_NOTICES.txt 에 있습니다.", "info");
+      toast(path ? `오픈소스 고지를 열지 못했습니다. 이 파일을 직접 여세요: ${path}` : "오픈소스 고지는 설치 폴더의 THIRD_PARTY_NOTICES.txt 파일에 있습니다.", "info");
     }
   };
   return (
     <Section id="set-about" mark="사." title="화면과 정보">
+      <Field label="화면 방식" hint="쉬운 화면은 자주 하는 일을 큰 단추로 보이고 세부 설정을 접어 둡니다. 전체 화면은 모든 기능과 설정을 보입니다.">
+        <Seg<UiMode> label="화면 방식" value={uiMode} onChange={setUiMode} options={[{ value: "easy", label: "쉬운 화면" }, { value: "full", label: "전체 화면" }]} />
+      </Field>
+      <div className="mt-4" />
       <Field label="화면 밝기">
         <Seg<ThemePref> label="화면 밝기" value={theme} onChange={setTheme} options={[{ value: "light", label: "밝게" }, { value: "dark", label: "어둡게" }, { value: "system", label: "컴퓨터 설정대로" }]} />
       </Field>
@@ -252,7 +257,7 @@ export function AboutSection() {
         <div><dt>편집기 글꼴</dt><dd>글꼴마다 다릅니다 (대부분 SIL Open Font License 1.1, 자세한 것은 오픈소스 고지)</dd></div>
         <div><dt>내장 AI 모델</dt><dd>받은 모델마다 그 모델의 라이선스를 따릅니다</dd></div>
       </dl>
-      <p className="kd-small kd-muted">오픈소스 고지는 설치 폴더의 THIRD_PARTY_NOTICES.txt 이고, 요약은 같은 폴더의 NOTICE 에 있습니다.</p>
+      <p className="kd-small kd-muted" style={{ textWrap: "balance" }}>오픈소스 고지는 설치 폴더의 THIRD_PARTY_NOTICES.txt 파일이고, 요약은 같은 폴더의 NOTICE 파일에 있습니다.</p>
       </Advanced>
     </Section>
   );

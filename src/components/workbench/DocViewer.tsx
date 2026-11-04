@@ -168,7 +168,7 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
         )
       ) : (
         <div className="kd-textview">
-          {pagesOff && <Note tone="info">암호가 걸린 문서라 쪽 모양은 아직 보여 드리지 못합니다. 글 보기로 내용을 확인하세요.</Note>}
+          {pagesOff && <Note tone="info">암호가 걸린 문서라 쪽 모양은 아직 볼 수 없습니다. 글 보기로 내용을 확인하세요.</Note>}
           {text.busy && <Empty title="글을 뽑는 중" />}
           <ErrorLine message={text.error} />
           {/* 글자 수는 정보 탭 하나로 (여기서는 세지 않는다). 글 파일(.txt·.csv)은 마크다운으로 해석하지 않고 그대로 */}

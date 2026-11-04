@@ -1,7 +1,7 @@
 /**
  * PDF 용량 줄이기 화면 검증 — 결재 첨부 한도
- *  - 문서 화면: PDF 를 열면 "이 문서로 할 수 있는 일" 첫째가 용량 줄이기 → 강하게 → 줄기 전·후 크기
- *  - 서무 도구 › PDF 용량 줄이기: 한도 직접 입력 → 파일 둘 → 행마다 줄기 전·후 크기, 원본은 그대로
+ *  - 문서 화면: PDF 를 열고 내보내기 탭의 PDF 용량 줄이기 → 강하게 → 줄기 전·후 크기
+ *  - 여러 파일 한꺼번에 › PDF 용량 줄이기: 한도 직접 입력 → 파일 둘 → 행마다 줄기 전·후 크기, 원본은 그대로
  *  - 외톨이 줄·화면 오류
  *
  * 사용: node scripts/e2e-ui/g-shrink.mjs --relay http://127.0.0.1:7727 --out <스크린샷·작업 폴더>
@@ -50,11 +50,10 @@ const { page } = ui;
 try {
   await sleep(1500);
   await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [A] }) });
-  await ui.waitText('이 문서로 할 수 있는 일', 30000);
-  const next = await page.evaluate(() => [...document.querySelectorAll('.kd-next-btn')].map((b) => b.textContent));
-  check('PDF 의 할 수 있는 일 첫째가 용량 줄이기', next[0] === '용량 줄이기', next.join(','));
-  await ui.click('용량 줄이기', { exact: true });
+  await page.waitForFunction(() => document.querySelector('.kd-docws:not([hidden]) .kd-tools'), { timeout: 30000 });
+  await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].find((t) => t.textContent === '내보내기')?.click());
   await sleep(600);
+  check('PDF 내보내기 탭에 용량 줄이기', await page.evaluate(() => !!document.querySelector('.kd-docws:not([hidden]) [data-tool="shrink"] .kd-seg')));
   await ui.click('강하게', { exact: true });
   await page.evaluate(() => [...document.querySelectorAll('[data-tool="shrink"] button')].find((b) => b.textContent.includes('용량 줄이기'))?.click());
   await ui.waitText('용량을 줄인 PDF를 저장했습니다', 120000);
@@ -66,7 +65,7 @@ try {
   await sleep(800);
   await ui.click('PDF 용량 줄이기');
   await ui.dialog([[A, B]]);
-  await ui.click('파일 추가');
+  await ui.click('파일 고르기', { within: '.kd-screen:not([hidden])' });
   await sleep(1200);
   await ui.click('직접', { exact: true });
   await page.evaluate(() => {
@@ -81,7 +80,7 @@ try {
   await ui.waitText('개 완료', 180000);
   await sleep(600);
   const rows = await page.evaluate(() => document.body.innerText.match(/\d+(\.\d+)?(MB|KB) → [^\n]+/g) ?? []);
-  check('서무 도구: 두 파일 모두 줄기 전·후 크기', rows.length >= 2, rows.join(' | '));
+  check('여러 파일 한꺼번에: 두 파일 모두 줄기 전·후 크기', rows.length >= 2, rows.join(' | '));
   check('원본 파일은 그대로', [A, B].every((p, i) => statSync(p).size === sizes[i]));
   await ui.shot(join(OUT, '02-batch.png'));
   const o = await ui.orphans();

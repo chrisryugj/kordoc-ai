@@ -66,12 +66,12 @@ async function load(cfg: EmbeddedConfig): Promise<Loaded> {
   if (loaded?.key === key) return loaded;
   await disposeLoaded();
   if (!cfg.model_path || !existsSync(cfg.model_path)) {
-    throw new Error('내장 AI 모델 파일(.gguf)이 없습니다. 설정 > AI 연결에서 모델을 받거나 가져오세요.');
+    throw new Error('내장 AI 모델 파일(.gguf)이 없습니다. 설정 › AI 연결에서 모델을 받거나 가져오세요.');
   }
   const st = statSync(cfg.model_path);
   const fileKey = `${key}|${st.size}|${st.mtimeMs}`;
   if (failed?.key === fileKey) throw failed.error;
-  sendProgress({ current: 0, total: 1, message: '내장 AI 모델을 메모리에 올리는 중...' });
+  sendProgress({ current: 0, total: 1, message: '내장 AI 모델을 메모리에 올리는 중' });
   const nlc = await import('node-llama-cpp');
   // 배포본은 미리 빌드된 바이너리만 쓴다 — 사용자 PC 에서 컴파일·다운로드 시도 금지
   const llama = await nlc.getLlama({ gpu: cfg.gpu === 'off' ? false : 'auto', build: 'never', skipDownload: true, progressLogs: false });
@@ -82,7 +82,7 @@ async function load(cfg: EmbeddedConfig): Promise<Loaded> {
   } catch (err) {
     await llama.dispose().catch(() => {});
     logger.warn(`[llm.embedded] 모델 로드 실패: ${err instanceof Error ? err.message : String(err)}`);
-    failed = { key: fileKey, error: new Error('이 모델 파일은 내장 AI가 읽을 수 없습니다(Ollama 전용 형식이거나 지원하지 않는 구조). 설정 > AI 연결에서 추천 모델을 받으세요.') };
+    failed = { key: fileKey, error: new Error('이 모델 파일은 내장 AI가 읽을 수 없습니다(Ollama 전용 형식이거나 지원하지 않는 구조). 설정 › AI 연결에서 추천 모델을 받으세요.') };
     throw failed.error;
   }
   let context: Loaded['context'];
@@ -93,7 +93,7 @@ async function load(cfg: EmbeddedConfig): Promise<Loaded> {
     await model.dispose().catch(() => {});
     await llama.dispose().catch(() => {});
     logger.warn(`[llm.embedded] 문맥 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
-    failed = { key: fileKey, error: new Error('메모리가 부족해 내장 AI를 올리지 못했습니다. 설정 > AI 연결에서 한 번에 읽는 길이를 줄이거나 더 작은 모델을 고르세요.') };
+    failed = { key: fileKey, error: new Error('메모리가 부족해 내장 AI를 올리지 못했습니다. 설정 › AI 연결에서 한 번에 읽는 길이를 줄이거나 더 작은 모델을 고르세요.') };
     throw failed.error;
   }
   loaded = { key, nlc, llama, model, context };

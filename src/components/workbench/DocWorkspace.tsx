@@ -1,23 +1,23 @@
 /** 문서 하나의 작업 자리 — 정보 읽기(암호 문서는 암호 받기) + 미리보기 + 도구 패널 */
 
 import { useEffect, useState } from "react";
-import { KeyRound, Loader2 } from "lucide-react";
+import { FileWarning, KeyRound, Loader2, RotateCcw, X } from "lucide-react";
 import { useApp, type AutoRunKind, type OpenDoc, type ToolId } from "../../state/app";
-import { useLooksReceived } from "./docText";
 import { rpc, errorText } from "../../lib/rpc";
 import { Button } from "../ui/Button";
-import { Empty, Note } from "../common/Status";
+import { Empty } from "../common/Status";
 import { DocViewer } from "./DocViewer";
 import { ToolPanel } from "./ToolPanel";
+import "./workbench.css";
 
 const RUN_TOOL: Record<AutoRunKind, ToolId> = { summarize: "ai", redact: "redact", precheck: "review" };
 
 /** 확장자는 알아도 엔진이 읽지 못하는 형식 */
-const UNSUPPORTED = "이 형식은 열 수 없습니다. 한글(HWP·HWPX), PDF, 워드(DOCX), 엑셀(XLSX·XLS), 파워포인트(PPTX), 그림(PNG·JPG·WEBP), 글(TXT·MD·CSV) 파일을 여세요.";
+const UNSUPPORTED = "열 수 없는 형식입니다. 한글(HWP·HWPX), PDF, 워드, 엑셀, 파워포인트, 그림, 글(TXT·MD·CSV) 파일을 여세요.";
 
 /** live: 쪽 그림 일꾼·쪽 그림을 들고 있을 문서인가 (지금 문서와 바로 전 문서만) */
 export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; active: boolean; hidden: boolean; live: boolean }) {
-  const { updateDoc, focus } = useApp();
+  const { updateDoc, focus, closeDoc } = useApp();
   const [error, setError] = useState("");
   const [askPassword, setAskPassword] = useState(false);
   /** 넣은 암호가 틀렸을 때 엔진이 준 안내 */
@@ -25,7 +25,6 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
   const [password, setPassword] = useState("");
   const [tool, setTool] = useState<ToolId>("info");
   const [scrollTo, setScrollTo] = useState<{ page: number; nonce: number } | null>(null);
-  const received = useLooksReceived(active ? doc : null);
   const [autoRun, setAutoRun] = useState<{ kind: AutoRunKind; nonce: number } | null>(null);
 
   // 처음 보일 때 문서 정보 읽기
@@ -77,33 +76,44 @@ export function DocWorkspace({ doc, active, hidden, live }: { doc: OpenDoc; acti
   let body;
   if (askPassword) {
     body = (
-      <Empty icon={<KeyRound size={28} />} title="암호가 걸린 문서입니다"
+      <Empty icon={<KeyRound size={28} />} title="암호가 걸린 문서"
         action={(
           <form className="flex flex-col items-center gap-2" onSubmit={(e) => { e.preventDefault(); submitPassword(); }}>
-            {pwError && <span className="kd-small" role="alert" style={{ color: "var(--color-error)" }}>{pwError}</span>}
+            {pwError && <span className="kd-small kd-docws-pw-error" role="alert">{pwError}</span>}
             <span className="flex gap-2">
-              <input className="kd-input" style={{ width: 220 }} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="문서 암호" aria-label="문서 암호" autoFocus />
-              <Button type="submit" disabled={!password}>열기</Button>
+              <input className="kd-input kd-docws-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="문서 암호" aria-label="문서 암호" autoFocus />
+              <Button type="submit" disabled={!password} data-tip="암호는 저장하지 않습니다. 이 화면을 닫으면 잊습니다.">열기</Button>
             </span>
           </form>
         )}>
-        문서를 만든 사람에게 받은 암호를 넣으세요. 암호는 저장하지 않습니다.
+        문서를 만든 사람에게 받은 암호를 넣으세요.
       </Empty>
     );
   } else if (error) {
-    body = <div className="p-6"><Note tone="err">{error}</Note></div>;
+    // 원인(엔진 안내)과 다음 행동: 닫기, 저장이 끝난 뒤 다시 시도
+    body = (
+      <Empty icon={<FileWarning size={28} />} title="문서를 열 수 없음"
+        action={(
+          <>
+            <Button variant="secondary" onClick={() => closeDoc(doc.path)}><X size={14} /> 닫기</Button>
+            <Button variant="ghost" onClick={() => setError("")} data-tip="다른 프로그램이 저장 중이었다면 저장이 끝난 뒤 다시 읽습니다."><RotateCcw size={14} /> 다시 시도</Button>
+          </>
+        )}>
+        {error}
+      </Empty>
+    );
   } else if (!doc.info) {
     body = <Empty icon={<Loader2 size={24} className="kd-spin" />} title="문서를 읽는 중" />;
   }
 
   return (
     <div className="kd-docws" hidden={hidden}>
-      {body ?? (
+      {body ? <div className="kd-docws-msg">{body}</div> : (
         <>
           {/* 쪽수는 미리보기가 센 값(rhwp 조판)을 정본으로: 머리·연 문서 목록·정보 탭이 모두 doc.info 를 본다 */}
           <DocViewer doc={doc} info={doc.info!} scrollTo={scrollTo} live={live}
             onPageCount={(n) => { if (doc.info && doc.info.page_count !== n) updateDoc(doc.path, { info: { ...doc.info, page_count: n } }); }} />
-          <ToolPanel doc={doc} info={doc.info!} tool={tool} onTool={setTool} autoRun={autoRun} received={received}
+          <ToolPanel doc={doc} info={doc.info!} tool={tool} onTool={setTool} autoRun={autoRun}
             onGoPage={(page) => setScrollTo({ page, nonce: Date.now() })} />
         </>
       )}

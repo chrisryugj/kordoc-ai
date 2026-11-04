@@ -175,6 +175,29 @@ describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
     expect(picked.extracted_pages).toBe(1);
     const split = await call('split_pdf', { input_path: merged.output_path });
     expect(split.output_files).toHaveLength(2);
+    // 같은 자리에 다시 나누면 전 결과를 덮어쓰지 않고 (2) 폴더, 응답에 실제 폴더
+    const again = await call('split_pdf', { input_path: merged.output_path });
+    expect(again.output_dir).toBe(`${split.output_dir} (2)`);
+    expect(again.output_files.every((f: string) => f.startsWith(again.output_dir))).toBe(true);
+  });
+
+  it('PDF 나누기 output_dir 는 상위 폴더: 그 안에 <이름>_분리', async () => {
+    const parent = join(env.base, 'PDF 나눈 결과');
+    const two = await call('merge_files', { files: [LETTER_PDF, LETTER_PDF], mode: 'native', output_path: join(env.work, '두쪽.pdf') });
+    const a = await call('split_pdf', { input_path: two.output_path, output_dir: parent });
+    expect(a.output_dir).toBe(join(parent, '두쪽_분리'));
+    const b = await call('split_pdf', { input_path: two.output_path, output_dir: parent });
+    expect(b.output_dir).toBe(join(parent, '두쪽_분리 (2)'));
+  });
+
+  it('깨진 PDF 나누기는 할 일이 있는 한국어 (영어 원문 없음)', async () => {
+    const bad = join(env.work, '깨진.pdf');
+    writeFileSync(bad, 'not a pdf');
+    for (const [m, p] of [['split_pdf', { input_path: bad }], ['pdf_page_count', { input_path: bad }], ['pdf_extract_pages', { input_path: bad, pages: '1' }]] as const) {
+      const err = await call(m, p).then(() => '', (e: Error) => e.message);
+      expect(err).toMatch(/손상됐거나 저장이 끝나지 않은/);
+      expect(err).not.toMatch(/Failed to parse|PDF header/);
+    }
   });
 
   it('마크다운 합치기', async () => {

@@ -1,10 +1,11 @@
 /**
- * 말로 시키기 입력창 — 붙인 파일 칩, 파일·폴더 붙이기, 추천 문장, 보내기·멈추기.
- * 끌어 놓기는 dropName 으로 앱 공용 끌어 놓기에 등록한다. AI 가 꺼져 있으면 AI 켜기 패널을 함께 보인다.
+ * AI에게 맡길 일 입력창 — 첨부 파일 칩, 파일·폴더 첨부, 예시·내 프롬프트 고르기, 지금 문장 저장, 보내기·멈추기.
+ * 끌어 놓기는 dropName 으로 앱 공용 끌어 놓기에 등록한다. AI 가 꺼져 있으면 한 줄 안내와 AI 켜기.
+ * 예시를 고르면 입력창에 넣고 채울 자리(○)를 골라 둔다.
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { FileUp, FolderUp, Send, Square, X } from "lucide-react";
+import { BookmarkPlus, FileUp, FolderUp, LayoutList, Send, Square, X, Sparkles } from "lucide-react";
 import { useApp } from "../../state/app";
 import { pickFiles, pickFolder } from "../../lib/native";
 import { baseName, formatOf } from "../../lib/format";
@@ -12,6 +13,8 @@ import { Button } from "../ui/Button";
 import { AiWhere } from "../common/AiGate";
 import { FormatBadge } from "../common/FormatBadge";
 import { AiQuickSetup } from "./AiQuickSetup";
+import { PromptGallery } from "./PromptGallery";
+import { addMyPrompt } from "../../lib/my-prompts";
 import "./agent.css";
 
 export interface Suggestion { label: string; text: string; files?: string[] }
@@ -28,11 +31,20 @@ interface Props {
   autoFocus?: boolean;
   /** 붙인 파일이 있을 때 입력창 아래 줄에 더 놓을 것 (AI 없이 할 수 있는 일) */
   extra?: React.ReactNode;
+  /** AI 꺼짐 안내 뒤에 붙일 한 문장 (홈: AI 없이 되는 일 안내) */
+  offHint?: string;
+  /** 다른 대화에서 일하는 중이라 보낼 수 없음 (글은 써 둘 수 있다) */
+  locked?: boolean;
+  /** 예시·내 프롬프트 목록을 처음부터 펼침 */
+  gallery?: boolean;
 }
 
-export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestions = [], placeholder, dropName, autoFocus, extra }: Props) {
-  const { ai, registerDrop, dragTarget } = useApp();
+export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestions = [], placeholder, dropName, autoFocus, extra, locked = false, offHint, gallery = false }: Props) {
+  const { ai, registerDrop, dragTarget, toast } = useApp();
   const [text, setText] = useState("");
+  const [galleryOpen, setGalleryOpen] = useState(gallery);
+  const [saved, setSaved] = useState(0);
+  const [setupOpen, setSetupOpen] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
   const pathsRef = useRef(paths);
   pathsRef.current = paths;
@@ -50,7 +62,7 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
 
   const aiOn = !!ai?.configured;
   const send = (t = text) => {
-    if (!t.trim() || busy || !aiOn) return;
+    if (!t.trim() || busy || locked || !aiOn) return;
     onSend(t);
     setText("");
   };
@@ -58,10 +70,24 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
+  /** 문장을 넣고 첫 채울 자리(○)를 골라 둔다 */
+  const fill = (t: string) => {
+    setText(t);
+    requestAnimationFrame(() => {
+      const el = box.current;
+      if (!el) return;
+      el.focus();
+      const i = t.indexOf("○");
+      if (i >= 0) el.setSelectionRange(i, i + 1); else el.setSelectionRange(t.length, t.length);
+    });
+  };
   const pick = (s: Suggestion) => {
     if (s.files?.length) add(s.files);
-    setText(s.text);
-    box.current?.focus();
+    fill(s.text);
+  };
+  const saveText = () => {
+    if (addMyPrompt(text)) { toast("내 프롬프트에 저장했습니다", "success"); setSaved((n) => n + 1); setGalleryOpen(true); }
+    else toast("이미 저장한 문장입니다", "info");
   };
 
   return (
@@ -79,20 +105,29 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
           </div>
         )}
         <textarea ref={box} className="kd-ask-input" rows={2} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
-          placeholder={placeholder ?? "무엇을 할까요? 문서를 끌어다 놓고 하고 싶은 일을 적으세요"} aria-label="AI 에게 시킬 일" disabled={busy} />
+          placeholder={placeholder ?? "AI에게 맡길 일 입력 · 문서는 끌어다 놓기"} aria-label="AI에게 맡길 일" disabled={busy} />
         <div className="kd-ask-bar">
-          <Button size="sm" variant="ghost" onClick={() => void pickFiles().then((p) => p.length && add(p))}><FileUp size={14} /> 파일 붙이기</Button>
-          <Button size="sm" variant="ghost" onClick={() => void pickFolder().then((d) => d && add([d]))}><FolderUp size={14} /> 폴더 붙이기</Button>
+          <Button size="sm" variant="ghost" onClick={() => void pickFiles().then((p) => p.length && add(p))} data-tip="한글·PDF·워드·엑셀·그림 파일을 고릅니다. 끌어다 놓아도 됩니다"><FileUp size={14} /> 파일 첨부</Button>
+          <Button size="sm" variant="ghost" onClick={() => void pickFolder().then((d) => d && add([d]))} data-tip="폴더 안 문서를 모두 넘깁니다 (제출물 취합 등)"><FolderUp size={14} /> 폴더 첨부</Button>
+          <Button size="sm" variant="ghost" aria-pressed={galleryOpen} onClick={() => setGalleryOpen((o) => !o)} data-tip="AI에게 맡길 수 있는 일과 저장해 둔 내 프롬프트"><LayoutList size={14} /> 예시·내 프롬프트</Button>
           {paths.length > 0 && extra}
           <span className="kd-ask-where"><AiWhere /></span>
+          {text.trim() && !busy && <button type="button" className="kd-icon-btn" onClick={saveText} aria-label="이 문장을 내 프롬프트에 저장"><BookmarkPlus size={16} /></button>}
           {busy
             ? <Button onClick={onStop} variant="secondary"><Square size={14} /> 멈추기</Button>
-            : <Button onClick={() => send()} disabled={!text.trim() || !aiOn} title={aiOn ? undefined : "아래에서 AI 를 켜면 보낼 수 있습니다"}><Send size={14} /> 시키기</Button>}
+            : <Button onClick={() => send()} disabled={!text.trim() || !aiOn || locked} data-tip={aiOn ? "Enter로도 보냅니다 (줄바꿈은 Shift+Enter)" : "AI를 켜면 보낼 수 있습니다"}><Send size={14} /> 보내기</Button>}
         </div>
       </div>
-      {!aiOn && <AiQuickSetup />}
-      {suggestions.length > 0 && !busy && (
-        <div className="kd-ask-sugs" aria-label="이렇게 시켜 보세요">
+      {!aiOn && (setupOpen ? <AiQuickSetup /> : (
+        <div className="kd-aioff">
+          <Sparkles size={15} />
+          <span>AI가 꺼져 있습니다.{offHint ? ` ${offHint}` : ""}</span>
+          <Button size="sm" variant="secondary" onClick={() => setSetupOpen(true)}>AI 켜기</Button>
+        </div>
+      ))}
+      {galleryOpen && !busy && <PromptGallery onPick={fill} version={saved} />}
+      {suggestions.length > 0 && !busy && aiOn && !galleryOpen && (
+        <div className="kd-ask-sugs" aria-label="예시">
           {suggestions.map((s) => <button key={s.label} type="button" className="kd-chip" onClick={() => pick(s)}>{s.label}</button>)}
         </div>
       )}

@@ -1,15 +1,22 @@
 /* ============================================
-   KorDoc AI 디자인 토큰 (v2)
-   종이 위 먹: 따뜻한 미색 종이 + 먹색 글자 + 로고의 인장 초록 한 가지 강조색
+   KorDoc AI 디자인 토큰 (v3)
+   흰 작업 면 + 옅은 회색 탐색 + 로고 초록 한 가지 강조색. 글자 위계는 --fs-* 일곱 단계
    ============================================ */
 
-/* Pretendard 폰트 번들링 (400·600·700 만 있다. 500·800 은 쓰지 않는다) */
+/* Pretendard 폰트 번들링 (400·500·600·700. 800 은 쓰지 않는다) */
 @font-face {
   font-family: 'Pretendard';
   font-weight: 400;
   font-style: normal;
   font-display: swap;
   src: url('/fonts/Pretendard-Regular.otf') format('opentype');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Medium.otf') format('opentype');
 }
 @font-face {
   font-family: 'Pretendard';
@@ -35,57 +42,58 @@
 :root {
   color-scheme: light;
 
-  /* 면 */
-  --color-spine: #ECE8DE;          /* 왼쪽 탐색 (책등) */
-  --color-bg-primary: #F3F0E8;     /* 입력칸·안쪽 면 */
-  --color-bg-secondary: #FBFAF6;   /* 종이 면 (화면 바탕) */
-  --color-bg-tertiary: #E9E5DA;    /* 올려 놓기·선택 */
-  --color-bg-subtle: #DED9CC;
-  --color-desk: #E2DED3;           /* 쪽 미리보기 책상 */
+  /* 면: 흰 작업 면 + 아주 옅은 회색 탐색·안쪽 면. 색은 브랜드 초록 하나 */
+  --color-spine: #F5F6F8;          /* 왼쪽 탐색 */
+  --color-bg-primary: #F5F6F8;     /* 안쪽 면·목록 칸 */
+  --color-bg-secondary: #FFFFFF;   /* 화면 바탕·카드 */
+  --color-bg-tertiary: #EDEFF2;    /* 올려 놓기·선택 */
+  --color-bg-subtle: #E4E7EB;
+  --color-desk: #EBEDF0;           /* 쪽 미리보기 책상 */
   --color-paper: #FFFFFF;          /* 문서 쪽 */
+  --color-input: #FFFFFF;
 
-  /* 글자 */
-  --color-text-primary: #1C1E1B;
-  --color-text-secondary: #3E413C;
-  --color-text-muted: #5F625B;     /* 책등 5.07 · 안쪽 면 5.45 · 종이 5.94 · 선택 면 4.93 : 1 */
-  --color-text-disabled: #A6A89F;
-  --color-text-inverse: #FBFAF6;
+  /* 글자 (흰 면 대비: 기본 16.9 · 둘째 10.4 · 흐림 4.9 : 1, 옅은 회색 면에서도 흐림 4.6:1 이상) */
+  --color-text-primary: #16191D;
+  --color-text-secondary: #39414B;
+  --color-text-muted: #636C77;
+  --color-text-disabled: #8C949D;  /* 사용 불가 컨트롤 안 글자 전용 (3.2:1). 이유 설명 글은 muted */
+  --color-text-inverse: #FFFFFF;
 
   /* 선 */
-  --color-border: #DAD5C8;
-  --color-border-subtle: #E6E2D7;
-  --color-border-hover: #BDB7A8;
-  --color-rule-strong: #1C1E1B;
+  --color-border: #E1E4E8;
+  --color-border-subtle: #ECEEF1;
+  --color-border-hover: #C9CED4;
+  --color-rule-strong: #E1E4E8;
 
-  /* 강조: 로고 초록을 종이 위 대비(6.1:1)에 맞춘 인장 초록. 옅은 배지 바탕 위 11.5px 글자도 책등·선택 면까지 4.6:1 이상 */
-  --color-accent: #096C4F;
-  --color-accent-hover: #075E45;
-  --color-accent-active: #054A36;
+  /* 강조: 로고 초록. 흰 면 위 글자 5.6:1 */
+  --color-accent: #08775A;
+  --color-accent-hover: #06664D;
+  --color-accent-active: #05553F;
   --color-accent-ink: #FFFFFF;
-  --color-accent-subtle: rgba(10, 117, 86, 0.08);
-  --color-accent-light: rgba(10, 117, 86, 0.08);
-  --color-accent-glow: rgba(10, 117, 86, 0.22);
+  --color-accent-subtle: rgba(8, 119, 90, 0.08);
+  --color-accent-light: rgba(8, 119, 90, 0.14);
+  --color-accent-glow: rgba(8, 119, 90, 0.20);
   --color-accent-bg: var(--color-accent-subtle);
 
-  /* 상태 (색만으로 알리지 않는다: 늘 글로도 쓴다). 성공·주의는 배지(옅은 바탕 위 11.5px)에서 4.6:1 이상 되게 어둡게 */
-  --color-success: #266830;
-  --color-warning: #805100;
-  --color-error: #B42318;
-  --color-error-hover: #8F1C13;
-  --color-info: #2A5A86;
-  --color-seal: #B42318;           /* 인주 */
-  --color-success-bg: rgba(46, 125, 58, 0.12);
-  --color-warning-bg: rgba(143, 91, 0, 0.12);
-  --color-danger-bg: rgba(180, 35, 24, 0.11);
-  --color-error-bg: rgba(180, 35, 24, 0.09);
-  --color-info-bg: rgba(42, 90, 134, 0.10);
-  --color-success-subtle: rgba(46, 125, 58, 0.08);
-  --color-warning-subtle: rgba(143, 91, 0, 0.08);
-  --color-error-subtle: rgba(180, 35, 24, 0.07);
+  /* 상태 (색만으로 알리지 않는다: 늘 글로도 쓴다) */
+  --color-success: #1C7036;
+  --color-warning: #8A5300;
+  --color-error: #C0261A;
+  --color-error-hover: #9E1F15;
+  --color-info: #2457A6;
+  --color-seal: #C0261A;           /* 인주 */
+  --color-success-bg: rgba(28, 112, 54, 0.10);
+  --color-warning-bg: rgba(196, 122, 0, 0.13);
+  --color-danger-bg: rgba(192, 38, 26, 0.09);
+  --color-error-bg: rgba(192, 38, 26, 0.08);
+  --color-info-bg: rgba(36, 87, 166, 0.09);
+  --color-success-subtle: rgba(28, 112, 54, 0.06);
+  --color-warning-subtle: rgba(196, 122, 0, 0.08);
+  --color-error-subtle: rgba(192, 38, 26, 0.06);
 
-  --color-backdrop: rgba(28, 30, 27, 0.42);
-  --color-primary-rgb: 10, 117, 86;
-  --color-primary-light: #13926B;
+  --color-backdrop: rgba(16, 20, 26, 0.45);
+  --color-primary-rgb: 8, 119, 90;
+  --color-primary-light: #12936F;
 
   /* 형식 표시 (연 문서 목록의 고른 줄(선택 면) 위 10.5px 배지도 4.6:1 이상) */
   --color-file-hwp: #23588C;
@@ -103,22 +111,23 @@
   --color-file-img-bg: rgba(107, 91, 67, 0.10);
   --color-file-txt-bg: rgba(94, 98, 90, 0.10);
 
-  /* 그림자: 쪽 미리보기와 떠 있는 판에만 */
-  --shadow-sm: 0 1px 2px 0 rgba(28, 30, 27, 0.05);
-  --shadow-md: 0 1px 3px 0 rgba(28, 30, 27, 0.07), 0 1px 2px -1px rgba(28, 30, 27, 0.06);
-  --shadow-lg: 0 6px 16px -6px rgba(28, 30, 27, 0.18);
-  --shadow-xl: 0 18px 40px -12px rgba(28, 30, 27, 0.28);
-  --shadow-card: 0 0 0 1px var(--color-border);
-  --shadow-card-hover: 0 0 0 1px var(--color-border-hover);
-  --shadow-inner: inset 0 1px 1px 0 rgba(28, 30, 27, 0.04);
-  --shadow-page: 0 1px 2px rgba(28, 30, 27, 0.10), 0 8px 22px -10px rgba(28, 30, 27, 0.30);
+  /* 그림자: 떠 있는 카드·판은 옅게 두 겹 */
+  --shadow-sm: 0 1px 2px 0 rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 1px 3px 0 rgba(16, 24, 40, 0.08), 0 1px 2px -1px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 8px 20px -6px rgba(16, 24, 40, 0.14), 0 2px 6px -2px rgba(16, 24, 40, 0.06);
+  --shadow-xl: 0 20px 44px -12px rgba(16, 24, 40, 0.22), 0 4px 10px -4px rgba(16, 24, 40, 0.08);
+  --shadow-card: 0 0 0 1px var(--color-border), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 0 0 1px var(--color-border-hover), 0 4px 12px -4px rgba(16, 24, 40, 0.10);
+  --shadow-inner: inset 0 1px 1px 0 rgba(16, 24, 40, 0.04);
+  --shadow-page: 0 1px 2px rgba(16, 24, 40, 0.08), 0 8px 24px -10px rgba(16, 24, 40, 0.25);
+  --shadow-focus: 0 0 0 3px var(--color-accent-glow);
 
-  /* 모서리: 각진 편집 디자인 (알약·큰 둥근 카드 없음) */
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
-  --radius-2xl: 10px;
+  /* 모서리 */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
 
   /* 글자 크기 */
   --text-2xs: 0.75rem;     /* 12 */
@@ -130,6 +139,25 @@
   --text-xl: 1.625rem;     /* 26 */
   --text-2xl: 2rem;        /* 32 */
   --text-hero: 2.5rem;
+
+  /* 겹 순서 */
+  --z-sticky: 10;
+  --z-float: 40;
+  --z-modal: 50;
+  --z-toast: 100;
+  --z-tooltip: 200;
+
+  /* 글 한 줄 너비 (설명 문단) */
+  --measure: 62ch;
+
+  /* 글자 위계 (화면 글은 이 일곱 단계만. 12px 미만 금지. 굵기 400 본문 · 500 목록·탐색 · 600 단추·이름 · 700 제목) */
+  --fs-display: 28px;   /* 홈·빈 대화 큰 물음 */
+  --fs-h1: 22px;        /* 화면 제목 */
+  --fs-h2: 18px;        /* 구획 제목 */
+  --fs-h3: 16px;        /* 카드·소제목 */
+  --fs-body: 14px;      /* 본문·단추·입력 */
+  --fs-small: 13px;     /* 설명·보조 */
+  --fs-caption: 12px;   /* 묶음 이름·시각·배지 */
 
   /* 배치 */
   --nav-width: 232px;
@@ -148,24 +176,25 @@
 .dark {
   color-scheme: dark;
 
-  --color-spine: #0D0F0D;
-  --color-bg-primary: #121512;
-  --color-bg-secondary: #181B18;
-  --color-bg-tertiary: #232723;
-  --color-bg-subtle: #2D322D;
-  --color-desk: #0F120F;
+  --color-spine: #111316;
+  --color-bg-primary: #15181C;
+  --color-bg-secondary: #1B1E23;
+  --color-bg-tertiary: #262A30;
+  --color-bg-subtle: #30353C;
+  --color-desk: #101215;
   --color-paper: #FFFFFF;
 
-  --color-text-primary: #ECEDE7;
-  --color-text-secondary: #C4C7BE;
-  --color-text-muted: #979B91;
-  --color-text-disabled: #5A5E57;
-  --color-text-inverse: #121512;
+  --color-text-primary: #ECEEF1;
+  --color-text-secondary: #C3C8CF;
+  --color-text-muted: #969DA6;
+  --color-text-disabled: #5A6068;
+  --color-text-inverse: #111316;
 
-  --color-border: rgba(236, 237, 231, 0.12);
-  --color-border-subtle: rgba(236, 237, 231, 0.07);
-  --color-border-hover: rgba(236, 237, 231, 0.22);
-  --color-rule-strong: #ECEDE7;
+  --color-border: rgba(236, 238, 241, 0.12);
+  --color-border-subtle: rgba(236, 238, 241, 0.07);
+  --color-border-hover: rgba(236, 238, 241, 0.22);
+  --color-rule-strong: rgba(236, 238, 241, 0.12);
+  --color-input: #15181C;
 
   --color-accent: #3FCF98;
   --color-accent-hover: #6BDDB1;

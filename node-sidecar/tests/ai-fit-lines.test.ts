@@ -1,8 +1,6 @@
 /** 넘친 줄 AI 줄여 쓰기 — 가짜 OpenAI 호환 서버, 줄 배치는 진짜 rhwp */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFakeOpenAi, lastUser, type FakeServer } from './ai-fake-server.js';
 
@@ -15,8 +13,9 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 import { updateSettings } from '../src/infra/config.js';
 import { fitLinesWithAi, findSpills } from '../src/core/ai/fit-lines.js';
 import { generateHwpx } from '../src/core/gongmun/index.js';
+import { tempDir } from './tmp-dirs.js';
 
-process.env.KORDOC_AI_DATA_DIR = mkdtempSync(join(tmpdir(), 'kordoc-ai-fit-'));
+process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-fit-');
 const signal = () => new AbortController().signal;
 
 // 메모 → 보고서 생성본(실측): 아래 두 줄은 장평 맞춤(autoFit) 뒤에도 rhwp 조판에서 마지막 줄에 다섯 글자가 넘친다

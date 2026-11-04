@@ -189,7 +189,7 @@ export async function compareHwpx(
 ): Promise<{ output_path: string; stats: CompareResult['stats'] }> {
   const diff = await diffFiles(p.old_path, p.new_path, signal);
   const rows = compareRows(diff.diffs);
-  if (!rows.some((r) => r.type !== 'unchanged')) throw new Error('두 문서에서 바뀐 곳을 찾지 못했습니다.');
+  if (!rows.some((r) => r.type !== 'unchanged')) throw new Error('두 문서 내용이 같습니다. 바뀐 곳이 없어 대조표를 만들지 않았습니다. 고친 문서를 새 문서 자리에 넣었는지 확인하세요.');
   const lines = rows.map((r) => {
     if (r.type === 'unchanged') return `| ${escCell(r.old)} | (현행과 같음) |`;
     if (r.type === 'added') return `| ${escCell('<신 설>')} | ${markSegs([{ text: r.new, changed: true }], escCell, '**', '**')} |`;

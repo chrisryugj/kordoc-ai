@@ -5,7 +5,7 @@
  *  - 값을 고치면 저절로 미리보기 반영 (미리보기 반영 단추 없음)
  *  - 넣은 곳(1번 표 3행 2열 칸) 표시, 누르면 미리보기에 상자로 짚음
  *  - HWPX 저장은 저장 창으로 (서식함 폴더에 몰래 쓰지 않음)
- *  들어가는 길: 작업대(문서)에서 예제 양식을 열고 고치기 › 양식 칸 채우기 도우미
+ *  들어가는 길: 작업대(문서)에서 예제 양식을 열고 고치기 › 양식 칸 채우기
  *
  * 사용: node scripts/e2e-ui/b-fill-wizard.mjs <결과 폴더> [중계기 주소]
  */
@@ -22,15 +22,15 @@ const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); c
 const ui = await openUi({ relay: RELAY, width: 1280, height: 860 });
 const { page } = ui;
 try {
-  // 작업대에서 예제 양식(표 칸 서식)을 열고 고치기 › 양식 칸 채우기 도우미
+  // 작업대에서 예제 양식(표 칸 서식)을 열고 고치기 › 양식 칸 채우기
   await ui.click('문서', { within: '.kd-nav' });
   await sleep(500);
   await ui.dialog([[join(SAMPLES, '취합', '교육수요조사서_총무과.hwpx')]]);
-  await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent && /파일 (고르기|열기)/.test(x.textContent)); b?.click(); });
+  await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.offsetParent && /(파일|문서) (고르기|열기)/.test(x.textContent)); b?.click(); });
   await page.waitForFunction(() => [...document.querySelectorAll('button, [role=tab]')].some((b) => b.offsetParent && b.textContent.trim() === '고치기'), { timeout: 30000 });
   await ui.click('고치기', { exact: true });
-  await ui.waitText('양식 칸 채우기 도우미', 30000);
-  await ui.click('양식 칸 채우기 도우미');
+  await ui.waitText('양식 칸 채우기', 30000);
+  await ui.click('양식 칸 채우기', { within: '.kd-docws:not([hidden])' });
   await page.waitForSelector('[data-kd-field="담당자"]', { timeout: 60000 });
   await page.waitForFunction(() => !!document.querySelector('.kd-preview svg'), { timeout: 60000 });
 

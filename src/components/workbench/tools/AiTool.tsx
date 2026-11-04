@@ -18,7 +18,7 @@ type Style = "standard" | "briefing" | "review" | "action";
 type Length = "short" | "medium" | "long";
 
 export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary: number; onGoPage: (page: number) => void }) {
-  const { toast, openDocs } = useApp();
+  const { toast, openDocs, askWork } = useApp();
   const [style, setStyle] = useState<Style>("standard");
   const [length, setLength] = useState<Length>("medium");
   const [stream, setStream] = useState("");
@@ -61,16 +61,19 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
         <AiWhere />
         <section className="flex flex-col gap-3" aria-labelledby="sum-t">
           <h3 id="sum-t" className="kd-h2">요약</h3>
-          <Field label="어떤 요약">
-            <Seg label="요약 갈래" value={style} onChange={setStyle} options={[{ value: "standard", label: "핵심" }, { value: "briefing", label: "보고용" }, { value: "review", label: "검토용" }, { value: "action", label: "할 일" }]} />
-          </Field>
-          <Field label="길이">
-            <Seg label="요약 길이" value={length} onChange={setLength} options={[{ value: "short", label: "짧게" }, { value: "medium", label: "보통" }, { value: "long", label: "길게" }]} />
-          </Field>
+          {/* 쉬운 화면은 단추 하나 (핵심·보통). 갈래·길이는 전체 화면에서 */}
+          <div className="kd-adv flex flex-col gap-3">
+            <Field label="어떤 요약">
+              <Seg label="요약 갈래" value={style} onChange={setStyle} options={[{ value: "standard", label: "핵심" }, { value: "briefing", label: "보고용" }, { value: "review", label: "검토용" }, { value: "action", label: "할 일" }]} />
+            </Field>
+            <Field label="길이">
+              <Seg label="요약 길이" value={length} onChange={setLength} options={[{ value: "short", label: "짧게" }, { value: "medium", label: "보통" }, { value: "long", label: "길게" }]} />
+            </Field>
+          </div>
           {summary.busy ? (
             <Button variant="secondary" onClick={summary.cancel}><Square size={13} /> 멈추기</Button>
           ) : (
-            <Button onClick={summarize}><Sparkles size={14} /> 요약하기</Button>
+            <Button onClick={summarize} data-tip="문서를 AI에 보내 요약합니다. 원본은 그대로 둡니다."><Sparkles size={14} /> 요약하기</Button>
           )}
           <ErrorLine message={summary.error} />
           {text && (
@@ -101,6 +104,12 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
             )}
           </form>
         </section>
+
+        <div>
+          <Button variant="ghost" size="sm" onClick={() => askWork({ paths: [doc.path] })} data-tip="이 문서를 붙인 새 AI 대화를 엽니다. 회신·표 정리처럼 맡길 일을 적으면 AI가 합니다.">
+            <Sparkles size={13} /> AI에게 시키기
+          </Button>
+        </div>
       </div>
     </AiGate>
   );

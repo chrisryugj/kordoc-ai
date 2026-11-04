@@ -34,7 +34,7 @@ export async function renderPreview(params: RenderPreviewParams, signal?: AbortS
   signal?.throwIfAborted();
 
   const big = await tooBigForRhwp(new Uint8Array(bytes));
-  if (big) throw new Error(`문서가 너무 커서(약 ${big.toLocaleString('ko-KR')}쪽) 미리 볼 수 없습니다. 작업대의 쪽 보기로 여세요.`);
+  if (big) throw new Error(`문서가 너무 커서(약 ${big.toLocaleString('ko-KR')}쪽) 미리 볼 수 없습니다. 문서 화면의 쪽 보기로 여세요.`);
   // 빈 누름틀 안내문이 뒤 글자와 겹치지 않게 (미리보기 사본만)
   const doc = await openRhwp(await showFieldGuides(new Uint8Array(bytes)));
   try {

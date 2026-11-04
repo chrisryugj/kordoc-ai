@@ -1,0 +1,5 @@
+/* AI 연결: 고른 AI 한 줄 (회사 · 모델) */
+.kd-aipick { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--color-bg-tertiary); }
+.kd-aipick-label { font-size: var(--fs-caption); font-weight: 600; color: var(--color-text-muted); }
+.kd-aipick b { font-size: var(--fs-h3); font-weight: 700; color: var(--color-text-primary); overflow-wrap: anywhere; }
+.kd-aipick-way { display: inline-flex; align-items: center; min-height: 38px; font-size: var(--fs-body); color: var(--color-text-secondary); }

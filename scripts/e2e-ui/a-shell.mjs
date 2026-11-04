@@ -21,11 +21,12 @@ const ui = await openUi({ relay: RELAY, width: 1280, height: 800, prefs: { 'kord
 const { page } = ui;
 try {
   // ── 첫 실행: AI 없이 시작 → 홈 그대로, 왼쪽 아래 "AI 꺼짐 · 켜기"로 설정의 AI 연결 구획
-  await ui.waitText('처음 오셨네요', 30000);
+  await ui.waitText('시작 준비', 30000);
   await page.type('.kd-wizard input', '가온시');
   check('첫 실행 1단계: 기관명·부서만 펼쳐 보임', await page.evaluate(() => [...document.querySelectorAll('.kd-wizard-body input')].filter((e) => e.checkVisibility()).length === 2));
   await ui.click('다음', { exact: true });
-  check('첫 실행 2단계: 기본은 AI 없이 시작', await page.evaluate(() => document.querySelector('.kd-wizard [role=radio][aria-checked=true]')?.textContent.includes('AI 없이 시작')));
+  // 켜 둔 AI 프로그램(Ollama 등)을 찾았으면 '이 PC에서'가 추천 기본값, 못 찾았으면 'AI 없이 시작'
+  check('첫 실행 2단계: 기본은 AI 없이 시작 또는 찾은 이 PC', await page.evaluate(() => { const t = document.querySelector('.kd-wizard [role=radio][aria-checked=true]')?.textContent ?? ''; return t.includes('AI 없이 시작') || (t.includes('이 PC에서') && t.includes('찾았습니다')); }));
   await ui.click('AI 없이 시작');
   await ui.click('다음', { exact: true });
   await ui.shot(join(OUT, '01-wizard-done.png'));
@@ -84,7 +85,7 @@ try {
 
   // ── 메뉴: 업무 말, 비교는 메뉴에서 빠짐, 화면 id 그대로
   const nav = await page.evaluate(() => [...document.querySelectorAll('.kd-nav-item')].map((b) => `${b.dataset.screen}:${b.querySelector('.kd-nav-title')?.textContent}`));
-  check('메뉴 이름 (오늘·접수함·문서·새로 쓰기·PDF 작업·서무 도구·물어보기·설정)', nav.join(',') === 'home:오늘,inbox:접수함,workbench:문서,create:새로 쓰기,pdf:PDF 작업,batch:서무 도구,assistant:물어보기,settings:설정', nav.join(','));
+  check('메뉴 이름 (전체 화면: 홈·AI 대화·접수함 / 문서 작업 넷 / 설정·도움말, 물어보기는 AI 대화 안)', nav.join(',') === 'home:홈,chat:AI 대화,inbox:접수함,workbench:문서 보기,create:새로 쓰기,pdf:PDF 합치기·나누기,batch:여러 파일 한꺼번에,settings:설정,help:도움말', nav.join(','));
 
   // ── 오늘: 처리 0건이면 효과 줄 숨김, 기한 임박 공문
   check('처리 0건이면 "이번 달 처리" 줄 없음', !(await page.evaluate(() => !!document.querySelector('.kd-impact-line'))));
@@ -98,13 +99,14 @@ try {
   await ui.waitText('기한이 다가온 공문');
   const due = await page.evaluate(() => [...document.querySelectorAll('[aria-labelledby="due-t"] .kd-row')].map((r) => r.innerText.replace(/\n/g, ' ')));
   check('오늘: 기한 임박 공문 (최대 3)', due.length >= 1 && due.length <= 3 && /D-\d/.test(due[0]), due.join(' | '));
-  const tasks = await page.evaluate(() => [...document.querySelectorAll('.kd-task-title')].map((h) => h.textContent));
-  check('자주 하는 일 여섯', tasks.join('/') === '받은 공문에 회신 쓰기/결재 올리기 전 점검/새 공문 쓰기/부서 제출 문서 모으기/PDF 합치기·나누기/PDF를 한글 문서로', tasks.join('/'));
-  check('모든 기능 보기는 처음에 접힘', await page.evaluate(() => !document.querySelector('.kd-allfeatures').open));
+  // 이름만 (AI 필요 배지 글은 빼고)
+  const tasks = await page.evaluate(() => [...document.querySelectorAll('.kd-task-title')].map((h) => h.firstChild?.textContent ?? ''));
+  check('빠른 작업 여섯 (전체 화면)', tasks.join('/') === '공문 작성/회신 작성/결재 전 점검/합치기 · 나누기/한글 변환/제출물 취합', tasks.join('/'));
+  check('모든 기능 보기는 전체 화면에서 처음에 펼침', await page.evaluate(() => !!document.querySelector('.kd-allfeatures')?.open));
   await page.evaluate(() => { document.querySelector('.kd-allfeatures').open = true; });
   await sleep(200);
   const groups = await page.evaluate(() => [...document.querySelectorAll('.kd-index-title')].map((h) => h.textContent));
-  check('업무별 목차 (접수·회신/쓰기/검토/PDF/서무 도구/묻기)', groups.join('/') === '접수·회신/쓰기/검토/PDF/서무 도구/묻기', groups.join('/'));
+  check('업무별 목차 (접수·회신/쓰기/검토/PDF/한꺼번에/묻기)', groups.join('/') === '접수·회신/쓰기/검토/PDF/한꺼번에/묻기', groups.join('/'));
   const firstCol = await page.evaluate(() => document.querySelector('.kd-index-col')?.innerText ?? '');
   check('받은 공문 기한 정리가 접수·회신에', firstCol.includes('받은 공문 기한 정리'));
   await ui.shot(join(OUT, '05-home-1280.png'));
@@ -119,7 +121,8 @@ try {
   await page.click('.kd-nav-foot .kd-icon-btn');
   await sleep(400);
   const stat = await page.evaluate(() => [...document.querySelectorAll('.kd-nav-stat')].map((b) => b.innerText.trim()));
-  check('접힌 메뉴 상태 아이콘에 짧은 이름', stat.length === 2 && stat.every(Boolean), stat.join(','));
+  // 엔진은 준비되면 숨고(문제 있을 때만), AI 상태만 남는다
+  check('접힌 메뉴 상태 아이콘에 짧은 이름', stat.length >= 1 && stat.every(Boolean), stat.join(','));
   await ui.shot(join(OUT, '07-nav-collapsed.png'));
   await page.click('.kd-nav-foot .kd-icon-btn');
   await sleep(300);
@@ -133,7 +136,7 @@ try {
     req.continue();
   });
   await ui.click('신구대조표 만들기');
-  await ui.waitText('두 문서를 넣고 비교하기를 누르세요');
+  await ui.waitText('비교할 두 문서를 넣으세요');
   await ui.dialog([[LETTER_PDF]]);
   await ui.click('파일 고르기', { within: '[data-drop="compare-old"]' });
   await sleep(500);
@@ -149,7 +152,7 @@ try {
   const errText = await page.evaluate(() => [...document.querySelectorAll('.kd-note[data-tone="err"]')].map((n) => n.innerText).join(' | '));
   check('비교 오류는 "새 문서를 읽지 못했습니다"', errText.includes('새 문서를 읽지 못했습니다') && !/문서B|파싱/.test(errText), errText);
   const slotText = await page.evaluate(() => document.querySelector('[data-drop="compare-old"]')?.innerText ?? '');
-  check('비교 칸은 파일 이름만 (폴더 경로 없음)', !slotText.includes('/'), slotText.replace(/\n/g, ' '));
+  check('비교 칸은 파일 이름만 (폴더 경로 없음)', !/[\\/]/.test(slotText), slotText.replace(/\n/g, ' '));
   await ui.dialog([[LETTER]]);
   await ui.click('바꾸기', { within: '[data-drop="compare-new"]' });
   await sleep(300);

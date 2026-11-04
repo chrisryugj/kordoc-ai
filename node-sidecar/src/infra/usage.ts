@@ -5,7 +5,7 @@
  * 밖으로는 아무것도 보내지 않는다.
  */
 
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dataDir, getSettings } from './config.js';
@@ -26,7 +26,7 @@ export const TASKS: Record<string, { key: string; label: string; unit: string; b
   ai_draft: { key: 'ai_draft', label: 'AI 초안', unit: '건', baseline: 20, count: () => 1 },
   template_fill: { key: 'fill', label: '서식 칸 채우기', unit: '건', baseline: 10, count: () => 1 },
   mail_merge: { key: 'merge_docs', label: '명부로 문서 만들기', unit: '장', baseline: 5, count: (_p, r) => len((r as { outputs?: unknown[] })?.outputs) },
-  collect_run: { key: 'collect', label: '취합', unit: '문서', baseline: 5, count: (_p, r) => (r as { rows?: number })?.rows ?? 0 },
+  collect_run: { key: 'collect', label: '문서 수합', unit: '문서', baseline: 5, count: (_p, r) => (r as { rows?: number })?.rows ?? 0 },
   redact: { key: 'redact', label: '개인정보 가리기', unit: '문서', baseline: 15, count: (p) => (p.dry_run ? 0 : 1) },
   redact_batch: { key: 'redact', label: '개인정보 가리기', unit: '문서', baseline: 15, count: (_p, r) => okCount(r) },
   convert: { key: 'convert', label: '문서를 글로 바꾸기', unit: '문서', baseline: 5, count: (p) => (p.save === false ? 0 : 1) },
@@ -43,11 +43,16 @@ export const TASKS: Record<string, { key: string; label: string; unit: string; b
   ai_review: { key: 'review', label: 'K팀장 검토', unit: '건', baseline: 15, count: () => 1 },
   lint: { key: 'lint', label: '표기법 검사', unit: '건', baseline: 10, count: (p) => (p.path ? 1 : 0) },
   ai_extract: { key: 'ai_extract', label: '여러 문서에서 항목 뽑기', unit: '문서', baseline: 5, count: (_p, r) => len((r as { rows?: unknown[] })?.rows) },
-  seal: { key: 'seal', label: '도장 찍기', unit: '건', baseline: 3, count: () => 1 },
-  export_pdf: { key: 'pdf', label: 'PDF로 내보내기', unit: '문서', baseline: 2, count: () => 1 },
+  seal: { key: 'seal', label: '도장 찍기', unit: '건', baseline: 3, count: (_p, r) => ((r as { placed?: number })?.placed ? 1 : 0) },
+  export_pdf: { key: 'pdf', label: 'PDF로 저장', unit: '문서', baseline: 2, count: () => 1 },
   inbox_add: { key: 'inbox', label: '받은 공문 정리', unit: '문서', baseline: 5, count: (_p, r) => len((r as { items?: unknown[] })?.items) },
   law_check: { key: 'law', label: '법령 근거 확인', unit: '건', baseline: 10, count: (_p, r) => ((r as { checked?: boolean })?.checked ? 1 : 0) },
 };
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** 이 PC 시각 기준 달 YYYY-MM (UTC 로 자르면 한국은 매달 1일 0~9시 기록이 지난달로 간다) */
+const localMonth = (now = new Date()) => `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+const localDay = (d: Date) => (Number.isNaN(d.getTime()) ? '' : `${localMonth(d)}-${pad2(d.getDate())}`);
 
 interface UsageFile {
   version: 1;
@@ -87,6 +92,19 @@ function scheduleSave(): void {
   saveTimer.unref();
 }
 
+/** 미뤄 둔 저장을 기다리지 않고 지금 한다 (시험이 임시 폴더를 지우기 전: 2초 뒤 저장이 지운 폴더를 다시 만들지 않게) */
+export function flushUsage(): void {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  try {
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(file(), JSON.stringify(data), 'utf-8');
+  } catch (err) {
+    logger.warn(`[usage] 저장 실패: ${err}`);
+  }
+}
+
 /** 라우터가 성공한 호출마다 부른다 */
 export function recordUsage(method: string, params: Params, result: unknown): void {
   const task = TASKS[method];
@@ -94,7 +112,7 @@ export function recordUsage(method: string, params: Params, result: unknown): vo
   const n = task.count(params, result);
   if (!n) return;
   const d = load();
-  const month = new Date().toISOString().slice(0, 7);
+  const month = localMonth();
   const m = (d.months[month] ??= {});
   m[task.key] = (m[task.key] ?? 0) + n;
   scheduleSave();
@@ -122,7 +140,7 @@ export interface UsageItem {
 
 export function usageReport(range: 'month' | 'all' = 'month'): { range: string; since: string; items: UsageItem[]; total_count: number; total_saved_min: number } {
   const d = load();
-  const month = new Date().toISOString().slice(0, 7);
+  const month = localMonth();
   const custom = getSettings().impact?.baselines ?? {};
   const sums = new Map<string, number>();
   for (const [mon, counts] of Object.entries(d.months)) {
@@ -141,7 +159,7 @@ export function usageReport(range: 'month' | 'all' = 'month'): { range: string; 
   items.sort((a, b) => b.saved_min - a.saved_min);
   return {
     range,
-    since: range === 'month' ? `${month}-01` : d.since.slice(0, 10),
+    since: range === 'month' ? `${month}-01` : localDay(new Date(d.since)),
     items,
     total_count: items.reduce((s, i) => s + i.count, 0),
     total_saved_min: items.reduce((s, i) => s + i.saved_min, 0),

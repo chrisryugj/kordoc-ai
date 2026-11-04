@@ -24,7 +24,7 @@ function FilePick({ label, hint, value, onChange }: { label: string; hint: strin
     <Field label={label} hint={hint}>
       <div className="kd-inset flex items-center gap-2 px-2.5 py-1.5">
         <span className="kd-path flex-1">{value ? baseName(value) : "쓰지 않음"}</span>
-        {value && <button type="button" className="kd-icon-btn" style={{ width: 26, height: 26 }} onClick={() => onChange("")} aria-label={`${label} 빼기`}><X size={13} /></button>}
+        {value && <button type="button" className="kd-icon-btn" onClick={() => onChange("")} aria-label={`${label} 빼기`}><X size={13} /></button>}
         <button type="button" className="kd-link kd-small flex-none" onClick={() => void pickFiles({ multiple: false, filters: FILTERS.hwpx }).then((p) => p[0] && onChange(p[0]))}>
           <FileUp size={12} className="inline -mt-0.5" /> 고르기
         </button>
@@ -68,7 +68,7 @@ export function FormatOptions({ value, onChange, open, onToggle, locked }: { val
             </div>
           )}
           <div className="kd-form-row">
-            <FilePick label="견본 서식 학습" hint="우리 기관 문서를 고르면 항목 기호 단계별 글꼴·크기를 따라 합니다" value={value.levelsFrom} onChange={(v) => set("levelsFrom", v)} />
+            <FilePick label="견본 서식 학습" hint="항목 기호 단계별 글꼴·크기를 견본대로" value={value.levelsFrom} onChange={(v) => set("levelsFrom", v)} />
             <FilePick label="표 서식 참고" hint="표 테두리·칸 색을 이 문서처럼" value={value.profileFrom} onChange={(v) => set("profileFrom", v)} />
           </div>
         </div>

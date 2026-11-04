@@ -20,7 +20,6 @@ export function SealTool({ doc }: ToolProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="kd-small kd-muted">문서에서 도장 자리 글자를 찾아 그 위에 그림을 얹습니다. 원본은 두고 사본을 만듭니다.</p>
       <Field label="도장 그림 (PNG)" hint={settings?.org.seal_image ? "내 기관 정보에 등록한 그림입니다" : undefined}>
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <span className="kd-path flex-1">{image ? baseName(image) : "아직 고르지 않았습니다"}</span>
@@ -36,7 +35,7 @@ export function SealTool({ doc }: ToolProps) {
         <input className="kd-input" value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="찍을 자리 글자" />
       </Field>
       {task.busy ? <Working label="도장을 찍는 중" /> : (
-        <Button size="lg" disabled={!image || !anchor.trim()} onClick={() => void task.run(() => rpc("seal", { path: doc.path, image_path: image, anchor: anchor.trim() }))}>
+        <Button size="lg" disabled={!image || !anchor.trim()} data-tip="문서에서 찍을 자리 글자를 찾아 그 위에 도장 그림을 얹은 사본을 만듭니다. 원본은 그대로 둡니다." onClick={() => void task.run(() => rpc("seal", { path: doc.path, image_path: image, anchor: anchor.trim() }))}>
           <Stamp size={15} /> 도장 찍기
         </Button>
       )}

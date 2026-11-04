@@ -130,7 +130,7 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   if (labels.length === 0) throw new Error('채울 값이 없습니다 ("values" 비어 있음)');
 
   logger.info(`[form_fill] 시작: ${input_path} (${labels.length}개 값)`);
-  sendProgress({ current: 0, total: 3, message: '양식을 읽는 중...' });
+  sendProgress({ current: 0, total: 3, message: '양식을 읽는 중' });
   signal?.throwIfAborted();
 
   const buffer = await readFile(input_path);
@@ -139,14 +139,14 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   }
   signal?.throwIfAborted();
 
-  sendProgress({ current: 1, total: 3, message: '원본 서식 그대로 값을 채우는 중...' });
+  sendProgress({ current: 1, total: 3, message: '원본 서식 그대로 값을 채우는 중' });
   // 같은 이름이 여러 곳에 있는 칸은 넣지 않고 알린다 (대표자 칸에 다른 사람 값이 들어가는 일을 막는다)
   const src = toArrayBuffer(buffer);
   const fill = await fillWithUniqueGuard(values, (v, blocked) => fillHwpx(src, v, blocked));
   const filledBuf = Buffer.from(fill.buffer);
 
   // 재파싱 검증 — 채움 결과가 파싱 가능하고 변경이 채움 범위 안인지 기계 증명
-  sendProgress({ current: 2, total: 3, message: '다시 읽어 확인 중...' });
+  sendProgress({ current: 2, total: 3, message: '다시 읽어 확인하는 중' });
   let verification = { reparse_ok: false, changed_blocks: -1 };
   try {
     const diff: DiffResult = await compare(toArrayBuffer(buffer), toArrayBuffer(filledBuf));

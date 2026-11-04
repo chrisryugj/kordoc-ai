@@ -54,7 +54,7 @@ describe('find_versions', () => {
 
   it('이름은 "최종"인데 더 나중 판이 있으면 짚는다', async () => {
     const r: VersionsResult = await call('find_versions', { path: join(dir, '교육계획_초안.hwpx') });
-    expect(r.notes.join('\n')).toMatch(/"최종"이 붙은 교육계획_최종\.hwpx 보다 더 나중에 고친 판이 있습니다: 교육계획_최종 \(2\)\.hwpx/);
+    expect(r.notes.join('\n')).toMatch(/"최종"이 붙은 교육계획_최종\.hwpx보다 더 나중에 고친 판이 있습니다: 교육계획_최종 \(2\)\.hwpx/);
   }, 60_000);
 
   it('다른 판이 없으면 그렇다고, 지원하지 않는 형식은 할 일까지 알린다', async () => {

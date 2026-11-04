@@ -261,6 +261,7 @@ describe('정책: 공유 폴더 저장 위치', () => {
       expect(p.locked).toEqual({ convert: { format: 'md' } });
     } finally {
       if (prev === undefined) delete process.env.KORDOC_AI_POLICY; else process.env.KORDOC_AI_POLICY = prev;
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

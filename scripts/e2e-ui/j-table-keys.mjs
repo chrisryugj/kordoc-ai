@@ -16,6 +16,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { openUi, ROOT, sleep } from './ui-lib.mjs';
 
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -27,7 +28,7 @@ mkdirSync(OUT, { recursive: true });
 
 // 시험 문서: 문단 · 3×3 숫자 표 · 문단
 const require = createRequire(join(ROOT, 'node-sidecar', 'package.json'));
-const core = await import(require.resolve('@rhwp/core'));
+const core = await import(pathToFileURL(require.resolve('@rhwp/core')).href);
 await core.default({ module_or_path: readFileSync(join(dirname(require.resolve('@rhwp/core')), 'rhwp_bg.wasm')) });
 const DOC = join(OUT, '표.hwpx');
 {
@@ -45,6 +46,8 @@ const checks = [];
 const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` : ${detail}` : ''}`); };
 
 const rp = spawn(process.execPath, ['scripts/dev-relay.mjs', '--port', String(PORT), '--data', DATA], { cwd: ROOT, stdio: 'ignore' });
+// 중간에 오류로 끝나도 중계기를 남기지 않는다 (남으면 다음 시험이 같은 포트의 옛 중계기에 붙는다)
+process.on('exit', () => rp.kill());
 for (let i = 0; i < 60; i++) {
   await sleep(500);
   const ok = await fetch(`${RELAY}/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: 'sidecar_call', args: { method: 'ping', params: {} } }), signal: AbortSignal.timeout(3000) })
@@ -55,8 +58,7 @@ await sleep(1500);
 const ui = await openUi({ relay: RELAY, width: 1280, height: 900, prefs: { 'kordoc-first-run-done': true } });
 const { page } = ui;
 try {
-  await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [DOC] }) });
-  await ui.waitText('한글 편집기로 열기', 30000);
+  await ui.emitOpen([DOC], '한글 편집기로 열기');
   await ui.click('한글 편집기로 열기');
   await page.waitForFunction(() => { const e = document.querySelector('.kd-edit'); return e && !e.hidden && !document.querySelector('.kd-editor-cover'); }, { timeout: 120000 });
   await sleep(2500);
@@ -192,7 +194,8 @@ try {
   await closeDialogs(); await press('Escape Escape');
   // 머리말 편집 중에는 본문 커서가 칸에 남아 있어도 표 키가 아니다
   await toCell(4);
-  await studio.evaluate(() => window.rhwpStudio.automation.execute('page:header-create', undefined, { allowDialog: true }));
+  // 명령 결과는 기다리지 않는다 (가끔 돌려준 값이 끝나지 않아 evaluate 가 3분 동안 멈췄다). 머리말에 들어갔는지는 아래에서 본다
+  await studio.evaluate(() => { void window.rhwpStudio.automation.execute('page:header-create', undefined, { allowDialog: true }); });
   await sleep(500);
   const inHeader = await studio.evaluate(() => !!window.__sv.getInputHandler().cursor.isInHeaderFooter?.());
   await press('Control+Enter');
@@ -220,8 +223,7 @@ copyFileSync(join(ROOT, 'scripts', 'e2e-ui', 'fixtures', 'inner-table-01.hwp'), 
 const ui2 = await openUi({ relay: RELAY, width: 1280, height: 900, prefs: { 'kordoc-first-run-done': true } });
 try {
   const page2 = ui2.page;
-  await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [NESTED] }) });
-  await ui2.waitText('한글 편집기로 열기', 30000);
+  await ui2.emitOpen([NESTED], '한글 편집기로 열기');
   await ui2.click('한글 편집기로 열기');
   await page2.waitForFunction(() => { const e = document.querySelector('.kd-edit'); return e && !e.hidden && !document.querySelector('.kd-editor-cover'); }, { timeout: 120000 });
   await sleep(2500);

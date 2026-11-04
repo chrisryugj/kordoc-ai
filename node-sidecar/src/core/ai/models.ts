@@ -194,7 +194,7 @@ export async function downloadModel(item: CatalogEntry, signal: AbortSignal): Pr
       throw new Error('받은 파일이 GGUF 모델이 아닙니다. 다시 받으세요.');
     }
     if (item.sha256) {
-      sendProgress({ current: item.size, total: item.size, message: '받은 파일 확인 중...' });
+      sendProgress({ current: item.size, total: item.size, message: '받은 파일을 확인하는 중' });
       if ((await sha256Of(part, signal)) !== item.sha256) {
         await rm(part);
         throw new Error('받은 파일이 손상되었습니다(검사값 불일치). 다시 받으세요.');

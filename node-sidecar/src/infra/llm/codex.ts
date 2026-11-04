@@ -100,6 +100,23 @@ export function codexArgs(o: { dir: string; model: string; disable: string[]; im
   ];
 }
 
+/** OpenAI 구조화 출력의 엄격한 꼴인지: 모든 객체에 properties 가 있고 additionalProperties: false, required 가 모든 칸 */
+export function strictSchema(schema: unknown): boolean {
+  const o = obj(schema);
+  if (!o) return true;
+  const t = o.type;
+  if (t === 'object' || o.properties) {
+    const props = obj(o.properties);
+    if (!props || o.additionalProperties !== false) return false;
+    const req = Array.isArray(o.required) ? o.required : [];
+    if (Object.keys(props).some((k) => !req.includes(k))) return false;
+    return Object.values(props).every(strictSchema);
+  }
+  if (t === 'array') return strictSchema(o.items);
+  for (const k of ['anyOf', 'oneOf', 'allOf']) if (Array.isArray(o[k]) && !(o[k] as unknown[]).every(strictSchema)) return false;
+  return true;
+}
+
 /** stdin 으로 줄 글: 우리 지시 + 호출한 쪽 지시 + 대화 */
 export function codexPrompt(req: Pick<ChatRequest, 'system' | 'messages' | 'json' | 'schema' | 'maxTokens'>): string {
   const parts = ['이 요청은 KorDoc AI 가 보낸 것입니다. 도구는 없습니다. 파일·명령·웹을 쓰지 말고, 받은 글만 보고 답을 글로만 쓰세요.'];
@@ -119,6 +136,8 @@ function failureOf(text: string): FailKind {
   if (/usage limit|rate.?limit|\b429\b|quota/i.test(text)) return 'rate-limit';
   if (/overloaded|503/i.test(text)) return 'overloaded';
   if (/\b5\d\d\b|server error|internal error/i.test(text)) return 'server-error';
+  // 오래된 CLI: 계정이 쓰는 모델을 못 부른다 (0.138 실측: "not supported when using Codex with a ChatGPT account", "requires a newer version of Codex")
+  if (/not supported when using Codex with a ChatGPT account|requires a newer version|upgrade to the latest/i.test(text)) return 'needs-update';
   if (/\b400\b|invalid_request|bad request|unsupported model|model .{0,40}not (found|supported)/i.test(text)) return 'bad-request';
   if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|network|dns|failed to connect|timed out/i.test(text)) return 'network';
   return 'failed';
@@ -144,7 +163,9 @@ async function ask(program: Program, cfg: CodexConfig, req: ChatRequest, timeout
       images.push(f);
     }
     let schemaFile: string | undefined;
-    if (req.schema) {
+    // 서버가 엄격한 꼴만 받는다(실측 0.166: "'additionalProperties' is required to be supplied and to be false").
+    // 엄격하지 않은 꼴(편집기·작업 AI 의 args 처럼 아무 칸이나 받는 객체)은 넘기지 않고 지시문의 "JSON 하나만" 으로 받는다
+    if (req.schema && strictSchema(req.schema)) {
       schemaFile = join(dir, 'schema.json');
       await writeFile(schemaFile, JSON.stringify(req.schema), { mode: 0o600 });
     }

@@ -91,7 +91,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
               color: view === "source" ? "var(--color-accent)" : "var(--color-text-muted)",
             }}
           >
-            <Code size={13} /> 소스
+            <Code size={13} /> 원문
           </button>
           </>}
         </div>
@@ -105,7 +105,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           </Button>
           </Tooltip>
           {!plain && (
-          <Tooltip content="마크다운 원본을 클립보드에 복사">
+          <Tooltip content="#·| 같은 표시가 붙은 마크다운 글 그대로 복사">
           <Button variant="ghost" size="sm" onClick={() => void handleCopy("md")}>
             <span className="flex items-center gap-1">
               {copied === "md" ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 마크다운 복사</>}
@@ -114,11 +114,11 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           </Tooltip>
           )}
           {onSummarize && (
-            <Tooltip content="Gemini AI로 핵심 내용 요약 (온라인 모드 필요)">
+            <Tooltip content="AI로 핵심 내용 요약">
             <Button variant="secondary" size="sm" onClick={onSummarize} disabled={isSummarizing}>
               <span className="flex items-center gap-1">
                 {isSummarizing ? (
-                  <><span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> 요약 중...</>
+                  <><span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> 요약하는 중</>
                 ) : (
                   <><Sparkles size={13} /> AI 요약</>
                 )}
@@ -201,7 +201,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           position={{ x: ctxMenu.x, y: ctxMenu.y }}
           onClose={() => setCtxMenu(null)}
           items={[
-            { label: "선택 텍스트 복사", icon: <Copy size={13} />, onClick: () => { navigator.clipboard.writeText(ctxMenu.text); } },
+            { label: "고른 글 복사", icon: <Copy size={13} />, onClick: () => { navigator.clipboard.writeText(ctxMenu.text); } },
           ]}
         />
       )}

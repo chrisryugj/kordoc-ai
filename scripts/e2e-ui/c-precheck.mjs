@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { openUi, ROOT, SAMPLES, sleep } from './ui-lib.mjs';
 
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -34,7 +35,7 @@ async function run(width, height) {
     await ui.dialog([[path]]);
     await page.click('.kd-nav-item[data-screen="workbench"]');
     await sleep(200);
-    await ui.click('문서 열기', { within: '.kd-screen:not([hidden]) .kd-head' });
+    await ui.click('문서 열기', { within: '.kd-screen:not([hidden])' });
     await page.waitForFunction((s) => document.querySelector(`${s} .kd-tools`), { timeout: 30000 }, ws);
     await sleep(2500);
   };
@@ -57,7 +58,7 @@ async function run(width, height) {
     check(`[${tag}] 금액 고칠 값에 천 단위 쉼표`, panel.includes('금1,500,000원(금일백오십만원)'));
     check(`[${tag}] 낱말 단위 발췌 (련 : 아님)`, panel.includes('관련 :') && !/(^|\s)련 :/.test(panel));
     check(`[${tag}] 남길 것(대표번호·내 이름)은 짚지 않음`, !panel.includes('031-●●●-4567') && !panel.includes('홍●●'));
-    check(`[${tag}] AI 없을 때: AI 연결 시 함께 봅니다`, panel.includes('AI 연결 시 함께 봅니다'));
+    check(`[${tag}] AI 없을 때: AI를 켜면 함께 봅니다`, panel.includes('AI를 켜면 함께 봅니다') && panel.includes('AI 켜기'));
     check(`[${tag}] 쪽 표시 (1쪽·2쪽)`, list.some((x) => /\b1쪽/.test(x)) && list.some((x) => /\b2쪽/.test(x)));
     await ui.shot(join(OUT, `c-${tag}-01-precheck.png`));
     const orph1 = await ui.orphans(`${ws} [data-tool="review"] p, ${ws} [data-tool="review"] .kd-small, ${ws} [data-tool="review"] .kd-note, ${ws} [data-tool="review"] .kd-text`);
@@ -120,8 +121,9 @@ async function run(width, height) {
       await openDoc(LETTER_PDF);
       await tab('검토');
       await page.evaluate((s) => document.querySelector(`${s} [data-tool="redact"]`).scrollIntoView(), ws);
-      const pdfNote = await page.evaluate((s) => document.querySelector(`${s} [data-tool="redact"] p`)?.textContent ?? '', ws);
-      check('[pdf] 가리기 안내: 검게 칠한 PDF', pdfNote.includes('검게 칠한 PDF'), pdfNote);
+      // 안내는 미리 찾아보기 단추의 말풍선(data-tip)으로 옮겨 갔다
+      const pdfNote = await page.evaluate((s) => [...document.querySelectorAll(`${s} [data-tool="redact"] button[data-tip]`)].find((b) => b.textContent.includes('미리 찾아보기'))?.dataset.tip ?? '', ws);
+      check('[pdf] 가리기 안내: 검게 칠한 PDF', pdfNote.includes('검게 칠하고 글자층을 지운 PDF'), pdfNote);
       await ui.click('미리 찾아보기', { within: `${ws} [data-tool="redact"]` });
       await ui.waitText('찾은 개인정보', 30000);
       await ui.click('가린 사본 저장', { within: `${ws} [data-tool="redact"]` });
@@ -132,7 +134,7 @@ async function run(width, height) {
       const file = head.match(/\S+_가림( \(\d+\))?\.pdf/)?.[0] && (await ui.call('list_files', { path: SAVE })).map((f) => f.name).find((n) => head.includes(n));
       if (file) {
         const req = createRequire(join(ROOT, 'node-sidecar', 'package.json'));
-        const { PDFiumLibrary } = await import(req.resolve('@hyzyla/pdfium'));
+        const { PDFiumLibrary } = await import(pathToFileURL(req.resolve('@hyzyla/pdfium')).href);
         const lib = await PDFiumLibrary.init();
         const doc = await lib.loadDocument(readFileSync(join(SAVE, file)));
         const texts = [...Array(doc.getPageCount())].map((_, i) => doc.getPage(i).getText().trim());

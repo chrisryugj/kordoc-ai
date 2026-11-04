@@ -37,7 +37,7 @@ export const aiPlugin = {
     // 바뀐 곳으로 커서·화면을 옮기는 명령 (자동화 명령은 편집기의 입력 처리기를 받는다)
     host.automation.registerCommand({
       id: REVEAL,
-      label: 'AI 가 바꾼 곳 보기',
+      label: 'AI가 바꾼 곳 보기',
       execute(services, params) {
         services.getInputHandler()?.moveCursorTo({ sectionIndex: Number(params?.sec ?? 0), paragraphIndex: Number(params?.para ?? 0), charOffset: 0 });
       },

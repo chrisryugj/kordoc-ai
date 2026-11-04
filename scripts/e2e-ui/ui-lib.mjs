@@ -35,10 +35,12 @@ export async function openUi({ relay, width = 1280, height = 800, dark = false, 
   await browser.defaultBrowserContext().overridePermissions(origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
   if (dark) await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
   // 첫 실행 표시·접힘 같은 화면 기억값 (localStorage)
-  await page.evaluateOnNewDocument((p) => { for (const [k, v] of Object.entries(p)) localStorage.setItem(k, JSON.stringify(v)); }, prefs);
+  // 시험은 모든 기능이 보이는 전체 화면이 기본 (쉬운 화면을 볼 땐 prefs 로 'kordoc-ui-mode': 'easy')
+  await page.evaluateOnNewDocument((p) => { for (const [k, v] of Object.entries(p)) localStorage.setItem(k, JSON.stringify(v)); }, { 'kordoc-ui-mode': 'full', ...prefs });
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // "Failed to load resource" 는 글에 주소가 없어 어느 파일인지 붙여 둔다
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(/^Failed to load resource/.test(m.text()) && m.location()?.url ? `${m.text()} ${m.location().url}` : m.text()); });
   // 중계기 알림(EventSource)이 늘 열려 있어 networkidle 은 오지 않는다
   await page.goto(`${APP}?relay=${encodeURIComponent(relay)}${query ? `&${query}` : ''}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector(waitFor, { timeout: 30000 });
@@ -70,6 +72,16 @@ export async function openUi({ relay, width = 1280, height = 800, dark = false, 
     },
     async waitText(text, timeout = 20000) {
       await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout }, text);
+    },
+    /** 탐색기에서 연 것처럼 파일을 보낸다(open-files). 화면이 알림(SSE)을 받기 전에 보내면 사라지니, 글이 보일 때까지 몇 번 더 보낸다 */
+    async emitOpen(paths, until, timeout = 30000) {
+      const end = Date.now() + timeout;
+      for (;;) {
+        await post('/emit', { event: 'open-files', payload: paths });
+        const ok = await page.waitForFunction((t) => document.body.innerText.includes(t), { timeout: 5000 }, until).then(() => true, () => false);
+        if (ok) return;
+        if (Date.now() > end) throw new Error(`파일을 보냈는데 화면에 "${until}" 이 나오지 않음`);
+      }
     },
     /** 두 줄 이상인 글 덩이 가운데 끝줄이 그 덩이 폭의 25% 미만인 것 (외톨이 줄) */
     orphans(selector = 'p, li, .kd-row-desc, .kd-field-hint, .kd-note, .kd-small, dd, .kd-index-hint') {

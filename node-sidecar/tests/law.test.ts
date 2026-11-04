@@ -7,8 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 vi.mock('../src/infra/progress.js', async (importOriginal) => ({
@@ -23,8 +22,9 @@ import { lawCheck, lawTest, NOTE_NO_OC, NOTE_OFFLINE } from '../src/core/law/ind
 import { searchLaws } from '../src/core/law/drf.js';
 import { RpcRouter } from '../src/rpc/router.js';
 import { registerLaw } from '../src/rpc/methods/law.js';
+import { tempDir } from './tmp-dirs.js';
 
-const DATA = mkdtempSync(join(tmpdir(), 'kordoc-law-'));
+const DATA = tempDir('kordoc-law-');
 process.env.KORDOC_AI_DATA_DIR = DATA;
 
 // ── 가짜 법제처 ──
@@ -224,7 +224,7 @@ describe('lawCheck (가짜 법제처 대조)', () => {
 
   it('인용이 없으면 안내만', async () => {
     const r = await check('이 문서에는 법령 인용이 없습니다.');
-    expect(r).toEqual({ citations: [], checked: false, note: expect.stringMatching(/찾지 못했습니다/) });
+    expect(r).toEqual({ citations: [], checked: false, note: '법령 인용이 없어 확인할 것이 없습니다.' });
   });
 });
 

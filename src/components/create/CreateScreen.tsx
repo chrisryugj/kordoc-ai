@@ -8,6 +8,7 @@ import { ComposeStep } from "./ComposeStep";
 import { EditStep } from "./EditStep";
 import { OutputStep } from "./OutputStep";
 import { Button } from "../ui/Button";
+import "./create.css";
 
 const STEPS: Array<{ id: Step; n: string; label: string; desc: string }> = [
   { id: "compose", n: "1", label: "작성", desc: "서식·초안 고르기" },
@@ -18,7 +19,7 @@ const STEPS: Array<{ id: Step; n: string; label: string; desc: string }> = [
 /** 작업대 등에서 연 기존 문서는 작성 단계가 없다 — 편집 · 내보내기 */
 const EXISTING_STEPS: typeof STEPS = [
   { id: "edit", n: "1", label: "편집", desc: "한글 편집기에서 고치기" },
-  { id: "output", n: "2", label: "내보내기", desc: "저장·PDF·인쇄·도장" },
+  { id: "output", n: "2", label: "출력", desc: "저장·PDF·인쇄·도장" },
 ];
 
 /** 연 문서를 고치는 중인가 (작성 단계로 돌아가면 새로 쓰기 단계 셋을 다시 보인다) */
@@ -82,11 +83,11 @@ function CreateBody({ active }: { active: boolean }) {
       <header className="kd-head kd-create-head">
         <div className="min-w-0">
           <h1 className="kd-head-title">{existing ? "문서 고치기" : "새로 쓰기"}</h1>
-          <p className="kd-head-sub">{existing ? "연 문서를 한글 편집기에서 고치고 PDF·인쇄로 내보냅니다." : "서식을 고르면 내 기관 정보로 칸을 채우고 한글 편집기에서 다듬어 내보냅니다."}</p>
+          <p className="kd-head-sub">{existing ? "한글 편집기에서 고치고 PDF·인쇄로 출력" : "서식·초안으로 시작해 한글 편집기에서 다듬고 출력"}</p>
         </div>
         <div className="flex items-center gap-2">
           <Stepper />
-          {existing && <Button variant="ghost" size="sm" onClick={() => setStep("compose")}><FilePlus2 size={13} /> 새 문서 쓰기</Button>}
+          {existing && <Button variant="ghost" size="sm" onClick={() => setStep("compose")} data-tip="작성 단계로 갑니다. 지금 문서는 편집 단계에 그대로 남습니다"><FilePlus2 size={13} /> 새 문서 쓰기</Button>}
         </div>
       </header>
       <div className="kd-create-body">

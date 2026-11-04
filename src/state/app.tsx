@@ -11,12 +11,14 @@ import { loadRecent, pushRecent, readPref, saveRecent, writePref, type RecentDoc
 import { useSidecar, type SidecarStatus } from "../hooks/useSidecar";
 import type { ToastType } from "../components/ui/Toast";
 
-export type Screen = "home" | "inbox" | "workbench" | "create" | "pdf" | "batch" | "compare" | "assistant" | "settings" | "impact";
+export type Screen = "home" | "chat" | "inbox" | "workbench" | "create" | "pdf" | "batch" | "compare" | "assistant" | "settings" | "impact" | "help";
 export type ToolId = "info" | "export" | "ai" | "review" | "redact" | "edit" | "tables" | "seal" | "shrink";
 export type BatchTaskId =
   | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "hwpsplit" | "bundle" | "pdftools" | "collect" | "extract"
-  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy" | "shrink";
+  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy" | "shrink" | "join" | "split";
 export type ThemePref = "light" | "dark" | "system";
+/** 화면 방식: 쉬운 화면(처음 쓰는 사람: 메뉴를 줄이고 세부 설정을 접음) · 전체 화면(모든 기능과 설정) */
+export type UiMode = "easy" | "full";
 
 export interface OpenDoc {
   path: string;
@@ -81,6 +83,8 @@ interface AppValue {
   clearRecent: () => void;
   theme: ThemePref;
   setTheme: (t: ThemePref) => void;
+  uiMode: UiMode;
+  setUiMode: (m: UiMode) => void;
   dragTarget: string | null;
   setDragTarget: (t: string | null) => void;
   registerDrop: (name: string, handler: (paths: string[]) => void) => () => void;
@@ -125,6 +129,8 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const [pdfIntent, setPdfIntent] = useState<Intent<PdfStart> | null>(null);
   const [recent, setRecent] = useState<RecentDoc[]>(loadRecent);
   const [theme, setThemeState] = useState<ThemePref>(() => readPref<ThemePref>("kordoc-theme", "system"));
+  const [uiMode, setUiModeState] = useState<UiMode>(() => readPref<UiMode>("kordoc-ui-mode", "easy"));
+  useEffect(() => { document.documentElement.dataset.mode = uiMode; }, [uiMode]);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [badges, setBadges] = useState<Partial<Record<Screen, string>>>({});
   const [firstRun, setFirstRun] = useState(false);
@@ -234,17 +240,18 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     batchIntent, startBatch: (b) => { setBatchIntent(intent(b)); setScreen("batch"); },
     compareIntent, startCompare: (o, n) => { setCompareIntent(intent({ old: o, new: n })); setScreen("compare"); },
     assistantIntent, askAbout: (a) => { setAssistantIntent(intent(a)); setScreen("assistant"); },
-    workIntent, askWork: (w) => { setWorkIntent(intent(w)); setScreen("home"); },
+    workIntent, askWork: (w) => { setWorkIntent(intent(w)); setScreen("chat"); },
     createIntent, startCreate: (c) => { setCreateIntent(intent(c)); setScreen("create"); },
     pdfIntent, startPdf: (p) => { setPdfIntent(intent(p)); setScreen("pdf"); },
     recent, clearRecent: () => { setRecent([]); saveRecent([]); },
     theme, setTheme: (t) => { setThemeState(t); writePref("kordoc-theme", t); },
+    uiMode, setUiMode: (m) => { setUiModeState(m); writePref("kordoc-ui-mode", m); },
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),
     badges, setBadge, firstRun, setFirstRun,
     settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard,
   }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, workIntent, createIntent, pdfIntent, recent,
-    theme, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
+    theme, uiMode, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

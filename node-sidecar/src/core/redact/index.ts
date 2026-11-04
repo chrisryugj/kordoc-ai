@@ -39,6 +39,8 @@ export interface RedactParams {
   keep?: string[];
   /** 한글 문서를 가린 뒤 PDF 로도 저장 */
   also_pdf?: boolean;
+  /** 결과 이름 뒷말 (`<이름>_<뒷말>.<확장자>`, 기본 "가림") */
+  suffix?: string;
 }
 
 interface CliHit { rule: RedactRule; masked: string }
@@ -110,7 +112,7 @@ const unchecked = (rules: readonly RedactRule[]) => PERSONAL.filter((r) => !rule
 async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskChar: string, stem: string, signal?: AbortSignal): Promise<RedactResult> {
   const format = formatOf(p.path) as 'hwp' | 'hwpx';
   const keep = keepMatcher(p.keep);
-  const outPath = p.dry_run ? undefined : outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_가림.${format}` });
+  const outPath = p.dry_run ? undefined : outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.${format}` });
   const args = ['redact', p.path, '--json', '--silent', `--rules=${rules.join(',')}`, `--mask-char=${maskChar}`, ...(outPath ? [`--output=${outPath}`] : ['--dry-run'])];
   const report = parseCliJson<CliReport>(await runKordocCli(args, { signal }), '개인정보를 가리지 못했습니다.');
   let listed = report.fileHits.length ? report.fileHits : report.hits;
@@ -164,7 +166,7 @@ async function redactPdfLike(p: RedactParams, rules: readonly RedactRule[], stem
   const r = await redactPdf(bytes, { rules, keep: keepMatcher(p.keep), dryRun: p.dry_run, signal });
   let outPath: string | undefined;
   if (!p.dry_run && r.pdf && r.hits.length) {
-    outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_가림.pdf` });
+    outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.pdf` });
     await writeFile(outPath, r.pdf);
   }
   return {
@@ -199,7 +201,7 @@ export async function redact(p: RedactParams, signal?: AbortSignal): Promise<Red
   const residual: RedactHit[] = hits.length ? redactMarkdown(text, { rules, maskChar }).hits.filter((h) => !keep(text.slice(h.index, h.index + h.length))) : [];
   let outPath: string | undefined;
   if (!p.dry_run && hits.length) {
-    outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_가림.md` });
+    outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.md` });
     await writeFile(outPath, text, 'utf-8');
   }
   return { ...(outPath ? { output_path: outPath } : {}), hits: summarize(hits), total: hits.length, residual: residual.length, preserved: false, unchecked_rules: unchecked(rules) };

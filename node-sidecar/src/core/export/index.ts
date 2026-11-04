@@ -6,7 +6,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { markdownToPdf, renderDocument } from 'kordoc';
 import { PDFDocument } from 'pdf-lib';
 import type { BatchItemResult } from '../../types/rpc-contract.js';
@@ -101,7 +101,7 @@ export async function exportPdf(p: { path: string; output_path?: string; overwri
 }
 
 export async function bundlePdf(
-  p: { paths: string[]; output_path?: string; watermark?: string; page_numbers?: boolean },
+  p: { paths: string[]; output_path?: string; watermark?: string; page_numbers?: boolean; overwrite?: boolean },
   signal: AbortSignal,
 ): Promise<{ output_path: string; page_count: number; failed: BatchItemResult[] }> {
   const merged = await PDFDocument.create();
@@ -119,7 +119,9 @@ export async function bundlePdf(
   }
   if (!merged.getPageCount()) throw new Error(`합칠 수 있는 문서가 없습니다. ${failed[0]?.error ?? ''}`.trim());
   if (p.watermark?.trim() || p.page_numbers) await stampPdf(merged, p);
-  const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}_합본.pdf` });
+  // overwrite: 화면이 덮어쓰기를 확인한 경로. 합칠 원본 자리면 덮어쓰지 않는다
+  const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => resolve(x).toLowerCase() === resolve(p.output_path!).toLowerCase());
+  const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}_합본.pdf`, overwrite });
   await writeFile(outPath, await merged.save());
   return { output_path: outPath, page_count: merged.getPageCount(), failed };
 }

@@ -39,7 +39,7 @@ export function GatherResult({ result, message, onAddLate }: { result: Gather; m
           <div><Button variant="secondary" size="sm" onClick={copy}><Copy size={13} /> 독촉 글 복사</Button></div>
         </section>
       ) : <Note tone="ok">명단의 부서가 모두 제출했습니다.</Note>)}
-      {!hasRoster && <p className="kd-small kd-muted">부서 명단을 넣고 다시 만들면 안 낸 부서를 찾아 드립니다.</p>}
+      {!hasRoster && <p className="kd-small kd-muted">부서 명단을 넣고 다시 만들면 안 낸 부서를 찾습니다.</p>}
 
       {r.separate.length > 0 && (
         <section aria-labelledby="gather-sep-t">

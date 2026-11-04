@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
     local: { base_url: 'http://127.0.0.1:11434/v1', api_key: '', model: '' },
     claude_code: { model: '', cli_path: '' },
     codex: { model: '', cli_path: '' },
+    gemini_cli: { model: '', cli_path: '' },
     allow_subscription: false,
     redact_before_cloud: true,
     timeout_ms: 180_000,
@@ -162,7 +163,7 @@ export function reload(): Settings {
 
 /** 기관 배포 설정으로만 정하는 값 — 띄울 실행 파일 경로. 화면(update_settings)·settings.json 의 값은 쓰지 않는다
  *  (화면이 뚫려도 아무 실행 파일이나 띄우게 되지 않게. 평소에는 자동으로 찾는다) */
-const ADMIN_ONLY: ReadonlyArray<[string, string]> = [['claude_code', 'cli_path'], ['codex', 'cli_path']];
+const ADMIN_ONLY: ReadonlyArray<[string, string]> = [['claude_code', 'cli_path'], ['codex', 'cli_path'], ['gemini_cli', 'cli_path']];
 
 function dropAdminOnly(layer: Obj): Obj {
   const ai = isObj(layer.ai) ? layer.ai : undefined;
@@ -219,8 +220,18 @@ function dropMaskedSecrets(obj: Record<string, unknown>): void {
   }
 }
 
-/** 고정 경로는 버리고 실제 적용된 설정을 돌려준다. settings.json 에는 사용자 값만 쓴다 */
-export async function updateSettings(patch: Record<string, unknown>): Promise<Settings> {
+/** 저장 줄: 앞 저장이 끝난 뒤의 사용자 값에서 출발한다
+ *  (동시에 부르면 같은 옛 값에서 출발해 한쪽이 사라지고, Windows 는 같은 파일 바꿔 넣기가 EPERM) */
+let saving: Promise<unknown> = Promise.resolve();
+
+/** 고정 경로는 버리고 실제 적용된 설정을 돌려준다. settings.json 에는 사용자 값만 쓴다. 여러 번 불러도 차례로 저장한다 */
+export function updateSettings(patch: Record<string, unknown>): Promise<Settings> {
+  const run = saving.then(() => applyUpdate(patch));
+  saving = run.catch(() => undefined);
+  return run;
+}
+
+async function applyUpdate(patch: Record<string, unknown>): Promise<Settings> {
   const shown = getSettings() as unknown as Obj;
   const sanitized: Record<string, unknown> = {};
   for (const key of Object.keys(patch)) {

@@ -15,7 +15,7 @@ import { agentStep, type AgentEvent, type AgentToolDef } from '../../core/ai/age
 import { extractTable } from '../../core/ai/extract.js';
 import { fitLinesWithAi } from '../../core/ai/fit-lines.js';
 import { aiStatus, aiTest, aiWarmup, listServerModels } from '../../core/ai/status.js';
-import { localServers, subscriptionModels, subscriptionStatus } from '../../core/ai/connect.js';
+import { localServers, subscriptionModels, subscriptionStatus, subscriptionUpdate } from '../../core/ai/connect.js';
 import { CATALOG, catalog, deleteModel, downloadModel, importModel, listModels } from '../../core/ai/models.js';
 
 const paths = (v: unknown, what: string): string[] => {
@@ -37,6 +37,7 @@ export function registerAi(router: RpcRouter): void {
   reg('ai_local_servers', (_p, signal) => localServers(signal));
   reg('ai_subscription_status', (p, signal) => subscriptionStatus(p, signal));
   reg('ai_subscription_models', (p, signal) => subscriptionModels(p, signal));
+  reg('ai_subscription_update', (p, signal) => subscriptionUpdate(p, signal));
   reg('ai_warmup', () => aiWarmup(), { heavy: true });
 
   // ── 내장 모델 ──

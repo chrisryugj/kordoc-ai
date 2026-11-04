@@ -1,0 +1,44 @@
+/* 여러 파일 한꺼번에: 위에서 아래로 결과(끝나면) → 1 파일 넣기 → 2 설정, 맨 아래 고정 시작 줄 */
+
+.kd-batch-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.kd-batch-col > .kd-batch-main { flex: 1; min-height: 0; }
+
+.kd-batch-step { display: flex; align-items: center; gap: 8px; }
+.kd-batch-step-n {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  font-size: var(--fs-caption); font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--color-accent-subtle); color: var(--color-accent);
+}
+.kd-batch-files .kd-block-head { flex-wrap: wrap; }
+.kd-batch-files-act { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kd-batch-drop { padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.kd-batch-drop-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+.kd-batch-result { padding: 16px; display: flex; flex-direction: column; gap: 12px; border-color: var(--color-accent); }
+
+/* 아래 고정 시작 줄 */
+.kd-batch-go {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 24px;
+  border-top: 1px solid var(--color-border); background: var(--color-bg-secondary);
+}
+.kd-batch-go-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kd-batch-go-msg > .kd-small { min-width: 0; }
+.kd-batch-go-work { flex: 1; min-width: 0; }
+
+/* 체크 줄은 글자까지 눌리게 36px */
+.kd-batch .kd-check { min-height: 36px; align-items: center; }
+.kd-batch .kd-check:has(.kd-row-desc) { align-items: flex-start; }
+
+.kd-tasklist .kd-taskitem .kd-badge { margin-left: 6px; vertical-align: 1px; }
+/* 좁은 목록에서 설명 끝 낱말 하나만 다음 줄로 떨어지지 않게 줄 길이를 고르게 */
+.kd-tasklist .kd-row-desc { text-wrap: balance; word-break: keep-all; }
+
+/* 나누기(PDF) 라디오, 몇 쪽씩 */
+.kd-batch-radios { display: flex; flex-direction: column; gap: 2px; border: 0; padding: 0; margin: 0; }
+.kd-batch-radios > legend { margin-bottom: 4px; }
+.kd-batch-every { display: flex; align-items: center; gap: 8px; min-height: 36px; padding-left: 27px; }
+.kd-batch-every .kd-input { width: 72px; height: 32px; text-align: right; }
+
+/* 하나로 합치기·나누기: 결과 모양 한 줄 */
+.kd-batch-plan { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--color-accent-subtle); color: var(--color-text-primary); font-size: var(--fs-body); font-weight: 600; }
+.kd-batch-plan svg { flex: none; color: var(--color-accent); }

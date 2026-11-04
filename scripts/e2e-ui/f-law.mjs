@@ -54,7 +54,7 @@ async function run(width, height) {
     await ui.dialog([[SAMPLE]]);
     await page.click('.kd-nav-item[data-screen="workbench"]');
     await sleep(200);
-    await ui.click('문서 열기', { within: '.kd-screen:not([hidden]) .kd-head' });
+    await ui.click('문서 열기', { within: '.kd-screen:not([hidden])' });
     await page.waitForFunction((s) => document.querySelector(`${s} .kd-tools`), { timeout: 30000 }, ws);
     await sleep(2000);
     await page.evaluate((s) => [...document.querySelectorAll(`${s} [role=tab]`)].find((t) => t.textContent === '검토')?.click(), ws);
@@ -112,7 +112,9 @@ async function run(width, height) {
     await sleep(300);
     const inbox = await page.evaluate((i) => document.querySelector(`#inbox-${i} .kd-inbox-law`).innerText, id);
     const ibadges = await page.evaluate((i) => [...document.querySelectorAll(`#inbox-${i} .kd-inbox-law .kd-badge`)].map((b) => b.textContent), id);
-    check(`[${tag}] 접수함: 공문 시행일 안내`, inbox.includes('공문 시행일(3. 2.(월)) 당시 조문과 지금 조문도 견줍니다'), inbox.slice(0, 120));
+    // 시행일 안내는 단추 말풍선으로 옮김
+    const lawTip = await page.evaluate((i) => [...document.querySelectorAll(`#inbox-${i} button`)].find((b) => b.textContent.includes('인용 법령 확인'))?.dataset.tip ?? '', id);
+    check(`[${tag}] 접수함: 공문 시행일 안내`, lawTip.includes('시행일(3. 2.(월)) 당시 조문과 지금 조문도 견줍니다'), lawTip);
     for (const b of ['맞음', '항 없음', '개정됨', '그 뒤 생김', '이름 바뀜']) check(`[${tag}] 접수함 배지 ${b}`, ibadges.includes(b));
     // 개정된 인용을 펼쳐 공문 문장과 법제처 원문을 나란히 (넓은 자리에서는 두 칸)
     const cols = await page.evaluate((i) => {

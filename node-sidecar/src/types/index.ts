@@ -1,6 +1,6 @@
 /** 공유 타입 정의 */
 
-export type AiProviderId = 'none' | 'embedded' | 'openai' | 'local' | 'gemini' | 'anthropic' | 'claude-code' | 'codex';
+export type AiProviderId = 'none' | 'embedded' | 'openai' | 'local' | 'gemini' | 'anthropic' | 'claude-code' | 'codex' | 'gemini-cli';
 
 /** 설정 파일 구조 (v2 — JSON, 앱 데이터 폴더) */
 export interface Settings {
@@ -19,6 +19,8 @@ export interface Settings {
     claude_code: { model: string; cli_path: string };
     /** 구독 계정(ChatGPT/Codex) — 같은 방식 */
     codex: { model: string; cli_path: string };
+    /** 구독 계정(Google/Gemini CLI) — 같은 방식 */
+    gemini_cli: { model: string; cli_path: string };
     /** 구독 계정으로 문서 보내기 허용 — 인터넷으로 나가니 기본 꺼짐. 기관이 false 로 고정하면 구독 연결을 막는다 */
     allow_subscription: boolean;
     /** 클라우드 공급자로 보내기 전 개인정보 자동 마스킹 */

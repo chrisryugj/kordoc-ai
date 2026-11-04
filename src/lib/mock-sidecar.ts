@@ -66,6 +66,7 @@ const settings: Settings = {
     local: { base_url: "http://127.0.0.1:11434/v1", api_key: "", model: "" },
     claude_code: { model: "", cli_path: "" },
     codex: { model: "", cli_path: "" },
+    gemini_cli: { model: "", cli_path: "" },
     allow_subscription: false,
     redact_before_cloud: true,
     timeout_ms: 180000,
@@ -376,9 +377,9 @@ const handlers: Handlers = {
   },
   watch_stop: (p) => { const i = watchers.findIndex((w) => w.id === p.id); if (i >= 0) watchers.splice(i, 1); return true; },
   watch_list: () => watchers.map((w) => ({ ...w })),
-  merge_files: async (p) => { await wait(600); return { output_path: p.output_path, file_count: p.files.length }; },
-  split_hangul: async (p) => { await wait(500); const dir = p.output_dir ?? joinPath(DOCS_DIR, `${stem(p.path)}_나누기`); return { output_dir: dir, output_files: [1, 2].map((n) => joinPath(dir, `${stem(p.path)}_${n}.hwpx`)), sections: 2, page_breaks: 0 }; },
-  split_pdf: async (p) => { await wait(500); return { output_files: [1, 2, 3].map((n) => joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_${n}.pdf`)), output_dir: p.output_dir }; },
+  merge_files: async (p) => { await wait(600); return { success: true, output_path: p.output_path ?? joinPath(DOCS_DIR, `${stem(p.files[0])}_병합.md`), file_count: p.files.length, total_length: 0, failed_files: [], failed: [] }; },
+  split_hangul: async (p) => { await wait(500); const dir = joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.path)}_나누기`); return { output_dir: dir, output_files: [1, 2].map((n) => joinPath(dir, `${stem(p.path)}_${n}.hwpx`)), sections: 2, page_breaks: 0 }; },
+  split_pdf: async (p) => { await wait(500); const dir = joinPath(p.output_dir ?? DOCS_DIR, `${stem(p.input_path)}_분리`); return { success: true, output_files: [1, 2, 3].map((n) => joinPath(dir, `${stem(p.input_path)}_${n}.pdf`)), output_dir: dir, total_pages: 3 }; },
   pdf_page_count: () => ({ page_count: 12 }),
   pdf_extract_pages: async (p) => { await wait(400); return { output_path: p.output_path, extracted_pages: 3, total_pages: 12 }; },
   pdf_open: async (p) => {
@@ -500,7 +501,7 @@ const handlers: Handlers = {
     await wait(700);
     const roster = (p.roster ?? []).map((x) => x.trim()).filter(Boolean);
     const depts = p.paths.map((x) => roster.find((d) => baseName(x).includes(d)) ?? "");
-    const status = roster.map((d) => ({ dept: d, in_roster: true, submitted: depts.includes(d), files: p.paths.filter((_, i) => depts[i] === d).map(baseName), blanks: 0 }));
+    const status = roster.map((d) => ({ dept: d, in_roster: true, submitted: depts.includes(d), files: p.paths.filter((_, i) => depts[i] === d).map(baseName), paths: p.paths.filter((_, i) => depts[i] === d), blanks: 0 }));
     const missing = status.filter((s) => !s.submitted).map((s) => s.dept);
     return {
       output_path: p.output_path ?? joinPath(p.output_dir ?? DOCS_DIR, "교육수요조사서_수합.xlsx"), rows: p.paths.length,

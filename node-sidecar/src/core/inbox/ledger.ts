@@ -26,7 +26,7 @@ export async function inboxExport(p: { output_path?: string }): Promise<{ output
     it.title ?? '',
     it.requests.map((r) => (r.due ? `${r.text} (${r.due}까지)` : r.text)).join('\n'),
     it.due ?? '',
-    it.status === 'done' ? '끝남' : '할 일',
+    it.status === 'done' ? '끝냄' : '할 일',
     it.note ?? '',
     it.name,
   ]);

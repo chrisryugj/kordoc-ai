@@ -1,0 +1,24 @@
+/* 문서 카드 창 (우클릭 맡기기·최종본 찾기) */
+.kd-card .kd-card-title { font-weight: 700; }
+.kd-card-multi-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 34px; height: 24px; border-radius: var(--radius-sm); background: var(--color-bg-tertiary); color: var(--color-text-secondary); }
+.kd-card-fold { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-size: var(--fs-small); color: var(--color-accent); font-weight: 600; }
+.kd-card-fold:hover { text-decoration: underline; text-underline-offset: 3px; }
+.kd-card-files { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 180px; overflow-y: auto; }
+.kd-card-files li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: var(--fs-small); color: var(--color-text-primary); }
+.kd-card-files .kd-card-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kd-card-files li button { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); cursor: pointer; }
+.kd-card-files li button:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+/* 여러 문서면 입력창의 파일 칩은 접는다 (머리의 "문서 N개 · 펼치기"로 본다) */
+.kd-card[data-multi] .kd-ask-files { display: none; }
+
+/* 최종본 짚음: 한 문장 + 이 판 열기 */
+.kd-card-vers .kd-card-newer { display: flex; align-items: center; gap: 8px; margin: 0 12px 12px; }
+.kd-card-newer > svg { flex: none; }
+
+/* AI 없이 바로 하기 */
+.kd-card-do { display: flex; flex-direction: column; gap: 8px; }
+.kd-card-do-title { font-size: var(--fs-small); font-weight: 600; color: var(--color-text-muted); }
+.kd-card-do-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kd-card-do-list .kd-btn { justify-content: flex-start; }
+.kd-card-aioff { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--fs-small); color: var(--color-text-secondary); }
+.kd-card-aioff > svg { flex: none; color: var(--color-accent); }

@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { parse } from 'kordoc';
 import type { DocInfo, FileEntry } from '../../types/rpc-contract.js';
-import { parseFailure } from '../errors.js';
+import { DAMAGED, parseFailure } from '../errors.js';
 import { parseWarnings } from '../converter/index.js';
 import { openPdf } from '../render/pdfium.js';
 import { estimatePages } from '../render/rhwp.js';
@@ -94,6 +94,9 @@ export async function docInfo(path: string, password?: string): Promise<DocInfo>
       return locked(password ? '암호가 맞지 않습니다. 다시 확인하세요.' : '암호가 걸린 문서입니다. 암호를 넣으면 열 수 있습니다.');
     }
     if (r.code === 'DRM_PROTECTED') return { ...locked('한컴 문서보안(DRM)이 걸린 문서라 열 수 없습니다.'), has_layout: false };
+    // 확장자로는 읽을 수 있는 형식인데 내용을 못 알아봤다(형식 모름·구역 없음·까닭 없는 읽기 실패):
+    // 다른 형식이 아니라 깨졌거나 저장이 덜 된 파일. kordoc 은 까닭을 모르는 오류를 '문서 처리 중 오류가 발생했습니다' 로만 준다
+    if (r.code === 'UNSUPPORTED_FORMAT' || r.code === 'NO_SECTIONS' || (r.code === 'PARSE_ERROR' && /^문서 처리 중 오류가 발생했습니다/.test(r.error ?? ''))) throw new Error(DAMAGED);
     throw parseFailure(r, !!password);
   }
   const m = r.metadata;

@@ -120,7 +120,7 @@ function buildPrompt(text: string, style: SummarizeStyle, length: string, conden
 export async function summarize(params: SummarizeParams, signal: AbortSignal): Promise<{ summary: string; redacted: number }> {
   let text = params.text ?? '';
   if (!text.trim() && params.path) {
-    sendProgress({ current: 0, total: 3, message: '문서 읽는 중...' });
+    sendProgress({ current: 0, total: 3, message: '문서 읽는 중' });
     text = (await loadDoc(params.path, signal)).text;
   }
   if (!text.trim()) throw new Error('요약할 내용이 없습니다. 글을 넣거나 문서를 고르세요.');
@@ -134,7 +134,7 @@ export async function summarize(params: SummarizeParams, signal: AbortSignal): P
   logger.info(`[ai_summarize] ${text.length}자 (style=${style}, length=${length}, room=${room})`);
 
   const c = await condense(text, room, signal, STYLE_FOCUS[style]);
-  sendProgress({ current: 2, total: 3, message: `${text.length.toLocaleString()}자 요약 중...` });
+  sendProgress({ current: 2, total: 3, message: `${text.length.toLocaleString()}자 요약하는 중` });
   const r = await ask({
     system,
     messages: [{ role: 'user', content: buildPrompt(c.text, style, length, c.text !== text) }],

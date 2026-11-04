@@ -4,9 +4,8 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // progress가 stdout(JSON-RPC 채널)에 쓰는 것 방지
@@ -19,6 +18,7 @@ vi.mock('../src/infra/config.js', () => ({
 
 import { markdownToHwpx } from 'kordoc';
 import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '../src/core/edit/index.js';
+import { tempDir } from './tmp-dirs.js';
 
 const SYNTH_MD = `# 사업 개요
 
@@ -35,7 +35,7 @@ let tmpDir: string;
 let formPath: string;
 
 beforeAll(async () => {
-  tmpDir = await mkdtemp(join(tmpdir(), 'kordoc-edit-'));
+  tmpDir = tempDir('kordoc-edit-');
   const buf = await markdownToHwpx(SYNTH_MD);
   formPath = join(tmpDir, 'synthetic.hwpx');
   await writeFile(formPath, Buffer.from(buf));

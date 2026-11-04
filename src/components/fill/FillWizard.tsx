@@ -68,7 +68,7 @@ interface ValueSource {
 }
 
 const TYPE_META: Record<FieldType, { icon: React.ReactNode; hint: string }> = {
-  text: { icon: <Type size={12} />, hint: "텍스트" },
+  text: { icon: <Type size={12} />, hint: "글자" },
   date: { icon: <CalendarDays size={12} />, hint: "날짜" },
   phone: { icon: <Phone size={12} />, hint: "전화번호" },
   email: { icon: <Mail size={12} />, hint: "이메일" },
@@ -204,7 +204,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
       try {
         const res = await sidecarCall("form_schema", { input_path: file.path, include_doc: true }) as FormSchemaRes;
         if (cancelled) return;
-        if (!res.success) { setLoadError(res.error || "양식 인식 실패"); return; }
+        if (!res.success) { setLoadError(res.error || "양식을 읽지 못했습니다"); return; }
         if (!res.fillable) { setLoadError(res.fillable_reason || "채우기를 지원하지 않는 형식입니다"); return; }
         setFields(res.fields);
         // 기존 값은 초기값 + 출처 '양식 기존 값'
@@ -305,7 +305,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     try {
       const selected = await open({
         multiple: false,
-        filters: [{ name: "명부/데이터", extensions: ["xlsx", "xls", "csv"] }],
+        filters: [{ name: "명부 (엑셀·CSV)", extensions: ["xlsx", "xls", "csv"] }],
       });
       if (!selected) return;
       const rosterPath = Array.isArray(selected) ? selected[0] : selected;
@@ -341,7 +341,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
       }
       showToast(mapped > 0 ? `명부에서 값 ${mapped}개를 가져왔습니다` : "칸 이름과 같은 열이 없습니다", mapped > 0 ? "success" : "info");
     } catch (e) {
-      showToast(`명부 가져오기 실패: ${e}`, "error");
+      showToast(`명부를 가져오지 못했습니다: ${e}`, "error");
     }
   }, [fields, setValue, sidecarCall, showToast]);
 
@@ -388,7 +388,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
   const save = useCallback(async () => {
     if (Object.keys(fillValues).length === 0) {
-      showToast("채울 값을 입력하세요", "info");
+      showToast("채울 값을 넣으세요", "info");
       return;
     }
     const name = `${file.name.replace(/\.[^.]+$/, "")}_채움.hwpx`;
@@ -434,12 +434,12 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
       className="fixed inset-0 z-50 flex flex-col outline-none" style={{ backgroundColor: "var(--color-bg-primary)" }}>
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
-        <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, #2563EB 12%, transparent)", color: "#2563EB" }}>
+        <div className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
           <ClipboardList size={16} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 id={titleId} className="ts-sm font-bold truncate" style={{ color: "var(--color-text-primary)" }}>양식 채우기: {file.name}</h2>
-          <p className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+          <h2 id={titleId} className="kd-h3 truncate">양식 채우기: {file.name}</h2>
+          <p className="kd-small kd-muted">
             원본 모양은 그대로 두고 값만 넣습니다
             {wasmOk === false && " · 미리보기는 간단한 그림으로 보입니다"}
           </p>
@@ -451,12 +451,12 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center gap-2" style={{ color: "var(--color-text-muted)" }}>
-          <Loader2 size={18} className="animate-spin" /> <span className="ts-sm">양식의 칸을 찾는 중</span>
+          <Loader2 size={18} className="animate-spin" /> <span className="kd-text">양식의 칸을 찾는 중</span>
         </div>
       ) : loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
           <AlertTriangle size={28} style={{ color: "var(--color-warning)" }} />
-          <p className="ts-sm" style={{ color: "var(--color-text-secondary)" }}>{loadError}</p>
+          <p className="kd-text">{loadError}</p>
           <Button variant="secondary" size="sm" onClick={onClose}>닫기</Button>
         </div>
       ) : (
@@ -464,17 +464,17 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
           {/* ── 좌: 자동 생성 폼 ── */}
           <div className="flex flex-col overflow-hidden" style={{ width: 380, borderRight: "1px solid var(--color-border)" }}>
             <div className="flex items-center justify-between px-4 py-2.5 shrink-0">
-              <span className="ts-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                입력 항목 ({fields.length})
+              <span className="kd-label kd-num">
+                입력 항목 {fields.length}개
               </span>
-              <Button variant="secondary" size="sm" onClick={handleRosterImport}>
+              <Button variant="secondary" size="sm" onClick={handleRosterImport} data-tip="엑셀·CSV 명부에서 칸 이름과 같은 열의 값을 가져옵니다">
                 <span className="flex items-center gap-1.5"><Table2 size={13} /> 명부에서 가져오기</span>
               </Button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
               {fields.length === 0 && (
-                <p className="ts-2xs px-3 py-2 rounded-md" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>
+                <p className="kd-small px-3 py-2 rounded-md" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>
                   채울 칸을 찾지 못했습니다. 표에 이름 칸과 값 칸이 있거나 "성명:"처럼 쓴 양식인지 확인하세요.
                 </p>
               )}
@@ -484,20 +484,20 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
                 const wasFilled = filledSet.has(norm(f.label));
                 return (
                   <div key={`${f.label}-${f.type}`}>
-                    <label className="flex items-center gap-1.5 ts-2xs font-semibold mb-1" style={{ color: "var(--color-text-secondary)" }}>
+                    <label className="kd-label flex items-center gap-1.5 mb-1">
                       <span style={{ color: "var(--color-text-muted)" }}>{meta.icon}</span>
                       {f.label}
                       {f.required && <span style={{ color: "var(--color-error)" }}>*</span>}
                       {f.empty && !values[f.label]?.trim() && (
-                        <span className="px-1 py-0.5 rounded ts-2xs font-normal" style={{ backgroundColor: "var(--color-warning-subtle)", color: "var(--color-warning)" }}>빈칸</span>
+                        <span className="kd-badge" data-tone="warn">빈칸</span>
                       )}
                       {wasFilled && (
-                        <span className="px-1 py-0.5 rounded ts-2xs font-normal" style={{ backgroundColor: "var(--color-success-subtle)", color: "var(--color-success)" }}>채움</span>
+                        <span className="kd-badge" data-tone="ok">채움</span>
                       )}
                     </label>
 
                     {f.type === "checkbox" ? (
-                      <label className="flex items-center gap-2 ts-xs px-3 py-2 rounded-md cursor-pointer" style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+                      <label className="kd-small flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer" style={{ minHeight: 36, backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
                         <input
                           type="checkbox"
                           data-kd-field={f.label}
@@ -511,8 +511,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
                       <input
                         type="date"
                         data-kd-field={f.label}
-                        className="w-full px-3 py-2 rounded-md ts-xs"
-                        style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", outline: "none" }}
+                        className="kd-input w-full"
                         onFocus={() => setFocusedLabel(f.label)}
                         onChange={(e) => setValue(f.label, e.target.value ? isoToKoreanDate(e.target.value) : "")}
                       />
@@ -522,8 +521,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
                         data-kd-field={f.label}
                         placeholder={f.value.trim() || meta.hint}
                         value={values[f.label] ?? ""}
-                        className="w-full px-3 py-2 rounded-md ts-xs"
-                        style={{ backgroundColor: "var(--color-bg-tertiary)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", outline: "none" }}
+                        className="kd-input w-full"
                         onFocus={() => setFocusedLabel(f.label)}
                         onChange={(e) => setValue(f.label, e.target.value)}
                       />
@@ -531,7 +529,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
                     {/* 출처 배지 — "성명=홍길동 ← 명부.xlsx B2" · 값이 들어간 곳 */}
                     {src && values[f.label]?.trim() && (
-                      <p className="ts-2xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+                      <p className="kd-small kd-muted mt-1">
                         {src.kind === "roster" && `← ${src.detail}`}
                         {src.kind === "existing" && "← 양식 기존 값"}
                         {src.kind === "manual" && "← 직접 입력"}
@@ -550,24 +548,24 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
               {/* 채움 결과 리포트 */}
               {fillResult && (
                 <div className="rounded-md px-3 py-2.5 space-y-1.5" style={{ backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)" }}>
-                  <div className="flex items-center gap-1.5 ts-2xs font-semibold" style={{ color: fillResult.verification.reparse_ok ? "var(--color-success)" : "var(--color-warning)" }}>
+                  <div className="kd-label flex items-center gap-1.5" style={{ color: fillResult.verification.reparse_ok ? "var(--color-success)" : "var(--color-warning)" }}>
                     <ShieldCheck size={13} />
                     {fillResult.verification.reparse_ok
                       ? `다시 읽어 확인함 · 칸 ${fillResult.filled.length}개 채움 · 바뀐 곳 ${fillResult.verification.changed_blocks}곳`
-                      : "검증 경고: 결과를 확인하세요"}
+                      : "다시 읽어 확인하지 못했습니다. 저장한 파일을 열어 확인하세요"}
                   </div>
                   {fillResult.unmatched.length > 0 && (
-                    <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
+                    <p className="kd-small" style={{ color: "var(--color-warning)" }}>
                       들어갈 칸을 못 찾음: {fillResult.unmatched.join(", ")}
                     </p>
                   )}
                   {(fillResult.rejected?.length ?? 0) > 0 && (
-                    <p className="ts-2xs" style={{ color: "var(--color-warning)" }}>
+                    <p className="kd-small" style={{ color: "var(--color-warning)" }}>
                       같은 이름 칸이 여러 곳에 있어 넣지 않았습니다: {fillResult.rejected!.join(", ")}. 다른 칸을 덮지 않으려는 것이니 편집기에서 직접 넣으세요.
                     </p>
                   )}
                   {fillResult.output_path && (
-                    <button className="flex items-center gap-1 ts-2xs" style={{ color: "var(--color-accent)" }} onClick={() => onOpenFolder(fillResult.output_path)}>
+                    <button type="button" className="kd-link kd-small" onClick={() => onOpenFolder(fillResult.output_path)}>
                       <FolderOpen size={12} /> 저장 위치 열기
                     </button>
                   )}
@@ -577,10 +575,10 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
             {/* 푸터 버튼 */}
             <div className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ borderTop: "1px solid var(--color-border)" }}>
-              <span className="ts-2xs flex-1" style={{ color: "var(--color-text-muted)" }} aria-live="polite">
+              <span className="kd-small kd-muted flex-1" aria-live="polite">
                 {busy === "preview" ? "미리보기에 넣는 중" : "고치면 미리보기에 바로 보입니다"}
               </span>
-              <Button size="sm" onClick={() => void save()} disabled={busy === "save"}>
+              <Button size="sm" onClick={() => void save()} disabled={busy === "save"} data-tip="값을 넣은 새 HWPX 파일로 저장합니다. 원본 양식은 그대로입니다">
                 <span className="flex items-center justify-center gap-1.5">
                   {busy === "save" ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} HWPX 저장
                 </span>
@@ -591,29 +589,29 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
           {/* ── 우: rhwp SVG 미리보기 ── */}
           <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-secondary)" }}>
             <div className="flex items-center justify-center gap-3 py-2 shrink-0">
-              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="이전 페이지">
+              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="kd-icon-btn" aria-label="앞 쪽">
                 <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
               </button>
-              <span className="ts-2xs" style={{ color: "var(--color-text-muted)" }}>
+              <span className="kd-small kd-muted kd-num">
                 {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
               </span>
-              <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1} className="p-1 rounded hover-bg-tertiary disabled:opacity-30" aria-label="다음 페이지">
+              <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1} className="kd-icon-btn" aria-label="다음 쪽">
                 <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
               </button>
             </div>
             <div ref={previewRef} className="flex-1 overflow-auto px-6 pb-6" onClick={handlePreviewClick}>
               {renderError ? (
-                <p className="ts-2xs text-center mt-8" style={{ color: "var(--color-error)" }}>{renderError}</p>
+                <p className="kd-small text-center mt-8" style={{ color: "var(--color-error)" }}>{renderError}</p>
               ) : svg ? (
                 <div
                   className="kd-preview mx-auto rounded shadow-lg"
-                  style={{ maxWidth: 900, backgroundColor: "white" }}
+                  style={{ maxWidth: 900, backgroundColor: "var(--color-paper)" }}
                   // rhwp WASM이 생성한 SVG (로컬 신뢰 소스) — 라벨 어노테이션만 후처리
                   dangerouslySetInnerHTML={{ __html: svg }}
                 />
               ) : (
                 <div className="flex items-center justify-center gap-2 mt-12" style={{ color: "var(--color-text-muted)" }}>
-                  <Loader2 size={16} className="animate-spin" /> <span className="ts-2xs">그리는 중...</span>
+                  <Loader2 size={16} className="animate-spin" /> <span className="kd-small">그리는 중</span>
                 </div>
               )}
             </div>
