@@ -99,7 +99,7 @@ export function BatchScreen({ active }: { active: boolean }) {
     // 쪽 다루기는 PDF 작업 화면에서 (쪽 그림을 보며 고르고 옮긴다)
     if (t === "pdftools") { startPdf({ paths: list.map((f) => f.path) }); return; }
     const gather = { ai: !!ai?.configured, ...(again && gatherPrev ? { previous: gatherPrev, overwrite: again.overwrite } : {}) };
-    const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), defaultDir: settings?.convert.output_dir || undefined, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
+    const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), receiptAi: !!ai?.configured && !ai.is_cloud, defaultDir: settings?.convert.output_dir || undefined, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
     if (outcome?.kind === "gather") { setGatherPrev(outcome.result.output_path); setLate(0); }
     // 결과는 맨 위에 나온다: 작은 화면에서도 보이게 올린다
     if (outcome) mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });

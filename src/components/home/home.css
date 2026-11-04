@@ -1,0 +1,3 @@
+/* 빠른 작업 (쉬운 화면): 아홉 가지면 3×3 (기본 네 칸 줄은 셋째 줄에 하나만 남는다) */
+.kd-tasks[data-size="lg"][data-count="9"] .kd-tasks-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container (max-width: 640px) { .kd-tasks[data-size="lg"][data-count="9"] .kd-tasks-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

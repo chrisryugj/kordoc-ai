@@ -1,13 +1,14 @@
 /**
  * 빠른 작업 — 기능 이름 대신 하려는 일로 바로 시작한다 (이름 + 짧은 한 줄, 자세한 설명은 툴팁).
- * 쉬운 화면은 여덟 가지를 큰 카드로, 전체 화면은 여섯 가지를 촘촘하게(나머지는 "모든 기능" 목차).
+ * 쉬운 화면은 아홉 가지를 큰 카드로(3×3), 전체 화면은 여섯 가지를 촘촘하게(나머지는 "모든 기능" 목차).
  * 합치기·나누기는 형식을 묻지 않는다: 파일을 두 개 이상 고르면 합치기, 하나면 나누기. 한글끼리는 HWPX로, 섞이면 PDF로(여러 파일 한꺼번에가 판정).
  */
 
 import type { ReactNode } from "react";
-import { ClipboardCheck, EyeOff, FilePlus2, FileOutput, FileType2, Layers, Combine, Reply } from "lucide-react";
+import { ClipboardCheck, EyeOff, FilePlus2, FileOutput, FileType2, Layers, Combine, ReceiptText, Reply } from "lucide-react";
 import { useApp } from "../../state/app";
-import { pickFiles } from "../../lib/native";
+import { FILTERS, pickFiles } from "../../lib/native";
+import "./home.css";
 
 interface Task { id: string; icon: ReactNode; title: string; sub: string; tip: string; ai?: boolean; easyOnly?: boolean; run: () => void }
 
@@ -59,11 +60,16 @@ export function HomeTasks() {
       tip: "부서들이 낸 파일이나 폴더를 넣으면 엑셀 한 장으로 모으고, 안 낸 부서와 독촉 글까지 만듭니다",
       run: () => startBatch({ paths: [], task: "collect" }),
     },
+    {
+      id: "receipt", icon: <ReceiptText size={20} />, title: "영수증 → 지출조서", sub: "사진·PDF → 지출조서 · 표 복사", easyOnly: true,
+      tip: "영수증 사진이나 PDF를 고르면 이 PC에서 글자를 읽어 날짜·거래처·금액을 뽑고, 고친 뒤 지출조서 한글 파일과 붙여 넣을 표를 만듭니다",
+      run: () => void pickFiles({ filters: FILTERS.receipt }).then((p) => p.length && startBatch({ paths: p, task: "receipt", autoRun: true })),
+    },
   ].filter((t) => easy || !t.easyOnly);
   const aiOff = !ai?.configured;
 
   return (
-    <section className="kd-tasks" data-size={easy ? "lg" : "md"} aria-labelledby="tasks-t">
+    <section className="kd-tasks" data-size={easy ? "lg" : "md"} data-count={tasks.length} aria-labelledby="tasks-t">
       <h2 id="tasks-t" className="kd-tasks-h">빠른 작업</h2>
       <div className="kd-tasks-row">
         {tasks.map((t) => (

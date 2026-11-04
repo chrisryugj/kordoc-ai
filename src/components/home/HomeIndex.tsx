@@ -61,6 +61,7 @@ export function HomeIndex({ onOpen, onCreate, onBatch, onCompare, onAsk, onInbox
         ["신구대조표 만들기", onCompare],
         ["여러 문서에서 찾기", () => onBatch("search")],
         ["스캔 문서 글자 읽기(OCR)", () => onBatch("ocr")],
+        ["영수증으로 지출조서", () => onBatch("receipt"), "사진·PDF를 읽어 표 복사·한글 파일로"],
       ],
     },
     {

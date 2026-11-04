@@ -367,6 +367,24 @@ export interface RpcMethods {
   org_corpus_remove: [{ id: string }, OrgCorpusView];
   /** 갈래의 대표 견본·구성·표현과 generate_hwpx 에 더할 값. 그 갈래 문서가 없으면 null */
   org_corpus_reference: [{ kind: string }, OrgReference | null];
+
+  // ── 영수증으로 지출조서 (methods/receipt.ts, core/receipt) ──
+  /** 영수증 그림(png·jpg·webp)·PDF 를 읽어 값 뽑기 (AI 없이 규칙). 글자층 PDF 는 OCR 하지 않는다.
+   *  ai: AI 가 켜져 있으면 적요(용도) 한 줄·품목 정리만 AI 로 (외부 AI 면 자동 마스킹). ai_used 는 실제로 AI 를 썼는가 */
+  receipt_read: [{ paths: string[]; ai?: boolean }, { receipts: ReceiptRead[]; ai_used: boolean; redacted: number; warnings: string[] }];
+  /** 지출조서: 줄들 → 클립보드용 TSV·HTML 표 (+ save 면 HWPX). 등록한 기관 서식이 있으면 그 서식에 채우고(template 끄면 기본 서식),
+   *  기본 서식은 합계 줄이 머리줄 바로 아래. save 가 false 면 파일 없이 표만 */
+  receipt_report: [{ rows: ReceiptRow[]; save?: boolean; template?: boolean; output_path?: string; output_dir?: string; title?: string },
+    { output_path?: string; tsv: string; html: string; total: number; count: number; template?: string; warnings: string[] }];
+  /** 기관 지출조서 서식(HWP·HWPX) 학습: 표 머리 칸 → 넣을 값 대응표. save 면 앱 데이터에 사본을 두고 설정(receipt)에 저장.
+   *  ai: 이름으로 못 맞춘 칸을 AI 로 제안 */
+  receipt_template_learn: [{ path: string; save?: boolean; ai?: boolean }, ReceiptTemplateInfo];
+  /** 등록한 서식 보기 (없으면 null) */
+  receipt_template_get: [Record<string, never>, ReceiptTemplateInfo | null];
+  /** 대응표 고치기 (칸 차례대로 넣을 값) */
+  receipt_template_set: [{ fields: Array<ReceiptColumn | ''> }, ReceiptTemplateInfo];
+  /** 등록한 서식 지우기 (기본 서식으로) */
+  receipt_template_clear: [Record<string, never>, boolean];
 }
 
 export type RpcMethod = keyof RpcMethods;
@@ -959,4 +977,86 @@ export interface OrgReference {
   apply: Pick<GenerateParams, 'template_path' | 'levels_from' | 'slogan'>;
   /** AI 지시문에 넣는 글 (AI 초안·한글 편집기 AI 가 함께 쓴다) */
   text: string;
+}
+
+// ── 영수증으로 지출조서 (core/receipt) ──
+
+/** 뽑은 값 하나: 신뢰도 0~1 (0.8 아래는 화면이 강조), 근거 줄 */
+export interface ReceiptValue {
+  value: string;
+  confidence: number;
+  source?: string;
+}
+
+export interface ReceiptItem {
+  name: string;
+  qty?: number;
+  unit_price?: number;
+  amount?: number;
+}
+
+/** 금액(total·supply·vat)은 숫자만("23800"), 날짜는 YYYY-MM-DD, 사업자등록번호는 000-00-00000.
+ *  payment 는 카드·현금·계좌이체, card 는 카드번호 앞 네 자리만 두고 나머지는 가림 */
+export interface ReceiptFields {
+  date?: ReceiptValue;
+  vendor?: ReceiptValue;
+  brn?: ReceiptValue;
+  owner?: ReceiptValue;
+  address?: ReceiptValue;
+  total?: ReceiptValue;
+  supply?: ReceiptValue;
+  vat?: ReceiptValue;
+  payment?: ReceiptValue;
+  card?: ReceiptValue;
+  approval?: ReceiptValue;
+}
+
+/** 영수증 한 장 (PDF 는 쪽마다 한 장, page 는 여러 쪽일 때만) */
+export interface ReceiptRead {
+  path: string;
+  page?: number;
+  ok: boolean;
+  error?: string;
+  /** text: PDF 글자층을 그대로 (OCR 안 함) · ocr: 내장 글자 읽기 */
+  via?: 'text' | 'ocr';
+  fields: ReceiptFields;
+  items: ReceiptItem[];
+  /** 적요(용도) 제안: AI 를 쓰면 AI 한 줄, 아니면 품목 첫 줄 요약 */
+  purpose: ReceiptValue;
+  /** 읽은 줄 (확인용) */
+  lines: string[];
+}
+
+/** 지출조서 한 줄 (사용자가 고친 값). 금액은 숫자만 또는 쉼표 꼴 */
+export interface ReceiptRow {
+  date: string;
+  vendor: string;
+  brn: string;
+  purpose: string;
+  amount: string;
+  payment: string;
+  note?: string;
+  supply?: string;
+  vat?: string;
+  approval?: string;
+  owner?: string;
+  address?: string;
+}
+
+/** 기관 서식 표의 칸에 넣을 값 (seq 는 연번, '' 는 비워 둠) */
+export type ReceiptColumn = 'seq' | 'date' | 'vendor' | 'brn' | 'purpose' | 'amount' | 'supply' | 'vat' | 'payment' | 'approval' | 'owner' | 'address' | 'note';
+
+export interface ReceiptTemplateInfo {
+  /** 서식 파일 이름 */
+  name: string;
+  /** 표 머리 칸마다 넣을 값. by: rule(이름으로 맞춤) · ai(AI 제안) · none(못 맞춤, 비워 둠) · user(사용자가 고침) */
+  columns: Array<{ header: string; field: ReceiptColumn | ''; by: 'rule' | 'ai' | 'none' | 'user' }>;
+  /** 채울 빈 줄 수 (모자라면 줄을 더한다) */
+  rows: number;
+  /** 서식에 합계 줄이 있다 */
+  total_row: boolean;
+  saved: boolean;
+  /** 앱 데이터에 둔 서식 사본 (save 일 때) */
+  template_path?: string;
+  warnings: string[];
 }

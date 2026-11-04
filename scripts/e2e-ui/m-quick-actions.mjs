@@ -5,7 +5,8 @@
  *    창을 열지 않고(shell_show 없음) 결과 파일을 만들고 끝 알림 + shell_quick_done
  *  - 실패(깨진 PDF)는 창을 열고(shell_show) PDF 작업 화면에 그 파일을 놓는다
  *  - 합칠 PDF 가 하나뿐이면 PDF 작업 화면으로
- *  - 화면 동작: PDF 쪽 편집하기 → PDF 작업, 서무 도구에서 열기(폴더) → 서무 도구에 안의 파일, 결재 전 점검 → 문서 검토
+ *  - 화면 동작: PDF 쪽 편집하기 → PDF 작업, 서무 도구에서 열기(폴더) → 서무 도구에 안의 파일, 결재 전 점검 → 문서 검토,
+ *    영수증으로 지출조서(카드 "본창에서 열기"가 본창으로 넘기는 주소) → 서무 도구의 그 할 일로 바로 읽기 (카드 창 자체는 p-receipt.mjs)
  *
  * 사용: node scripts/e2e-ui/m-quick-actions.mjs --port 7734 --out <폴더>
  *   앞서 필요: node scripts/build-sidecar.mjs, 화면 서버(vite 5173)
@@ -177,6 +178,12 @@ try {
   await link('precheck', HWPX);
   await page.waitForFunction(() => document.body.innerText.includes('결재 전') && document.querySelector('.kd-nav-item[aria-current="page"]')?.dataset.screen === 'workbench', { timeout: 60000 }).catch(() => undefined);
   check('결재 전 점검 → 문서 화면 검토', (await screenNow()) === 'workbench');
+  const RECEIPT = join(OUT, '영수증_마트.png');
+  copyFileSync(join(ROOT, 'node-sidecar', 'tests', 'fixtures', 'receipts', 'mart.png'), RECEIPT);
+  await link('receipt', RECEIPT);
+  await page.waitForFunction(() => document.querySelector('.kd-screen:not([hidden]) .kd-receipt-table tbody tr'), { timeout: 90000 }).catch(() => undefined);
+  const task = await page.$eval('.kd-taskitem[aria-pressed="true"]', (e) => e.dataset.task).catch(() => '');
+  check('영수증으로 지출조서 → 서무 도구 그 할 일로 바로 읽기', (await screenNow()) === 'batch' && task === 'receipt' && (await page.$$eval('.kd-screen:not([hidden]) .kd-receipt-table tbody tr', (e) => e.length)) === 1, `${await screenNow()} ${task}`);
   await ui.shot(join(OUT, 'm-02-precheck.png'));
   check('화면 오류 0', ui.errors.length === 0, ui.errors.join(' | ').slice(0, 300));
 } catch (e) {

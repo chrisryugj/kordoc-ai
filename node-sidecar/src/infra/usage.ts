@@ -46,6 +46,8 @@ export const TASKS: Record<string, { key: string; label: string; unit: string; b
   seal: { key: 'seal', label: '도장 찍기', unit: '건', baseline: 3, count: (_p, r) => ((r as { placed?: number })?.placed ? 1 : 0) },
   export_pdf: { key: 'pdf', label: 'PDF로 저장', unit: '문서', baseline: 2, count: () => 1 },
   inbox_add: { key: 'inbox', label: '받은 공문 정리', unit: '문서', baseline: 5, count: (_p, r) => len((r as { items?: unknown[] })?.items) },
+  // 저장한 지출조서만 (클립보드 표만 만들 때는 세지 않는다). 영수증 한 장 = 지출조서 한 줄 옮겨 적기
+  receipt_report: { key: 'receipt', label: '영수증으로 지출조서', unit: '장', baseline: 5, count: (p, r) => (p.save === false ? 0 : (r as { count?: number })?.count ?? 0) },
   law_check: { key: 'law', label: '법령 근거 확인', unit: '건', baseline: 10, count: (_p, r) => ((r as { checked?: boolean })?.checked ? 1 : 0) },
 };
 

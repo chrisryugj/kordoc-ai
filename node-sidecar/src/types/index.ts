@@ -65,6 +65,12 @@ export interface Settings {
   };
   /** 법령 근거 확인 — 법제처 Open API 아이디(OC). 비면 확인하지 않는다 */
   law: { oc: string };
+  /** 지출조서 기관 서식 (core/receipt) — template_path 는 앱 데이터에 둔 서식 사본(비면 기본 서식), columns 는 서식 표 칸마다 넣을 값 */
+  receipt: {
+    template_path: string;
+    template_name: string;
+    columns: Array<{ header: string; field: string; by: string }>;
+  };
   /** 기관 배포 설정(읽기 전용, get_settings 가 채움) — 파일 위치·안내·고정된 항목 경로("privacy.offline" 꼴) */
   policy?: { source: string; notice?: string; locked: string[]; error?: string };
 }

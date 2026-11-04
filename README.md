@@ -11,7 +11,7 @@
 
 | 받는 곳 | |
 | --- | --- |
-| 설치 파일(Windows·macOS) | [공공 GitLab 릴리스 v2.3.0](https://gitlab.aigov.go.kr/chrisryugj/kordoc-ai/-/releases/v2.3.0) · [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
+| 설치 파일(Windows·macOS) | [공공 GitLab 릴리스 v2.3.1](https://gitlab.aigov.go.kr/chrisryugj/kordoc-ai/-/releases/v2.3.1) · [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
 | 소스 | GitHub [chrisryugj/kordoc-ai](https://github.com/chrisryugj/kordoc-ai) · 공공 GitLab `chrisryugj/kordoc-ai` |
 | 문서 엔진 | [kordoc](https://github.com/chrisryugj/kordoc) (같은 개발자, MIT) |
 
@@ -23,7 +23,7 @@
 
 컴퓨터를 잘 몰라도 아래 순서대로 누르면 됩니다. 화면에 보이는 글자 그대로 적었습니다.
 
-1. **설치**: 받는 곳에서 `KorDoc.AI_2.3.0_x64-setup.exe` 를 받아 두 번 누릅니다. 관리자 권한은 필요 없습니다.
+1. **설치**: 받는 곳에서 `KorDoc.AI_2.3.1_x64-setup.exe` 를 받아 두 번 누릅니다. 관리자 권한은 필요 없습니다.
    "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다(코드 서명 전이라 한 번만 묻습니다).
 2. **첫 실행**: "처음 오셨네요" 창에서 기관명을 적고 **다음**. AI 는 **AI 없이 시작**을 골라도 됩니다(나중에 켭니다). **저장하고 시작**.
 3. **예제로 해 보기**: 홈 아래쪽 "예제로 해 보기"에서 **해 보기**를 누릅니다. 예제는 모두 가상의 가온시 문서입니다.

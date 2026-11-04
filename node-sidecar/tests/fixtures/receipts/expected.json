@@ -1,0 +1,71 @@
+{
+  "mart.png": {
+    "date": "2026-10-28",
+    "vendor": "가온마트 한빛점",
+    "brn": "214-86-00017",
+    "total": 23800,
+    "vat": 2164,
+    "supply": 21636,
+    "payment": "카드",
+    "approval": "12345678",
+    "card": "5412",
+    "items": 4
+  },
+  "restaurant.png": {
+    "date": "2026-10-30",
+    "vendor": "한빛식당",
+    "brn": "105-12-00347",
+    "total": 30000,
+    "payment": "현금",
+    "items": 3
+  },
+  "card-slip.png": {
+    "date": "2026-11-02",
+    "vendor": "가온문구",
+    "brn": "317-04-00528",
+    "total": 45100,
+    "vat": 4100,
+    "supply": 41000,
+    "payment": "카드",
+    "approval": "30012345",
+    "card": "9410",
+    "items": 0
+  },
+  "simple.png": {
+    "date": "2026-11-03",
+    "vendor": "한결인쇄",
+    "brn": "602-19-00788",
+    "total": 36000,
+    "items": 2
+  },
+  "convenience-long.png": {
+    "date": "2026-11-01",
+    "vendor": "가온25 시청점",
+    "brn": "129-33-00668",
+    "total": 51700,
+    "vat": 4700,
+    "supply": 47000,
+    "payment": "카드",
+    "approval": "77001234",
+    "card": "4518",
+    "items": 12
+  },
+  "skewed-blur.jpg": {
+    "date": "2026-11-04",
+    "vendor": "바른분식",
+    "brn": "411-25-00198",
+    "total": 15500,
+    "payment": "카드",
+    "approval": "55667788",
+    "items": 3
+  },
+  "e-receipt.pdf": {
+    "date": "2026-10-25",
+    "vendor": "가온서점",
+    "brn": "220-81-00453",
+    "total": 32400,
+    "payment": "카드",
+    "items": 2,
+    "via": "text"
+  }
+}

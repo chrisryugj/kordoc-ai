@@ -16,7 +16,7 @@ type PendingEvent = { event: "deep-link"; payload: string } | { event: "open-fil
 // 목록 안에 주석을 넣지 말 것: Rust 시험이 대괄호 안을 쉼표로 잘라 읽는다
 export const LINK_ACTIONS = [
   "ask", "summarize", "open", "tools", "edit", "pdf", "hwpx", "shrink", "pagenum", "pdfimages", "tables", "convert",
-  "join", "xlsxmerge", "split", "pdfwork", "collect", "precheck", "redact", "compare", "versions", "inbox",
+  "join", "xlsxmerge", "split", "pdfwork", "collect", "precheck", "redact", "compare", "versions", "inbox", "receipt",
   "pdfmerge", "hwpmerge", "pdfsplit", "hwpsplit",
 ] as const;
 export type LinkAction = (typeof LINK_ACTIONS)[number];

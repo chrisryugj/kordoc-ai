@@ -14,6 +14,7 @@ import { GatherOptions } from "./GatherOptions";
 import { PrintOptions } from "./PrintOptions";
 import { MailMergeOptions } from "./MailMerge";
 import { ShrinkOptions } from "../workbench/tools/ShrinkTool";
+import { ReceiptTaskOptions } from "../receipt/ReceiptTaskOptions";
 
 const NO_OUTPUT: BatchTaskId[] = ["search", "pdftools", "watch", "print", "compare"];
 type SetOpts = (p: Partial<BatchOpts>) => void;
@@ -106,6 +107,7 @@ export function TaskOptions({ task, opts, set, formats = [] }: {
         </Field>
       )}
       {task === "mailmerge" && <MailMergeOptions opts={opts} set={set} />}
+      {task === "receipt" && <ReceiptTaskOptions />}
 
       {!NO_OUTPUT.includes(task) && (
         <Field label="저장할 곳">

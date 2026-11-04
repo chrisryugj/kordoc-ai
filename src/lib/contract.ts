@@ -9,5 +9,6 @@ export type {
   StyleFormat, StyleEntry, PdfShrinkLevel, PdfShrinkResult, RecoveryEntry,
   PdfWorkSource, PdfComposePage, PdfComposeParams, PdfComposeResult, OrgCorpusView, OrgReference,
   VersionsResult, VersionEntry,
+  ReceiptRead, ReceiptRow, ReceiptValue, ReceiptFields, ReceiptItem, ReceiptColumn, ReceiptTemplateInfo,
 } from "../../node-sidecar/src/types/rpc-contract";
 export type { Settings, AiProviderId } from "../../node-sidecar/src/types/index";

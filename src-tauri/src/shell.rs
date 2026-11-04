@@ -59,6 +59,8 @@ use Group::*;
 const HANGUL: &[&str] = &[".hwp", ".hwpx"];
 const DOCS: &[&str] = &[".hwp", ".hwpx", ".hml", ".hwpml", ".docx", ".pdf"];
 const IMAGES: &[&str] = &[".png", ".jpg", ".jpeg"];
+/// 영수증으로 지출조서: 그림·PDF (사진·스캔·전자영수증)
+const RECEIPTS: &[&str] = &[".png", ".jpg", ".jpeg", ".pdf"];
 const NONE: &[&str] = &[];
 
 const fn act(group: Group, id: &'static str, label: &'static str, quick: bool) -> Action {
@@ -82,6 +84,8 @@ pub const ACTIONS: &[Action] = &[
     Action { only: &[".pdf", ".hwp", ".hwpx"], ..act(Change, "pdfimages", "쪽마다 그림으로 저장", true) },
     Action { skip: &[".png", ".jpg", ".jpeg", ".xls", ".xlsx"], ..act(Change, "tables", "표를 엑셀로 뽑기", true) },
     Action { ..act(Change, "convert", "글로 바꾸기", true) },
+    // 문서 카드(작은 창)에서 읽은 값을 고치고 지출조서·클립보드 표로. macOS 빠른 동작은 Finder 메뉴가 길어져 넣지 않는다
+    Action { only: RECEIPTS, ..act(Change, "receipt", "영수증으로 지출조서 만들기", false) },
     // 합치기·나누기: 형식은 화면이 고른 파일을 보고 정한다 (src/lib/quick-actions.ts)
     //   하나로 합치기: 전부 한글 문서면 서식 그대로 HWPX 하나, 하나라도 다른 형식이 섞이면 PDF 한 권
     //   나누기: 한글 문서는 구역·쪽 나눔마다, PDF 는 쪽마다
@@ -106,7 +110,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "6";
+const MENU_VERSION: &str = "7";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -371,7 +375,7 @@ fn all_quick(items: &[(String, String)]) -> bool {
 
 /// 문서 카드로 여는 동작 (본창을 띄우지 않고 작은 창)
 pub fn is_card(a: &str) -> bool {
-    a == "ask" || a == "versions"
+    a == "ask" || a == "versions" || a == "receipt"
 }
 
 /// 카드 창이 본창보다 먼저 떴다 (꺼진 앱이 카드로 켜짐) → 마지막 카드를 닫으면 앱을 끈다
@@ -402,8 +406,10 @@ fn card_config(app: &AppHandle, label: &str, action: &str, paths: &[String]) -> 
     c.label = label.to_string();
     c.url = tauri::WebviewUrl::App(format!("index.html?card={}", urlencoding::encode(&q)).into());
     c.title = format!("KorDoc AI · {}{}", first, more);
-    c.width = 520.0;
-    c.height = 720.0;
+    // 영수증 카드는 고칠 수 있는 표를 보여서 넓게
+    let wide = action == "receipt";
+    c.width = if wide { 860.0 } else { 520.0 };
+    c.height = if wide { 760.0 } else { 720.0 };
     c.min_width = Some(420.0);
     c.min_height = Some(520.0);
     c.center = true;
@@ -451,8 +457,14 @@ pub fn card_closed(app: &AppHandle) {
 #[tauri::command]
 pub fn card_handoff(app: AppHandle, action: String, paths: Vec<String>) -> Result<(), String> {
     use tauri::Manager;
-    if !is_action(&action) || is_card(&action) {
+    if !is_action(&action) || (is_card(&action) && action != "receipt") {
         return Err(format!("모르는 동작입니다: {}", action));
+    }
+    // 영수증 카드의 "본창에서 열기": 모으기를 거치면 다시 카드가 뜨니 본창(서무 도구)으로 바로
+    if action == "receipt" {
+        send_to_main(&app, &action, &paths);
+        show_main(&app);
+        return Ok(());
     }
     app.state::<ShellCollector>().push(&app, &action, paths);
     Ok(())
@@ -461,7 +473,7 @@ pub fn card_handoff(app: AppHandle, action: String, paths: Vec<String>) -> Resul
 fn flush(app: &AppHandle, items: Vec<(String, String)>) {
     // 문서 카드 동작은 묶음마다 작은 창 하나 (본창은 띄우지 않는다)
     let (cards, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|(a, _)| is_card(a));
-    for action in ["ask", "versions"] {
+    for action in ["ask", "versions", "receipt"] {
         let paths: Vec<String> = cards.iter().filter(|(a, _)| a == action).map(|(_, p)| p.clone()).collect();
         if !paths.is_empty() {
             open_card(app, action, &paths);
@@ -484,26 +496,31 @@ fn flush(app: &AppHandle, items: Vec<(String, String)>) {
         }
     }
     for (action, paths) in groups {
-        if action == "open" {
-            deliver(app, "open-files", paths.into());
-        } else if paths.len() == 1 {
-            let url = format!("kordoc://{}?path={}", action, urlencoding::encode(&paths[0]));
-            deliver(app, "deep-link", url.into());
-        } else {
-            match write_manifest(&action, &paths) {
-                Ok(m) => {
-                    let url = format!("kordoc://batch?manifest={}", urlencoding::encode(&m.to_string_lossy()));
-                    deliver(app, "deep-link", url.into());
-                }
-                Err(e) => tracing::error!("batch manifest 쓰기 실패: {}", e),
-            }
-        }
+        send_to_main(app, &action, &paths);
     }
     // 빠른 동작뿐이면 창을 띄우지 않는다 (화면이 숨은 채 돌리고 알림만). 꺼진 앱이 이것으로 켜졌으면 표시해 둔다
     if quick_only {
         mark_cold_quick();
     } else {
         show_main(app);
+    }
+}
+
+/// 본창 화면으로 동작 하나 넘기기: 열기는 open-files, 파일 하나는 kordoc://<동작>?path=, 여럿은 묶음 목록 파일
+fn send_to_main(app: &AppHandle, action: &str, paths: &[String]) {
+    if action == "open" {
+        deliver(app, "open-files", paths.to_vec().into());
+    } else if paths.len() == 1 {
+        let url = format!("kordoc://{}?path={}", action, urlencoding::encode(&paths[0]));
+        deliver(app, "deep-link", url.into());
+    } else {
+        match write_manifest(action, paths) {
+            Ok(m) => {
+                let url = format!("kordoc://batch?manifest={}", urlencoding::encode(&m.to_string_lossy()));
+                deliver(app, "deep-link", url.into());
+            }
+            Err(e) => tracing::error!("batch manifest 쓰기 실패: {}", e),
+        }
     }
 }
 
@@ -880,7 +897,7 @@ mod tests {
         assert_eq!(
             ids(".pdf"),
             [
-                "ask", "summarize", "open", "hwpx", "shrink", "pagenum", "pdfimages", "tables", "convert",
+                "ask", "summarize", "open", "hwpx", "shrink", "pagenum", "pdfimages", "tables", "convert", "receipt",
                 "join", "split", "pdfwork", "precheck", "redact", "compare", "versions", "inbox",
             ]
         );
@@ -899,6 +916,12 @@ mod tests {
             assert!(is_action(old) && is_quick(old));
             assert!(EXTS.iter().all(|e| !ids(e).contains(&old)) && ACTIONS.iter().all(|a| a.id != old || a.folder.is_none()), "{old} 가 메뉴에 있습니다");
         }
+        // 영수증으로 지출조서는 그림·PDF 에만 (한글·워드·엑셀에는 없다), 문서 카드 창으로 뜬다
+        for e in [".png", ".jpg", ".jpeg", ".pdf"] {
+            assert!(ids(e).contains(&"receipt"), "{e} 에 영수증 없음");
+        }
+        assert!(!ids(".hwp").contains(&"receipt") && !ids(".docx").contains(&"receipt") && !ids(".xlsx").contains(&"receipt"));
+        assert!(is_card("receipt") && !is_quick("receipt") && ACTIONS.iter().all(|a| a.id != "receipt" || (a.folder.is_none() && !a.mac)));
         let png = ids(".png");
         assert!(png.contains(&"join") && png.contains(&"pdfwork") && !png.contains(&"tables") && !png.contains(&"compare") && !png.contains(&"split"));
         // 폴더에만 있는 것은 파일 메뉴에 없다
@@ -916,7 +939,8 @@ mod tests {
         // 옛 항목이 남지 않게 지우고 다시
         assert!(s.contains(&format!("[-{pdf}]\r\n\r\n[{pdf}]\r\n\"MUIVerb\"=\"KorDoc AI\"")));
         assert!(s.contains(&format!("[{pdf}\\shell\\01ask]\r\n@=\"KorDoc AI 에게 맡기기…\"\r\n\"MultiSelectModel\"=\"Player\"")));
-        assert!(s.contains(&format!("[{pdf}\\shell\\16versions]\r\n@=\"최종본 찾기\"")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\10receipt]\r\n@=\"영수증으로 지출조서 만들기\"")));
+        assert!(s.contains(&format!("[{pdf}\\shell\\17versions]\r\n@=\"최종본 찾기\"")));
         assert!(!(1..=30).any(|n| s.contains(&format!("[{pdf}\\shell\\{n:02}pdf]"))));
         // 실행 줄: 경로 역슬래시·따옴표를 .reg 규칙대로
         assert!(s.contains(r#"@="\"C:\\Users\\홍 길동\\AppData\\Local\\KorDoc AI\\kordoc-ai.exe\" --shell join \"%1\"""#));

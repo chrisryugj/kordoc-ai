@@ -3,7 +3,8 @@
  * 문서 이름과 한 줄 정보, 같은 문서의 다른 판(최종본), "이 문서로 무엇을 할까요?" 말로 시키기, 결과는 이 창에서.
  * AI 가 꺼져 있으면 문서 갈래에 맞는 일을 바로 실행 단추로 보인다 (우클릭 동작 id 를 card_handoff 로 본창에 넘김).
  * 본창이 필요한 일(앱에서 열기·편집기·비교)도 card_handoff 로 우클릭 동작과 같은 길로 넘긴다.
- * 창 주소: index.html?card=<{ action: 'ask'|'versions', paths: string[] } JSON>
+ * "영수증으로 지출조서 만들기"(action 'receipt')는 같은 창에 영수증 값 표·지출조서 미리보기(ReceiptCard).
+ * 창 주소: index.html?card=<{ action: 'ask'|'versions'|'receipt', paths: string[] } JSON>
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,13 +26,14 @@ import { FormatBadge } from "../components/common/FormatBadge";
 import { Button } from "../components/ui/Button";
 import "../components/agent/agent.css";
 import "./card.css";
+import { ReceiptCard } from "./ReceiptCard";
 
-interface CardInput { action: "ask" | "versions"; paths: string[] }
+interface CardInput { action: "ask" | "versions" | "receipt"; paths: string[] }
 
 export function parseCard(raw: string): CardInput | null {
   try {
     const v = JSON.parse(raw) as CardInput;
-    return Array.isArray(v.paths) && v.paths.every((p) => typeof p === "string") && v.paths.length ? { action: v.action === "versions" ? "versions" : "ask", paths: v.paths } : null;
+    return Array.isArray(v.paths) && v.paths.every((p) => typeof p === "string") && v.paths.length ? { action: v.action === "versions" || v.action === "receipt" ? v.action : "ask", paths: v.paths } : null;
   } catch { return null; }
 }
 
@@ -249,7 +251,7 @@ export function CardApp({ raw }: { raw: string }) {
   const input = useMemo(() => parseCard(raw), [raw]);
   return (
     <AppProvider toast={showToast}>
-      {input ? <Card input={input} /> : <p className="kd-text p-6">문서 정보를 읽지 못했습니다. 탐색기에서 다시 우클릭하세요.</p>}
+      {input?.action === "receipt" ? <ReceiptCard paths={input.paths} /> : input ? <Card input={input} /> : <p className="kd-text p-6">문서 정보를 읽지 못했습니다. 탐색기에서 다시 우클릭하세요.</p>}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <TipLayer />
     </AppProvider>

@@ -81,6 +81,7 @@ const settings: Settings = {
   general: { log_level: "info" },
   impact: { baselines: {} },
   law: { oc: "" },
+  receipt: { template_path: "", template_name: "", columns: [] },
 };
 
 // ?fresh=1 이면 처음 켠 PC 처럼 (첫 실행 마법사 확인용)

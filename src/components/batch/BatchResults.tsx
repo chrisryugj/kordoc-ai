@@ -7,6 +7,7 @@ import { Note, SavedFile } from "../common/Status";
 import type { Outcome } from "./runners";
 import { GatherResult } from "./GatherResult";
 import { MailMergeResult } from "./MailMerge";
+import { ReceiptEditor } from "../receipt/ReceiptEditor";
 
 function mark(excerpt: string, query: string) {
   if (!query) return excerpt;
@@ -18,6 +19,14 @@ export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLa
   const { openDocs } = useApp();
   if (outcome.kind === "gather") return <GatherResult result={outcome.result} message={outcome.message} onAddLate={onAddLate} />;
   if (outcome.kind === "mailmerge") return <MailMergeResult result={outcome.result} message={outcome.message} />;
+  if (outcome.kind === "receipt") {
+    return (
+      <div className="flex flex-col gap-3">
+        <Note tone={outcome.result.receipts.some((r) => r.ok) ? "ok" : "warn"}>{outcome.message}</Note>
+        <ReceiptEditor key={outcome.result.receipts.map((r) => r.path).join("|")} receipts={outcome.result.receipts} aiUsed={outcome.result.ai_used} warnings={outcome.result.warnings} outputDir={outcome.outDir} />
+      </div>
+    );
+  }
   if (outcome.kind === "files") {
     return outcome.dir ? <SavedFile path={outcome.dir} folder label={outcome.message} /> : <Note tone="ok">{outcome.message}</Note>;
   }

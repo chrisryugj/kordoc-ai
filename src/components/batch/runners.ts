@@ -21,7 +21,8 @@ export type Outcome =
   | { kind: "extract"; message: string; path: string; columns: string[]; rows: Array<Record<string, string>> }
   | { kind: "search"; message: string; query: string; results: RpcResult<"search_files">["results"] }
   | { kind: "gather"; message: string; result: RpcResult<"collect_gather"> }
-  | { kind: "mailmerge"; message: string; result: RpcResult<"mail_merge"> };
+  | { kind: "mailmerge"; message: string; result: RpcResult<"mail_merge"> }
+  | { kind: "receipt"; message: string; result: RpcResult<"receipt_read">; outDir?: string };
 
 export interface RunEnv extends TaskCtx {
   files: FileEntry[];
@@ -33,6 +34,8 @@ export interface RunEnv extends TaskCtx {
   keep?: string[];
   /** 설정의 저장 폴더 (없으면 첫 파일 옆) */
   defaultDir?: string;
+  /** 영수증: 적요를 AI 로 (이 PC·기관 AI 서버일 때만. 외부 AI 는 결과 화면에서 누를 때) */
+  receiptAi?: boolean;
 }
 
 /** PDF 를 쪽마다·몇 쪽씩 나눠 <이름>_나누기 폴더에 */
@@ -238,6 +241,20 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
         env.setRow(f.path, hit && hit.hits.length ? { status: "ok", note: `${hit.hits.length}곳` } : { status: "wait", note: "없음" });
       }
       return { kind: "search", message: `${r.searched}개 문서 중 ${r.results.filter((x) => x.hits.length).length}개에서 찾았습니다${r.failed ? `, ${r.failed}개는 읽지 못함` : ""}`, query: opts.query.trim(), results: r.results };
+    }
+    case "receipt": {
+      paths.forEach((p) => env.setRow(p, { status: "run" }));
+      const r = await rpc("receipt_read", { paths, ai: !!env.receiptAi }, o);
+      for (const f of files) {
+        const mine = r.receipts.filter((x) => x.path === f.path);
+        const ok = mine.filter((x) => x.ok).length;
+        env.setRow(f.path, ok ? { status: "ok", note: mine.length > 1 ? `영수증 ${ok}장` : "읽음" } : { status: "fail", error: mine[0]?.error ?? "읽지 못했습니다" });
+      }
+      const ok = r.receipts.filter((x) => x.ok).length;
+      const message = ok
+        ? `영수증 ${ok}장을 읽었습니다. 아래 표에서 값을 확인하고 지출조서로 저장하거나 복사하세요`
+        : "영수증을 하나도 읽지 못했습니다. 영수증이 잘 보이게 다시 찍거나 스캔한 뒤 넣으세요.";
+      return { kind: "receipt", message, result: r, ...(opts.outDir ? { outDir: opts.outDir } : {}) };
     }
     case "mailmerge": {
       const r = await rpc("mail_merge", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }), ...(opts.nameColumn.trim() ? { name_column: opts.nameColumn.trim() } : {}), ...outDirOf(opts) }, o);

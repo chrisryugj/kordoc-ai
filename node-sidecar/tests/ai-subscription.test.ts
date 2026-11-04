@@ -571,7 +571,8 @@ function stillRunning(pids: number[]): number[] {
 }
 
 describe('Codex 앱에 든 CLI 를 먼저 본다', () => {
-  it('LOCALAPPDATA\OpenAI\Codex\bin 의 판 폴더를 최근 것부터, 다른 프로그램·운영체제는 비움', () => {
+  // 판 폴더를 실제 파일 시스템에서 읽어 Windows 경로로 잇는다: Windows 에서만
+  it.skipIf(process.platform !== 'win32')('LOCALAPPDATA/OpenAI/Codex/bin 의 판 폴더를 최근 것부터, 다른 프로그램·운영체제는 비움', () => {
     const base = mkdtempSync(join(tmpdir(), 'kd-codexapp-'));
     try {
       const bin = join(base, 'OpenAI', 'Codex', 'bin');

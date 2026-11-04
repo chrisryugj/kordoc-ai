@@ -13,6 +13,7 @@ import { Button } from "../ui/Button";
 import { Field, Section, SelectField, TextField } from "../common/Field";
 import { lockProps, useLocked } from "./PolicyLock";
 import { UnsavedBadge, useDirtyMark } from "./dirty";
+import { ReceiptTemplate } from "./ReceiptTemplate";
 
 type Org = Settings["org"];
 
@@ -107,6 +108,7 @@ export function OrgSection() {
           </div>
         </Field>
       </div>
+      <ReceiptTemplate />
     </Section>
   );
 }

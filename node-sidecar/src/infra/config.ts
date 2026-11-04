@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   general: { log_level: 'info' },
   impact: { baselines: {} },
   law: { oc: '' },
+  receipt: { template_path: '', template_name: '', columns: [] },
 };
 
 /** 앱 데이터 폴더 (설정·모델·로그) */
@@ -195,7 +196,7 @@ export function getConfig<K extends keyof Settings>(section: K): Settings[K] {
   return getSettings()[section];
 }
 
-const ALLOWED_SECTIONS = new Set(['ai', 'privacy', 'org', 'convert', 'general', 'impact', 'law']);
+const ALLOWED_SECTIONS = new Set(['ai', 'privacy', 'org', 'convert', 'general', 'impact', 'law', 'receipt']);
 /** 기관 배포 설정이 정할 수 있는 모양 — 허용 구획의 기본값 */
 const POLICY_SHAPE: Obj = Object.fromEntries([...ALLOWED_SECTIONS].map((k) => [k, DEFAULT_SETTINGS[k as keyof Settings]]));
 const SECRET_FIELDS = ['api_key'];

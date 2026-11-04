@@ -1,0 +1,31 @@
+/* 영수증 → 지출조서 (문서 카드·서무 도구 결과) */
+.kd-receipt { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.kd-receipt-bar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.kd-receipt-sum { font-size: var(--fs-h3); font-weight: 600; }
+.kd-receipt-scroll { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.kd-receipt-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.kd-receipt-table th { position: sticky; top: 0; background: var(--color-bg-secondary); text-align: left; font-size: var(--fs-caption); font-weight: 600; color: var(--color-text-muted); padding: 6px 6px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.kd-receipt-table td { padding: 3px 4px; border-bottom: 1px solid var(--color-border-subtle); vertical-align: middle; }
+.kd-receipt-table tr:last-child td { border-bottom: 0; }
+.kd-receipt-file { max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); padding-left: 8px !important; }
+.kd-receipt-table td[data-k="date"] { min-width: 96px; }
+.kd-receipt-table td[data-k="vendor"] { min-width: 110px; }
+.kd-receipt-table td[data-k="brn"] { min-width: 110px; }
+.kd-receipt-table td[data-k="purpose"] { min-width: 140px; }
+.kd-receipt-table td[data-k="amount"] { min-width: 88px; }
+.kd-receipt-table td[data-k="payment"] { min-width: 64px; }
+.kd-receipt-table td[data-k="note"] { min-width: 64px; }
+.kd-receipt-input { width: 100%; min-height: 32px; padding: 4px 6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-primary); font: inherit; }
+.kd-receipt-input:hover { border-color: var(--color-border-hover); }
+.kd-receipt-input:focus { outline: none; border-color: var(--color-accent); box-shadow: var(--shadow-focus); background: var(--color-bg-primary); }
+.kd-receipt-input[data-low] { background: var(--color-warning-bg); border-color: var(--color-warning-subtle); }
+.kd-receipt-input::placeholder { color: var(--color-text-muted); }
+td[data-k="amount"] .kd-receipt-input { text-align: right; font-variant-numeric: tabular-nums; }
+
+.kd-receipt-preview-wrap { display: flex; flex-direction: column; gap: 6px; }
+.kd-receipt-preview { overflow-x: auto; padding: 12px; border-radius: var(--radius-md); background: var(--color-bg-secondary); }
+/* 엔진 표의 검은 선·회색 머리는 붙여 넣을 곳(한글·워드) 모양이라 그대로, 글자색만 화면에 맞춘다 */
+.kd-receipt-preview table { background: var(--color-bg-primary); color: var(--color-text-primary); font-size: var(--fs-small) !important; }
+.kd-receipt-preview th, .kd-receipt-preview td { border-color: var(--color-rule-strong) !important; white-space: nowrap; }
+.kd-receipt-preview th { color: var(--color-text-primary); background: var(--color-bg-tertiary) !important; }
+.kd-receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; }

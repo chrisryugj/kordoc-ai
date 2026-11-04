@@ -120,6 +120,8 @@ function Shell() {
     else if (action === "pdfwork") startPdf({ paths });
     else if (action === "compare") startCompare(paths[0], paths[1]);
     else if (action === "collect") startBatch({ paths, task: "collect", autoRun: true });
+    // 영수증은 Rust 가 문서 카드로 연다. 여기 오는 건 카드의 "본창에서 열기"
+    else if (action === "receipt") startBatch({ paths, task: "receipt", autoRun: true });
     else if (action === "summarize" && ai?.is_cloud) {
       openDocs(paths, { tool: "ai" });
       toast("외부 AI로 보내기 전에 확인하세요. 요약하기를 누르면 보냅니다.", "info");

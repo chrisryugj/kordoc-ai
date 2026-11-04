@@ -32,6 +32,7 @@ export const TASKS: TaskDef[] = [
   { id: "collect", group: "모으기", title: "문서 수합", desc: "제출물을 엑셀 한 장으로, 미제출 부서·독촉 글까지", min: 1 },
   { id: "extract", group: "모으기", title: "항목 뽑기(AI)", desc: "서식이 제각각인 문서에서 같은 항목을 표로", min: 1, adv: true, ai: true },
   { id: "mailmerge", group: "만들기", title: "명부로 여러 장 만들기", desc: "양식 하나에 명부 한 줄씩", min: 0, adv: true },
+  { id: "receipt", group: "만들기", title: "영수증으로 지출조서", desc: "영수증 사진·PDF 여러 장을 읽어 지출조서 한 장으로", min: 1, accepts: ["image", "pdf"] },
   { id: "redact", group: "가리기", title: "개인정보 가리기", desc: "주민번호·전화번호 등을 가린 사본", min: 1 },
   { id: "shrink", group: "줄이기·인쇄하기", title: "PDF 용량 줄이기", desc: "첨부 한도에 맞게, 글자는 그대로", min: 1, skips: ["md", "txt", "csv", "image"] },
   { id: "print", group: "줄이기·인쇄하기", title: "한꺼번에 인쇄", desc: "고른 프린터로 바로", min: 1, adv: true },

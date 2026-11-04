@@ -15,7 +15,7 @@ export type Screen = "home" | "chat" | "inbox" | "workbench" | "create" | "pdf" 
 export type ToolId = "info" | "export" | "ai" | "review" | "redact" | "edit" | "tables" | "seal" | "shrink";
 export type BatchTaskId =
   | "convert" | "hwpx" | "pdf" | "ocr" | "merge" | "hwpsplit" | "bundle" | "pdftools" | "collect" | "extract"
-  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy" | "shrink" | "join" | "split";
+  | "tables" | "images" | "search" | "redact" | "mailmerge" | "watch" | "print" | "compare" | "stylecopy" | "shrink" | "join" | "split" | "receipt";
 export type ThemePref = "light" | "dark" | "system";
 /** 화면 방식: 쉬운 화면(처음 쓰는 사람: 메뉴를 줄이고 세부 설정을 접음) · 전체 화면(모든 기능과 설정) */
 export type UiMode = "easy" | "full";
