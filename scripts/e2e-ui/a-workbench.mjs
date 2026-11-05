@@ -60,7 +60,7 @@ async function run(width, height, dark) {
   try {
     // ── 받은 공문 HWPX
     await openDoc(LETTER);
-    const tabs = await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].map((t) => ({ t: t.textContent, top: t.getBoundingClientRect().top, off: t.disabled })));
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].map((t) => ({ t: t.textContent, top: t.getBoundingClientRect().top, off: t.getAttribute('aria-disabled') === 'true' })));
     check(`[${tag}] 도구 탭 넷, 한 줄`, tabs.map((x) => x.t).join('/') === '읽기/고치기/검토/내보내기' && new Set(tabs.map((x) => Math.round(x.top))).size === 1, JSON.stringify(tabs));
     const replies = await page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.offsetParent !== null && b.textContent.includes('회신 쓰기')).map((b) => `${b.textContent.trim()}|${b.className}`));
     // AI 가 꺼져 있으면 서식함의 표준 기안문으로 쓰는 "서식으로 회신 쓰기"
@@ -143,7 +143,7 @@ async function run(width, height, dark) {
 
     // ── PDF: 고치기 탭은 꺼지고 이유, 인쇄 됨
     await openDoc(LETTER_PDF);
-    const pdfTabs = await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].map((t) => `${t.textContent}:${t.disabled ? `off(${t.title})` : 'on'}`));
+    const pdfTabs = await page.evaluate(() => [...document.querySelectorAll('.kd-docws:not([hidden]) [role=tab]')].map((t) => `${t.textContent}:${t.getAttribute('aria-disabled') === 'true' ? `off(${t.dataset.tip})` : 'on'}`));
     check(`[${tag}] PDF: 고치기 탭 꺼짐 + 이유`, pdfTabs.some((t) => t.startsWith('고치기:off(한글 문서')), pdfTabs.join(' / '));
     await tab('내보내기');
     printed = null;

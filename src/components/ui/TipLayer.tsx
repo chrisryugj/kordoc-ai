@@ -37,9 +37,17 @@ function tipOf(el: HTMLElement): string {
   }
   const own = (el.textContent ?? "").replace(/\s+/g, " ").trim();
   const tip = (el.getAttribute("data-tip") ?? (own ? "" : el.getAttribute("aria-label") ?? "")).trim();
+  // 말풍선 글은 화면 읽기에도 설명으로 (마우스를 못 쓰는 분도 듣게). 이름과 같은 말이면 두 번 읽지 않는다
+  if (tip && tip !== own && tip !== el.getAttribute("aria-label") && (!el.hasAttribute("aria-description") || described.has(el))) {
+    el.setAttribute("aria-description", tip);
+    described.add(el);
+  }
   if (!tip || (tip === own && !clipped(el))) return "";
   return tip;
 }
+
+/** 우리가 aria-description 을 붙인 요소 (말풍선 글이 바뀌면 같이 바꾼다) */
+const described = new WeakSet<HTMLElement>();
 
 export function TipLayer() {
   const [tip, setTip] = useState<Tip | null>(null);

@@ -370,13 +370,16 @@ export function PdfScreen({ active }: { active: boolean }) {
               {board.files.map((f) => {
                 const n = items.filter((it) => it.file === f.id).length;
                 return (
-                  <div key={f.id} role="listitem" className="kd-pdf-chip" title={`${f.path}\n누르면 이 파일 쪽을 모두 고릅니다`}
-                    onClick={() => { const keys = items.filter((it) => it.file === f.id).map((it) => it.key); setSel(selectKeys(keys, keys[0] ?? null)); }}>
-                    <span className="kd-pg-dot" data-c={f.color} aria-hidden="true" />
-                    <span className="kd-pdf-chip-name">{f.name}</span>
-                    <span className="kd-pdf-chip-n">{n === f.sizes.length ? `${num(n)}쪽` : `${num(n)}/${num(f.sizes.length)}쪽`}</span>
-                    {f.converted && <span className="kd-pdf-chip-tag">PDF로 바꿈</span>}
-                    {f.secured && <span className="kd-pdf-chip-tag" data-tone="warn">보안 PDF</span>}
+                  <div key={f.id} role="listitem" className="kd-pdf-chip">
+                    {/* 키보드로도 고르게 단추로 (빼기 X 와 나란히) */}
+                    <button type="button" className="kd-pdf-chip-pick" data-tip={`${f.path}\n누르면 이 파일 쪽을 모두 고릅니다`}
+                      onClick={() => { const keys = items.filter((it) => it.file === f.id).map((it) => it.key); setSel(selectKeys(keys, keys[0] ?? null)); }}>
+                      <span className="kd-pg-dot" data-c={f.color} aria-hidden="true" />
+                      <span className="kd-pdf-chip-name">{f.name}</span>
+                      <span className="kd-pdf-chip-n">{n === f.sizes.length ? `${num(n)}쪽` : `${num(n)}/${num(f.sizes.length)}쪽`}</span>
+                      {f.converted && <span className="kd-pdf-chip-tag">PDF로 바꿈</span>}
+                      {f.secured && <span className="kd-pdf-chip-tag" data-tone="warn">보안 PDF</span>}
+                    </button>
                     <button type="button" className="kd-icon-btn" aria-label={`${f.name} 빼기`} onClick={(e) => { e.stopPropagation(); commit(removeFile(boardRef.current, f.id)); }}><X size={13} /></button>
                   </div>
                 );

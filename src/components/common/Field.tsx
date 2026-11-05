@@ -83,7 +83,7 @@ export function Check({ label, desc, checked, onChange, disabled }: {
   label: ReactNode; desc?: ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean;
 }) {
   return (
-    <label className="kd-check" style={disabled ? { opacity: 0.5, cursor: "default" } : undefined}>
+    <label className="kd-check" data-disabled={disabled || undefined}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="min-w-0">
         <span className="block">{label}</span>

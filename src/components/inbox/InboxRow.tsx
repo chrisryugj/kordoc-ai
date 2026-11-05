@@ -34,7 +34,8 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   // AI 가 꺼져 있으면 서식함의 표준 기안문으로 (AI 필요 화면으로 보내지 않는다)
   const { aiOn, start, tip } = useReply();
   const reply = () => start(item.path);
-  const replyLabel = aiOn ? "회신 쓰기" : "서식으로 회신";
+  // 펼친 칸·문서 보기 머리와 같은 말로
+  const replyLabel = aiOn ? "회신 쓰기" : "서식으로 회신 쓰기";
 
   return (
     <>

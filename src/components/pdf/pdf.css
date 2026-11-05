@@ -17,6 +17,8 @@
   font-size: var(--fs-small); color: var(--color-text-secondary); cursor: pointer;
 }
 .kd-pdf-chip:hover { border-color: var(--color-border-hover); color: var(--color-text-primary); }
+.kd-pdf-chip-pick { display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 100%; padding: 0; background: none; border: 0; border-radius: var(--radius-sm); color: inherit; font: inherit; cursor: pointer; }
+.kd-pdf-chip-pick:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .kd-pdf-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .kd-pdf-chip-n { color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kd-pdf-chip-tag { font-size: var(--fs-caption); padding: 1px 5px; border-radius: var(--radius-sm); background: var(--color-bg-tertiary); color: var(--color-text-secondary); white-space: nowrap; }
@@ -89,6 +91,13 @@
 .kd-pg-dot[data-c="3"], .kd-pdf-chip [data-c="3"] { --pdf-c: #7A4A9C; }
 .kd-pg-dot[data-c="4"], .kd-pdf-chip [data-c="4"] { --pdf-c: #9A6B00; }
 .kd-pg-dot[data-c="5"], .kd-pdf-chip [data-c="5"] { --pdf-c: #1D6E73; }
+/* 어두운 책상 위에서도 3:1 이상 (같은 색 계열을 밝게) */
+.dark .kd-pg-dot[data-c="0"], .dark .kd-pdf-chip [data-c="0"] { --pdf-c: #8FB8E3; }
+.dark .kd-pg-dot[data-c="1"], .dark .kd-pdf-chip [data-c="1"] { --pdf-c: #F09A90; }
+.dark .kd-pg-dot[data-c="2"], .dark .kd-pdf-chip [data-c="2"] { --pdf-c: #8DD39A; }
+.dark .kd-pg-dot[data-c="3"], .dark .kd-pdf-chip [data-c="3"] { --pdf-c: #C4A3E0; }
+.dark .kd-pg-dot[data-c="4"], .dark .kd-pdf-chip [data-c="4"] { --pdf-c: #E3C063; }
+.dark .kd-pg-dot[data-c="5"], .dark .kd-pdf-chip [data-c="5"] { --pdf-c: #7FCFD3; }
 
 /* 나눌 자리: 쪽 사이 틈의 가위. 켜면 인주색 점선 재단선 */
 .kd-pg-cut {
@@ -113,7 +122,7 @@
 .kd-pdf-caret::before { top: 0; }
 .kd-pdf-caret::after { bottom: 0; }
 .kd-pdf-ghost {
-  position: fixed; z-index: 60; pointer-events: none; padding: 4px 9px; font-size: var(--fs-small); font-weight: 700;
+  position: fixed; z-index: var(--z-overlay); pointer-events: none; padding: 4px 9px; font-size: var(--fs-small); font-weight: 700;
   color: var(--color-text-inverse); background: var(--color-text-primary); border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
 }
 .kd-pdf-marquee { position: absolute; z-index: 3; pointer-events: none; border: 1px solid var(--color-accent); background: var(--color-accent-subtle); }
@@ -188,7 +197,7 @@
 .kd-pdf-where span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 크게 보기 */
-.kd-pdf-view { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: rgba(16, 20, 26, 0.88); color: #F3F5F7; outline: none; }
+.kd-pdf-view { position: fixed; inset: 0; z-index: var(--z-viewer); display: flex; flex-direction: column; background: rgba(16, 20, 26, 0.88); color: #F3F5F7; outline: none; }
 .kd-pdf-view-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: var(--fs-body); }
 .kd-pdf-view-head .kd-icon-btn { color: #F3F5F7; }
 .kd-pdf-view-head .kd-icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }

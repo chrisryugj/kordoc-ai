@@ -65,6 +65,14 @@ export function Tooltip({ children, content, position = "top", delay = 300, disa
     setPos(null);
   }, []);
 
+  // Esc 로 닫기 (말풍선이 가린 곳을 마우스를 옮기지 않고 보게, WCAG 1.4.13)
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") hide(); };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [visible, hide]);
+
   // 키보드로 옮겨 온 포커스에만 띄운다 (누른 단추에 남은 포커스로는 띄우지 않는다)
   const showOnFocus = useCallback((e: React.FocusEvent) => {
     if (e.target instanceof Element && e.target.matches(":focus-visible")) show();

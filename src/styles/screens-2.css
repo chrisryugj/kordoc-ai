@@ -151,7 +151,7 @@
 .kd-impact-total b { font-size: var(--fs-h1); font-weight: 700; color: var(--color-text-primary); }
 
 /* ── 첫 실행 ── */
-.kd-wizard-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: var(--color-backdrop); }
+.kd-wizard-back { position: fixed; inset: 0; z-index: var(--z-overlay); display: grid; place-items: center; padding: 24px; background: var(--color-backdrop); }
 .kd-wizard { width: min(740px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
 .kd-wizard-head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 24px 14px; border-bottom: 1px solid var(--color-border); }
 .kd-wizard-head img { flex: none; margin-top: 2px; }

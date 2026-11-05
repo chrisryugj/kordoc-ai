@@ -125,7 +125,7 @@ input:focus-visible, select:focus-visible {
    ============================================ */
 .kd-context-menu {
   position: fixed;
-  z-index: 9999;
+  z-index: var(--z-menu);
   min-width: 170px;
   max-width: 260px;
   padding: 4px 0;

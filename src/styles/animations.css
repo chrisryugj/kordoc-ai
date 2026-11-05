@@ -55,5 +55,7 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  /* 도는 표시는 "처리 중"이라는 정보라 멈추지 않고 천천히 (두 가지 도는 클래스 모두) */
   .animate-spin { animation: spin 1.5s linear infinite !important; }
+  .kd-spin { animation: kd-rot 1.5s linear infinite !important; }
 }

@@ -95,7 +95,7 @@ try {
   await ui.shot(join(OUT, 'l-02-board.png'));
 
   // 한글 문서 쪽은 빼고 시험 (칩의 빼기 단추)
-  await page.evaluate((s) => [...document.querySelectorAll(`${s} .kd-pdf-chip`)].find((c) => c.textContent.includes('다_보고서'))?.querySelector('button')?.click(), scr);
+  await page.evaluate((s) => [...document.querySelectorAll(`${s} .kd-pdf-chip`)].find((c) => c.textContent.includes('다_보고서'))?.querySelector('button[aria-label$="빼기"]')?.click(), scr);
   await waitCount(6);
 
   // ── 고르기·돌리기 ──

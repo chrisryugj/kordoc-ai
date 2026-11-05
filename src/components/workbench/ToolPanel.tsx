@@ -87,11 +87,11 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolPr
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]:not(:disabled)"));
+    const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]"));
     const i = tabs.indexOf(document.activeElement as HTMLButtonElement);
     const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
     next?.focus();
-    next?.click();
+    if (next?.getAttribute("aria-disabled") !== "true") next?.click();
   };
 
   const render = (id: SectionId): ReactNode => {
@@ -116,8 +116,9 @@ export function ToolPanel({ doc, info, tool, onTool, autoRun, onGoPage }: ToolPr
         {GROUPS.map((g) => {
           const off = groupOff(g, info);
           return (
-            <button key={g.id} type="button" role="tab" className="kd-tab" aria-selected={current === g.id} disabled={!!off} data-group={g.id}
-              title={off || undefined} tabIndex={current === g.id ? 0 : -1} onClick={() => onTool(sectionsOf(g, aiOn, info).find((s) => !s.off?.(info))!.id as ToolId)}>
+            // 못 쓰는 탭도 초점은 받아 까닭(말풍선·화면 읽기 설명)을 알 수 있게: disabled 대신 aria-disabled
+            <button key={g.id} type="button" role="tab" className="kd-tab" aria-selected={current === g.id} aria-disabled={!!off || undefined} data-group={g.id}
+              data-tip={off || undefined} tabIndex={current === g.id ? 0 : -1} onClick={() => { if (!off) onTool(sectionsOf(g, aiOn, info).find((s) => !s.off?.(info))!.id as ToolId); }}>
               {g.label}
             </button>
           );

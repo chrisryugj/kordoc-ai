@@ -447,10 +447,10 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         </span>
 
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => void doHistory("undo")} disabled={!canUndo || busy !== ""} className="p-1.5 rounded-md hover-bg-tertiary disabled:opacity-30" aria-label="되돌리기 (Ctrl+Z)" title="되돌리기 (Ctrl+Z)">
+          <button type="button" onClick={() => void doHistory("undo")} disabled={!canUndo || busy !== ""} className="kd-icon-btn" aria-label="되돌리기 (Ctrl+Z)" title="되돌리기 (Ctrl+Z)">
             <Undo2 size={15} />
           </button>
-          <button onClick={() => void doHistory("redo")} disabled={!canRedo || busy !== ""} className="p-1.5 rounded-md hover-bg-tertiary disabled:opacity-30" aria-label="다시 실행 (Ctrl+Y)" title="다시 실행 (Ctrl+Y)">
+          <button type="button" onClick={() => void doHistory("redo")} disabled={!canRedo || busy !== ""} className="kd-icon-btn" aria-label="다시 실행 (Ctrl+Y)" title="다시 실행 (Ctrl+Y)">
             <Redo2 size={15} />
           </button>
           <button

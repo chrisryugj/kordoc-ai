@@ -11,6 +11,7 @@ import { useToast } from "./hooks/useToast";
 import { useDeepLink, isLinkAction, type DeepLinkPayload, type LinkAction } from "./hooks/useDeepLink";
 import { useQuickActions } from "./hooks/useQuickActions";
 import { isQuick } from "./lib/quick-actions";
+import { installRadioKeys } from "./lib/radio-keys";
 import { AppProvider, useApp, type Screen } from "./state/app";
 import { NavRail } from "./components/shell/NavRail";
 import { FirstRunWizard } from "./components/shell/FirstRunWizard";
@@ -95,6 +96,8 @@ function Shell() {
   useEffect(() => {
     setVisited((v) => (v.has(screen) ? v : new Set(v).add(screen)));
   }, [screen]);
+  // 고르기 묶음의 화살표 키 (앱 전체 한 번)
+  useEffect(() => installRadioKeys(), []);
 
   // 창 전체 끌어다 놓기 — 손가락 아래 [data-drop] 이 받고, 없으면 지금 화면이 받는다
   useEffect(() => {

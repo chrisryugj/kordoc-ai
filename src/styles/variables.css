@@ -98,6 +98,11 @@
   /* 말풍선(툴팁) 면: 밝은 화면에선 먹색, 어두운 화면에선 바탕보다 한 단 밝게 (같은 색이면 바탕에 묻힌다) */
   --color-tip-bg: #1F242B;
   --color-tip-text: #F3F5F7;
+  /* 알림(어두운 말풍선 면) 위 아이콘: 두 테마 모두 면이 어두워 밝은 색 하나로 */
+  --color-on-tip-ok: #5EE39A;
+  --color-on-tip-err: #FF8A80;
+  --color-on-tip-busy: #6EE7C0;
+  --color-on-tip-info: #8FC3FF;
   --color-tip-border: transparent;
   /* 문서 쪽(종이) 위 글자·괘선: 종이는 어두운 화면에서도 흰색이라 화면 밝기와 무관하게 고정 (옛 미색 회색 #8b8f86·#f4f2ec 대신) */
   --color-paper-muted: #636C77;
@@ -156,6 +161,9 @@
   --z-sticky: 10;
   --z-float: 40;
   --z-modal: 50;
+  --z-overlay: 60;   /* 대화상자 위 온 화면 판 (첫 실행 안내·끌어 옮기는 꼬리표) */
+  --z-viewer: 70;    /* 크게 보기 */
+  --z-menu: 150;     /* 우클릭 메뉴: 알림 위, 말풍선 아래 */
   --z-toast: 100;
   --z-tooltip: 200;
 

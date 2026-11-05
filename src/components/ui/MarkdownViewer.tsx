@@ -3,8 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { Copy, Check, Eye, Code, Sparkles, MessageSquareText } from "lucide-react";
+import { Copy, Check, Sparkles, MessageSquareText } from "lucide-react";
 import { Button } from "./Button";
+import { Seg } from "../common/Field";
 import { Tooltip } from "./Tooltip";
 import { ContextMenu } from "./ContextMenu";
 import { openExternal } from "../../lib/native";
@@ -70,30 +71,10 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
         style={{ borderBottom: "1px solid var(--color-border)" }}
       >
         <div className="flex items-center gap-1">
-          {plain ? <span className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>글 파일 그대로</span> : <>
-          <button
-            type="button"
-            onClick={() => setView("rendered")}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md ts-2xs font-semibold transition-colors"
-            style={{
-              backgroundColor: view === "rendered" ? "var(--color-accent-subtle)" : "transparent",
-              color: view === "rendered" ? "var(--color-accent)" : "var(--color-text-muted)",
-            }}
-          >
-            <Eye size={13} /> 미리보기
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("source")}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md ts-2xs font-semibold transition-colors"
-            style={{
-              backgroundColor: view === "source" ? "var(--color-accent-subtle)" : "transparent",
-              color: view === "source" ? "var(--color-accent)" : "var(--color-text-muted)",
-            }}
-          >
-            <Code size={13} /> 원문
-          </button>
-          </>}
+          {/* 보기 바꾸기는 앱의 다른 갈래 고르기와 같은 부품 (고른 칸 표시·누름 크기·화면 읽기 상태가 같다) */}
+          {plain ? <span className="ts-2xs font-semibold" style={{ color: "var(--color-text-muted)" }}>글 파일 그대로</span> : (
+            <Seg label="글 보기 방식" value={view} onChange={setView} options={[{ value: "rendered", label: "미리보기" }, { value: "source", label: "원문" }]} />
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -108,7 +89,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           <Tooltip content="#·| 같은 표시가 붙은 마크다운 글 그대로 복사">
           <Button variant="ghost" size="sm" onClick={() => void handleCopy("md")}>
             <span className="flex items-center gap-1">
-              {copied === "md" ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 마크다운 복사</>}
+              {copied === "md" ? <><Check size={13} /> 복사됨</> : <><Copy size={13} /> 글(마크다운) 복사</>}
             </span>
           </Button>
           </Tooltip>

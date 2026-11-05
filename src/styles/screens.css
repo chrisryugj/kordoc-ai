@@ -222,7 +222,8 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-batch-opts p.kd-small { text-wrap: balance; }
 .kd-filetable { display: flex; flex-direction: column; }
 .kd-filerow { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--color-border-subtle); }
-.kd-filerow[data-off="true"] { opacity: 0.5; }
+/* 이 일에 안 쓰는 파일: 이름만 흐리게, 까닭("이 일에는 쓰지 않는 형식")은 읽히게 흐림색 그대로 */
+.kd-filerow[data-off="true"] .kd-row-title, .kd-filerow[data-off="true"] .kd-format { color: var(--color-text-disabled); }
 /* 결과 메모가 길어도 파일 이름 칸을 밀어내지 않게 (넘치면 말줄임, 전체는 마우스를 올려서) */
 .kd-filerow > .kd-status { flex: 0 1 auto; min-width: 0; max-width: 38%; }
 .kd-status-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -313,6 +314,9 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 
 /* ── 작업대·한꺼번에: 작은 글 단추의 누르는 자리 (보이는 모양은 그대로, 위아래 음수 여백으로 줄 높이 유지) ── */
 .kd-hit32 { display: inline-flex; align-items: center; min-height: 32px; margin-block: -7px; }
+/* 작게 그린 누름 단추(붙인 파일 빼기 X·근거 번호)는 보이는 크기는 두고 누르는 자리만 넓힌다 (24px 이상) */
+.kd-ask-file button, .kd-card-files li button, .kd-cite-ref, .kd-attach-item .kd-icon-btn { position: relative; }
+.kd-ask-file button::before, .kd-card-files li button::before, .kd-cite-ref::before, .kd-attach-item .kd-icon-btn::before { content: ""; position: absolute; inset: -4px; }
 .kd-redact-saved { scroll-margin: 16px; }
 
 /* 쉬운 화면의 큰 할 일 단추: 네 칸 두 줄 */

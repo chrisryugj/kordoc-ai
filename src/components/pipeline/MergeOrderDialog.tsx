@@ -203,8 +203,8 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="card p-6 mx-4 space-y-5"
-        style={{ maxWidth: "28rem", width: "100%" }}
+        className="p-6 mx-4 space-y-5 rounded-2xl animate-modal-enter"
+        style={{ maxWidth: "28rem", width: "100%", backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", boxShadow: "var(--shadow-xl)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -223,6 +223,8 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
               끌어서 순서를 정하세요 · {items.length}개 파일
             </p>
           </div>
+          {/* 다른 대화상자처럼 오른쪽 위 닫기 */}
+          <button type="button" className="kd-icon-btn ml-auto self-start -mr-2 -mt-2" onClick={onCancel} aria-label="닫기"><X size={16} /></button>
         </div>
 
         {/* 파일 순서 리스트 */}
@@ -264,7 +266,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
-                className="flex items-center gap-2 p-2.5 rounded-lg text-left transition-all"
+                className="flex items-center gap-2 p-2.5 rounded-lg text-left transition-colors"
                 style={{
                   backgroundColor: mergeMode === "native" ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
                   border: `1.5px solid ${mergeMode === "native" ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
@@ -282,7 +284,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
                 </div>
               </button>
               <button
-                className="flex items-center gap-2 p-2.5 rounded-lg text-left transition-all"
+                className="flex items-center gap-2 p-2.5 rounded-lg text-left transition-colors"
                 style={{
                   backgroundColor: mergeMode === "markdown" ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
                   border: `1.5px solid ${mergeMode === "markdown" ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
@@ -309,7 +311,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
           <div className="flex items-center gap-2">
             <button
               onClick={handleBrowseOutputDir}
-              className="group flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all cursor-pointer"
+              className="group flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors cursor-pointer"
               style={{ backgroundColor: "var(--color-bg-tertiary)" }}
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)"; e.currentTarget.style.boxShadow = "0 0 0 1px var(--color-accent)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)"; e.currentTarget.style.boxShadow = "none"; }}

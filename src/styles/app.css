@@ -174,7 +174,12 @@
 .kd-switch input:checked + .kd-switch-track { background: var(--color-accent); box-shadow: none; }
 .kd-switch input:checked + .kd-switch-track::after { transform: translateX(16px); }
 .kd-switch input:focus-visible + .kd-switch-track { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.kd-switch input:disabled + .kd-switch-track { opacity: 0.4; }
+/* 사용 불가: 단추와 같은 규칙 (흐린 글자색 + 옅은 면). 투명도로 흐리면 까닭 설명까지 안 읽힌다 */
+.kd-switch:has(input:disabled), .kd-check[data-disabled] { cursor: default; }
+.kd-switch:has(input:disabled) .kd-row-title, .kd-check[data-disabled] > span > span:first-child { color: var(--color-text-disabled); }
+.kd-switch input:disabled + .kd-switch-track { background: var(--color-bg-tertiary); box-shadow: inset 0 0 0 1px var(--color-border); }
+.kd-switch input:disabled + .kd-switch-track::after { background: var(--color-bg-primary); box-shadow: 0 0 0 1px var(--color-border-hover); }
+.kd-switch input:checked:disabled + .kd-switch-track { background: color-mix(in srgb, var(--color-accent) 40%, var(--color-bg-tertiary)); }
 
 /* 탭: 글자 + 초록 밑줄 */
 .kd-tabs { display: flex; flex-wrap: wrap; gap: 0 4px; border-bottom: 1px solid var(--color-border); }
@@ -185,7 +190,7 @@
 .kd-tab:hover:not(:disabled) { color: var(--color-text-primary); }
 .kd-tab[aria-selected="true"] { color: var(--color-text-primary); }
 .kd-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--color-accent); }
-.kd-tab:disabled { color: var(--color-text-disabled); cursor: default; }
+.kd-tab:disabled, .kd-tab[aria-disabled="true"] { color: var(--color-text-disabled); cursor: default; }
 
 /* 면·구획 */
 .kd-panel { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-secondary); }
