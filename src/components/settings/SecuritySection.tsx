@@ -17,7 +17,7 @@ import { lockProps, useLocked } from "./PolicyLock";
 
 const WHERE: Record<string, string> = {
   embedded: "이 PC에서 · 내장 AI", local: "이 PC에서 · 켜 둔 AI 프로그램", openai: "기관 AI 서버", gemini: "외부 AI · Google API 키", anthropic: "외부 AI · Anthropic API 키",
-  "claude-code": "외부 AI · 구독 계정 (Claude Code, Anthropic 서버)", codex: "외부 AI · 구독 계정 (Codex, OpenAI 서버)", "gemini-cli": "외부 AI · 구독 계정 (Gemini CLI, Google 서버)", none: "AI를 쓰지 않음",
+  "claude-code": "외부 AI · 구독 계정 (Claude Code, Anthropic 서버)", codex: "외부 AI · 구독 계정 (Codex, OpenAI 서버)", "gemini-cli": "외부 AI · 구독 계정 (Antigravity CLI, Google 서버)", none: "AI를 쓰지 않음",
 };
 
 function clock(iso: string) {

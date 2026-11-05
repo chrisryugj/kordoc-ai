@@ -1,7 +1,7 @@
 /** 받은 공문 — 받은 공문의 보낸 곳·제목·요청 사항·기한을 한 표로, 기한 배지와 회신 초안으로 잇는다 */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FilePlus2, FlaskConical, Inbox, Sheet } from "lucide-react";
+import { FilePlus2, FlaskConical, Inbox, RefreshCw, Sheet } from "lucide-react";
 import { useApp } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
 import { pickFiles } from "../../lib/native";
@@ -39,7 +39,7 @@ export function InboxScreen({ active }: { active: boolean }) {
       setItems(sortItems((await rpc("inbox_list", {})).items));
       setLoadError("");
     } catch (e) {
-      setLoadError(`목록을 읽지 못했습니다: ${errorText(e)}. 잠시 뒤 다시 열어 보세요.`);
+      setLoadError(`목록을 읽지 못했습니다: ${errorText(e)}`);
     }
   }, []);
 
@@ -139,6 +139,7 @@ export function InboxScreen({ active }: { active: boolean }) {
         <div className="kd-inbox">
           {adding.busy && <Working label="공문을 읽는 중" progress={adding.progress} onCancel={adding.cancel} />}
           <ErrorLine message={adding.error || loadError || ledger.error} />
+          {loadError && !adding.error && <div><Button variant="secondary" size="sm" onClick={() => void load()}><RefreshCw size={13} /> 다시 읽기</Button></div>}
           {ledger.result && !ledger.busy && <SavedFile path={ledger.result.output_path} label={`접수대장을 엑셀로 저장했습니다 (${num(ledger.result.count)}건)`} />}
           {failed.length > 0 && (
             <Note tone="warn">

@@ -9,6 +9,7 @@ import { rpc, errorText } from "../../lib/rpc";
 import { FILTERS, pickFiles } from "../../lib/native";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { ErrorLine, Note, Working } from "../common/Status";
 
 const FIELD_LABEL: Array<[ReceiptColumn | "", string]> = [
@@ -83,7 +84,9 @@ export function ReceiptTemplate() {
             {info.rows > 0 && <span className="kd-small kd-muted">빈 줄 {info.rows}개{info.total_row ? " · 합계 줄 있음" : ""} (모자라면 줄을 더합니다)</span>}
             <span className="flex-1" />
             <Button variant="secondary" size="sm" onClick={() => void put()} data-tip="다른 서식으로 바꿉니다"><FilePlus2 size={13} /> 다른 서식</Button>
-            <Button variant="ghost" size="sm" onClick={() => void clear()} data-tip="등록한 서식을 지우고 기본 서식으로 만듭니다"><Trash2 size={13} /> 지우기</Button>
+            <ConfirmRemove ask="등록한 서식을 지우고 기본 서식으로 돌릴까요?" onConfirm={() => void clear()}>
+              {(open) => <Button variant="ghost" size="sm" onClick={open} data-tip="등록한 서식을 지우고 기본 서식으로 만듭니다"><Trash2 size={13} /> 지우기</Button>}
+            </ConfirmRemove>
           </div>
           {info.warnings.map((w) => <Note key={w} tone="warn">{w}</Note>)}
           <table className="kd-table kd-table-mini" style={{ maxWidth: 640 }} aria-label="서식 칸 대응표">

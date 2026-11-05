@@ -7,12 +7,12 @@
 - "최종_진짜최종_수정 (2)" 사이에서 진짜 최종본을 찾아 줍니다(AI 없이).
 - 문서 엔진·한글 편집기·AI 가 이 PC 안에서 돌아 인터넷이 막힌 업무망에서도 씁니다. 원본은 고치지 않고 결과는 늘 새 파일입니다.
 
-> 2026 공공 AI 대전환 챌린지 세션1(자유주제) 출품작 · 서울특별시 광진구 · MIT 라이선스
+> 서울특별시 광진구 · MIT 라이선스
 
 | 받는 곳 | |
 | --- | --- |
-| 설치 파일(Windows·macOS) | [공공 GitLab 릴리스 v2.3.2](https://gitlab.aigov.go.kr/chrisryugj/kordoc-ai/-/releases/v2.3.2) · [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
-| 소스 | GitHub [chrisryugj/kordoc-ai](https://github.com/chrisryugj/kordoc-ai) · 공공 GitLab `chrisryugj/kordoc-ai` |
+| 설치 파일(Windows·macOS) | [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
+| 소스 | GitHub [chrisryugj/kordoc-ai](https://github.com/chrisryugj/kordoc-ai) |
 | 문서 엔진 | [kordoc](https://github.com/chrisryugj/kordoc) (같은 개발자, MIT) |
 
 ![홈: 받은 공문을 놓고 회신 기안문을 시킨 화면](docs/images/home-ask.png)
@@ -39,7 +39,7 @@
 4. **AI 켜기**: 첫 실행 마법사, 또는 홈 "AI에게 맡기기" 입력창 아래 **AI 켜기**에서 셋 가운데 하나를 고릅니다.
    - **이 PC에서**: 켜 둔 AI 프로그램(Ollama 등)을 찾아 바로 켜거나, 내장 AI(Gemma 3 4B, 2.3GB, 메모리 8GB 이상)를 한 번 받아 인터넷 없이 씁니다.
    - **기관 AI 서버**: OpenAI 호환 주소·모델 이름·키를 넣습니다.
-   - **외부 AI**: 회사 · 모델로 고릅니다(Gemini·Claude API 키, PC에 로그인한 구독 계정 Claude Code·Codex·Gemini CLI). 보내기 전에 개인정보를 가립니다.
+   - **외부 AI**: 회사 · 모델로 고릅니다(Gemini·Claude API 키, PC에 로그인한 구독 계정 Claude Code·Codex·Antigravity CLI). 보내기 전에 개인정보를 가립니다.
 5. **AI에게 맡기기**: 홈 입력창에 문서를 끌어다 놓거나 **파일 첨부**로 붙이고, 할 일을 적거나 **예시·내 프롬프트**에서 고른 뒤 **보내기**. AI 대화 화면에 진행 단계와 만든 파일이 보이고, "이어서"의 **결재 전 점검·PDF로·개인정보 가리기**를 누르면 이어서 합니다. 대화는 목록에 남아 앱을 다시 켜도 이어서 시킬 수 있습니다.
    - 화면은 **쉬운 화면**(자주 하는 일만 크게, 기본)과 **전체 화면**(모든 기능과 설정)으로 나뉘고, 왼쪽 메뉴 아래에서 바꿉니다. 쓰는 법은 앱의 **도움말**(docs/manual)에 장마다 있습니다.
 6. **우클릭**: 탐색기에서 한글·PDF·워드·엑셀 파일을 우클릭 → **KorDoc AI** → **KorDoc AI에게 맡기기…** 또는 **최종본 찾기**. 작은 문서 카드 창이 뜹니다.
@@ -77,7 +77,7 @@
 | 이 PC 의 로컬 모델 서버 | Ollama·LM Studio·llama.cpp 서버·vLLM (127.0.0.1 을 찾아 줌) | 이 PC 안 |
 | 기관 AI 서버 | OpenAI 호환 주소: 행정안전부 AI 공통기반 지원 모델(Gemma·GPT-OSS·EXAONE·HyperCLOVA X·Solar) 등 | 기관 안 |
 | 외부 AI | Gemini·Claude API 키 | 밖(개인정보 가린 뒤) |
-| 구독 계정 | PC에 로그인해 둔 Claude Code·Codex·Gemini CLI (회사 · 모델로 고름, 설정에서 업데이트) | 밖(기본 꺼짐) |
+| 구독 계정 | PC에 로그인해 둔 Claude Code·Codex·Antigravity CLI (회사 · 모델로 고름, 설정에서 업데이트) | 밖(기본 꺼짐) |
 
 **두 모델 실측(2026-11-03)**: 같은 작업("붙인 받은 공문에 회신하는 기안문을 만들어 줘")을 Gemma 4 E4B(Ollama, 이 PC 안)와 Claude Code(구독)로 돌려 둘 다 받은 공문 읽기 → 기안문 규칙 확인 → HWPX 만들기까지 끝냈습니다(각각 24초·21초). 재현: `node scripts/contest-gate.mjs --only engine --models local:gemma4:e4b,claude-code`.
 

@@ -61,17 +61,24 @@ export default function App() {
   );
 }
 
+/** 메뉴 접힘은 넓은 창과 좁은 창을 따로 기억한다 (큰 모니터에서 펼친 것이 노트북에서도 펼쳐져 문서 칸이 좁아지지 않게) */
+const NAV_KEY = { narrow: "kordoc-nav-collapsed", wide: "kordoc-nav-collapsed-wide" } as const;
+
 function useNavCollapsed() {
-  const [pref, setPref] = useState<boolean | null>(() => readPref<boolean | null>("kordoc-nav-collapsed", null));
   // 1366 노트북에서도 문서 칸이 넓게 (접으면 아이콘 + 짧은 이름)
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1440);
+  const range = narrow ? "narrow" : "wide";
+  const [prefs, setPrefs] = useState(() => ({
+    narrow: readPref<boolean | null>(NAV_KEY.narrow, null),
+    wide: readPref<boolean | null>(NAV_KEY.wide, null),
+  }));
   useEffect(() => {
     const onResize = () => setNarrow(window.innerWidth < 1440);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const collapsed = pref ?? narrow;
-  const toggle = () => { setPref(!collapsed); writePref("kordoc-nav-collapsed", !collapsed); };
+  const collapsed = prefs[range] ?? narrow;
+  const toggle = () => { setPrefs((p) => ({ ...p, [range]: !collapsed })); writePref(NAV_KEY[range], !collapsed); };
   return [collapsed, toggle] as const;
 }
 

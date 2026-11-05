@@ -142,7 +142,7 @@ export function compareError(err: unknown): unknown {
   return new Error(`${which}를 읽지 못했습니다. ${why}`);
 }
 
-async function diffFiles(oldPath: string, newPath: string, signal?: AbortSignal) {
+export async function diffFiles(oldPath: string, newPath: string, signal?: AbortSignal) {
   sendProgress({ current: 0, total: 2, message: '두 문서 읽는 중' });
   const [a, b] = await Promise.all([readFile(oldPath), readFile(newPath)]);
   signal?.throwIfAborted();

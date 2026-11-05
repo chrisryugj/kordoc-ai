@@ -75,8 +75,8 @@
 }
 .kd-pg-group {
   position: absolute; min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center;
-  font-size: var(--fs-caption); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-seal); background: var(--color-paper);
-  border: 1.5px solid var(--color-seal); border-radius: var(--radius-sm);
+  font-size: var(--fs-caption); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-paper-seal); background: var(--color-paper);
+  border: 1.5px solid var(--color-paper-seal); border-radius: var(--radius-sm);
 }
 .kd-pg-cap { display: flex; align-items: center; gap: 5px; max-width: calc(var(--pg) + 8px); font-size: var(--fs-caption); line-height: 1.3; color: var(--color-text-muted); }
 .kd-pg-n { font-weight: 700; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
@@ -100,8 +100,8 @@
 /* 보이는 원은 22px, 누르는 자리는 32px */
 .kd-pg-cut::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; }
 .kd-pg:hover .kd-pg-cut, .kd-pg-cut:focus-visible { opacity: 1; transform: none; }
-.kd-pg-cut:hover { color: var(--color-seal); border-color: var(--color-seal); }
-.kd-pg[data-cut="true"] .kd-pg-cut { opacity: 1; transform: none; color: var(--color-paper); background: var(--color-seal); border-color: var(--color-seal); }
+.kd-pg-cut:hover { color: var(--color-paper-seal); border-color: var(--color-paper-seal); }
+.kd-pg[data-cut="true"] .kd-pg-cut { opacity: 1; transform: none; color: var(--color-paper); background: var(--color-paper-seal); border-color: var(--color-paper-seal); }
 .kd-pg[data-cut="true"]::before {
   content: ""; position: absolute; top: -4px; bottom: 18px; left: calc(var(--pg-gap) / -2 - 1px); width: 0;
   border-left: 2px dashed var(--color-seal);
@@ -157,6 +157,8 @@
 .kd-pdf-save:disabled .kd-pdf-save-d { color: var(--color-text-muted); opacity: 1; }
 .kd-pdf-save[data-main="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
 .kd-pdf-save[data-main="true"]:hover:not(:disabled) { background: var(--color-accent-hover); }
+/* 주 저장도 쓸 수 없을 때는 초록을 빼서 눌리지 않는 것이 보이게 (위 [data-main] 이 :disabled 를 덮어써서) */
+.kd-pdf-save[data-main="true"]:disabled { background: var(--color-bg-primary); border-color: var(--color-border); color: var(--color-text-disabled); }
 /* 초록 면 위 보조 글은 흐리게 하면 대비가 4.5:1 아래로 떨어진다 */
 .kd-pdf-save[data-main="true"] .kd-pdf-save-d, .kd-pdf-save[data-main="true"] kbd { opacity: 1; }
 .kd-pdf-save-t { display: flex; align-items: center; gap: 7px; font-size: var(--fs-body); font-weight: 700; }
@@ -190,5 +192,6 @@
 .kd-pdf-view-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: var(--fs-body); }
 .kd-pdf-view-head .kd-icon-btn { color: #F3F5F7; }
 .kd-pdf-view-head .kd-icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.kd-pdf-view-head .kd-icon-btn:disabled { color: rgba(243, 245, 247, 0.35); }
 .kd-pdf-view-body { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px 24px 24px; }
 .kd-pdf-view-body .kd-pg-sheet { position: relative; left: auto; top: auto; box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6); }

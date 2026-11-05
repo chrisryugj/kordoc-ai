@@ -87,7 +87,6 @@ export function InfoTool({ doc, info }: ToolProps) {
             <div><dt>공백 포함</dt><dd className="kd-num">{num(stats.result.withSpaces)}자</dd></div>
             <div><dt>공백 제외</dt><dd className="kd-num">{num(stats.result.noSpaces)}자</dd></div>
             <div><dt>원고지(200자)</dt><dd className="kd-num">약 {num(stats.result.manuscript)}매</dd></div>
-            <div><dt>쪽수</dt><dd className="kd-num">{info.page_count ? `${num(info.page_count)}쪽` : "없음"}</dd></div>
           </dl>
         )}
       </div>

@@ -28,6 +28,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "collect_run",
     "compare",
     "compare_hwpx",
+    "compare_visual",
     "convert",
     "convert_batch",
     "detect_mcp_env",

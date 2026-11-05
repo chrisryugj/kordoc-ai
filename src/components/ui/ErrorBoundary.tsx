@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Copy, Check } from "lucide-react";
+import { Button } from "./Button";
 
 interface Props {
   children: ReactNode;
@@ -108,16 +109,10 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
             </div>
           )}
-          <button
-            onClick={this.handleReset}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg ts-sm font-semibold transition-colors"
-            style={{
-              backgroundColor: "var(--color-accent)",
-              color: "white",
-            }}
-          >
+          {/* 공용 단추: 어두운 화면에서도 초록 위 글자색(accent-ink)과 누름·초점 모양이 맞는다 */}
+          <Button onClick={this.handleReset}>
             <RotateCcw size={16} /> 다시 시도
-          </button>
+          </Button>
         </div>
       );
     }

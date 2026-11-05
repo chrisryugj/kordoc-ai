@@ -1,4 +1,4 @@
-/** 구독 프로그램(Claude Code·Codex·Gemini CLI) 찾기·띄우기·끝내기
+/** 구독 프로그램(Claude Code·Codex·Antigravity CLI) 찾기·띄우기·끝내기
  *
  * - 셸 없이 띄운다. Windows 의 npm 껍데기(.cmd)는 셸이 있어야 돌아서, 껍데기가 부르는 실제 파일(.exe·.js)을 찾아 띄운다.
  *   JS 입구는 동봉 Node(process.execPath)로 띄운다: PC 에 Node 가 없어도 된다.
@@ -26,7 +26,7 @@ export interface Program {
   env?: Record<string, string>;
 }
 
-const BASE_NAME: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex', 'gemini-cli': 'gemini' };
+const BASE_NAME: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex', 'gemini-cli': 'agy' };
 const JS = /\.(c|m)?js$/i;
 
 export interface FindOptions {
@@ -47,7 +47,10 @@ function eachChild(dir: string, sub: string[], join2: (...p: string[]) => string
  *  npm 으로 깐 CLI 가 오래돼 계정 모델을 못 쓰는 일이 실제로 있어(0.138: "model is not supported when using Codex with a ChatGPT account")
  *  앱 쪽을 먼저 본다. 판 폴더가 여럿이면 최근에 바뀐 것부터 */
 export function appDirs(provider: SubscriptionProviderId, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
-  if (provider !== 'codex' || platform !== 'win32' || !env.LOCALAPPDATA) return [];
+  if (platform !== 'win32' || !env.LOCALAPPDATA) return [];
+  // agy 공식 설치 스크립트(install.ps1)가 두는 자리. 설치 직후엔 PATH 에 없다(실측: 새 터미널을 열어야 보임)
+  if (provider === 'gemini-cli') return [win32.join(env.LOCALAPPDATA, 'agy', 'bin')];
+  if (provider !== 'codex') return [];
   const base = win32.join(env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin');
   try {
     return readdirSync(base)

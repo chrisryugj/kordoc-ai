@@ -66,7 +66,7 @@
   flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px;
   min-height: 76px; padding: 16px 32px; border-bottom: 1px solid var(--color-border-subtle);
 }
-.kd-head-title { font-size: var(--fs-h1); font-weight: 700; letter-spacing: -0.03em; line-height: 1.25; }
+.kd-head-title { font-size: var(--fs-h1); font-weight: 700; letter-spacing: -0.03em; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kd-head-sub { max-width: var(--measure); margin-top: 4px; font-size: var(--fs-small); color: var(--color-text-muted); line-height: 1.5; }
 .kd-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .kd-body { flex: 1; min-height: 0; overflow: auto; }
@@ -109,6 +109,8 @@
 .kd-btn[data-variant="danger"]:hover:not(:disabled) { background: var(--color-error-hover); }
 .kd-btn:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
 /* 사용 불가: 흐리게 하지 않고 회색 바탕 + 흐림 글자로 (대비 4.5:1 이상) */
+/* 처리 중 단추: 원래 아이콘 자리에 도는 표시 */
+.kd-btn[aria-busy="true"] > svg:not(.kd-spin) { display: none; }
 .kd-btn:disabled { cursor: not-allowed; box-shadow: none; background: var(--color-bg-tertiary) !important; border-color: transparent !important; color: var(--color-text-muted) !important; }
 
 .kd-icon-btn {
@@ -127,13 +129,13 @@
 /* ── 입력 ── */
 .kd-input, .kd-select, .kd-textarea {
   width: 100%; font: inherit; font-size: var(--fs-body); color: var(--color-text-primary);
-  background: var(--color-input); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-input); border: 1px solid var(--color-border-input); border-radius: var(--radius-md);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .kd-input, .kd-select { height: 40px; padding: 0 12px; }
 .kd-textarea { padding: 10px 12px; line-height: 1.6; resize: vertical; }
-.kd-input::placeholder, .kd-textarea::placeholder { color: var(--color-text-disabled); opacity: 1; }
-.kd-input:hover, .kd-select:hover, .kd-textarea:hover { border-color: var(--color-border-hover); }
+.kd-input::placeholder, .kd-textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
+.kd-input:hover:not(:disabled), .kd-select:hover:not(:disabled), .kd-textarea:hover:not(:disabled) { border-color: var(--color-border-input-hover); }
 .kd-input:focus, .kd-select:focus, .kd-textarea:focus { outline: none; border-color: var(--color-accent); box-shadow: var(--shadow-focus); }
 /* 잠긴 칸(기관에서 정함 등): 바탕을 낮추고 점선 테두리, 글자는 흐리게 */
 .kd-input:disabled, .kd-select:disabled, .kd-textarea:disabled { background: var(--color-bg-primary); border-style: dashed; border-color: var(--color-border-hover); color: var(--color-text-muted); cursor: not-allowed; opacity: 1; }
@@ -149,7 +151,8 @@
   transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 .kd-seg button:hover:not(:disabled) { color: var(--color-text-primary); }
-.kd-seg button[aria-pressed="true"] { background: var(--color-bg-secondary); color: var(--color-text-primary); box-shadow: var(--shadow-md); }
+/* 고른 칸은 초록 글자 + 초록 테두리 (흰 알약만으로는 홈과 구분이 약하고, 어두운 화면에서는 알약이 홈보다 어둡다) */
+.kd-seg button[aria-pressed="true"] { background: var(--color-bg-secondary); color: var(--color-accent); box-shadow: var(--shadow-md), inset 0 0 0 1.5px var(--color-accent); }
 .kd-seg button:disabled { color: var(--color-text-disabled); cursor: default; }
 /* 줄 수를 정한 갈래 고르기: 칸을 꽉 채움 (data-cols, --seg-basis) */
 .kd-seg[data-cols] { display: flex; }
@@ -161,14 +164,14 @@
 .kd-switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; cursor: pointer; }
 .kd-switch-track {
   position: relative; width: 40px; height: 24px; flex: none; border-radius: 12px;
-  background: var(--color-bg-subtle); transition: background-color var(--transition-fast);
+  background: var(--color-bg-subtle); box-shadow: inset 0 0 0 1px var(--color-border-input); transition: background-color var(--transition-fast);
 }
 .kd-switch-track::after {
   content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.2); transition: transform var(--transition-fast);
+  background: #fff; box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.28), 0 1px 3px rgba(16, 24, 40, 0.2); transition: transform var(--transition-fast);
 }
 .kd-switch input { position: absolute; opacity: 0; pointer-events: none; }
-.kd-switch input:checked + .kd-switch-track { background: var(--color-accent); }
+.kd-switch input:checked + .kd-switch-track { background: var(--color-accent); box-shadow: none; }
 .kd-switch input:checked + .kd-switch-track::after { transform: translateX(16px); }
 .kd-switch input:focus-visible + .kd-switch-track { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .kd-switch input:disabled + .kd-switch-track { opacity: 0.4; }

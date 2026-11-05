@@ -174,7 +174,7 @@ export function FirstRunWizard() {
     : route === "cloud" ? !!(key || settings!.ai[cloud].api_key) : false;
   const aiWhere = route === "embedded" ? "이 PC에서 · 내장 AI" : route === "openai" ? `기관 AI 서버 ${baseUrl} · 모델 ${model}`
     : route === "local" ? `이 PC에서 · 켜 둔 AI 프로그램 (${localModel})`
-    : route === "subscription" ? (saved === "codex" ? "외부 AI · OpenAI 구독 계정 (Codex)" : saved === "gemini-cli" ? "외부 AI · Google 구독 계정 (Gemini CLI)" : "외부 AI · Anthropic 구독 계정 (Claude Code)")
+    : route === "subscription" ? (saved === "codex" ? "외부 AI · OpenAI 구독 계정 (Codex)" : saved === "gemini-cli" ? "외부 AI · Google 구독 계정 (Antigravity CLI)" : "외부 AI · Anthropic 구독 계정 (Claude Code)")
     : cloud === "gemini" ? "외부 AI · Google Gemini" : "외부 AI · Anthropic Claude";
   const aiTodo = route === "embedded" ? "저장하면 설정 › AI 연결로 가서 내장 AI를 받습니다."
     : route === "openai" ? "저장하면 설정 › AI 연결로 가서 서버 주소와 모델 이름을 넣습니다."

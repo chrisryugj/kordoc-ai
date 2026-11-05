@@ -190,8 +190,18 @@ async function compareDark() {
     await ui.click('파일 고르기', { within: '[data-drop="compare-old"]' });
     await ui.dialog([[b]]);
     await ui.click('파일 고르기', { within: '[data-drop="compare-new"]' });
-    await ui.click('비교하기', { exact: true });
-    await page.waitForSelector('.kd-cmp del', { timeout: 30000 });
+    // 두 칸이 차면 바로 나란히 보기: 원본엔 지운 글자, 비교본엔 넣은 글자 상자
+    await page.waitForSelector('.kd-cmp-pane .kd-cmp-mark', { timeout: 30000 });
+    await sleep(800);
+    const marks = await page.evaluate(() => [...document.querySelectorAll('.kd-cmp-pane')].map((p) => [...p.querySelectorAll('.kd-cmp-mark')].map((m) => m.dataset.kind)));
+    check('[dark] 나란히 보기: 원본에 지운 글자·비교본에 넣은 글자 상자', marks[0]?.includes('del') && marks[1]?.includes('add'), JSON.stringify(marks));
+    await page.click('.kd-cmp-item');
+    await sleep(900);
+    const picked = await page.evaluate(() => ({ cur: !!document.querySelector('.kd-cmp-item[aria-current]'), active: document.querySelectorAll('.kd-cmp-mark[data-active]').length }));
+    check('[dark] 바뀐 곳 목록을 누르면 두 칸의 그 상자가 진해진다', picked.cur && picked.active >= 2, JSON.stringify(picked));
+    await ui.shot(join(OUT, 'c-dark-compare-side.png'));
+    await ui.click('대조표', { exact: true });
+    await page.waitForSelector('.kd-cmp del', { timeout: 10000 });
     const st = await page.evaluate(() => { const d = getComputedStyle(document.querySelector('.kd-cmp del')); return { bg: d.backgroundColor, deco: d.textDecorationColor, thick: d.textDecorationThickness }; });
     const alpha = Number((st.bg.match(/[\d.]+\)$/) ?? ['0'])[0].replace(')', '')) || (st.bg.startsWith('rgb(') ? 1 : 0);
     check('[dark] 비교: 지운 낱말 바탕이 진하다 (불투명도 0.25 이상)', alpha >= 0.25, JSON.stringify(st));

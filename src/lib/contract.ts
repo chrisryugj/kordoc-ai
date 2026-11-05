@@ -3,7 +3,7 @@
 export type {
   RpcMethod, RpcParams, RpcResult, DeepPartial,
   DocFormat, FileEntry, PagePreview, LintFinding, RedactRule, ChatMessage, Citation, BatchItemResult,
-  SystemInfo, McpEnv, DocInfo, ConvertParams, ConvertResult, CompareResult, TablesResult, GongmunMeta,
+  SystemInfo, McpEnv, DocInfo, ConvertParams, ConvertResult, CompareResult, CompareVisualResult, VisualChange, VisualMark, VisualSide, TablesResult, GongmunMeta,
   GenerateParams, RedactResult, AiStatus, LlmCatalogItem, ReviewIssue, TemplateEntry, TemplateAnalysis,
   UsageReport, SecurityStatus, LocalModelServer, SubscriptionStatus,
   StyleFormat, StyleEntry, PdfShrinkLevel, PdfShrinkResult, RecoveryEntry,

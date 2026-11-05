@@ -289,7 +289,12 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   const setValue = useCallback((label: string, value: string, source: ValueSource = { kind: "manual" }) => {
     setValues((v) => ({ ...v, [label]: value }));
     setSources((s) => ({ ...s, [label]: source }));
+    if (source.kind === "manual") setUnsaved(true);
   }, []);
+  /** 손으로 넣은 값이 저장 전이다 (닫기·Esc 에서 한 번 묻는다) */
+  const [unsaved, setUnsaved] = useState(false);
+  const [askClose, setAskClose] = useState(false);
+  const requestClose = useCallback(() => { if (unsaved) setAskClose(true); else onClose(); }, [unsaved, onClose]);
 
   /** 채울 값만 추출 (빈 문자열 제외 — 코어가 빈 값 비우기를 지원하지 않음) */
   const fillValues = useMemo(() => {
@@ -405,7 +410,11 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
         await loadPreviewDoc(res.doc_b64);
         await renderPage(page);
       }
-      if (res.success) showToast(`저장했습니다: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
+      if (res.success) {
+        setUnsaved(false);
+        setAskClose(false);
+        showToast(`저장했습니다: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
+      }
     } catch (e) {
       showToast(`저장하지 못했습니다: ${errorText(e)}`, "error");
     } finally {
@@ -421,7 +430,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   // ── 대화상자: Esc 닫기 · Tab 은 안에서만 · 연 단추로 포커스 되돌리기 ──
   const titleId = useId();
   const boxRef = useRef<HTMLDivElement>(null);
-  useDialogKeys(boxRef, true, onClose);
+  useDialogKeys(boxRef, true, requestClose);
   useEffect(() => {
     const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     boxRef.current?.focus();
@@ -444,7 +453,14 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
             {wasmOk === false && " · 미리보기는 간단한 그림으로 보입니다"}
           </p>
         </div>
-        <button onClick={onClose} type="button" className="kd-icon-btn" aria-label="닫기">
+        {askClose && (
+          <span className="flex items-center gap-2 shrink-0" role="alert">
+            <span className="kd-small" style={{ color: "var(--color-warning)" }}>넣은 값을 아직 저장하지 않았습니다</span>
+            <button type="button" className="kd-link kd-small" onClick={onClose}>버리고 닫기</button>
+            <button type="button" className="kd-link kd-small" onClick={() => setAskClose(false)}>계속 채우기</button>
+          </span>
+        )}
+        <button onClick={requestClose} type="button" className="kd-icon-btn" aria-label="닫기">
           <X size={16} style={{ color: "var(--color-text-muted)" }} />
         </button>
       </div>
@@ -590,13 +606,13 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
           <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--color-bg-secondary)" }}>
             <div className="flex items-center justify-center gap-3 py-2 shrink-0">
               <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="kd-icon-btn" aria-label="앞 쪽">
-                <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
+                <ChevronLeft size={15} />
               </button>
               <span className="kd-small kd-muted kd-num">
                 {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
               </span>
               <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1} className="kd-icon-btn" aria-label="다음 쪽">
-                <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
+                <ChevronRight size={15} />
               </button>
             </div>
             <div ref={previewRef} className="flex-1 overflow-auto px-6 pb-6" onClick={handlePreviewClick}>

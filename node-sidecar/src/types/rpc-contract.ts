@@ -211,12 +211,12 @@ export interface RpcMethods {
   ai_list_models: [{ base_url?: string; api_key?: string; slot?: 'openai' | 'local' | 'anthropic' | 'gemini' }, { models: string[] }];
   /** 이 PC 에서 켜진 로컬 모델 서버 찾기 — 127.0.0.1 의 잘 알려진 포트(Ollama·LM Studio·llama.cpp 서버·vLLM 등)에 /v1/models */
   ai_local_servers: [Record<string, never>, { servers: LocalModelServer[] }];
-  /** 구독 프로그램(Claude Code·Codex·Gemini CLI) 설치·로그인 상태. provider 가 없으면 모두. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */
+  /** 구독 프로그램(Claude Code·Codex·Antigravity CLI) 설치·로그인 상태. provider 가 없으면 모두. 폐쇄망·기관 차단이면 프로그램을 띄우지 않는다 */
   ai_subscription_status: [{ provider?: 'claude-code' | 'codex' | 'gemini-cli' }, { statuses: SubscriptionStatus[] }];
   /** 구독 프로그램이 고를 수 있게 내놓는 모델 (모델을 부르지 않음). id 가 빈 값이면 프로그램 기본 모델 */
   ai_subscription_models: [{ provider: 'claude-code' | 'codex' | 'gemini-cli' }, { models: Array<{ id: string; label: string }> }];
   /** 구독 프로그램을 그 프로그램의 공식 업데이트 명령으로 새 판으로 (전후 판 번호). 폐쇄망·기관 차단·기관이 위치를 정한 경우는 거절.
-   *  업데이트 명령이 없는 Gemini CLI 는 실행하지 않고 터미널에서 칠 명령만 알려 준다(ok false) */
+   *  (Antigravity CLI 는 `agy update`) */
   ai_subscription_update: [{ provider: 'claude-code' | 'codex' | 'gemini-cli' }, { ok: boolean; before?: string; after?: string; message: string }];
   ai_warmup: [Record<string, never>, { gpu: string | false; context_size: number }];
   llm_catalog: [Record<string, never>, LlmCatalogItem[]];
@@ -271,6 +271,8 @@ export interface RpcMethods {
   to_hwpx: [{ path: string; preset?: string; ocr?: 'auto' | 'force' | 'off'; output_path?: string }, { output_path: string; warnings: string[]; style: string }];
   to_hwpx_batch: [{ paths: string[]; preset?: string; output_dir?: string }, { results: BatchItemResult[]; output_dir: string }];
   /** 신구대조표를 한글 표(현행 | 개정안)로 — 규정·조례 개정 */
+  /** 두 문서를 쪽 모양 그대로 나란히 놓고 바뀐 곳에 칠할 상자 (HWP·HWPX·PDF, 그 밖의 형식은 rows 만) */
+  compare_visual: [{ old_path: string; new_path: string }, CompareVisualResult];
   compare_hwpx: [{ old_path: string; new_path: string; title?: string; output_path?: string }, { output_path: string; stats: CompareResult['stats'] }];
   /** 결재·공개용 합본 PDF — 본문 + 붙임 순서대로, 워터마크("대외비"·"사본" 등)·쪽번호 선택 */
   /** overwrite: output_path 에 이미 있는 파일을 덮어쓴다 (화면이 사용자에게 확인한 뒤만. 합칠 원본 자리는 덮어쓰지 않고 (2)) */
@@ -529,6 +531,20 @@ export interface CompareResult {
   /** 신구대조표 행 — 바뀐 곳 위주(unchanged 는 앞뒤 문맥 1개씩만) */
   rows: Array<{ type: 'added' | 'removed' | 'modified' | 'unchanged'; old: string; new: string }>;
   output_path?: string;
+}
+
+/** 나란히 비교의 칠할 상자 — 쪽 폭·높이에 대한 비율(0~1). del: 원본에서 빠지거나 바뀐 글자, add: 비교본에 넣거나 바뀐 글자, gap: 다른 쪽에만 있는 내용이 들어갈(빠진) 자리 */
+export interface VisualMark { page: number; x: number; y: number; w: number; h: number; kind: 'del' | 'add' | 'gap'; change: number }
+export interface VisualSide { pages: Array<{ width: number; height: number }>; marks: VisualMark[] }
+/** 바뀐 곳 하나 — id 는 VisualMark.change 와 같다. 쪽·y 는 그 바뀜의 첫 상자 자리(못 찾았으면 없음) */
+export interface VisualChange { id: number; type: 'modified' | 'added' | 'removed'; old: string; new: string; old_page?: number; old_y?: number; new_page?: number; new_y?: number }
+/** 나란히 비교 — 대조표 행(rows)과 두 문서의 칠할 상자. 쪽 모양이 없는 쪽은 null 과 그 까닭 */
+export interface CompareVisualResult extends CompareResult {
+  changes: VisualChange[];
+  old: VisualSide | null;
+  new: VisualSide | null;
+  old_why?: string;
+  new_why?: string;
 }
 
 /** 받은 공문 한 건 — 보낸 곳·문서번호·제목·요청 사항·기한 (inbox_*) */

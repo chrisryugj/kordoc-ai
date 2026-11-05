@@ -136,7 +136,7 @@ try {
     req.continue();
   });
   await ui.click('신구대조표 만들기');
-  await ui.waitText('비교할 두 문서를 넣으세요');
+  await ui.waitText('비교할 두 문서를 끌어다 놓으세요');
   await ui.dialog([[LETTER_PDF]]);
   await ui.click('파일 고르기', { within: '[data-drop="compare-old"]' });
   await sleep(500);
@@ -146,17 +146,13 @@ try {
   writeFileSync(broken, 'not a zip');
   await ui.dialog([[broken]]);
   await ui.click('파일 고르기', { within: '[data-drop="compare-new"]' });
-  await sleep(400);
-  await ui.click('비교하기', { exact: true });
-  await sleep(2500);
+  await sleep(2900); // 두 칸이 차면 바로 비교한다
   const errText = await page.evaluate(() => [...document.querySelectorAll('.kd-note[data-tone="err"]')].map((n) => n.innerText).join(' | '));
   check('비교 오류는 "새 문서를 읽지 못했습니다"', errText.includes('새 문서를 읽지 못했습니다') && !/문서B|파싱/.test(errText), errText);
   const slotText = await page.evaluate(() => document.querySelector('[data-drop="compare-old"]')?.innerText ?? '');
   check('비교 칸은 파일 이름만 (폴더 경로 없음)', !/[\\/]/.test(slotText), slotText.replace(/\n/g, ' '));
   await ui.dialog([[LETTER]]);
   await ui.click('바꾸기', { within: '[data-drop="compare-new"]' });
-  await sleep(300);
-  await ui.click('비교하기', { exact: true });
   await ui.waitText('바뀜 ', 30000);
   await ui.shot(join(OUT, '08-compare-light.png'));
   await ui.clearDialog();

@@ -24,7 +24,7 @@ export type { ChatImage, ChatMessage, JsonSchema, LlmProvider } from './types.js
 function subscriptionOff(): Error {
   const lockedOff = getSettings().policy?.locked.includes('ai.allow_subscription');
   return new Error(lockedOff
-    ? '기관에서 구독 계정(Claude Code·Codex·Gemini CLI) 연결을 막았습니다. 설정 › AI 연결에서 다른 AI를 고르세요.'
+    ? '기관에서 구독 계정(Claude Code·Codex·Antigravity CLI) 연결을 막았습니다. 설정 › AI 연결에서 다른 AI를 고르세요.'
     : '구독 계정으로 문서 보내기가 꺼져 있습니다. 설정 › AI 연결의 구독 계정에서 문서 보내기를 허용하거나 다른 AI를 고르세요.');
 }
 

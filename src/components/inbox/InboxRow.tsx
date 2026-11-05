@@ -8,6 +8,7 @@ import { rpc } from "../../lib/rpc";
 import type { RpcResult } from "../../lib/contract";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { ErrorLine, Working } from "../common/Status";
 import { LawResults } from "../workbench/tools/LawResults";
 import { useReply } from "../workbench/reply";
@@ -159,7 +160,10 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
         <Button variant="secondary" size="sm" onClick={checkLaw} disabled={law.busy}
           data-tip={`공문이 인용한 법령을 법제처 원문과 맞춰 봅니다.${item.sent_date ? ` 시행일(${dueText(item.sent_date, today)}) 당시 조문과 지금 조문도 견줍니다.` : ""}`}><Scale size={13} /> 인용 법령 확인</Button>
         <span className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={onRemove} data-tip="접수함 목록에서만 뺍니다. 파일은 그대로 둡니다."><Trash2 size={13} /> 목록에서 빼기</Button>
+        {/* 적어 둔 메모·고친 기한도 함께 사라지므로 한 번 묻는다 */}
+        <ConfirmRemove ask="목록에서 뺄까요? 메모·기한도 지워집니다. 파일은 그대로입니다." verb="빼기" onConfirm={onRemove}>
+          {(open) => <Button variant="ghost" size="sm" onClick={open} data-tip="접수함 목록에서만 뺍니다. 파일은 그대로 둡니다."><Trash2 size={13} /> 목록에서 빼기</Button>}
+        </ConfirmRemove>
       </div>
 
       {(law.busy || law.result || law.error) && (

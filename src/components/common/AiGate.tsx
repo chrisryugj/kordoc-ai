@@ -31,7 +31,7 @@ export function AiWhere() {
     return <span className="kd-status" title={tip}><Server size={13} /> 기관 AI 서버</span>;
   }
   const masked = settings?.ai.redact_before_cloud;
-  const name = ai.provider === "claude-code" ? "외부 AI · 구독 계정 (Claude Code)" : ai.provider === "codex" ? "외부 AI · 구독 계정 (Codex)" : ai.provider === "gemini-cli" ? "외부 AI · 구독 계정 (Gemini CLI)" : "외부 AI";
+  const name = ai.provider === "claude-code" ? "외부 AI · 구독 계정 (Claude Code)" : ai.provider === "codex" ? "외부 AI · 구독 계정 (Codex)" : ai.provider === "gemini-cli" ? "외부 AI · 구독 계정 (Antigravity CLI)" : "외부 AI";
   return (
     <span className="kd-status" data-tone="warn" title={tip}>
       <Cloud size={13} /> {name}{masked ? " · 개인정보는 가려서 보냅니다" : " · 문서 원문이 나갑니다"}

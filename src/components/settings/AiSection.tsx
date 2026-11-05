@@ -34,14 +34,14 @@ const SUB_DESC: Partial<Record<Route, string>> = {
   embedded: "모델 파일을 한 번 받으면 인터넷 없이 됩니다.",
   local: "켜 둔 Ollama·LM Studio 같은 프로그램을 찾아 연결합니다.",
 };
-/** 외부 AI 회사. 연결 방식: Anthropic 은 구독 계정(Claude Code)·API 키, OpenAI 는 구독 계정(Codex), Google 은 구독 계정(Gemini CLI)·API 키 */
+/** 외부 AI 회사. 연결 방식: Anthropic 은 구독 계정(Claude Code)·API 키, OpenAI 는 구독 계정(Codex), Google 은 구독 계정(Antigravity CLI)·API 키 */
 export type Company = "anthropic" | "openai" | "google";
 export const COMPANY_NAME: Record<Company, string> = { anthropic: "Anthropic", openai: "OpenAI", google: "Google" };
 export const companyOf = (p: AiProviderId): Company => (p === "codex" ? "openai" : p === "gemini" || p === "gemini-cli" ? "google" : "anthropic");
 /** 구독 계정·API 키를 고를 수 있는 회사의 두 공급자 */
 const WAYS: Partial<Record<Company, { subscription: AiProviderId; cloud: AiProviderId; label: string }>> = {
   anthropic: { subscription: "claude-code", cloud: "anthropic", label: "구독 계정 (Claude Code)" },
-  google: { subscription: "gemini-cli", cloud: "gemini", label: "구독 계정 (Gemini CLI)" },
+  google: { subscription: "gemini-cli", cloud: "gemini", label: "구독 계정 (Antigravity CLI)" },
 };
 /** 화면에 보일 "지금" 이름 (회사 · 연결 방식) */
 export const PROVIDER_LABEL: Record<AiProviderId, string> = {
@@ -192,7 +192,7 @@ export function AiSection() {
         <RouteTile id="openai" route={group} onPick={pickGroup} icon={<Server size={20} />} title="기관 AI 서버" desc="기관이 알려 준 주소로 연결" locked={groupLock("openai")}
           tip="기관 전산 담당자에게 AI 서버 주소를 받았을 때" />
         <RouteTile id="ext" route={group} onPick={pickGroup} icon={<Cloud size={20} />} title="외부 AI" desc="문서 내용이 그 회사로 갑니다"
-          tip="Gemini·Claude 키나 Claude·ChatGPT 유료 구독, Gemini CLI에 로그인한 Google 계정이 있을 때. 개인정보는 가려서 보냅니다."
+          tip="Gemini·Claude 키나 Claude·ChatGPT 유료 구독, Antigravity CLI에 로그인한 Google 계정이 있을 때. 개인정보는 가려서 보냅니다."
           locked={offline ? "인터넷이 막힌 PC로 정해 두어 쓸 수 없습니다" : groupLock("ext")} />
       </div>
       <div className="mt-2 flex items-center gap-2">

@@ -1,15 +1,15 @@
-/** 구독 프로그램(Claude Code·Codex·Gemini CLI) 실패 → 할 일까지 적은 한국어 문장
+/** 구독 프로그램(Claude Code·Codex·Antigravity CLI) 실패 → 할 일까지 적은 한국어 문장
  *
  * 프로그램이 찍은 영어 원문·계정 정보는 문장에 넣지 않는다(why 는 우리가 고른 짧은 까닭만).
  */
 
 export type SubscriptionProviderId = 'claude-code' | 'codex' | 'gemini-cli';
 
-export const PROGRAM_LABEL: Record<SubscriptionProviderId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', 'gemini-cli': 'Gemini CLI' };
+export const PROGRAM_LABEL: Record<SubscriptionProviderId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', 'gemini-cli': 'Antigravity CLI' };
 /** 터미널에서 칠 로그인 명령 */
-export const LOGIN_COMMAND: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex login', 'gemini-cli': 'gemini' };
-/** 터미널에서 칠 업데이트 명령 (Gemini CLI 는 업데이트 명령이 없어 공식 안내의 npm 전역 설치) */
-export const UPDATE_COMMAND: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude update', codex: 'codex update', 'gemini-cli': 'npm install -g @google/gemini-cli@latest' };
+export const LOGIN_COMMAND: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude', codex: 'codex login', 'gemini-cli': 'agy' };
+/** 터미널에서 칠 업데이트 명령 */
+export const UPDATE_COMMAND: Record<SubscriptionProviderId, string> = { 'claude-code': 'claude update', codex: 'codex update', 'gemini-cli': 'agy update' };
 /** 로그인할 계정 */
 const ACCOUNT: Record<SubscriptionProviderId, string> = { 'claude-code': '구독 계정', codex: '구독 계정', 'gemini-cli': 'Google 계정' };
 

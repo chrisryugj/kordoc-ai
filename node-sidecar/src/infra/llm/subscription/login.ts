@@ -1,10 +1,10 @@
-/** 구독 로그인 상태: 프로그램 자신의 답(`claude auth status --json`·`codex login status`, Gemini CLI 는 상태 명령이 없어 빈 입력 실행의 종료 코드)만 읽는다.
+/** 구독 로그인 상태: 프로그램 자신의 답(`claude auth status --json`·`codex login status`·Antigravity CLI 는 `agy models`)만 읽는다.
  * 계정 파일은 열지 않고, 답에 든 이메일·조직 이름은 옮기지 않는다(쓰는 값은 로그인 여부·방식·요금제 이름뿐).
  */
 
 import type { SubscriptionStatus } from '../../../types/rpc-contract.js';
 import { LOGIN_COMMAND, PROGRAM_LABEL, SubscriptionError, type SubscriptionProviderId } from './errors.js';
-import { readGeminiLogin } from '../gemini-cli.js';
+import { readAgyLogin } from '../gemini-cli.js';
 import { runProgram, type Program, type SpawnFn } from './program.js';
 
 export interface Login {
@@ -41,8 +41,8 @@ export function readCodexLogin(text: string): Login | null {
 }
 
 const STATUS_ARGS: Record<'claude-code' | 'codex', string[]> = { 'claude-code': ['auth', 'status', '--json'], codex: ['login', 'status'] };
-/** Gemini CLI 는 한 번 뜨는 데 15초쯤 걸린다 (실측, Windows) */
-const STATUS_TIMEOUT_MS: Record<SubscriptionProviderId, number> = { 'claude-code': 20_000, codex: 20_000, 'gemini-cli': 60_000 };
+/** agy models 는 3초쯤 (실측, Windows) */
+const STATUS_TIMEOUT_MS: Record<SubscriptionProviderId, number> = { 'claude-code': 20_000, codex: 20_000, 'gemini-cli': 30_000 };
 /** 쓸 수 있다고 확인한 결과만 1분 기억한다 (로그인 안 됨·종량제는 고친 뒤 바로 다시 확인되게 기억하지 않는다) */
 const CACHE_MS = 60_000;
 
@@ -63,7 +63,7 @@ async function ask(program: Program, args: string[], o: CheckOptions) {
 }
 
 async function readLogin(provider: SubscriptionProviderId, program: Program, o: CheckOptions): Promise<Login | null> {
-  if (provider === 'gemini-cli') return readGeminiLogin(program, limits(provider, o));
+  if (provider === 'gemini-cli') return readAgyLogin(program, limits(provider, o));
   const s = await ask(program, STATUS_ARGS[provider], o);
   return provider === 'claude-code' ? readClaudeAuth(s.stdout) : readCodexLogin(`${s.stdout}\n${s.stderr}`);
 }

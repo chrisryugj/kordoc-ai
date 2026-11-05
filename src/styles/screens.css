@@ -144,7 +144,7 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-dl > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--color-border-subtle); font-size: var(--fs-body); line-height: 1.5; }
 .kd-dl dt { color: var(--color-text-muted); font-weight: 600; font-size: var(--fs-small); }
 .kd-dl-wide > div { grid-template-columns: 150px minmax(0, 1fr); }
-.kd-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kd-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .kd-stats > div { padding: 10px 12px; background: var(--color-bg-primary); border-radius: var(--radius-md); }
 .kd-stats dt { font-size: var(--fs-caption); color: var(--color-text-muted); }
 .kd-stats dd { font-size: var(--fs-h2); font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
@@ -245,8 +245,51 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .dark .kd-cmp del { background: color-mix(in srgb, var(--color-error) 30%, transparent); text-decoration-color: var(--color-error-hover); text-decoration-thickness: 2px; color: var(--color-text-primary); }
 .dark .kd-cmp ins { background: color-mix(in srgb, var(--color-success) 26%, transparent); color: var(--color-text-primary); }
 .dark .kd-cmp tr[data-type="removed"] .kd-cmp-old { background: color-mix(in srgb, var(--color-error) 18%, transparent); }
+.dark .kd-cmp-item-text del { background: color-mix(in srgb, var(--color-error) 30%, transparent); color: var(--color-text-primary); }
+.dark .kd-cmp-item-text ins { background: color-mix(in srgb, var(--color-success) 26%, transparent); color: var(--color-text-primary); }
 .dark .kd-cmp tr[data-type="added"] .kd-cmp-new { background: color-mix(in srgb, var(--color-success) 16%, transparent); }
 .kd-cmp ins { text-decoration: underline; text-decoration-color: var(--color-success); text-decoration-thickness: 2px; text-underline-offset: 3px; background: var(--color-success-subtle); color: inherit; font-weight: 600; border-radius: 2px; }
+
+/* 나란히 보기 — 바뀐 곳 목록 · 원본 · 비교본 (칸마다 따로 넘김) */
+/* 창 높이를 다 쓰되, 모자라면(낮은 창·알림 줄) 화면이 넘어가 두 칸 아래가 잘리지 않게 */
+.kd-compare[data-wide] { max-width: none; min-height: 100%; padding-bottom: 16px; }
+.kd-compare[data-wide] .kd-cmp-result { flex: 1 1 auto; }
+/* 결과를 나란히 볼 때는 두 칸을 한 줄로 (쪽을 크게) */
+.kd-compare[data-wide] .kd-slot { min-height: 0; padding: 8px 14px; display: flex; align-items: center; gap: 12px; }
+.kd-compare[data-wide] .kd-slot > div { margin-top: 0; flex: 1; min-width: 0; align-items: center; }
+.kd-cmp-bar { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); }
+.kd-cmp-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 0 10px; }
+.kd-cmp-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-left: 10px; }
+.kd-cmp-legend i:first-child { margin-left: 0; }
+.kd-cmp-legend i[data-kind="gap"] { width: 3px; height: 12px; }
+.kd-cmp-visual { flex: 1 1 0; min-height: 380px; display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+.kd-cmp-list { overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); }
+.kd-cmp-item { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid transparent; transition: background var(--transition-fast); }
+.kd-cmp-item:hover { background: var(--color-bg-tertiary); }
+.kd-cmp-item[aria-current] { background: var(--color-accent-subtle); border-color: var(--color-accent); }
+.kd-cmp-item-text { font-size: var(--fs-small); line-height: 1.55; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kd-cmp-item-text del { text-decoration: line-through; text-decoration-color: var(--color-error); background: var(--color-error-subtle); color: inherit; border-radius: 2px; }
+.kd-cmp-item-text ins { text-decoration: none; background: var(--color-success-subtle); color: inherit; font-weight: 600; border-radius: 2px; }
+.kd-cmp-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+.kd-cmp-pane[data-over="true"] { border-color: var(--color-accent); box-shadow: var(--shadow-focus); }
+.kd-cmp-pane-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-bg-secondary); min-width: 0; }
+.kd-cmp-pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-small); font-weight: 600; }
+.kd-cmp-pane .kd-pagestack { padding: 16px 16px 4px; }
+.kd-page-overlay { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
+.kd-cmp-mark { position: absolute; pointer-events: auto; border-radius: 2px; mix-blend-mode: multiply; cursor: pointer; transition: background var(--transition-fast), box-shadow var(--transition-fast); }
+.kd-cmp-mark[data-kind="del"] { background: rgba(220, 38, 38, 0.26); }
+.kd-cmp-mark[data-kind="add"] { background: rgba(22, 163, 74, 0.28); }
+/* 범례는 흰 쪽 위에 칠해진 색 그대로 (어두운 화면 바탕에 비치지 않게 불투명) */
+.kd-cmp-legend i[data-kind="del"] { background: #F6C7C7; }
+.kd-cmp-legend i[data-kind="add"] { background: #BEE5CC; }
+.kd-cmp-mark[data-kind="gap"], .kd-cmp-legend i[data-kind="gap"] { background: #D97706; min-width: 3px; border-radius: 1px; mix-blend-mode: normal; }
+.kd-cmp-mark[data-kind="del"][data-active] { background: rgba(220, 38, 38, 0.42); box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.85); }
+.kd-cmp-mark[data-kind="add"][data-active] { background: rgba(22, 163, 74, 0.44); box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.85); }
+.kd-cmp-mark[data-kind="gap"][data-active] { box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.45); }
+@media (max-width: 1100px) { .kd-cmp-visual { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); } .kd-cmp-list { grid-column: 1 / -1; max-height: 104px; } }
+/* 도구 줄이 좁으면 범례는 숨긴다 (상자 색은 목록 배지와 같은 뜻) */
+.kd-cmp-bar { container-type: inline-size; }
+@container (max-width: 960px) { .kd-cmp-legend { display: none; } }
 
 /* ── AI 비서 ── */
 .kd-body-fixed { overflow: hidden; display: flex; flex-direction: column; }

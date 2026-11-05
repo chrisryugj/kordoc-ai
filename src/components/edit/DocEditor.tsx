@@ -448,10 +448,10 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => void doHistory("undo")} disabled={!canUndo || busy !== ""} className="p-1.5 rounded-md hover-bg-tertiary disabled:opacity-30" aria-label="되돌리기 (Ctrl+Z)" title="되돌리기 (Ctrl+Z)">
-            <Undo2 size={15} style={{ color: "var(--color-text-secondary)" }} />
+            <Undo2 size={15} />
           </button>
           <button onClick={() => void doHistory("redo")} disabled={!canRedo || busy !== ""} className="p-1.5 rounded-md hover-bg-tertiary disabled:opacity-30" aria-label="다시 실행 (Ctrl+Y)" title="다시 실행 (Ctrl+Y)">
-            <Redo2 size={15} style={{ color: "var(--color-text-secondary)" }} />
+            <Redo2 size={15} />
           </button>
           <button
             onClick={() => setShowLocks((v) => !v)}
@@ -469,7 +469,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
           </Button>
           {savedAt && (
             <button onClick={() => onOpenFolder(savedPath ?? savePath)} className="p-1.5 rounded-md hover-bg-tertiary" aria-label="저장 위치 열기" title="저장 위치 열기">
-              <FolderOpen size={15} style={{ color: "var(--color-text-secondary)" }} />
+              <FolderOpen size={15} />
             </button>
           )}
         </div>
@@ -493,13 +493,13 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
           {/* 페이지 내비 + 편집 가능 카운트 */}
           <div className="flex items-center justify-center gap-3 py-2 shrink-0">
             <button onClick={() => { setEditing(null); setPage((p) => Math.max(0, p - 1)); }} disabled={page === 0} className="kd-icon-btn" aria-label="앞 쪽">
-              <ChevronLeft size={15} style={{ color: "var(--color-text-secondary)" }} />
+              <ChevronLeft size={15} />
             </button>
             <span className="kd-small kd-muted kd-num">
               {pageCount > 0 ? `${page + 1} / ${pageCount}` : "쪽 읽는 중"}
             </span>
             <button onClick={() => { setEditing(null); setPage((p) => Math.min(pageCount - 1, p + 1)); }} disabled={page >= pageCount - 1} className="kd-icon-btn" aria-label="다음 쪽">
-              <ChevronRight size={15} style={{ color: "var(--color-text-secondary)" }} />
+              <ChevronRight size={15} />
             </button>
             <span className="kd-small kd-muted kd-num">
               편집 가능 {editableCount}곳

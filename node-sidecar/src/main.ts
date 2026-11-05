@@ -15,6 +15,7 @@ import { APP_VERSION, seedBundledModels } from './core/system/index.js';
 import { runMcpServer } from './mcp/server.js';
 import { setWorkerEntry } from './infra/worker.js';
 import { sweepStaleTempDirs } from './infra/llm/subscription/program.js';
+import { sweepAgyLeftovers } from './infra/llm/gemini-cli.js';
 
 /** 짝 없는 서로게이트(글을 글자 중간에서 자른 확장 한자·이모지)를 U+FFFD 로 — Rust(serde_json)가 그 응답을 버려 호출이 시간 초과까지 멈춘다 */
 const wellFormed = (_k: string, v: unknown): unknown => (typeof v === 'string' ? (v as string & { toWellFormed(): string }).toWellFormed() : v);
@@ -56,6 +57,8 @@ async function main(): Promise<void> {
   try { seedBundledModels(); } catch (err) { logger.warn(`[main] OCR 모델 시드 실패: ${err}`); }
   // 지난 실행에서 못 지운 구독 프로그램 임시 폴더(문서 그림이 남았을 수 있음)
   void sweepStaleTempDirs().then((n) => { if (n) logger.info(`[main] 남은 구독 프로그램 임시 폴더 ${n}개를 지웠습니다`); });
+  // 지난 실행이 꺼지며 못 지운 Antigravity CLI 대화 기록(보낸 문서 전문)
+  void sweepAgyLeftovers().catch(() => {});
 
   const router = new RpcRouter();
   registerAllMethods(router);

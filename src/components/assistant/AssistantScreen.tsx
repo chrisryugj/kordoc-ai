@@ -10,6 +10,7 @@ import { baseName, formatOf } from "../../lib/format";
 import { useChat } from "../../hooks/useChat";
 import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
+import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { Button } from "../ui/Button";
 import { Field, SelectField } from "../common/Field";
 import { AiGate, AiWhere } from "../common/AiGate";
@@ -48,7 +49,12 @@ function Ask() {
       <aside className="kd-attach" data-drop="assistant" data-over={dragTarget === "assistant"} aria-label="대화에 붙인 문서">
         <div className="kd-block-head">
           <h2 className="kd-h3">붙인 문서 {paths.length}</h2>
-          {paths.length > 0 && <button type="button" className="kd-link kd-small" onClick={() => { setPaths([]); chat.reset(); }}>모두 빼기</button>}
+          {/* 문서와 함께 대화도 비우므로 한 번 묻는다 */}
+          {paths.length > 0 && (
+            <ConfirmRemove ask={chat.items.length ? "붙인 문서와 대화를 모두 지울까요?" : "붙인 문서를 모두 뺄까요?"} verb="모두 빼기" onConfirm={() => { setPaths([]); chat.reset(); }}>
+              {(open) => <button type="button" className="kd-link kd-small" onClick={open}>모두 빼기</button>}
+            </ConfirmRemove>
+          )}
         </div>
         {paths.length === 0 ? <p className="kd-small kd-muted py-2">물어볼 문서를 끌어다 놓거나 붙이세요. 여러 문서에 함께 물어도 됩니다.</p> : (
           <ul className="flex flex-col gap-1 py-2">

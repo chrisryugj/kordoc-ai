@@ -35,7 +35,7 @@ export const TASKS: TaskDef[] = [
   { id: "redact", group: "가리기", title: "개인정보 가리기", desc: "주민번호·전화번호 등을 가린 사본", min: 1 },
   { id: "shrink", group: "줄이기·인쇄하기", title: "PDF 용량 줄이기", desc: "첨부 한도에 맞게, 글자는 그대로", min: 1, skips: ["md", "txt", "csv", "image"] },
   { id: "print", group: "줄이기·인쇄하기", title: "한꺼번에 인쇄", desc: "고른 프린터로 바로", min: 1, adv: true },
-  { id: "compare", group: "비교하기", title: "신구대조표 만들기", desc: "고치기 전과 후 문서를 견줘 표로", min: 0 },
+  { id: "compare", group: "비교하기", title: "신구대조표 만들기", desc: "고치기 전과 후를 나란히 놓고 바뀐 곳 표시", min: 0 },
   { id: "search", group: "찾기·뽑기", title: "여러 문서에서 찾기", desc: "낱말이 나오는 문서와 쪽", min: 1, adv: true },
   { id: "tables", group: "찾기·뽑기", title: "표 뽑기", desc: "문서 속 표를 엑셀로", min: 1, skips: ["md", "txt", "csv", "image"], adv: true },
   { id: "images", group: "찾기·뽑기", title: "그림만 뽑기", desc: "문서에 든 그림을 폴더로", min: 1, adv: true },

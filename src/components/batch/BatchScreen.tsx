@@ -305,7 +305,7 @@ export function BatchScreen({ active }: { active: boolean }) {
                   </div>
                   {run.result ? (
                     <Button size="lg" disabled={blocked} data-tip="같은 파일과 지금 설정으로 한 번 더 합니다" onClick={() => void start()}>
-                      <RotateCcw size={15} /> 다시 하기
+                      <RotateCcw size={15} /> 한 번 더 하기
                     </Button>
                   ) : (
                     <Button size="lg" disabled={blocked} data-tip="넣은 파일마다 고른 일을 합니다. 원본 파일은 바꾸지 않습니다" onClick={() => void start()} aria-describedby={blocked ? "task-block" : undefined}>

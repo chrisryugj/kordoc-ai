@@ -132,6 +132,7 @@ export function NavRail({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           </>
         )}
         <button type="button" className="kd-mode-switch" onClick={() => setUiMode(uiMode === "easy" ? "full" : "easy")}
+          aria-label={collapsed ? (uiMode === "easy" ? "쉬운 화면 사용 중, 전체 화면으로 바꾸기" : "전체 화면 사용 중, 쉬운 화면으로 바꾸기") : undefined}
           data-tip={uiMode === "easy" ? "모든 기능과 세부 설정을 메뉴에 펼쳐 보입니다" : "자주 하는 일만 크게 보이고 세부 설정은 접어 둡니다"}>
           <span className="kd-mode-dot" data-on={uiMode === "easy"} />{collapsed ? (uiMode === "easy" ? "쉬운" : "전체") : uiMode === "easy" ? "쉬운 화면 사용 중 · 전체 화면으로" : "전체 화면 사용 중 · 쉬운 화면으로"}
         </button>

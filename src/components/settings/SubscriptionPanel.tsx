@@ -1,4 +1,4 @@
-/** AI 연결 › 외부 AI › 구독 계정 — PC에 설치해 로그인한 Claude Code(Anthropic)·Codex(OpenAI)·Gemini CLI(Google) 프로그램을 쓴다. 회사는 AI 연결에서 고른다
+/** AI 연결 › 외부 AI › 구독 계정 — PC에 설치해 로그인한 Claude Code(Anthropic)·Codex(OpenAI)·Antigravity CLI(Google) 프로그램을 쓴다. 회사는 AI 연결에서 고른다
  *  설치·로그인 상태를 프로그램에 물어 보여 주고, 안 됐으면 터미널에서 칠 명령을 알려 준다. 앱은 로그인 정보를 읽거나 만들지 않는다.
  *  문서 보내기를 허용하고 저장하기 전에는 프로그램을 띄우지 않고 설치 위치만 본다. 프로그램 위치는 기관 배포 설정으로만 바꾼다. */
 
@@ -22,11 +22,11 @@ export const subSlot = (p: SubProvider) => SLOT[p];
 const COMPANY: Record<SubProvider, string> = { "claude-code": "Anthropic", codex: "OpenAI", "gemini-cli": "Google" };
 /** 회사 이름 + 주격 조사 */
 const COMPANY_SUBJ: Record<SubProvider, string> = { "claude-code": "Anthropic이", codex: "OpenAI가", "gemini-cli": "Google이" };
-const PROGRAM: Record<SubProvider, string> = { "claude-code": "Claude Code", codex: "Codex", "gemini-cli": "Gemini CLI" };
+const PROGRAM: Record<SubProvider, string> = { "claude-code": "Claude Code", codex: "Codex", "gemini-cli": "Antigravity CLI" };
 const INTRO: Record<SubProvider, string> = {
   "claude-code": "Claude Pro·Max 구독으로 로그인한 Claude Code 프로그램을 씁니다.",
   codex: "ChatGPT Plus·Pro 구독으로 로그인한 Codex 프로그램을 씁니다.",
-  "gemini-cli": "Google 계정(무료 또는 Google AI Pro·Ultra)으로 로그인한 Gemini CLI 프로그램을 씁니다.",
+  "gemini-cli": "Google 계정으로 로그인한 Antigravity CLI(agy) 프로그램을 씁니다.",
 };
 
 function StatusView({ st }: { st: SubscriptionStatus }) {
@@ -57,7 +57,7 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
   const check = useTask<SubscriptionStatus>();
   const list = useTask<Array<{ id: string; label: string }>>();
   const upd = useTask<{ ok: boolean; message: string }>();
-  // 프로그램의 공식 업데이트 명령(claude update · codex update)을 앱이 대신 실행한다(Gemini CLI 는 명령이 없어 안내만). 끝나면 상태를 다시 묻는다
+  // 프로그램의 공식 업데이트 명령(claude update · codex update · agy update)을 앱이 대신 실행한다. 끝나면 상태를 다시 묻는다
   const update = () => void upd.run(async ({ signal }) => {
     const r = await rpc("ai_subscription_update", { provider }, { signal });
     toast(r.message, r.ok ? "success" : "error");
@@ -89,6 +89,9 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
       <p className="kd-small kd-muted">
         {INTRO[provider]} API 키는 필요 없습니다.
       </p>
+      {provider === "gemini-cli" && (
+        <Note tone="warn">Antigravity CLI는 도구 목록을 끌 수 없습니다. 파일·명령·웹 주소 열기·MCP 도구는 거절하는 설정으로 띄우고, 도구를 쓰려 하면 그 자리에서 멈춥니다. 웹 검색은 막을 수 없어 검색어가 Google로 갈 수 있습니다. Claude Code·Codex보다 보호가 한 겹 약합니다.</Note>
+      )}
 
       <div className="kd-panel flex items-start gap-3 p-3">
         <div className="min-w-0 flex-1">
@@ -100,7 +103,7 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
           data-tip={savedAllow ? `이 PC의 ${PROGRAM[provider]} 프로그램을 잠깐 띄워 설치·로그인 상태를 묻습니다` : `허용 전에는 프로그램을 띄우지 않고 ${PROGRAM[provider]} 설치 위치만 봅니다`}><RefreshCw size={13} /> 다시 확인</Button>
         {savedAllow && st && !["not-installed", "offline", "disabled"].includes(st.state) && (
           <Button variant={st.state === "needs-update" ? "primary" : "secondary"} size="sm" onClick={update} disabled={upd.busy || check.busy}
-            data-tip={provider === "gemini-cli" ? "Gemini CLI는 업데이트 명령이 없어 터미널에서 칠 명령을 알려 줍니다" : `${PROGRAM[provider]}의 공식 업데이트 명령으로 최신 판을 받습니다. 몇 분 걸릴 수 있습니다`}>
+            data-tip={`${PROGRAM[provider]}의 공식 업데이트 명령으로 최신 판을 받습니다. 몇 분 걸릴 수 있습니다`}>
             <ArrowUpCircle size={13} /> {upd.busy ? "업데이트하는 중" : "업데이트"}
           </Button>
         )}
@@ -133,7 +136,7 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
         <dl className="kd-dl">
           <div><dt>프로그램 위치</dt><dd className="kd-path" style={{ wordBreak: "break-all" }}>{st?.path ?? "찾지 못함"}</dd></div>
         </dl>
-        <p className="kd-small kd-muted">PATH와 흔한 설치 폴더에서 자동으로 찾습니다. 다른 위치는 정보통신 담당자가 기관 배포 설정(ai.{key}.cli_path)으로만 정할 수 있습니다. 프로그램은 파일·명령 도구를 끈 채 답만 하도록 띄웁니다.</p>
+        <p className="kd-small kd-muted">PATH와 흔한 설치 폴더에서 자동으로 찾습니다. 다른 위치는 정보통신 담당자가 기관 배포 설정(ai.{key}.cli_path)으로만 정할 수 있습니다. 프로그램은 파일·명령 도구를 끄거나 모두 거절한 채 답만 하도록 띄웁니다.</p>
       </Advanced>
       <Note tone="warn">구독은 개인이 대화로 쓰는 것을 전제로 합니다. 많은 문서를 한꺼번에 보내면 {COMPANY_SUBJ[provider]} 계정 사용을 제한할 수 있습니다. 이용 약관을 확인하고 쓰세요.</Note>
     </>

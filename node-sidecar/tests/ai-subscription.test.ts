@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,7 @@ import { updateSettings } from '../src/infra/config.js';
 import { netLogSnapshot, OfflineBlockedError } from '../src/infra/net-guard.js';
 import { claudeArgs, createClaudeCodeProvider, listClaudeCodeModels, type SubscriptionDeps } from '../src/infra/llm/claude-code.js';
 import { createCodexProvider, forgetCodexSafety, listCodexModels, strictSchema } from '../src/infra/llm/codex.js';
-import { createGeminiCliProvider, geminiArgs, listGeminiCliModels } from '../src/infra/llm/gemini-cli.js';
+import { AGY_SETTINGS, agyArgs, agyModel, createGeminiCliProvider, forgetAgyConversation, listGeminiCliModels, parseAgyModels, sweepAgyLeftovers } from '../src/infra/llm/gemini-cli.js';
 import { SubscriptionError, type SubscriptionProviderId } from '../src/infra/llm/subscription/errors.js';
 import { checkLogin, forgetLogins, readClaudeAuth, readCodexLogin, requireSubscription } from '../src/infra/llm/subscription/login.js';
 import { appDirs, childEnv, cmdShimTarget, findProgram, sweepStaleTempDirs, type Program, type SpawnFn } from '../src/infra/llm/subscription/program.js';
@@ -24,7 +24,7 @@ import { tempDir } from './tmp-dirs.js';
 process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-sub-');
 const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url));
-const FAKE_GEMINI = fileURLToPath(new URL('./fixtures/fake-gemini.mjs', import.meta.url));
+const FAKE_AGY = fileURLToPath(new URL('./fixtures/fake-agy.mjs', import.meta.url));
 // macOS tmpdir 은 /var → /private/var 심링크: 실경로로 비교
 const work = realpathSync(tempDir('kordoc-ai-sub-work-'));
 let logN = 0;
@@ -321,101 +321,134 @@ describe('Codex', () => {
   });
 });
 
-describe('Gemini CLI', () => {
+describe('Antigravity CLI (agy, 예전 Gemini CLI 자리)', () => {
   /** 가짜가 대화 기록을 남길 집 폴더 (진짜 ~/.gemini 는 건드리지 않는다). Gemini·Google 키가 든 환경 */
   const grig = (mode: string) => {
-    const r = rig(FAKE_GEMINI, 'gemini-cli', { FAKE_GEMINI_MODE: mode });
+    const r = rig(FAKE_AGY, 'gemini-cli', { FAKE_AGY_MODE: mode });
     const home = mkdtempSync(join(work, 'home-'));
-    r.deps.baseEnv = { ...r.deps.baseEnv, USERPROFILE: home, HOME: home, GEMINI_API_KEY: 'g-key', GOOGLE_API_KEY: 'gk', GOOGLE_GENAI_USE_VERTEXAI: 'true' };
+    r.deps.baseEnv = { ...r.deps.baseEnv, USERPROFILE: home, HOME: home, KORDOC_AGY_PENDING_DIR: home, GEMINI_API_KEY: 'g-key', GOOGLE_API_KEY: 'gk', GOOGLE_GENAI_USE_VERTEXAI: 'true' };
     return { ...r, home };
   };
   const gp = (model = '') => ({ model, cli_path: '' });
   const files = (log: string) => readLog(log).find((e) => e.kind === 'files')!;
+  const agyDir = (home: string, ...p: string[]) => join(home, '.gemini', 'antigravity-cli', ...p);
 
-  it('고정 인자: 헤드리스 stream-json, 모두 거절 정책(관리자·사용자 단계), 확장·MCP 끔, 모델은 -m 만', () => {
-    const a = geminiArgs({ dir: '/w', model: 'flash' });
-    expect(a.slice(0, 2)).toEqual(['-p', '']);
-    expect(a[a.indexOf('-o') + 1]).toBe('stream-json');
-    expect(a[a.indexOf('--approval-mode') + 1]).toBe('default');
-    expect(a[a.indexOf('--admin-policy') + 1]).toBe(a[a.indexOf('--policy') + 1]);
-    expect(a[a.indexOf('-e') + 1]).toBe('none');
-    expect(a[a.indexOf('--allowed-mcp-server-names') + 1]).toBe('kordoc-no-mcp');
-    expect(a.slice(-2)).toEqual(['-m', 'flash']);
-    expect(geminiArgs({ dir: '/w', model: '' })).not.toContain('-m');
-    expect(a).not.toContain('--yolo');
-    expect(() => geminiArgs({ dir: '/w', model: '--yolo' })).toThrow(SubscriptionError);
+  it('고정 인자: stream-json 입출력, 이번 실행만의 설정 파일, 슬래시 명령 끔, 모델은 --model 만, -p(명령줄 글) 없음', () => {
+    const a = agyArgs({ settings: '/w/settings.json', model: 'gemini-3.8-flash-low' });
+    expect(a[a.indexOf('--input-format') + 1]).toBe('stream-json');
+    expect(a[a.indexOf('--output-format') + 1]).toBe('stream-json');
+    expect(a[a.indexOf('--settings') + 1]).toBe('/w/settings.json');
+    expect(a).toContain('--disable-slash-commands');
+    expect(a.slice(-2)).toEqual(['--model', 'gemini-3.8-flash-low']);
+    for (const f of ['-p', '--print', '--prompt', '--dangerously-skip-permissions', '--continue', '--conversation']) expect(a).not.toContain(f);
+    expect(agyArgs({ settings: 's', model: '' })).not.toContain('--model');
+    expect(() => agyArgs({ settings: 's', model: '--dangerously-skip-permissions' })).toThrow(SubscriptionError);
   });
 
-  it('글은 stdin(@ 는 \\@ 로), 지시문·설정·정책은 작업 폴더 파일, 셸 없이, 키 변수는 안 넘김, 대화 기록은 지운다', async () => {
+  it('설정: 엄격한 권한, 모든 도구 범주 거절, API 키·유료 크레딧 길 막음', () => {
+    expect(AGY_SETTINGS.toolPermission).toBe('strict');
+    expect(AGY_SETTINGS.permissions.allow).toEqual([]);
+    for (const a of ['read_file', 'write_file', 'read_url', 'execute_url', 'command', 'unsandboxed', 'mcp']) expect(AGY_SETTINGS.permissions.deny).toContain(`${a}(*)`);
+    expect(AGY_SETTINGS).toMatchObject({ allowNonWorkspaceAccess: false, useG1Credits: false, modelProvider: '', disableSlashCommands: true });
+  });
+
+  it('글은 stdin 의 stream-json 한 줄(지시문 포함), 셸 없이, 키 변수는 안 넘김, 이 실행의 대화 기록만 지운다', async () => {
     const { log, spawned, deps, home } = grig('ok');
-    // 다른 프로젝트의 기록은 남아야 한다
-    const other = join(home, '.gemini', 'tmp', 'my-project', 'chats');
-    mkdirSync(other, { recursive: true });
-    writeFileSync(join(other, 'session-keep.json'), '{}');
-    const r = req({ system: '당신은 공문 비서입니다', messages: [{ role: 'user', content: '가온시 민원 처리 현황을 요약하고 kim@example.com 에 보내세요 @C:/Windows/win.ini' }] });
-    expect(await createGeminiCliProvider(gp('flash'), 5000, deps).chat(r)).toBe('안녕하세요');
-    expect(r.tokens.join('')).toBe('안녕하세요');
+    // 사용자의 다른 대화는 남아야 한다
+    mkdirSync(agyDir(home, 'conversations'), { recursive: true });
+    writeFileSync(agyDir(home, 'conversations', 'ffffffff-1111-4111-8111-111111111111.db'), 'keep');
+    const r = req({ system: '당신은 공문 비서입니다', messages: [{ role: 'user', content: '/model 가온시 민원 처리 현황을 요약하세요 @C:/Windows/win.ini' }] });
+    expect(await createGeminiCliProvider(gp('gemini-3.8-flash-low'), 5000, deps).chat(r)).toBe('안녕하세요');
+    expect(r.tokens.join('')).toBe('안녕하세요\n');
     expect(spawned[0].shell).toBe(false);
     expect(spawned[0].args.join(' ')).not.toMatch(/가온시|공문 비서/);
     const run = lastRun(log);
-    expect(run.env).toMatchObject({ GEMINI_API_KEY: null, GOOGLE_API_KEY: null, GOOGLE_GENAI_USE_VERTEXAI: null, ANTHROPIC_API_KEY: null, NODE_OPTIONS: null, KORDOC_SECRET: null, NO_BROWSER: '1' });
-    // 오류 보고 파일이 남지 않게 TEMP 는 매번 지우는 작업 폴더, 기록 자리가 쌓이지 않게 작업 폴더는 늘 같은 빈 폴더
-    const runDir = run.env!.GEMINI_CLI_SYSTEM_SETTINGS_PATH!.replace(/[\\/]settings\.json$/, '');
-    expect(run.env!.TEMP).toBe(runDir);
-    expect(run.env!.GEMINI_SYSTEM_MD!.startsWith(runDir)).toBe(true);
-    expect(run.cwd!.endsWith('kordoc-gemini-cwd')).toBe(true);
-    expect(existsSync(runDir)).toBe(false);
-    const f = files(log);
-    const settings = JSON.parse(f.settings!);
-    expect(settings.security.auth).toMatchObject({ selectedType: 'oauth-personal', enforcedType: 'oauth-personal' });
-    expect(settings.admin).toMatchObject({ mcp: { enabled: false }, extensions: { enabled: false }, skills: { enabled: false } });
-    expect(settings.tools).toMatchObject({ core: [], discoveryCommand: '', sandbox: false });
-    expect(settings.hooksConfig.enabled).toBe(false);
-    expect(settings.billing.overageStrategy).toBe('never');
-    expect(f.policy).toMatch(/decision = "deny"/);
-    expect(f.policy).not.toMatch(/toolName/); // 이름 없는 규칙 = 모든 도구
-    expect(f.system).toMatch(/도구는 없습니다/);
-    expect(f.system).toContain('당신은 공문 비서입니다');
-    const stdin = readLog(log).find((e) => e.kind === 'stdin')!.text!;
-    expect(stdin.startsWith('[KorDoc AI 요청]\n')).toBe(true);
-    expect(stdin).toContain('kim\\@example.com');
-    expect(stdin).toContain('\\@C:/Windows/win.ini');
-    expect(stdin).not.toMatch(/(?<!\\)@/);
-    expect(existsSync(join(home, '.gemini', 'tmp', 'kordoc-gemini-cwd', 'chats', 'session-2026-11-04T00-00-a1b2c3d4.json'))).toBe(false);
-    expect(existsSync(join(other, 'session-keep.json'))).toBe(true);
+    expect(run.env).toMatchObject({ GEMINI_API_KEY: null, GOOGLE_API_KEY: null, GOOGLE_GENAI_USE_VERTEXAI: null, ANTHROPIC_API_KEY: null, NODE_OPTIONS: null, KORDOC_SECRET: null });
+    expect(run.cwd!.endsWith('kordoc-agy-cwd')).toBe(true);
+    // 설정 파일은 매번 지우는 작업 폴더에, TEMP 도 그 폴더
+    const settingsPath = run.args![run.args!.indexOf('--settings') + 1];
+    expect(run.env!.TEMP).toBe(settingsPath.replace(/[\\/]settings\.json$/, ''));
+    expect(existsSync(settingsPath)).toBe(false);
+    expect(JSON.parse(files(log).settings!)).toEqual(AGY_SETTINGS);
+    const line = readLog(log).find((e) => e.kind === 'stdin')!.text!;
+    expect(line.endsWith('\n')).toBe(true);
+    const msg = JSON.parse(line);
+    expect(msg.event).toBe('user');
+    expect(msg.message.content.startsWith('[KorDoc AI 요청]\n<instructions>\n')).toBe(true); // 슬래시 명령이 되지 않게 머리말부터
+    expect(msg.message.content).toMatch(/도구는 없습니다/);
+    expect(msg.message.content).toContain('당신은 공문 비서입니다');
+    expect(msg.message.content).toContain('/model 가온시 민원');
+    expect(existsSync(agyDir(home, 'conversations', 'a1b2c3d4-0000-4000-8000-000000000000.db'))).toBe(false);
+    expect(existsSync(agyDir(home, 'brain', 'a1b2c3d4-0000-4000-8000-000000000000'))).toBe(false);
+    expect(existsSync(agyDir(home, 'conversations', 'ffffffff-1111-4111-8111-111111111111.db'))).toBe(true);
   });
 
-  it('답의 \\@ 는 @ 로 되돌린다, 여러 차례 대화는 한 글로', async () => {
-    const { log, deps } = grig('at');
+  it('여러 차례 대화는 한 글로, checkpoint 단계는 받아들인다', async () => {
+    const { log, deps } = grig('checkpoint');
     const r = req({ messages: [{ role: 'user', content: '앞 질문' }, { role: 'assistant', content: '앞 답' }, { role: 'user', content: '보낼 곳' }] });
-    expect(await createGeminiCliProvider(gp(), 5000, deps).chat(r)).toBe('kim@example.com 으로 보냅니다');
-    expect(r.tokens.join('')).toBe('kim@example.com 으로 보냅니다');
-    const stdin = readLog(log).find((e) => e.kind === 'stdin')!.text!;
-    expect(stdin).toContain('<assistant>\n앞 답');
-    expect(stdin).toMatch(/마지막 user 말에 답하세요\.$/);
+    expect(await createGeminiCliProvider(gp(), 5000, deps).chat(r)).toBe('안녕하세요');
+    const content = JSON.parse(readLog(log).find((e) => e.kind === 'stdin')!.text!).message.content;
+    expect(content).toContain('<assistant>\n앞 답');
+    expect(content).toMatch(/마지막 user 말에 답하세요\.$/);
   });
 
   for (const [mode, kind, text] of [
     ['tool', 'unsafe-tools', '도구를 쓰려 함'],
+    ['subagent', 'unsafe-tools', '도구를 쓰려 함'],
     ['early', 'unsafe-tools', '시작 보고 전에'],
+    ['loose', 'unsafe-tools', '도구 거절 설정이 먹지 않음'],
+    ['newevent', 'unsafe-tools', '모르는 보고'],
+    ['notype', 'unsafe-tools', '모르는 보고'],
     ['quota', 'rate-limit', '사용량 한도'],
     ['toolong', 'too-long', '문서가 너무 깁니다'],
     ['server', 'server-error', '서버에 오류'],
     ['badmodel', 'bad-request', '모델 칸을 비워'],
-    ['auth', 'signed-out', 'gemini 명령을 실행해 Google 계정으로 로그인'],
-    ['badflag', 'needs-update', 'npm install -g @google/gemini-cli@latest'],
+    ['auth', 'signed-out', 'agy 명령을 실행해 Google 계정으로 로그인'],
+    ['badflag', 'needs-update', 'agy update'],
     ['exit', 'failed', '종료 코드 3'],
     ['empty', 'failed', '빈 답'],
   ] as const) {
-    it(`${mode} → ${kind}, 끝난 뒤에 알린다`, async () => {
-      const { log, deps } = grig(mode);
+    it(`${mode} → ${kind}, 끝난 뒤에 알리고 기록을 지운다`, async () => {
+      const { log, deps, home } = grig(mode);
       const err = await failOf(createGeminiCliProvider(gp(), 5000, deps).chat(req()));
       expect(err).toBeInstanceOf(SubscriptionError);
       expect(err).toMatchObject({ kind, message: expect.stringContaining(text) });
-      expect(err.message).not.toMatch(/run_shell_command|exhausted|Requested entity/); // 프로그램 원문은 문장에 넣지 않는다
+      expect(err.message).not.toMatch(/run_command|exhausted|unknown model|RESOURCE/); // 프로그램 원문은 문장에 넣지 않는다
       expect(alive(lastRun(log).pid!)).toBe(false);
+      expect(existsSync(agyDir(home, 'brain', 'a1b2c3d4-0000-4000-8000-000000000000'))).toBe(false);
+      expect(existsSync(agyDir(home, 'conversations', 'a1b2c3d4-0000-4000-8000-000000000000.db'))).toBe(false);
+      // 다 지웠으면 지울 대화 표시도 남기지 않는다
+      expect(readdirSync(join(home, 'kordoc-agy-pending'))).toEqual([]);
     });
   }
+
+  it('시작 보고 전에 멈춰 시간 제한으로 끊겨도 (혼자 돌면) 작업 폴더 몫 기록을 지운다', async () => {
+    const { log, deps, home } = grig('preinit');
+    expect((await failOf(createGeminiCliProvider(gp(), 800, deps).chat(req()))).kind).toBe('timeout');
+    expect(await gone(lastRun(log).pid!)).toBe(true);
+    expect(existsSync(agyDir(home, 'conversations', 'a1b2c3d4-0000-4000-8000-000000000000.db'))).toBe(false);
+    expect(existsSync(agyDir(home, 'brain', 'a1b2c3d4-0000-4000-8000-000000000000'))).toBe(false);
+    expect(readdirSync(join(home, 'kordoc-agy-pending'))).toEqual([]);
+  });
+
+  it('엔진이 꺼져 못 지운 기록은 표시를 보고 다음에 지운다 (journal 까지). 표시는 30분 지나야 내려놓는다', async () => {
+    const home = mkdtempSync(join(work, 'home-'));
+    const env = { ...process.env, USERPROFILE: home, HOME: home, KORDOC_AGY_PENDING_DIR: home };
+    const id = 'c3d4e5f6-0000-4000-8000-000000000000';
+    const keep = 'ffffffff-1111-4111-8111-111111111111';
+    mkdirSync(agyDir(home, 'conversations'), { recursive: true });
+    mkdirSync(agyDir(home, 'brain', id), { recursive: true });
+    for (const f of ['.db', '.db-wal', '.db-journal']) writeFileSync(agyDir(home, 'conversations', `${id}${f}`), '문서 전문');
+    writeFileSync(agyDir(home, 'conversations', `${keep}.db`), 'keep');
+    mkdirSync(join(home, 'kordoc-agy-pending'));
+    writeFileSync(join(home, 'kordoc-agy-pending', 'x.json'), JSON.stringify({ id }));
+    expect(await sweepAgyLeftovers(env)).toBe(0); // 지우기는 하되 표시는 아직 (주인 잃은 agy 가 다시 쓸 수 있다)
+    for (const f of ['.db', '.db-wal', '.db-journal']) expect(existsSync(agyDir(home, 'conversations', `${id}${f}`))).toBe(false);
+    expect(existsSync(agyDir(home, 'brain', id))).toBe(false);
+    expect(existsSync(agyDir(home, 'conversations', `${keep}.db`))).toBe(true);
+    expect(await sweepAgyLeftovers(env, Date.now() + 31 * 60_000)).toBe(1);
+    expect(readdirSync(join(home, 'kordoc-agy-pending'))).toEqual([]);
+  });
 
   it('끝 보고 뒤 안 끝나도 답을 돌려주고 끝낸다, 멈추면 시간 제한', async () => {
     const linger = grig('linger');
@@ -434,22 +467,67 @@ describe('Gemini CLI', () => {
     expect(spawned).toHaveLength(0);
   });
 
-  it('로그인 확인: 빈 입력 실행의 종료 코드(42 = 로그인됨, 41 = 안 됨), 같은 안전 인자, 계정 정보 없음', async () => {
+  it('로그인 확인: agy models (목록이면 로그인됨, "Please sign in" 이면 안 됨), 계정 정보 없음', async () => {
     const log = join(work, `log-${++logN}.jsonl`);
-    const ready = await checkLogin('gemini-cli', program('gemini-cli', FAKE_GEMINI, { FAKE_LOG: log }));
-    expect(ready).toEqual({ provider: 'gemini-cli', login_command: 'gemini', state: 'ready', version: '0.35.0' });
-    const probe = readLog(log).filter((e) => e.kind === 'run').at(-1)!;
-    expect(probe.args).toContain('--admin-policy');
-    expect(readLog(log).find((e) => e.kind === 'stdin')!.text).toBe('');
-    const out = program('gemini-cli', FAKE_GEMINI, { FAKE_LOG: log, FAKE_GEMINI_AUTH: 'out' });
+    const ready = await checkLogin('gemini-cli', program('gemini-cli', FAKE_AGY, { FAKE_LOG: log }));
+    expect(ready).toEqual({ provider: 'gemini-cli', login_command: 'agy', state: 'ready', version: '1.5.0' });
+    expect(readLog(log).filter((e) => e.kind === 'run').at(-1)!.args).toEqual(['models']);
+    const out = program('gemini-cli', FAKE_AGY, { FAKE_LOG: log, FAKE_AGY_AUTH: 'out' });
     expect(await checkLogin('gemini-cli', out)).toMatchObject({ state: 'signed-out', message: expect.stringContaining('Google 계정') });
     await expect(requireSubscription('gemini-cli', out)).rejects.toMatchObject({ kind: 'signed-out' });
   });
 
-  it('모델 목록은 CLI 별칭·정식 이름 (프로그램을 띄우지 않음, 기본 모델은 빈 id)', async () => {
-    const models = await listGeminiCliModels(gp(), AbortSignal.timeout(1000));
-    expect(models[0].id).toBe('');
-    expect(models.map((m) => m.id)).toEqual(expect.arrayContaining(['pro', 'flash', 'flash-lite', 'gemini-2.5-pro', 'gemini-2.5-flash']));
+  it('보내기 전 로그인 확인이 기본: 로그아웃이면 질문 실행을 띄우지 않는다', async () => {
+    const log = join(work, `log-${++logN}.jsonl`);
+    const out = program('gemini-cli', FAKE_AGY, { FAKE_LOG: log, FAKE_AGY_AUTH: 'out' });
+    const err = await failOf(createGeminiCliProvider(gp(), 5000, { find: async () => out }).chat(req()));
+    expect(err).toMatchObject({ kind: 'signed-out' });
+    expect(readLog(log).filter((e) => e.kind === 'run').map((e) => e.args![0])).toEqual(['--version', 'models']);
+  });
+
+  it('모델 목록: agy models 줄(이상한 이름은 버림), 기본 모델은 빈 id, 못 찾으면 기본만', async () => {
+    const log = join(work, `log-${++logN}.jsonl`);
+    const models = await listGeminiCliModels(gp(), AbortSignal.timeout(5000), { find: async () => program('gemini-cli', FAKE_AGY, { FAKE_LOG: log }) });
+    expect(models.map((m) => m.id)).toEqual(['', 'gemini-4-argon-medium', 'gemini-3.8-flash-low']);
+    expect(models[1].label).toBe('Gemini 4 Argon (Medium)');
+    expect(parseAgyModels('Fetching available models...\n')).toEqual([]);
+    expect(await listGeminiCliModels(gp(), AbortSignal.timeout(1000), { find: async () => null })).toEqual([{ id: '', label: expect.any(String) }]);
+  });
+
+  it('예전 Gemini CLI 때 저장한 모델 이름은 기본 모델로 (agy 는 모르는 이름이면 실패)', async () => {
+    for (const m of ['pro', 'flash', 'flash-lite', 'gemini-2.5-pro', ' flash ']) expect(agyModel(m)).toBe('');
+    expect(agyModel('gemini-3.8-flash-low')).toBe('gemini-3.8-flash-low');
+    const { log, deps } = grig('ok');
+    await createGeminiCliProvider(gp('flash'), 5000, deps).chat(req());
+    expect(lastRun(log).args).not.toContain('--model');
+  });
+
+  it('목록 꼴이 달라도 agy models 가 끝까지 됐으면(종료 0) 로그인됨', async () => {
+    const log = join(work, `log-${++logN}.jsonl`);
+    expect(await checkLogin('gemini-cli', program('gemini-cli', FAKE_AGY, { FAKE_LOG: log, FAKE_AGY_MODELS: 'none' }))).toMatchObject({ state: 'ready' });
+  });
+
+  it('기록 지우기: 시작 보고 id 가 있으면 그것만 (작업 폴더의 최근 대화가 다른 요청 것이어도 안 지움)', async () => {
+    const home = mkdtempSync(join(work, 'home-'));
+    const env = { ...process.env, USERPROFILE: home, HOME: home };
+    const dir = (...p: string[]) => join(home, '.gemini', 'antigravity-cli', ...p);
+    const mine = 'a1b2c3d4-0000-4000-8000-000000000000';
+    const other = 'b2c3d4e5-0000-4000-8000-000000000000';
+    mkdirSync(dir('conversations'), { recursive: true });
+    mkdirSync(dir('cache'), { recursive: true });
+    for (const id of [mine, other]) writeFileSync(dir('conversations', `${id}.db`), 'x');
+    writeFileSync(dir('cache', 'last_conversations.json'), JSON.stringify({ [work]: other }));
+    await forgetAgyConversation(mine, work, env);
+    expect(existsSync(dir('conversations', `${mine}.db`))).toBe(false);
+    expect(existsSync(dir('conversations', `${other}.db`))).toBe(true);
+    // id 를 못 받았을 때만 작업 폴더 몫으로
+    await forgetAgyConversation(null, work, env);
+    expect(existsSync(dir('conversations', `${other}.db`))).toBe(false);
+  });
+
+  it('Windows 설치 자리(%LOCALAPPDATA%/agy/bin)를 PATH 보다 먼저 본다', () => {
+    expect(appDirs('gemini-cli', 'win32', { LOCALAPPDATA: 'C:\\Users\\kim\\AppData\\Local' })).toEqual(['C:\\Users\\kim\\AppData\\Local\\agy\\bin']);
+    expect(appDirs('gemini-cli', 'darwin', { LOCALAPPDATA: 'x' })).toEqual([]);
   });
 
   it('폐쇄망 모드면 띄우지 않고 막으며 통신 기록에 남긴다', async () => {
@@ -458,7 +536,7 @@ describe('Gemini CLI', () => {
       const { spawned, deps } = grig('ok');
       await expect(createGeminiCliProvider(gp(), 5000, deps).chat(req())).rejects.toBeInstanceOf(OfflineBlockedError);
       expect(spawned).toHaveLength(0);
-      expect(netLogSnapshot().entries[0]).toMatchObject({ host: 'cloudcode-pa.googleapis.com (Gemini CLI)', external: true, allowed: false });
+      expect(netLogSnapshot().entries[0]).toMatchObject({ host: 'daily-cloudcode-pa.googleapis.com (Antigravity CLI)', external: true, allowed: false });
     } finally {
       await updateSettings({ privacy: { offline: false } });
     }

@@ -96,7 +96,7 @@ try {
   await ui.click('명부 고르기', { within: '.kd-batch-opts' });
   await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('하나도 맞지 않습니다'), { timeout: 30000 });
   check('안 맞는 명부: 돌리기 전에 짝 미리보기에서 알림', true);
-  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-go button')].find((b) => /시작|다시 하기/.test(b.textContent))?.click());
+  await page.evaluate(() => [...document.querySelectorAll('.kd-batch-go button')].find((b) => /시작|한 번 더 하기/.test(b.textContent))?.click());
   await page.waitForFunction(() => ((t) => t.includes('하나도 맞지 않습니다') && t.includes('고친 뒤 다시 하세요'))(document.querySelector('.kd-batch-main')?.innerText ?? ''), { timeout: 30000 });
   check('안 맞는 명부: 실행하면 고칠 것을 알리는 오류', true);
   if (SETTINGS_OUT) check('안 맞는 명부: 빈 폴더를 만들지 않음', readdirSync(SETTINGS_OUT).length === before);

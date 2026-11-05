@@ -63,6 +63,9 @@
   --color-border: #E1E4E8;
   --color-border-subtle: #ECEEF1;
   --color-border-hover: #C9CED4;
+  /* 입력칸·스위치 테두리: 칸 자리가 보이게 흰 면 대비 3:1 (공공 디자인 시스템 입력칸 회색과 같은 값) */
+  --color-border-input: #8A949E;
+  --color-border-input-hover: #636C77;
   --color-rule-strong: #E1E4E8;
 
   /* 강조: 로고 초록. 흰 면 위 글자 5.6:1 */
@@ -99,6 +102,8 @@
   /* 문서 쪽(종이) 위 글자·괘선: 종이는 어두운 화면에서도 흰색이라 화면 밝기와 무관하게 고정 (옛 미색 회색 #8b8f86·#f4f2ec 대신) */
   --color-paper-muted: #636C77;
   --color-paper-line: #ECEEF1;
+  /* 종이(흰 면) 위 인주색: 어두운 화면의 밝은 인주색은 흰 종이에서 2.7:1 이라 고정 */
+  --color-paper-seal: #C0261A;
   --color-primary-rgb: 8, 119, 90;
   --color-primary-light: #12936F;
 
@@ -200,6 +205,8 @@
   --color-border: rgba(236, 238, 241, 0.12);
   --color-border-subtle: rgba(236, 238, 241, 0.07);
   --color-border-hover: rgba(236, 238, 241, 0.22);
+  --color-border-input: rgba(236, 238, 241, 0.34);
+  --color-border-input-hover: rgba(236, 238, 241, 0.5);
   --color-rule-strong: rgba(236, 238, 241, 0.12);
   --color-input: #15181C;
 

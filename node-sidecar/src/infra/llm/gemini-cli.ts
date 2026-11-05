@@ -1,85 +1,85 @@
-/** 구독 계정 다리: 이 PC 에 깔고 Google 계정으로 로그인해 둔 Gemini CLI 로 한 번 묻고 답 받기
+/** 구독 계정 다리: 이 PC 에 깔고 Google 계정으로 로그인해 둔 Antigravity CLI(agy)로 한 번 묻고 답 받기
  *
- * 근거: Gemini CLI 공식 CLI(`-p` 헤드리스·stdin 입력, `-o stream-json`, `-m`, `--approval-mode`, 정책 엔진 `--admin-policy`·`--policy`,
- * `-e none`, `--allowed-mcp-server-names`, 시스템 설정 경로 `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, 시스템 지시 파일 `GEMINI_SYSTEM_MD`, `NO_BROWSER`).
- * 실측(Windows·0.35.0, 숨은 시험 옵션 --fake-responses 로 모델을 부르지 않고 CLI 가 보낼 요청을 들여다봄):
- * - 아래 시스템 설정과 "모두 거절" 정책을 주면 요청의 도구 선언이 0개, 지시문은 우리 파일 그대로(사용자 GEMINI.md 안 붙음).
- *   둘 다 빼면 도구 8개(list_directory·read_file·grep_search·glob·google_web_search·하위 에이전트 셋)와 GEMINI.md 가 붙는다.
- *   정책만으로도, 설정만으로도 각각 0개(두 겹). 모델이 도구를 부르면 tool_use 줄이 나오고 실행은 "Tool not found"
- *   (정책이 없으면 read_file 이 실제로 파일을 연다). 그래도 tool_use·tool_result 가 보이면 바로 끝낸다.
- * - 시스템 설정은 사용자 설정(~/.gemini/settings.json)의 같은 칸을 덮는다. MCP·확장·스킬·훅·도구 탐색 명령·샌드박스·하위 에이전트를 끄고
- *   인증은 Google 로그인(oauth-personal)으로 고정·강제한다: API 키(GEMINI_API_KEY 는 넘기지 않고, CLI 가 읽는 .env 에 있어도)로는 보내지 않는다.
- *   유료 AI 크레딧은 쓰지 않는다(billing.overageStrategy never).
- * - 입력의 @경로는 CLI 가 파일을 읽어 붙인다(실측: "@C:/Windows/win.ini" 를 읽으려 하고 메일 주소의 @ 도 떼어 냄) → 글의 @ 를 \@ 로(CLI 의 이스케이프).
- *   맨 앞 / 는 슬래시 명령이라 입력은 늘 우리 머리말로 시작한다.
- * - 로그인이 없거나 풀렸으면(실측: invalid_grant) 종료 코드 41. NO_BROWSER 가 없으면 브라우저 로그인을 띄우려 한다.
- * - 대화를 ~/.gemini/tmp/<작업 폴더 이름>/chats 에 기록한다 → 늘 같은 빈 작업 폴더를 쓰고 끝나면 그 폴더 몫의 기록을 지운다.
- *   오류 보고 파일(요청 전체가 든다)은 TEMP 에 써서 TEMP 를 매번 지우는 작업 폴더로 돌린다.
- * - 글은 stdin(`-p ""` 이면 stdin 만), 지시문은 작업 폴더 파일. 명령줄에는 고정 인자·파일 경로·모델 이름만.
+ * Gemini CLI 는 2026-06-18 부터 개인 Google 계정(무료·AI Pro·Ultra) 요청을 받지 않아 같은 자리(provider id 'gemini-cli')를
+ * Google 의 후속 CLI 인 agy 로 바꿨다. 설정 값·화면 칸은 그대로 쓴다.
+ *
+ * 근거: agy 1.5 공식 문서(headless: `--input-format stream-json` + `--output-format stream-json`, 줄마다 `{"event":"user",...}`,
+ * 출력 init·step_update·result, `--settings` 이번 실행만의 설정, permissions 의 action(target) 거절 규칙, `agy models`).
+ * 실측(Windows·1.5.0, 가장 싼 모델로 몇 번):
+ * - **모델에게 알리는 도구 선언(60개: 파일·명령·브라우저·웹 검색·그림·예약·하위 에이전트)은 끌 수 없다.** 도구를 줄인 에이전트
+ *   (`--agent`, frontmatter tools)도 그대로 60개였다. 그래서 Claude Code·Codex 보다 보호가 약하고, 대신 세 겹으로 막는다:
+ *   1) 이번 실행만의 설정: toolPermission strict, 모든 범주(read_file·write_file·read_url·execute_url·command·unsandboxed·mcp)를 (*) 로 거절.
+ *      실측: 파일 읽기·명령 실행을 시키면 "permission check failed … deny rule" 로 실제로 막힌다.
+ *      규칙이 받는 범주는 이 일곱뿐이다(프로그램 안 규칙 꼴 `^(command|read_file|write_file|read_url|mcp|execute_url|unsandboxed)\(…\)$`).
+ *      웹 검색(search_web)은 Google 서버가 하는 일이라 규칙으로 못 막는다(실측 1.5: search_web(*) 을 넣어도 검색이 끝까지 돈다).
+ *      검색어가 가는 곳은 문서를 이미 받는 같은 Google 이고, 제3자 주소로 가는 길(read_url·execute_url)은 막혀 있다.
+ *   2) 도구 단계(step_type tool·tool_name·tool_info·subagent_info)·모르는 단계·모르는 보고가 보이면 그 자리에서 프로세스 트리째 끝낸다.
+ *      시작 보고의 권한 방식이 strict 가 아니어도 끝낸다. 끝내기는 비동기라 빠른 도구는 이미 돈 뒤일 수 있다:
+ *      막는 것은 1) 이고, 2) 는 그다음 단계(결과를 들고 이어 가기)를 끊고 실패로 알리는 뒷정리다.
+ *   3) 작업 폴더는 늘 같은 빈 폴더(파일이 없다).
+ * - 대화 기록 지우기는 요청마다 표시 파일을 남겨, 엔진이 꺼지거나 죽어도 다음에 켜질 때·다음 요청 때 지운다(sweepAgyLeftovers).
+ * - 입력은 stdin 의 stream-json 한 줄(`-p` 는 글을 명령줄로만 받아 쓰지 않는다). `@경로`는 펼치지 않는다(실측: 파일 내용이 붙지 않음).
+ *   지시문을 따로 넣는 옵션이 없어 글 앞에 붙인다. 사용자 ~/.gemini/GEMINI.md 같은 규칙은 CLI 가 붙일 수 있다.
+ * - 대화를 ~/.gemini/antigravity-cli/conversations/<id>.db 와 brain/<id>/ 에 남긴다 → 시작 보고의 conversation_id 몫만 지운다.
+ * - 로그인이 없으면 질문 실행은 브라우저 로그인을 기다리며 60초 멈춘다 → 보내기 전에 `agy models`(3초쯤, 모델 안 부름)로 확인.
+ * - API 키로 가는 길(modelProvider gemini + GEMINI_API_KEY)은 막는다: 키 변수는 넘기지 않고 modelProvider 를 비우며, 유료 크레딧(useG1Credits)은 끈다.
  */
 
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertProgramEgress } from '../net-guard.js';
 import { claudeSystemText, MODEL_NAME, SUBSCRIPTION_CONTEXT_TOKENS, type CliModel, type SubscriptionDeps } from './claude-code.js';
 import { SubscriptionError, type FailKind } from './subscription/errors.js';
-import type { Login } from './subscription/login.js';
+import { forgetLogins, requireSubscription, type Login } from './subscription/login.js';
 import { findProgram, removeDir, runProgram, workDir, type Program, type SpawnFn } from './subscription/program.js';
 import type { ChatMessage, ChatRequest, LlmProvider } from './types.js';
 
 export interface GeminiCliConfig { model: string; cli_path: string }
 
-/** 사용자 설정 위에 덮는 시스템 설정 (키 이름은 0.35 settingsSchema) */
-export const GEMINI_SETTINGS = {
-  security: { auth: { selectedType: 'oauth-personal', enforcedType: 'oauth-personal', useExternal: false }, disableYoloMode: true },
-  admin: { secureModeEnabled: true, mcp: { enabled: false }, extensions: { enabled: false }, skills: { enabled: false } },
-  tools: { core: [], allowed: [], sandbox: false, discoveryCommand: '', callCommand: '' },
-  mcp: { serverCommand: '' },
-  hooksConfig: { enabled: false },
-  skills: { enabled: false },
-  agents: { overrides: Object.fromEntries(['codebase_investigator', 'cli_help', 'generalist', 'browser_agent'].map((n) => [n, { enabled: false }])) },
-  // 없는 파일 이름: GEMINI.md 같은 문맥 파일을 찾지 않는다
-  context: { fileName: 'KORDOC-NO-CONTEXT-FILE.md', includeDirectoryTree: false, loadMemoryFromIncludeDirectories: false },
-  experimental: { enableAgents: false, plan: false, jitContext: false },
-  general: { defaultApprovalMode: 'default', enableAutoUpdate: false, enableAutoUpdateNotification: false, checkpointing: { enabled: false } },
-  billing: { overageStrategy: 'never' },
-  privacy: { usageStatisticsEnabled: false },
-  telemetry: { enabled: false },
-  ide: { enabled: false },
-  useWriteTodos: false,
+/** agy 가 실제로 부르는 서버 (실측: CLI 기록) */
+export const AGY_HOST = 'daily-cloudcode-pa.googleapis.com';
+
+/** 이번 실행만의 설정 (저장되지 않는다). 키 이름은 공식 settings.json 표 */
+export const AGY_SETTINGS = {
+  toolPermission: 'strict',
+  agentMode: '',
+  artifactReviewPolicy: 'asks-for-review',
+  allowNonWorkspaceAccess: false,
+  enableTerminalSandbox: true,
+  useG1Credits: false,
+  modelProvider: '',
+  disableSlashCommands: true,
+  notifications: false,
+  showTips: false,
+  showFeedbackSurvey: false,
+  permissions: {
+    allow: [],
+    ask: [],
+    deny: ['read_file(*)', 'write_file(*)', 'read_url(*)', 'execute_url(*)', 'command(*)', 'unsandboxed(*)', 'mcp(*)'],
+  },
 };
 
-/** 정책 엔진: 모든 도구 거절 (도구 이름이 없는 규칙은 모든 도구에 걸린다) */
-const DENY_ALL = '[[rule]]\ndecision = "deny"\npriority = 999\ndeny_message = "KorDoc AI: tools are disabled."\n';
-/** 있지 않은 MCP 서버 이름 (이 이름만 허용 = 아무것도 허용 안 함) */
-const NO_MCP = 'kordoc-no-mcp';
-/** 늘 같은 빈 작업 폴더. CLI 가 폴더 이름으로 기록 자리(~/.gemini/tmp/<이름>)를 정해서 매번 새 폴더면 기록 폴더가 쌓인다 */
-const CWD_NAME = 'kordoc-gemini-cwd';
+/** 늘 같은 빈 작업 폴더 (CLI 가 작업 폴더마다 최근 대화를 기억한다) */
+const CWD_NAME = 'kordoc-agy-cwd';
+/** 받아들이는 단계 (공식 문서의 관찰 값 중 도구가 아닌 것) */
+const SAFE_STEPS = new Set(['user_input', 'agent_response', 'checkpoint']);
+const KNOWN_EVENTS = new Set(['init', 'step_update', 'result']);
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function geminiArgs(o: { dir: string; model: string }): string[] {
+/** Gemini CLI 때 고를 수 있던 이름 (예전 판에서 저장한 값). agy 는 모르는 모델이면 실패하므로 기본 모델로 */
+const OLD_GEMINI_MODELS = new Set(['auto', 'pro', 'flash', 'flash-lite', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+export const agyModel = (m: string) => (OLD_GEMINI_MODELS.has(m.trim()) ? '' : m.trim());
+
+export function agyArgs(o: { settings: string; model: string }): string[] {
   if (o.model && !MODEL_NAME.test(o.model)) throw new SubscriptionError('bad-request', 'gemini-cli', { why: '모델 이름 꼴이 아님' });
-  const policy = join(o.dir, 'policy.toml');
   return [
-    '-p', '', '-o', 'stream-json', '--approval-mode', 'default',
-    // 이 PC 에 기관 정책(시스템 정책 폴더)이 있으면 CLI 가 --admin-policy 를 무시하므로 사용자 단계에도 같은 규칙을 둔다
-    '--admin-policy', policy, '--policy', policy,
-    '-e', 'none', '--allowed-mcp-server-names', NO_MCP,
-    ...(o.model ? ['-m', o.model] : []),
+    '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '--settings', o.settings, '--disable-slash-commands',
+    ...(o.model ? ['--model', o.model] : []),
   ];
-}
-
-/** 작업 폴더에 설정·정책·지시문 파일을 쓰고, 자식에게 더할 환경 */
-async function prepare(dir: string, system: string): Promise<Record<string, string>> {
-  await writeFile(join(dir, 'settings.json'), JSON.stringify(GEMINI_SETTINGS), { mode: 0o600 });
-  await writeFile(join(dir, 'policy.toml'), DENY_ALL, { mode: 0o600 });
-  await writeFile(join(dir, 'system.md'), system, { encoding: 'utf-8', mode: 0o600 });
-  return {
-    GEMINI_CLI_SYSTEM_SETTINGS_PATH: join(dir, 'settings.json'),
-    GEMINI_SYSTEM_MD: join(dir, 'system.md'),
-    NO_BROWSER: '1',
-    TEMP: dir, TMP: dir, TMPDIR: dir,
-  };
 }
 
 async function fixedCwd(): Promise<string> {
@@ -88,114 +88,182 @@ async function fixedCwd(): Promise<string> {
   return d;
 }
 
-/** 우리 작업 폴더 몫의 대화 기록을 지운다 (다른 프로젝트 기록은 건드리지 않는다). 자식의 집 폴더는 자식 환경에서 */
-export async function forgetGeminiChats(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const home = (process.platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir();
-  const base = join(home, '.gemini', 'tmp');
-  for (const d of await readdir(base).catch(() => [] as string[])) {
-    if (d !== CWD_NAME && !d.startsWith(`${CWD_NAME}-`)) continue;
-    const chats = join(base, d, 'chats');
-    for (const f of await readdir(chats).catch(() => [] as string[])) {
-      if (/^session-.*\.json$/.test(f)) await rm(join(chats, f), { force: true }).catch(() => {});
-    }
+const agyHome = (env: NodeJS.ProcessEnv = process.env) => join((process.platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir(), '.gemini', 'antigravity-cli');
+
+/** 지금 이 엔진에서 도는 agy 요청 수 (최근 대화로 찾기는 혼자 돌 때만: 다른 요청의 대화를 지우지 않게) */
+let running = 0;
+
+/** 이 실행의 대화 기록만 지운다 (사용자의 다른 대화는 건드리지 않는다).
+ *  시작 보고의 id 가 없을 때만(시작 보고 전에 끝남) CLI 가 우리 작업 폴더에 묶어 둔 최근 대화로 찾는다:
+ *  id 가 있는데도 이걸 보면 동시에 도는 다른 요청의 대화를 지울 수 있다.
+ *  돌려주는 값: 지울 것이 다 없어졌다 (못 찾았으면 true, 잠겨서 남았으면 false) */
+export async function forgetAgyConversation(id: string | null, cwd: string, env: NodeJS.ProcessEnv = process.env, o: { guess?: boolean } = {}): Promise<boolean> {
+  const base = agyHome(env);
+  let c = id;
+  if (!c && (o.guess ?? running <= 1)) {
+    try {
+      const last = JSON.parse(await readFile(join(base, 'cache', 'last_conversations.json'), 'utf-8')) as Record<string, unknown>;
+      // macOS /var → /private/var, Windows 짧은 이름(8.3) 때문에 실제 경로로도 견준다
+      let real = cwd;
+      try { real = realpathSync.native(cwd); } catch { /* 없으면 그대로 */ }
+      const names = new Set([cwd, real].map((p) => p.toLowerCase()));
+      const mine = Object.entries(last).find(([k]) => names.has(k.toLowerCase()))?.[1];
+      if (typeof mine === 'string') c = mine;
+    } catch { /* 없으면 그만 */ }
   }
+  if (!c || !CONVERSATION_ID.test(c)) return true;
+  // 백신 검사·CLI 의 파일 잠금이 잠깐 걸려도 지워지게 (글 전체가 든 파일이다)
+  const gone = { force: true, maxRetries: 5, retryDelay: 200 };
+  const files = ['', '-wal', '-shm', '-journal'].map((f) => join(base, 'conversations', `${c}.db${f}`));
+  for (const f of files) await rm(f, gone).catch(() => {});
+  const brain = join(base, 'brain', c);
+  await rm(brain, { ...gone, recursive: true }).catch(() => {});
+  return ![...files, brain].some((f) => existsSync(f));
 }
 
-/** CLI 가 @경로로 읽지 않게 (CLI 자신의 escapeAtSymbols 와 같은 규칙) */
-const escapeAt = (s: string) => s.replace(/(?<!\\)@/g, '\\@');
-const unescapeAt = (s: string) => s.replace(/\\@/g, '@');
+/** 지울 대화 표시: 요청마다 파일 하나({id}). 엔진이 꺼지거나 죽어 finally 가 못 돌아도 다음에 켜질 때·다음 요청 때 지운다 */
+// 시험은 KORDOC_AGY_PENDING_DIR 로 따로 둔다 (진짜 표시를 건드리지 않게)
+const pendingDir = (env: NodeJS.ProcessEnv = process.env) => join(env.KORDOC_AGY_PENDING_DIR || tmpdir(), 'kordoc-agy-pending');
+const mine = new Set<string>();
+/** 이보다 오래된 표시만 지우고 내려놓는다 (주인 잃은 agy 가 아직 돌며 다시 쓸 수 있어서) */
+const PENDING_SETTLE_MS = 30 * 60_000;
 
-export function geminiSystemText(req: Pick<ChatRequest, 'system' | 'json' | 'schema' | 'maxTokens'>): string {
-  return `${claudeSystemText(req)}\n\n받은 글의 \\@ 는 @ 를 뜻합니다. 답에는 @ 로 쓰세요.`;
+async function markPending(name: string, id: string | null, env?: NodeJS.ProcessEnv): Promise<void> {
+  await mkdir(pendingDir(env), { recursive: true });
+  await writeFile(join(pendingDir(env), name), JSON.stringify({ id }), { mode: 0o600 });
 }
 
-/** stdin 으로 줄 글. 맨 앞이 / 면 슬래시 명령이 되므로 늘 머리말로 시작 */
-export function geminiPrompt(messages: ChatMessage[]): string {
+/** 남은 대화 기록 청소 (엔진 시작·agy 요청마다). 돌려주는 값: 지운 표시 수 */
+export async function sweepAgyLeftovers(env: NodeJS.ProcessEnv = process.env, now = Date.now()): Promise<number> {
+  let names: string[];
+  try { names = await readdir(pendingDir(env)); } catch { return 0; }
+  let done = 0;
+  for (const name of names) {
+    if (mine.has(name)) continue;
+    const file = join(pendingDir(env), name);
+    try {
+      const { id } = JSON.parse(await readFile(file, 'utf-8')) as { id: string | null };
+      // id 를 받기 전에 끊겼으면 우리 작업 폴더의 최근 대화로 (다른 요청이 돌지 않을 때만)
+      const clean = await forgetAgyConversation(typeof id === 'string' ? id : null, join(tmpdir(), CWD_NAME), env, { guess: running === 0 });
+      if (clean && now - (await stat(file)).mtimeMs > PENDING_SETTLE_MS) { await rm(file, { force: true }); done++; }
+    } catch { await rm(file, { force: true }).catch(() => {}); }
+  }
+  return done;
+}
+
+/** stdin 한 줄: 지시문과 대화를 사용자 말 하나로. 맨 앞이 / 면 슬래시 명령이 되므로 늘 머리말로 시작 */
+export function agyInput(messages: ChatMessage[], system: string): string {
   const last = messages.at(-1);
   if (!last || last.role !== 'user') throw new SubscriptionError('bad-request', 'gemini-cli', { why: '마지막 말이 사용자 말이 아님' });
   if (messages.some((m) => m.images?.length)) throw new SubscriptionError('bad-request', 'gemini-cli', { why: '그림은 보낼 수 없음' });
   const body = messages.length === 1
     ? last.content
     : `<conversation>\n${messages.map((m) => `<${m.role}>\n${m.content}\n</${m.role}>`).join('\n')}\n</conversation>\n마지막 user 말에 답하세요.`;
-  return `[KorDoc AI 요청]\n${escapeAt(body)}`;
+  const content = `[KorDoc AI 요청]\n<instructions>\n${system}\n</instructions>\n\n${body}`;
+  return `${JSON.stringify({ event: 'user', message: { content } })}\n`;
 }
 
-const AUTH = /FatalAuthenticationError|UnauthorizedError|Manual authorization is required|invalid_grant|re-?authenticate|not (logged|signed) in|UNAUTHENTICATED|\b401\b/i;
+const AUTH = /authentication (required|failed)|please sign in|sign in to|not (logged|signed) in|UNAUTHENTICATED|invalid_grant|\b401\b/i;
 
-function failureOf(type: string, text: string): FailKind {
-  const all = `${type}\n${text}`;
-  // 긴 문서 문장에도 토큰 수가 들어 있어 상태 코드보다 먼저
-  if (/exceeds the maximum number of tokens|input token count|context (window|length)|too long|too many tokens/i.test(all)) return 'too-long';
-  if (/enforced authentication type/i.test(all)) return 'metered';
-  if (AUTH.test(all)) return 'signed-out';
-  if (/QuotaError|quota|exhausted your|RESOURCE_EXHAUSTED|rate.?limit|\b429\b/i.test(all)) return 'rate-limit';
-  if (/\b503\b|UNAVAILABLE|overloaded/i.test(all)) return 'overloaded';
-  if (/\b5\d\d\b|INTERNAL|server error/i.test(all)) return 'server-error';
-  if (/\b400\b|INVALID_ARGUMENT|\b404\b|NOT_FOUND|Requested entity was not found|model .{0,40}not (found|supported)/i.test(all)) return 'bad-request';
-  if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|getaddrinfo|network/i.test(all)) return 'network';
+function failureOf(text: string): FailKind {
+  if (/exceeds the maximum number of tokens|input token count|context (window|length)|too long|too many tokens/i.test(text)) return 'too-long';
+  if (AUTH.test(text)) return 'signed-out';
+  if (/quota|exhausted|RESOURCE_EXHAUSTED|rate.?limit|\b429\b/i.test(text)) return 'rate-limit';
+  if (/\b503\b|UNAVAILABLE|overloaded/i.test(text)) return 'overloaded';
+  if (/\b5\d\d\b|INTERNAL|server error/i.test(text)) return 'server-error';
+  if (/unknown model|model .{0,40}not (found|available|supported)|\b400\b|INVALID_ARGUMENT|\b404\b|NOT_FOUND/i.test(text)) return 'bad-request';
+  if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|getaddrinfo|network|dial tcp|no such host/i.test(text)) return 'network';
   return 'failed';
 }
+
+/** Go flag 꾸러미의 모르는 옵션 문장 */
+const BAD_FLAG = /flag provided but not defined|unknown flag/i;
 
 type Ev = Record<string, unknown>;
 const obj = (v: unknown): Ev | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Ev) : undefined);
 
 async function ask(program: Program, cfg: GeminiCliConfig, req: ChatRequest, timeoutMs: number, deps: SubscriptionDeps): Promise<string> {
-  const input = geminiPrompt(req.messages);
+  const input = agyInput(req.messages, claudeSystemText(req));
+  const env = deps.baseEnv ?? process.env;
   const dir = await workDir();
+  const cwd = await fixedCwd();
+  // 앞서 엔진이 꺼지며 못 지운 기록부터 (기다리지 않는다)
+  if (!running) void sweepAgyLeftovers(env).catch(() => {});
+  const pending = `${randomUUID()}.json`;
+  mine.add(pending);
+  running++;
+  let marked: Promise<void> = markPending(pending, null, env).catch(() => {});
+  let conversation: string | null = null;
   try {
-    const extraEnv = await prepare(dir, geminiSystemText(req));
+    const settings = join(dir, 'settings.json');
+    await writeFile(settings, JSON.stringify(AGY_SETTINGS), { mode: 0o600 });
     let answer = '';
     let sawInit = false;
-    let done = false;
-    let failed: { type: string; message: string } | null = null;
-    let lastError = '';
-    const r = await runProgram(program, geminiArgs({ dir, model: cfg.model }), {
+    let result: { ok: boolean; response: string; error: string } | null = null;
+    const r = await runProgram(program, agyArgs({ settings, model: agyModel(cfg.model) }), {
       signal: req.signal,
       idleMs: timeoutMs,
-      cwd: await fixedCwd(),
+      cwd,
       input,
       baseEnv: deps.baseEnv,
       spawn: deps.spawn,
-      extraEnv,
+      extraEnv: { TEMP: dir, TMP: dir, TMPDIR: dir },
       onLine: (line) => {
-        let ev: Ev;
-        try { ev = JSON.parse(line); } catch { return; }
-        const type = String(ev.type);
-        if (/tool/i.test(type)) throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: '도구를 쓰려 함' });
-        if (type === 'init') { sawInit = true; return; }
-        if (!sawInit && (type === 'message' || type === 'result')) throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: '시작 보고 전에 답이 옴' });
-        if (type === 'message') {
-          if (ev.role === 'assistant' && typeof ev.content === 'string') {
-            const t = unescapeAt(ev.content);
-            answer += t;
-            req.onToken?.(t);
+        let parsed: unknown;
+        try { parsed = JSON.parse(line); } catch { return; } // 알림 같은 글 줄
+        const ev = obj(parsed);
+        if (!ev) return;
+        const type = String(ev.event ?? '');
+        // 아는 보고는 셋뿐 (공식 문서·실측). 이름이 바뀐 새 보고(도구일 수 있다)나 event 가 없는 줄(예전 Gemini CLI 를 가리키는 경로)은 끝낸다
+        if (!KNOWN_EVENTS.has(type)) throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: `모르는 보고(${type.slice(0, 30) || 'event 없음'})` });
+        if (type === 'init') {
+          const init = obj(ev.init);
+          if (typeof ev.conversation_id === 'string') {
+            conversation = ev.conversation_id;
+            marked = marked.then(() => markPending(pending, conversation, env)).catch(() => {});
+          }
+          if (init?.permission_mode !== 'strict') throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: '도구 거절 설정이 먹지 않음' });
+          sawInit = true;
+          return;
+        }
+        if (!sawInit) throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: '시작 보고 전에 답이 옴' });
+        if (type === 'step_update') {
+          const s = obj(ev.step_update) ?? {};
+          if (s.tool_name || s.tool_info || s.subagent_info || !SAFE_STEPS.has(String(s.step_type))) {
+            throw new SubscriptionError('unsafe-tools', 'gemini-cli', { why: '도구를 쓰려 함' });
+          }
+          if (s.step_type === 'agent_response' && typeof s.text_delta === 'string' && s.text_delta) {
+            answer += s.text_delta;
+            req.onToken?.(s.text_delta);
           }
           return;
         }
-        if (type === 'error') { if (ev.severity === 'error') lastError = String(ev.message ?? ''); return; }
         if (type === 'result') {
-          if (ev.status === 'success') done = true;
-          else failed = { type: String(obj(ev.error)?.type ?? ''), message: String(obj(ev.error)?.message ?? lastError) };
+          const res = obj(ev.result) ?? {};
+          result = { ok: res.status === 'SUCCESS', response: typeof res.response === 'string' ? res.response : '', error: String(res.error ?? '') };
           return 'done';
         }
       },
     });
-    if (failed) {
-      const f = failed as { type: string; message: string };
-      const kind = failureOf(f.type, f.message);
-      throw new SubscriptionError(kind, 'gemini-cli', kind === 'failed' ? { why: '답을 받지 못함' } : {});
+    const res = result as { ok: boolean; response: string; error: string } | null;
+    if (res?.ok) {
+      const text = (res.response || answer).replace(/\n+$/, '');
+      if (!text.trim()) throw new SubscriptionError('failed', 'gemini-cli', { why: '빈 답이 옴' });
+      return text;
     }
-    if (done) {
-      if (!answer.trim()) throw new SubscriptionError('failed', 'gemini-cli', { why: '빈 답이 옴' });
-      return answer;
-    }
-    if (/Unknown argument/i.test(r.stderr)) throw new SubscriptionError('needs-update', 'gemini-cli', { why: '모르는 옵션이 있다고 함' });
-    if (r.code === 41) throw new SubscriptionError('signed-out', 'gemini-cli');
-    const kind = failureOf('', `${lastError}\n${r.stderr}`);
-    throw new SubscriptionError(kind, 'gemini-cli', kind === 'failed' ? { why: `답 없이 끝남, 종료 코드 ${r.code}` } : {});
+    if (BAD_FLAG.test(r.stderr)) throw new SubscriptionError('needs-update', 'gemini-cli', { why: '모르는 옵션이 있다고 함' });
+    const kind = failureOf(`${res?.error ?? ''}\n${r.stderr}`);
+    // 1분 기억한 "로그인됨"을 버려 다음 요청이 60초 로그인 기다림에 빠지지 않고 바로 확인하게
+    if (kind === 'signed-out') forgetLogins();
+    throw new SubscriptionError(kind, 'gemini-cli', kind === 'failed' ? { why: res ? '답을 받지 못함' : `답 없이 끝남, 종료 코드 ${r.code}` } : {});
   } finally {
     await removeDir(dir);
-    await forgetGeminiChats(deps.baseEnv);
+    const clean = await forgetAgyConversation(conversation, cwd, env);
+    running--;
+    mine.delete(pending);
+    await marked;
+    // 잠겨서 남았으면 표시를 두어 다음 청소가 다시 지운다
+    if (clean) await rm(join(pendingDir(env), pending), { force: true }).catch(() => {});
   }
 }
 
@@ -205,46 +273,51 @@ export function createGeminiCliProvider(cfg: GeminiCliConfig, timeoutMs: number,
     isCloud: true,
     supportsVision: false,
     async chat(req) {
-      assertProgramEgress('cloudcode-pa.googleapis.com', 'Gemini CLI');
+      assertProgramEgress(AGY_HOST, 'Antigravity CLI');
       const program = await (deps.find ?? (() => findProgram('gemini-cli', { configured: cfg.cli_path })))();
       if (!program) throw new SubscriptionError('not-installed', 'gemini-cli');
-      // 보내기 전 로그인 확인을 따로 하지 않는다: CLI 를 한 번 더 띄우는 데 15초쯤 걸리고(실측), 인증은 Google 로그인으로 강제해
-      // 종량제로 갈 길이 없으며, 로그인이 풀렸으면 이 실행이 41 로 끝나 같은 안내가 나간다
-      if (deps.login) await deps.login(program);
+      // 로그인이 없으면 질문 실행이 브라우저 로그인을 60초 기다리므로 먼저 확인 (agy models, 1분 기억)
+      await (deps.login ?? ((p: Program) => requireSubscription('gemini-cli', p, { signal: req.signal, baseEnv: deps.baseEnv, spawn: deps.spawn })))(program);
       return ask(program, cfg, req, timeoutMs, deps);
     },
     contextTokens: async () => SUBSCRIPTION_CONTEXT_TOKENS,
   };
 }
 
-/** 로그인 확인: 빈 입력으로 띄운다. CLI 는 로그인(토큰 갱신·Code Assist 확인)을 마친 뒤 "입력 없음"(종료 코드 42)으로 끝나고
- *  모델은 부르지 않는다(실측: 가짜 응답 0개로도 42). 로그인이 없거나 풀렸으면 41. 계정 파일은 열지 않는다 */
-export async function readGeminiLogin(program: Program, o: { signal: AbortSignal; idleMs: number; baseEnv?: NodeJS.ProcessEnv; spawn?: SpawnFn }): Promise<Login | null> {
-  const dir = await workDir();
-  try {
-    const extraEnv = await prepare(dir, '');
-    const r = await runProgram(program, geminiArgs({ dir, model: '' }), { ...o, cwd: await fixedCwd(), input: '', extraEnv });
-    if (/Unknown argument/i.test(r.stderr)) return null;
-    if (r.code === 42 && /No input provided/i.test(r.stderr)) return { signedIn: true, method: 'subscription' };
-    if (r.code === 41 || AUTH.test(r.stderr)) return /enforced authentication type/i.test(r.stderr) ? { signedIn: true, method: 'metered' } : { signedIn: false };
-    const kind = failureOf('', r.stderr);
-    throw new SubscriptionError(kind, 'gemini-cli', kind === 'failed' ? { why: `상태 확인이 종료 코드 ${r.code}로 끝남` } : {});
-  } finally {
-    await removeDir(dir);
+/** `agy models` 의 줄: "<id>\t<이름>" */
+export function parseAgyModels(stdout: string): CliModel[] {
+  const out: CliModel[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = line.match(/^(\S+)\t(.+)$/);
+    if (m && MODEL_NAME.test(m[1])) out.push({ id: m[1], label: m[2].trim().slice(0, 80) });
   }
+  return out;
 }
 
-/** 고를 수 있는 모델: CLI 의 별칭(auto·pro·flash·flash-lite)과 정식 이름(0.35 config/models.js). 프로그램을 띄우지 않는다 */
-export const GEMINI_MODELS: readonly CliModel[] = [
-  { id: '', label: '기본 모델 (CLI가 자동으로 고름)' },
-  { id: 'pro', label: 'Pro (복잡한 일, 최신 Pro)' },
-  { id: 'flash', label: 'Flash (일상 작업)' },
-  { id: 'flash-lite', label: 'Flash Lite (빠르고 가벼움)' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
-];
+/** 로그인 확인: `agy models`. 모델은 부르지 않는다. 로그인돼 있으면 목록(종료 0), 아니면 "Please sign in"(종료 1). 계정 파일은 열지 않는다 */
+export async function readAgyLogin(program: Program, o: { signal: AbortSignal; idleMs: number; baseEnv?: NodeJS.ProcessEnv; spawn?: SpawnFn }): Promise<Login | null> {
+  const r = await runProgram(program, ['models'], { ...o, cwd: await fixedCwd() });
+  const text = `${r.stdout}\n${r.stderr}`;
+  if (AUTH.test(text)) return { signedIn: false };
+  // 목록 꼴이 바뀌거나 비어 있어도 끝까지 됐으면 로그인돼 있다 (로그인이 없으면 "Please sign in" 으로 1)
+  if (r.code === 0) return { signedIn: true, method: 'subscription' };
+  if (BAD_FLAG.test(text) || /unknown (sub)?command/i.test(text)) return null;
+  const kind = failureOf(text);
+  throw new SubscriptionError(kind, 'gemini-cli', kind === 'failed' ? { why: `상태 확인이 종료 코드 ${r.code}로 끝남` } : {});
+}
 
-export async function listGeminiCliModels(_cfg: GeminiCliConfig, _signal: AbortSignal): Promise<CliModel[]> {
-  return [...GEMINI_MODELS];
+const DEFAULT_MODEL: CliModel = { id: '', label: '기본 모델 (CLI가 고름)' };
+
+/** 고를 수 있는 모델: 계정이 쓸 수 있는 목록(`agy models`). 못 읽으면 기본 모델만 */
+export async function listGeminiCliModels(cfg: GeminiCliConfig, signal: AbortSignal, deps: SubscriptionDeps = {}): Promise<CliModel[]> {
+  const program = await (deps.find ?? (() => findProgram('gemini-cli', { configured: cfg.cli_path })))().catch(() => null);
+  if (!program) return [DEFAULT_MODEL];
+  assertProgramEgress(AGY_HOST, 'Antigravity CLI 모델 목록');
+  try {
+    const r = await runProgram(program, ['models'], { signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]), idleMs: 30_000, cwd: await fixedCwd(), baseEnv: deps.baseEnv, spawn: deps.spawn });
+    return [DEFAULT_MODEL, ...(r.code === 0 ? parseAgyModels(r.stdout) : [])];
+  } catch (e) {
+    if (signal.aborted) throw e;
+    return [DEFAULT_MODEL];
+  }
 }

@@ -1,4 +1,4 @@
-/** AI 연결 화면 돕기 — 구독 프로그램(Claude Code·Codex·Gemini CLI) 설치·로그인 상태와 모델 목록, 이 PC 의 로컬 모델 서버 찾기
+/** AI 연결 화면 돕기 — 구독 프로그램(Claude Code·Codex·Antigravity CLI) 설치·로그인 상태와 모델 목록, 이 PC 의 로컬 모델 서버 찾기
  *
  * 폐쇄망 모드거나 기관이 구독 연결을 막았으면 프로그램을 찾지도 띄우지도 않는다.
  * 문서 보내기를 허용하기 전(ai.allow_subscription false)에는 설치 위치만 찾고(파일 확인) 프로그램은 띄우지 않는다.
@@ -10,7 +10,7 @@ import { getSettings } from '../../infra/config.js';
 import { assertProgramEgress } from '../../infra/net-guard.js';
 import { listClaudeCodeModels, type CliModel } from '../../infra/llm/claude-code.js';
 import { forgetCodexSafety, listCodexModels } from '../../infra/llm/codex.js';
-import { listGeminiCliModels } from '../../infra/llm/gemini-cli.js';
+import { AGY_HOST, listGeminiCliModels } from '../../infra/llm/gemini-cli.js';
 import { findLocalServers } from '../../infra/llm/local-servers.js';
 import { LOGIN_COMMAND, PROGRAM_LABEL, UPDATE_COMMAND, type SubscriptionProviderId } from '../../infra/llm/subscription/errors.js';
 import { checkLogin, forgetLogins } from '../../infra/llm/subscription/login.js';
@@ -20,7 +20,7 @@ const PROVIDERS: SubscriptionProviderId[] = ['claude-code', 'codex', 'gemini-cli
 const EGRESS: Record<SubscriptionProviderId, [string, string]> = {
   'claude-code': ['api.anthropic.com', 'Claude Code 로그인 확인'],
   codex: ['chatgpt.com', 'Codex 로그인 확인'],
-  'gemini-cli': ['cloudcode-pa.googleapis.com', 'Gemini CLI 로그인 확인'],
+  'gemini-cli': [AGY_HOST, 'Antigravity CLI 로그인 확인'],
 };
 const SLOT = { 'claude-code': 'claude_code', codex: 'codex', 'gemini-cli': 'gemini_cli' } as const;
 
@@ -96,13 +96,7 @@ export async function subscriptionUpdate(params: { provider?: unknown }, signal:
     const r = await runProgram(program, ['--version'], { signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), idleMs: 20_000 });
     return (r.stdout + r.stderr).match(/\d+\.\d+\.\d+/)?.[0];
   };
-  // Gemini CLI 에는 업데이트 명령이 없다(0.35 --help). 공식 안내는 설치한 도구로 다시 까는 것: 명령은 실행하지 않고 알려만 준다
-  if (provider === 'gemini-cli') {
-    const before = await version().catch(() => undefined);
-    const cmd = /[\\/](Cellar|homebrew)[\\/]/i.test(program.entry) ? 'brew upgrade gemini-cli' : UPDATE_COMMAND[provider];
-    return { ok: false, before, after: before, message: `Gemini CLI는 앱에서 업데이트하지 않습니다. 터미널에서 ${cmd} 명령을 실행하세요${before ? ` (지금 ${before})` : ''}.` };
-  }
-  assertProgramEgress(provider === 'codex' ? 'Codex 업데이트 서버' : 'Claude Code 업데이트 서버', `${PROGRAM_LABEL[provider]} 업데이트`);
+  assertProgramEgress(`${PROGRAM_LABEL[provider]} 업데이트 서버`, `${PROGRAM_LABEL[provider]} 업데이트`);
   const before = await version().catch(() => undefined);
   // Codex 앱에 딸린 CLI 는 스스로 업데이트하지 못한다(실측: "Could not detect the Codex installation method"). 앱이 함께 올린다
   if (provider === 'codex' && /[\\/]OpenAI[\\/]Codex[\\/]bin[\\/]/i.test(program.entry)) {

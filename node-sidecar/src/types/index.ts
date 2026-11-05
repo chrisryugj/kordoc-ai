@@ -19,7 +19,7 @@ export interface Settings {
     claude_code: { model: string; cli_path: string };
     /** 구독 계정(ChatGPT/Codex) — 같은 방식 */
     codex: { model: string; cli_path: string };
-    /** 구독 계정(Google/Gemini CLI) — 같은 방식 */
+    /** 구독 계정(Google/Antigravity CLI, 예전 Gemini CLI 자리) — 같은 방식 */
     gemini_cli: { model: string; cli_path: string };
     /** 구독 계정으로 문서 보내기 허용 — 인터넷으로 나가니 기본 꺼짐. 기관이 false 로 고정하면 구독 연결을 막는다 */
     allow_subscription: boolean;

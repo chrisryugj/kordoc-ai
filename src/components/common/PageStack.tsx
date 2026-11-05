@@ -4,7 +4,7 @@
  * 작업대·공문서 만들기 미리보기에서 같이 쓴다.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PagePreview } from "../../lib/contract";
 
 const PT_TO_PX = 96 / 72;
@@ -23,12 +23,21 @@ interface PageStackProps {
   onNeed?: (pages: number[]) => void;
   /** "fit" = 폭 맞춤, 숫자 = 실제 크기 배율 */
   zoom: number | "fit";
-  scrollTo?: { page: number; nonce: number } | null;
+  /** frac: 쪽 안 위치(0~1)를 화면 위쪽 1/3 쯤에 (없으면 쪽 머리로) */
+  scrollTo?: { page: number; frac?: number; nonce: number } | null;
   onCurrent?: (page: number) => void;
   maxFit?: number;
+  /** 쪽 그림 위에 겹칠 것 (나란히 비교의 칠한 상자) — 쪽 칸 안에 꽉 차게 놓인다 */
+  overlay?: (page: number) => ReactNode;
+  /** 보는 자리(쪽, 쪽 안 비율)가 바뀔 때마다 */
+  onView?: (page: number, frac: number) => void;
+  /** 다른 쪽 더미를 따라 바로(부드럽게 말고) 그 자리로 */
+  follow?: { page: number; frac: number; nonce: number } | null;
+  /** 화면 읽기용 이름 (한 화면에 둘 이상일 때 갈라 부르게) */
+  label?: string;
 }
 
-export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onCurrent, maxFit = 860 }: PageStackProps) {
+export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onCurrent, maxFit = 860, overlay, onView, follow, label = "쪽 미리보기" }: PageStackProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -133,10 +142,11 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
   // 보던 자리 기억 (배율 바꿀 때 되돌아갈 곳)
   useEffect(() => {
     if (!pageCount) return;
-    if (viewTop <= 0) { anchor.current = null; return; } // 맨 위(여백 포함)면 맨 위에 머문다
+    if (viewTop <= 0) { anchor.current = null; onView?.(1, 0); return; } // 맨 위(여백 포함)면 맨 위에 머문다
     const p = pageAt(viewTop);
     const h = layout.tops[p] - layout.tops[p - 1];
     anchor.current = { page: p, frac: h ? (viewTop - layout.tops[p - 1]) / h : 0 };
+    onView?.(p, anchor.current.frac);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [top]);
 
@@ -158,9 +168,19 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
   useEffect(() => {
     if (!scrollTo || !pageCount) return;
     const p = Math.min(Math.max(1, scrollTo.page), pageCount);
-    rootRef.current?.scrollTo({ top: offset() + layout.tops[p - 1] - 16, behavior: "smooth" });
+    const inPage = scrollTo.frac != null ? scrollTo.frac * slotH(sizeOf(p)) - view / 3 : -16;
+    rootRef.current?.scrollTo({ top: offset() + layout.tops[p - 1] + inPage, behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTo]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!follow || !pageCount || !root) return;
+    const p = Math.min(Math.max(1, follow.page), pageCount);
+    const h = layout.tops[p] - layout.tops[p - 1];
+    root.scrollTop = offset() + layout.tops[p - 1] + follow.frac * h;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow]);
 
   const slots = [];
   for (let n = first; n <= last; n++) {
@@ -174,13 +194,14 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
         ) : (
           <div className="kd-page-blank kd-skel" role="img" aria-label={`${n}쪽 그리는 중`} style={{ width: "100%", height: h }} />
         )}
+        {overlay && p && <div className="kd-page-overlay" aria-hidden="true" style={{ height: h }}>{overlay(n)}</div>}
         <div className="kd-page-num" style={{ margin: `${NUM_TOP}px 0 0`, height: NUM_H, lineHeight: `${NUM_H}px` }}>{n} / {pageCount}쪽</div>
       </div>,
     );
   }
 
   return (
-    <div ref={rootRef} className="kd-desk kd-pagestack" tabIndex={0} aria-label="쪽 미리보기">
+    <div ref={rootRef} className="kd-desk kd-pagestack" tabIndex={0} aria-label={label}>
       <div ref={bodyRef} style={{ position: "relative", height: layout.total, minWidth: layout.maxW }}>{slots}</div>
     </div>
   );

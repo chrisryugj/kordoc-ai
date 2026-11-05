@@ -360,7 +360,7 @@ export function PdfScreen({ active }: { active: boolean }) {
 
   return (
     <div className="kd-screen" hidden={!active}>
-      <ScreenHeader title="PDF 작업" sub="쪽을 고르고 옮긴 뒤 새 PDF로 저장합니다. 원본은 그대로 둡니다."
+      <ScreenHeader title="PDF 합치기·나누기" sub="쪽을 고르고 옮긴 뒤 새 PDF로 저장합니다. 원본은 그대로 둡니다."
         actions={!opening && items.length > 0 && <Button variant="secondary" onClick={pick} data-tip="파일을 더 넣으면 쪽이 맨 뒤에 이어 붙습니다"><FilePlus2 size={15} /> 파일 추가</Button>} />
       <div className="kd-pdf" data-side={items.length > 0}>
         <div className="kd-pdf-main">
@@ -408,7 +408,7 @@ export function PdfScreen({ active }: { active: boolean }) {
               <button type="button" className="kd-pdf-tool" onClick={moreMenu} aria-haspopup="menu" aria-label="더 보기"><Ellipsis size={16} /></button>
               <span className="kd-sep" />
               <button type="button" className="kd-pdf-tool" disabled={!past.current.length} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" onClick={undo}><Undo2 size={16} /><span className="kd-pdf-tool-label">되돌리기</span></button>
-              <button type="button" className="kd-pdf-tool" disabled={!future.current.length} title="다시 하기 (Ctrl+Shift+Z)" aria-label="다시 하기" onClick={redo}><Redo2 size={16} /></button>
+              <button type="button" className="kd-pdf-tool" disabled={!future.current.length} title="다시 실행 (Ctrl+Y)" aria-label="다시 실행" onClick={redo}><Redo2 size={16} /></button>
             </div>
           )}
 

@@ -1,13 +1,24 @@
 /** 입력 부품 — 이름표 달린 칸, 스위치, 갈래 고르기, 체크, 구획 */
 
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { cloneElement, isValidElement, useId, type CSSProperties, type ReactElement, type ReactNode } from "react";
 
+const CONTROLS = new Set(["input", "select", "textarea"]);
+
+/** 이름표 달린 칸. 칸이 input·select·textarea 하나면 이름표·도움말을 그 칸에 스스로 잇는다 (이름표를 누르면 칸으로, 화면 읽기가 이름을 읽게) */
 export function Field({ label, hint, children, htmlFor }: { label: ReactNode; hint?: ReactNode; children: ReactNode; htmlFor?: string }) {
+  const auto = useId();
+  const hintId = `${auto}-hint`;
+  const el = isValidElement(children) && typeof children.type === "string" && CONTROLS.has(children.type)
+    ? (children as ReactElement<{ id?: string; "aria-describedby"?: string }>)
+    : null;
+  const id = htmlFor ?? (el ? el.props.id ?? auto : undefined);
+  const describe = !!hint && !!el && !el.props["aria-describedby"];
+  const control = el && (el.props.id !== id || describe) ? cloneElement(el, { id, ...(describe ? { "aria-describedby": hintId } : {}) }) : children;
   return (
     <div className="kd-field">
-      <label className="kd-label" htmlFor={htmlFor}>{label}</label>
-      {children}
-      {hint && <p className="kd-field-hint">{hint}</p>}
+      <label className="kd-label" htmlFor={id}>{label}</label>
+      {control}
+      {hint && <p className="kd-field-hint" id={hintId}>{hint}</p>}
     </div>
   );
 }
