@@ -390,7 +390,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       if (opts?.agentTask) putAgentTask({ seq, ...opts.agentTask });
     } catch (e) {
       if (!loaded && client.current) stopEditor(OPEN_FAILED);
-      toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
+      // PDF 가져오기 설정 창에서 취소했다
+      if (/PDF_IMPORT_CANCELLED/.test(errorText(e))) toast("PDF 가져오기를 취소했습니다.", "info");
+      else toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
     } finally {
       opening.current = false;
       setBusyText("");

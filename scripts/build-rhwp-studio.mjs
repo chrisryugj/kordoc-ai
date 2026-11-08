@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AI_PLUGIN_FILES, ALLOW_FILE, allowAiPlugin } from './rhwp-patches.mjs';
 
-const RHWP_VERSION = '0.8.7'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
+const RHWP_VERSION = '0.9.0'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
 const PLUGIN_DIR = resolve('node-sidecar', 'studio-plugin');
@@ -51,7 +51,8 @@ mkdirSync(work, { recursive: true });
 if (!existsSync(join(src, 'rhwp-studio', 'package.json'))) {
   rmSync(src, { recursive: true, force: true });
   run('git', ['clone', '--depth', '1', '--branch', `v${RHWP_VERSION}`, '--filter=blob:none', '--sparse', 'https://github.com/edwardkim/rhwp.git', 'rhwp'], work);
-  run('git', ['sparse-checkout', 'set', 'rhwp-studio', 'npm/editor', 'npm/hwpctrl-ocx', 'assets/logo', 'assets/fonts'], src);
+  // 0.9.0 스튜디오는 PDF 가져오기 Worker(rhwp-shared/pdf)·누름틀 동작(rhwp-shared/forms)·셰이더(src/renderer)·ajv(vendor) 를 레포 밖에서 가져온다
+  run('git', ['sparse-checkout', 'set', 'rhwp-studio', 'npm/editor', 'npm/hwpctrl-ocx', 'assets/logo', 'assets/fonts', 'rhwp-shared', 'vendor/npm/ajv', 'src/renderer'], src);
 }
 
 // 2) WASM pkg = npm @rhwp/core 같은 버전, SDK = npm @rhwp/editor 같은 버전

@@ -166,7 +166,8 @@ describe.skipIf(!existsSync(sample('rhwp/basic/english.hwp')))('한컴 문서 �
   it('메모 목록과 메모 필드 종류가 돌아온다', async () => {
     const orig = readFileSync(sample('rhwp/basic/english.hwp'));
     const saved = edited(sample('rhwp/basic/english.hwp'));
-    expect(count(saved, TAG.MEMO_LIST)).toBeLessThan(count(orig, TAG.MEMO_LIST));
+    // rhwp 0.8.x 저장은 메모 목록을 잃었다. 0.9.0 은 지킨다(#7908) — 보정은 원본에만 있을 때만 되붙이니 어느 쪽이든 원본과 같아야 한다
+    expect(count(saved, TAG.MEMO_LIST)).toBeLessThanOrEqual(count(orig, TAG.MEMO_LIST));
     const fixed = (await fixHwp(saved, orig)).bytes;
     expect(count(fixed, TAG.MEMO_LIST)).toBe(count(orig, TAG.MEMO_LIST));
     const memoChars = (b: Uint8Array) => [...readHwp5(b).sections.values()].flatMap((s) => readRecords(s).filter((r) => r.tag === TAG.PARA_TEXT).flatMap((r) => inlineControls(r.data).filter((c) => c.code === 3).map((c) => ctrlId(r.data, c.at + 2)))).filter((x) => x === '%%me').length;
@@ -208,7 +209,8 @@ describe.skipIf(!existsSync(sample('rhwp/basic/english.hwp')))('한컴 문서 �
   it.skipIf(!existsSync(sample('rhwp/exam_science.hwp')))('바탕쪽 묶음이 일부만 빠져도 모두 돌아온다', async () => {
     const orig = readFileSync(sample('rhwp/exam_science.hwp'));
     const saved = edited(sample('rhwp/exam_science.hwp'));
-    expect(count(saved, TAG.LIST_HEADER)).toBeLessThan(count(orig, TAG.LIST_HEADER));
+    // rhwp 0.8.x 저장은 바탕쪽 묶음 일부를 잃었다. 0.9.0 은 지킨다(#7908)
+    expect(count(saved, TAG.LIST_HEADER)).toBeLessThanOrEqual(count(orig, TAG.LIST_HEADER));
     const fixed = (await fixHwp(saved, orig)).bytes;
     for (const tag of [TAG.PARA_HEADER, TAG.LIST_HEADER, TAG.CTRL_HEADER]) expect(count(fixed, tag)).toBe(count(orig, tag));
     // 쪽수는 엔진 저장본 그대로 (이 문서는 엔진 저장에서 이미 4쪽 → 5쪽)

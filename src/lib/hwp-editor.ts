@@ -18,6 +18,9 @@ type Incoming = { kd: "res"; id: number; ok: boolean; result?: unknown; error?: 
 /** 동작별 기본 시간 제한 — 열기·내보내기는 큰 문서에서 오래 걸린다 */
 const TIMEOUT: Partial<Record<EditorOp, number>> = { load: 120_000, export: 120_000, find: 30_000, replace_selection: 30_000 };
 
+/** PDF 열기 — 가져오기 설정 창(쪽 모양 그대로·다시 짜기, 열기 암호)에서 사용자를 기다린다 */
+const PDF_LOAD_TIMEOUT = 600_000;
+
 /** 시간 제한 안에 답이 없었다 — 편집기는 아직 그 일을 하고 있을 수 있다(큰 문서 열기면 iframe 을 내려야 멈춘다) */
 export class EditorTimeoutError extends Error {
   constructor(readonly op: EditorOp) {
@@ -62,7 +65,7 @@ export class HwpEditorClient {
     return () => this.listeners.delete(fn);
   }
 
-  call<O extends EditorOp>(op: O, args?: EditorOps[O][0], transfer: Transferable[] = []): Promise<EditorOps[O][1]> {
+  call<O extends EditorOp>(op: O, args?: EditorOps[O][0], transfer: Transferable[] = [], timeoutMs?: number): Promise<EditorOps[O][1]> {
     const win = this.frame?.contentWindow;
     if (!win) return Promise.reject(new Error("한글 편집기가 아직 열리지 않았습니다"));
     const id = ++this.seq;
@@ -70,16 +73,17 @@ export class HwpEditorClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new EditorTimeoutError(op));
-      }, TIMEOUT[op] ?? 20_000);
+      }, timeoutMs ?? TIMEOUT[op] ?? 20_000);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       win.postMessage({ kd: "req", id, op, args: args ?? {} }, this.hostOrigin, transfer);
     });
   }
 
-  /** 편의: 바이트로 열기 (복사본을 넘겨 호출한 쪽 버퍼를 지키지 않는다면 그대로 transfer) */
+  /** 편의: 바이트로 열기 (복사본을 넘겨 호출한 쪽 버퍼를 지키지 않는다면 그대로 transfer).
+   *  PDF 는 편집기가 가져오기 설정 창을 띄우고 사용자 답을 기다리니 시간 제한을 넉넉히 */
   async open(bytes: Uint8Array, name: string): Promise<number> {
     const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    const r = await this.call("load", { bytes: buf, name }, [buf]);
+    const r = await this.call("load", { bytes: buf, name }, [buf], /\.pdf$/i.test(name) ? PDF_LOAD_TIMEOUT : undefined);
     return r.pageCount;
   }
 

@@ -120,9 +120,19 @@ async function docState() {
 const ops = {
   async load({ bytes, name }) {
     // 바꾸는 동안엔 상태 확인을 멈춘다 (앞 문서의 dirty 가 새 문서 알림으로 새지 않게)
+    const had = docLoaded;
     docLoaded = false;
     docGen += 1;
-    const r = await studio.loadFile(new Uint8Array(bytes), name || '문서.hwpx', { skipUnsavedGuard: true, suppressDialogs: true });
+    let r;
+    try {
+      // PDF 는 suppressDialogs 와 상관없이 편집기가 가져오기 설정 창을 띄운다(rhwp 0.9.0) — 사용자가 고르면 HWPX 로 바꿔 연다
+      r = await studio.loadFile(new Uint8Array(bytes), name || '문서.hwpx', { skipUnsavedGuard: true, suppressDialogs: true });
+    } catch (e) {
+      // 가져오기를 취소하면(PDF_IMPORT_CANCELLED) 앞 문서가 그대로 남는다 — 상태 확인을 되살린다
+      docLoaded = had;
+      if (had) schedulePoll(1000);
+      throw e;
+    }
     docLoaded = true;
     lastSeq = -1;
     lastDirty = false;
@@ -358,7 +368,8 @@ function hideTimings(win) {
   }
   try {
     const version = await fetch('./version.json').then((r) => r.json()).catch(() => ({ studio: 'unknown' }));
-    studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'] });
+    // 요청 제한 시간은 모든 동작에 같이 걸린다 — PDF 가져오기 설정 창이 사용자 답을 기다리는 동안 끊기지 않게 앱 쪽(10분)에 맞춘다
+    studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'], requestTimeoutMs: 600_000 });
     forwardSaveKey(studio.element.contentWindow);
     // 한컴 한글 단축키 (스튜디오 자동화로 명령을 부른다). 못 걸어도 편집은 된다
     try { installHangulKeys(studio.element.contentWindow); } catch (e) { console.warn('[host] 한컴 단축키를 걸지 못했습니다', e); }
