@@ -144,6 +144,29 @@ describe('search_files', () => {
   });
 });
 
+describe('convert 그림', () => {
+  it('PDF 쪽 가운데 그림은 마크다운에서도 글 사이 제자리 (쪽 끝으로 몰지 않는다)', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const page = pdf.addPage([595, 842]);
+    page.drawText('Top paragraph before the picture.', { x: 60, y: 780, size: 14, font });
+    const pic = await pdf.embedPng(await makePng(240, 120));
+    page.drawImage(pic, { x: 60, y: 520, width: 240, height: 120 });
+    page.drawText('Bottom paragraph after the picture.', { x: 60, y: 420, size: 14, font });
+    const path = join(env.work, '그림가운데.pdf');
+    writeFileSync(path, await pdf.save());
+    const r = await call('convert', { path, format: 'md' });
+    const md: string = r.content;
+    const top = md.indexOf('Top paragraph');
+    const img = md.search(/!\[[^\]]*\]\(/);
+    const bottom = md.indexOf('Bottom paragraph');
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(img).toBeGreaterThan(top);
+    expect(bottom).toBeGreaterThan(img);
+  }, 60_000);
+});
+
 describe('extract_images', () => {
   it('문서 속 그림을 폴더로', async () => {
     const png = await makePng(120, 60);
@@ -152,6 +175,15 @@ describe('extract_images', () => {
     const r = await call('extract_images', { path: hwpx });
     expect(r.count).toBe(1);
     expect(readdirSync(r.output_dir)).toHaveLength(1);
+  });
+
+  it('빈 판(한 색 그림)은 꺼내지 않는다', async () => {
+    const sharp = (await import('sharp')).default;
+    const blank = await sharp({ create: { width: 200, height: 80, channels: 3, background: '#ffffff' } }).png().toBuffer();
+    const hwpx = join(env.work, '빈그림문서.hwpx');
+    writeFileSync(hwpx, Buffer.from(await markdownToHwpx('# 그림\n\n![로고](logo.png)\n\n![빈 판](blank.png)', { images: { 'logo.png': await makePng(120, 60), 'blank.png': blank } })));
+    const r = await call('extract_images', { path: hwpx });
+    expect(r.count).toBe(1);
   });
 
   it('그림 없는 문서는 안내 오류, allow_empty(일괄 처리)면 빈 결과', async () => {

@@ -15,7 +15,8 @@ import { formatOf } from '../files/format.js';
 import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
 
 export async function extractImages(p: { path: string; output_dir?: string; allow_empty?: boolean }, signal?: AbortSignal): Promise<{ output_dir: string; count: number }> {
-  const r = await parseDoc(p.path, { images: true, ocr: 'off', signal });
+  // 빈 판·단색 띠·옅은 바탕 같은 쓸모없는 그림은 꺼내지 않는다
+  const r = await parseDoc(p.path, { images: true, ocr: 'off', dropBlankImages: true, signal });
   const images = r.images ?? [];
   if (!images.length) {
     if (p.allow_empty) return { output_dir: '', count: 0 };

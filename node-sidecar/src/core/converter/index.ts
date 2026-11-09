@@ -31,6 +31,12 @@ export interface ParseDocOptions {
   htmlTables?: boolean;
   /** 원본 표 구조 그대로 (패치·양식 경로) */
   keepLayout?: boolean;
+  /** 그림을 이 형식으로 (브라우저로 그리는 PDF·HTML 은 BMP·TIFF 를 못 그린다). 이름·MIME·바이트가 같이 바뀐다 */
+  imageFormat?: ParseOptions['imageFormat'];
+  /** 거의 한 색인 그림(빈 판·단색 띠·옅은 바탕)을 뺀다 */
+  dropBlankImages?: boolean;
+  /** PDF 그림 블록을 쪽 끝이 아니라 읽는 차례 제자리에 ("flow") */
+  imagePlacement?: ParseOptions['imagePlacement'];
   /** 주면 쪽 진행률을 알림으로 보낸다 */
   progressLabel?: string;
   signal?: AbortSignal;
@@ -105,6 +111,9 @@ export async function parseDoc(path: string, opts: ParseDocOptions = {}): Promis
     plain: opts.plain,
     htmlTables: opts.htmlTables,
     layoutTables: opts.keepLayout ? 'keep' : undefined,
+    imageFormat: opts.imageFormat,
+    dropBlankImages: opts.dropBlankImages,
+    imagePlacement: opts.imagePlacement,
   }, (current, total) => {
     if (label) sendProgress({ current, total, message: `${label} ${current}/${total}쪽` });
   }, signal);
@@ -133,6 +142,9 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
     pages: p.pages,
     ocr: p.ocr,
     images: keepImages,
+    // 마크다운·HTML 은 브라우저·미리보기 창이 그림을 그린다: PNG 로 통일하고 PDF 그림은 읽는 차례 제자리에
+    imageFormat: format === 'md' || format === 'html' ? 'png' : undefined,
+    imagePlacement: 'flow',
     plain: format === 'txt',
     htmlTables: p.html_tables,
     keepLayout: p.keep_layout,
