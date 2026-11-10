@@ -225,8 +225,10 @@ export function PdfScreen({ active }: { active: boolean }) {
         void notifySystem("KorDoc AI: PDF 작업 끝", `그림 ${r.files.length}장을 저장했습니다`);
         return { kind: "images", dir: r.output_dir, count: r.files.length };
       }
+      // 고른 쪽 이름은 지금 고른 것으로 다시 짓는다: 우클릭 메뉴는 고르기를 바꾼 그 자리에서 저장을 불러, 미리 지어 둔 이름은 바뀌기 전 것이다
+      const typedName = opts.name.trim().replace(/\.pdf$/i, "");
       const outputs = kind === "all" ? planAll(b, names.all)
-        : kind === "selected" ? planSelected(b, keys, names.selected)
+        : kind === "selected" ? planSelected(b, keys, selectedName(typedName || boardName(b), b.items, keys))
         : opts.split === "cuts" ? planCuts(b, names.split)
         : planEvery(b, opts.split === "each" ? 1 : opts.every, names.split);
       const r = await rpc("pdf_compose", {
@@ -346,18 +348,18 @@ export function PdfScreen({ active }: { active: boolean }) {
 
   const pickMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const b = boardRef.current;
     setMenu({
       x: r.left, y: r.bottom + 4, label: "고르기", from: "pick", keyboard: e.detail === 0, items: [
-        { label: "모두 고르기", shortcut: "Ctrl+A", onClick: () => setSel(selectKeys(all(), b.items[0]?.key ?? null)) },
+        { label: "모두 고르기", shortcut: "Ctrl+A", onClick: () => setSel(selectKeys(all(), boardRef.current.items[0]?.key ?? null)) },
         { label: "고르기 풀기", shortcut: "Esc", disabled: !sel.keys.size, onClick: () => setSel(NO_SELECTION) },
         SEP,
-        { label: "홀수 쪽", onClick: () => setSel(selectKeys(oddEven(b.items, true))) },
-        { label: "짝수 쪽", onClick: () => setSel(selectKeys(oddEven(b.items, false))) },
+        // 메뉴가 열려 있는 사이 파일이 더 들어올 수 있다 → 누르는 때의 책상으로
+        { label: "홀수 쪽", onClick: () => setSel(selectKeys(oddEven(boardRef.current.items, true))) },
+        { label: "짝수 쪽", onClick: () => setSel(selectKeys(oddEven(boardRef.current.items, false))) },
         { label: "빈 쪽 찾아 고르기", onClick: () => void selectBlank() },
-        { label: "고른 것과 반대로", onClick: () => setSel(selectKeys(invert(b.items, selRef.current))) },
+        { label: "고른 것과 반대로", onClick: () => setSel(selectKeys(invert(boardRef.current.items, selRef.current))) },
         SEP,
-        { label: "쪽 번호로 고르기", icon: <Hash size={14} />, onClick: () => setSpec(positionsOf(b.items, selRef.current.keys)) },
+        { label: "쪽 번호로 고르기", icon: <Hash size={14} />, onClick: () => setSpec(positionsOf(boardRef.current.items, selRef.current.keys)) },
       ],
     });
   };

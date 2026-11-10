@@ -16,7 +16,8 @@ import { parseBytes } from '../converter/index.js';
 import { errorText, parseFailure } from '../errors.js';
 import { formatOf } from '../files/format.js';
 import { ocrModelsReady } from '../system/index.js';
-import { linesFromMarkdown, linesFromOcr, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from './parse.js';
+import { openPdf } from '../render/pdfium.js';
+import { linesFromMarkdown, linesFromOcr, looksRefund, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from './parse.js';
 
 /** PDF 한 파일에서 영수증으로 볼 쪽 수 상한 */
 const MAX_PAGES = 30;
@@ -50,7 +51,17 @@ async function detLongSide(buf: Buffer): Promise<number | undefined> {
   }
 }
 
-export async function readOne(path: string, signal?: AbortSignal): Promise<ReceiptRead[]> {
+/** PDF 쪽 수 (못 세면 0) */
+async function pdfPages(buf: Buffer): Promise<number> {
+  try {
+    const doc = await openPdf(new Uint8Array(buf));
+    try { return doc.getPageCount(); } finally { doc.destroy(); }
+  } catch {
+    return 0;
+  }
+}
+
+export async function readOne(path: string, signal?: AbortSignal, warn?: (message: string) => void): Promise<ReceiptRead[]> {
   const fmt = formatOf(path);
   if (fmt !== 'image' && fmt !== 'pdf') {
     return [{ path, ok: false, error: '영수증은 그림(PNG·JPG·WEBP)이나 PDF만 읽습니다.', fields: {}, items: [], purpose: { value: '', confidence: 0 }, lines: [] }];
@@ -60,6 +71,9 @@ export async function readOne(path: string, signal?: AbortSignal): Promise<Recei
   const buf = await readFile(path);
   signal?.throwIfAborted();
   const longSide = fmt === 'image' ? await detLongSide(buf) : undefined;
+  // 한 파일에서 읽는 쪽 수에는 상한이 있다. 넘는 쪽을 말없이 빼면 지출조서의 건수와 합계가 줄어든 채 저장된다 → 알린다
+  const total = fmt === 'pdf' ? await pdfPages(buf) : 0;
+  if (total > MAX_PAGES) warn?.(`${basename(path)}: ${total}쪽 가운데 앞 ${MAX_PAGES}쪽만 읽었습니다. 뒤쪽 영수증 ${total - MAX_PAGES}쪽은 빠졌으니 PDF를 나눠서 다시 넣으세요.`);
   const r = await parseBytes(buf, {
     filePath: path,
     ocr: ready ? true : false,
@@ -72,10 +86,18 @@ export async function readOne(path: string, signal?: AbortSignal): Promise<Recei
   const emptyError = !ready ? NEEDS_OCR_MODEL : undefined;
   const ocrPages = new Map<number, OcrPageLines>((r.ocrLines ?? []).map((p) => [p.pageNumber, p]));
   const pages = fmt === 'pdf' && r.pages && r.pages.length > 1 ? r.pages : null;
+  // 취소·환불 전표는 금액이 부호 없이 읽힌다 → 말없이 지출에 더해지지 않게 알린다
+  const flagged = (list: ReceiptRead[]): ReceiptRead[] => {
+    for (const one of list) {
+      if (!one.fields.total || !looksRefund(one.lines, one.fields.total.source)) continue;
+      warn?.(`${basename(path)}${one.page ? ` ${one.page}쪽` : ''}: 취소·환불 전표로 보입니다. 금액은 부호 없이 읽었으니 지출조서에 넣을지, 금액을 빼야 하는지 확인하세요.`);
+    }
+    return list;
+  };
   if (!pages) {
     const ocr = [...ocrPages.values()];
-    if (ocr.length && !ocr[0].regionsOnly) return [fromLines(path, ocr.flatMap((p) => linesFromOcr(p)), 'ocr')];
-    return [fromLines(path, linesFromMarkdown(r.markdown), ocr.length ? 'ocr' : 'text', undefined, emptyError)];
+    if (ocr.length && !ocr[0].regionsOnly) return flagged([fromLines(path, ocr.flatMap((p) => linesFromOcr(p)), 'ocr')]);
+    return flagged([fromLines(path, linesFromMarkdown(r.markdown), ocr.length ? 'ocr' : 'text', undefined, emptyError)]);
   }
   // 여러 쪽 PDF: 쪽마다 영수증 한 장 (빈 쪽은 건너뜀)
   const out: ReceiptRead[] = [];
@@ -84,7 +106,7 @@ export async function readOne(path: string, signal?: AbortSignal): Promise<Recei
     const lines = o && !o.regionsOnly ? linesFromOcr(o) : linesFromMarkdown(p.markdown);
     if (lines.length) out.push(fromLines(path, lines, o ? 'ocr' : 'text', p.pageNumber));
   }
-  return out.length ? out : [fromLines(path, [], 'text', undefined, emptyError)];
+  return out.length ? flagged(out) : [fromLines(path, [], 'text', undefined, emptyError)];
 }
 
 const AI_SYSTEM = `당신은 공공기관 회계 담당자입니다. 영수증마다 지출조서 적요(용도) 한 줄과 품목 이름 정리를 JSON 으로만 답하세요.
@@ -127,7 +149,7 @@ export async function receiptRead(p: { paths: string[]; ai?: boolean }, signal: 
     signal.throwIfAborted();
     sendProgress({ current: i + 1, total: p.paths.length, message: `${basename(path)} 읽는 중 (${i + 1}/${p.paths.length})` });
     try {
-      receipts.push(...await readOne(path, signal));
+      receipts.push(...await readOne(path, signal, (m) => warnings.push(m)));
     } catch (err) {
       if (signal.aborted) throw err;
       receipts.push({ path, ok: false, error: errorText(err), fields: {}, items: [], purpose: { value: '', confidence: 0 }, lines: [] });

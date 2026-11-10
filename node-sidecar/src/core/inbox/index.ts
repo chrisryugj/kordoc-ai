@@ -36,8 +36,13 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 
 async function load(): Promise<Stored[]> {
   if (!existsSync(file())) return [];
+  // 잠깐 못 읽은 것(백신이 쥠·바꿔 넣는 중)은 깨진 것이 아니다: 그대로 알린다. 여기서 "깨진 파일"로 옮기고 빈 목록으로 시작하면
+  // 목록 조회 한 번에 받은 공문의 상태·메모·고친 기한이 모두 사라진다
+  const text = await readFile(file(), 'utf-8').catch((err: NodeJS.ErrnoException) => {
+    throw new Error(`받은 공문 목록 파일을 읽지 못했습니다(${err.code ?? err}). 잠시 뒤 다시 시도하세요.`);
+  });
   try {
-    const j = JSON.parse(await readFile(file(), 'utf-8')) as { items?: Stored[] };
+    const j = JSON.parse(text) as { items?: Stored[] };
     return Array.isArray(j.items) ? j.items.filter((x) => x && typeof x.id === 'string' && typeof x.path === 'string') : [];
   } catch (err) {
     // 깨진 파일은 옆에 남겨 두고 새로 시작 (다음 저장이 덮어쓰지 않게)

@@ -17,6 +17,10 @@
 | 3 | 설치 폴더의 `policy.json`: `node` 폴더가 들어 있는 폴더 (Windows 는 `kordoc-ai.exe` 가 있는 폴더, macOS 는 `KorDoc AI.app/Contents/Resources/`) | 설치 파일과 함께 묶어 배포할 때 |
 
 - 고정(`locked`)을 지키려면 2번 위치에 두고 사용자에게 쓰기 권한을 주지 않음. 1번 환경변수는 다음 줄처럼 따로 막아야 함.
+- **2번 위치의 파일은 소유자가 관리자일 때만 적용함.** Windows 는 소유자가 Administrators·SYSTEM 이어야 하고, macOS 는 root 여야 함. `%ProgramData%` 는 일반 사용자도 폴더와 파일을 만들 수 있어서, 소유자를 보지 않으면 여럿이 쓰는 PC 에서 한 사용자가 만든 정책 파일이 다른 사용자에게 적용됨.
+  - 배포 도구(SCCM·그룹 정책 시작 스크립트)는 SYSTEM 으로 돌므로 그대로 됨. 관리자 권한 명령 프롬프트·PowerShell 에서 복사해도 됨.
+  - 탐색기로 끌어다 놓으면 소유자가 그 사용자 계정이 되어 적용되지 않음. 이때 앱 설정 화면에 "파일 소유자가 관리자가 아니어서 적용하지 않았습니다"가 뜸. 관리자 권한 명령 프롬프트에서 `icacls "C:\ProgramData\KorDoc AI\policy.json" /setowner Administrators` 를 실행함.
+  - 소유자 확인에는 PowerShell 을 씀. PowerShell 실행이 막힌 PC 에서는 확인하지 못해 2번 위치의 파일을 적용하지 않으므로, 그런 환경은 3번 위치(MSI 로 `Program Files` 에 설치한 폴더)를 씀.
 - 1번(환경변수)이 2번보다 앞이므로, 사용자가 자기 계정 환경변수로 다른 파일을 가리키면 기관 파일 대신 그 파일을 읽음. 이 점을 막아야 하는 환경이면 사용자 환경변수 변경을 그룹 정책으로 제한함.
 - Windows 사용자 단위 설치(NSIS)는 설치 폴더를 사용자가 고칠 수 있으므로 3번 위치의 고정은 사용자가 지울 수 있음.
 - macOS 는 앱 묶음(.app) 안을 고치면 서명 검사에 걸릴 수 있어 2번 위치를 씀.
@@ -129,7 +133,8 @@ if ($p.ExitCode -ne 0) { Write-Error "우클릭 메뉴를 넣지 못했습니다
 Test-Path 'HKCU:\Software\Classes\SystemFileAssociations\.hwpx\shell\KorDoc'   # True 면 들어 있음
 ```
 
-- 지울 때: 사용자 단위 설치(NSIS)의 제거 프로그램은 제거하는 사용자의 메뉴를 함께 지움. MSI 제거는 우클릭 메뉴를 지우지 않음(제거하는 사용자의 것도 남음). 남은 메뉴를 누르면 "프로그램을 찾을 수 없음"이 뜨므로, MSI 로 깔았으면 제거 전에 사용자마다 `--shell-menu uninstall` 을 실행함. 이미 제거했으면 `reg delete "HKCU\Software\Classes\SystemFileAssociations\.hwpx\shell\KorDoc" /f` 처럼 확장자마다 `KorDoc` 키를 지우거나, 앱을 다시 깔아 설정 › 저장과 연결에서 메뉴를 끈 뒤 제거함.
+- 지울 때: 사용자 단위 설치(NSIS)의 제거 프로그램은 제거하는 사용자의 메뉴를 함께 지움. MSI 제거는 우클릭 메뉴를 지우지 않음(제거하는 사용자의 것도 남음). 남은 메뉴를 누르면 "프로그램을 찾을 수 없음"이 뜨므로, MSI 로 깔았으면 제거 전에 사용자마다 `--shell-menu uninstall` 을 실행함. 이미 제거했으면 저장소의 `docs/remove-explorer-menu.reg` 를 그 사용자로 실행함(`reg import remove-explorer-menu.reg`, 관리자 권한 필요 없음. 메뉴 키만 지움).
+- MSI 제거에 메뉴 지우기를 넣지 않은 까닭: 메뉴는 사용자마다(HKCU) 들어가는데 MSI 일괄 제거는 시스템 계정으로 돌아 사용자 메뉴에 닿지 않고, 제거 단계에 넣으면 MSI 로 판을 올릴 때마다(옛 판 제거 → 새 판 설치) 켜 둔 메뉴가 사라짐.
 - macOS 는 Finder 빠른 동작(`~/Library/Services/KorDoc - … .workflow`)으로 들어가고, 같은 명령을 `"/Applications/KorDoc AI.app/Contents/MacOS/kordoc-ai" --shell-menu install` 로 실행함.
 
 ## 공유 폴더 (네트워크 경로)

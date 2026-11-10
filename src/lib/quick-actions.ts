@@ -99,9 +99,11 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
     // 폴더를 합치면 결과는 폴더 밖(옆)에: 다시 합칠 때 결과가 섞이지 않게
     const dir = env.outDir || (folder ? dirName(folder) : dirName(list[0].path));
     const name = folder ? `${baseName(folder)}_합본.${ext}` : `${stem(list[0].name)}_외${list.length - 1}건_합본.${ext}`;
-    const r = await rpc("merge_files", { files: list.map((f) => f.path), mode: "native", output_path: joinPath(dir, name) }, { signal: env.signal }) as { output_path: string; file_count?: number; failed_files?: string[] };
+    const r = await rpc("merge_files", { files: list.map((f) => f.path), mode: "native", output_path: joinPath(dir, name) }, { signal: env.signal }) as { output_path: string; file_count?: number; failed_files?: string[]; warnings?: string[] };
     const failed = (r.failed_files ?? []).map((p) => ({ path: p, error: "읽지 못함" }));
-    return { ok: list.length - failed.length, failed, message: `${baseName(r.output_path)} (${list.length - failed.length}개 ${action === "hwpmerge" ? "문서" : "파일"})${failed.length ? `. ${failed.length}개는 넣지 못했습니다` : ""}` };
+    // 합본으로 옮기지 못한 것(그림·메모·표 서식)이 있으면 알린다 (말없이 빠지면 합본만 보고 내보낸다)
+    const notes = r.warnings?.length ? `. ${r.warnings.join(" ")}` : "";
+    return { ok: list.length - failed.length, failed, message: `${baseName(r.output_path)} (${list.length - failed.length}개 ${action === "hwpmerge" ? "문서" : "파일"})${failed.length ? `. ${failed.length}개는 넣지 못했습니다` : ""}${notes}` };
   }
 
   // 받은 공문을 접수함에: 보낸 곳·문서번호·요청 기한을 뽑아 둔다

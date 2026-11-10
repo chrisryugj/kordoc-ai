@@ -51,7 +51,11 @@ export type LoginReport = Omit<SubscriptionStatus, 'path'>;
 export interface CheckOptions { signal?: AbortSignal; baseEnv?: NodeJS.ProcessEnv; spawn?: SpawnFn }
 
 const cache = new Map<string, { at: number; report: LoginReport }>();
-export function forgetLogins(): void { cache.clear(); }
+/** 프로그램마다 마지막으로 확인한 결과 (안 된 것도). 화면의 "AI 연결됨" 표시가 이것을 본다:
+ *  설정만 보고 연결됐다고 하면, 로그아웃된 채 첫 요청을 보내고서야 안 된다는 것을 알게 된다 */
+const last = new Map<SubscriptionProviderId, LoginReport>();
+export function lastLogin(provider: SubscriptionProviderId): LoginReport | undefined { return last.get(provider); }
+export function forgetLogins(): void { cache.clear(); last.clear(); }
 
 const limits = (provider: SubscriptionProviderId, o: CheckOptions) => {
   const ms = STATUS_TIMEOUT_MS[provider];
@@ -71,7 +75,8 @@ async function readLogin(provider: SubscriptionProviderId, program: Program, o: 
 /** 설치·로그인 상태 (프로그램을 두 번 띄운다: 버전, 로그인) */
 export async function checkLogin(provider: SubscriptionProviderId, program: Program | null, o: CheckOptions = {}): Promise<LoginReport> {
   const base = { provider, login_command: LOGIN_COMMAND[provider] };
-  if (!program) return { ...base, state: 'not-installed', message: new SubscriptionError('not-installed', provider).message };
+  const note = (r: LoginReport) => { last.set(provider, r); return r; };
+  if (!program) return note({ ...base, state: 'not-installed', message: new SubscriptionError('not-installed', provider).message });
   const key = JSON.stringify([provider, program.command, program.lead, program.env ?? {}]);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.report;
@@ -95,10 +100,10 @@ export async function checkLogin(provider: SubscriptionProviderId, program: Prog
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError' && o.signal?.aborted) throw e;
     const kind = e instanceof SubscriptionError ? e.kind : 'failed';
-    return { ...base, state: kind === 'not-installed' ? 'not-installed' : 'error', message: e instanceof SubscriptionError ? e.message : new SubscriptionError('failed', provider, { why: '상태 확인이 끝나지 않음' }).message };
+    return note({ ...base, state: kind === 'not-installed' ? 'not-installed' : 'error', message: e instanceof SubscriptionError ? e.message : new SubscriptionError('failed', provider, { why: '상태 확인이 끝나지 않음' }).message });
   }
   if (report.state === 'ready' || report.state === 'unknown-login') cache.set(key, { at: Date.now(), report });
-  return report;
+  return note(report);
 }
 
 /** 보내기 직전: 구독(또는 모르는 방식)으로 로그인돼 있어야 한다 */

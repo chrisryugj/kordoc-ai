@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { amountsIn, brnValid, dateIn, findItems, linesFromMarkdown, linesFromOcr, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from '../src/core/receipt/parse.js';
+import { amountsIn, brnValid, dateIn, findItems, linesFromMarkdown, linesFromOcr, looksRefund, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from '../src/core/receipt/parse.js';
 import { dateText } from '../src/core/receipt/report.js';
 import { fieldOf } from '../src/core/receipt/template.js';
 import { ocrModelsReady } from '../src/core/system/index.js';
@@ -102,6 +102,18 @@ describe('값 뽑기 규칙', () => {
     expect(dateText('10월 말')).toBe('10월 말');
     expect(['지출일자', '사용 일자', '거래처(상호)', '지출금액(원)', '사용내역', '결제 수단', '사업자 등록번호', '확인'].map(fieldOf))
       .toEqual(['date', 'date', 'vendor', 'amount', 'purpose', 'payment', 'brn', '']);
+    // '번호'가 들었다고 연번 칸이 아니다 (연번이 전화번호·승인번호 칸에 들어가면 안 된다)
+    expect(['연번', '번호', '순번', '카드 승인번호', '전화번호', '계좌번호', '문서번호'].map(fieldOf)).toEqual(['seq', 'seq', 'seq', 'approval', '', '', '']);
+  });
+
+  it('취소·환불 전표: 금액은 읽되 사람이 보게 낮은 믿음으로. 안내 글의 "환불"만으로는 취소 전표로 보지 않는다', () => {
+    const cancelled = parseReceipt(L('가온문구', '승인취소', '합계 -11,000', '공급가액 10,000', '부가세 1,000'));
+    expect(cancelled.fields.total?.value).toBe('11000');
+    expect(cancelled.fields.total!.confidence).toBeLessThan(0.8);
+    expect(looksRefund(['가온문구', '합계 △11,000'], '합계 △11,000')).toBe(true);
+    expect(looksRefund(['가온문구', '합계 11,000', '교환·환불은 7일 이내 영수증 지참'], '합계 11,000')).toBe(false);
+    const normal = parseReceipt(L('가온문구', '합계 11,000', '공급가액 10,000', '부가세 1,000', '교환·환불은 7일 이내 영수증 지참'));
+    expect(normal.fields.total!.confidence).toBeGreaterThanOrEqual(0.8);
   });
 
   it('이름표와 금액이 한 조각("합계 18,000")이어도 그 줄의 금액 (다음 줄 받은금액을 합계로 잡지 않는다)', () => {

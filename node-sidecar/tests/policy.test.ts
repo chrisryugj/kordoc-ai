@@ -289,3 +289,34 @@ describe('설정 파일이 깨졌을 때', () => {
     }
   });
 });
+
+describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때만 믿는다', () => {
+  it('소유자 판정: Administrators·SYSTEM·TrustedInstaller 만', async () => {
+    const { adminOwned } = await import('../src/infra/policy.js');
+    expect(adminOwned('O:BAG:SYD:(A;;FA;;;BA)')).toBe(true);
+    expect(adminOwned('O:SYG:SYD:AI(A;ID;FA;;;SY)')).toBe(true);
+    expect(adminOwned('O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464G:SY')).toBe(true);
+    // 일반 사용자 계정이 만든 파일
+    expect(adminOwned('O:S-1-5-21-4064884458-1991446308-2420141000-1001G:S-1-5-21-1-2-3-513D:AI')).toBe(false);
+    expect(adminOwned('O:BUG:BUD:')).toBe(false);
+    expect(adminOwned('')).toBe(false);
+  });
+
+  it('소유자를 읽지 못하면 믿지 않고, 같은 파일은 한 번만 확인한다', async () => {
+    const { machinePolicyTrusted } = await import('../src/infra/policy.js');
+    const file = join(root, `owner-${++n}.json`);
+    writeFileSync(file, '{"version":1}');
+    let asked = 0;
+    const admin = () => { asked++; return 'O:BAG:SYD:'; };
+    expect(machinePolicyTrusted(file, 'win32', admin)).toBe(true);
+    expect(machinePolicyTrusted(file, 'win32', admin)).toBe(true);
+    expect(asked).toBe(1);
+    const other = join(root, `owner-${++n}.json`);
+    writeFileSync(other, '{"version":1}');
+    expect(machinePolicyTrusted(other, 'win32', () => 'O:S-1-5-21-1-2-3-1001G:BU')).toBe(false);
+    const third = join(root, `owner-${++n}.json`);
+    writeFileSync(third, '{"version":1}');
+    expect(machinePolicyTrusted(third, 'win32', () => { throw new Error('막힘'); })).toBe(false);
+    expect(machinePolicyTrusted(join(root, '없는 파일.json'), 'win32', admin)).toBe(false);
+  });
+});

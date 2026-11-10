@@ -43,7 +43,8 @@ export function fieldOf(header: string): ReceiptColumn | '' {
   const k = headerKey(header);
   if (!k) return '';
   for (const [f, names] of SYNONYMS) if (names.includes(k)) return f;
-  for (const [f, names] of SYNONYMS) if (names.some((n) => n.length >= 2 && k.includes(n))) return f;
+  // 포함으로 맞출 때 '번호'만으로는 연번이 아니다 (카드승인번호·전화번호·계좌번호 칸에 연번이 들어간다)
+  for (const [f, names] of SYNONYMS) if (names.some((n) => n.length >= 2 && n !== '번호' && n !== 'no' && k.includes(n))) return f;
   return '';
 }
 

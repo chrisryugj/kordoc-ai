@@ -6,7 +6,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BookOpen, ClipboardCheck, EyeOff, ExternalLink, FilePen, FileSearch, FileStack, FolderOpen, GitCompareArrows, History, Loader2, Table2, Wrench } from "lucide-react";
 import { useApp } from "../../state/app";
-import { rpc } from "../../lib/rpc";
+import { invokeCmd, rpc } from "../../lib/rpc";
 import { baseName, dirName, formatOf } from "../../lib/format";
 import type { AgentTurn } from "../../hooks/useWorkAgent";
 import { Button } from "../ui/Button";
@@ -27,6 +27,8 @@ const ICON: Array<[RegExp, ReactNode]> = [
 ];
 const iconOf = (tool: string) => ICON.find(([re]) => re.test(tool))?.[1] ?? <Wrench size={15} />;
 const HANGUL = new Set(["hwp", "hwpx"]);
+/** 탐색기 우클릭 문서 카드 창 */
+const IN_CARD = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("card");
 /** 모델 답의 마크다운 표시(굵게·글자 상자·머리 기호)는 걷어 낸다: 말풍선은 그냥 글 */
 const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/^#{1,6}\s+/gm, "");
 const LAYOUT = new Set(["hwp", "hwpx", "pdf"]);
@@ -62,7 +64,8 @@ export function ResultCard({ path }: { path: string }) {
         <span className="kd-result-meta" title={path}>원본은 그대로 · 새 파일로 {baseName(dirName(path))} 폴더에</span>
         <span className="kd-result-acts">
           <Button size="sm" variant="secondary" onClick={() => void rpc("open_file", { path }).catch(fail)}><ExternalLink size={13} /> 열기</Button>
-          {HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => startCreate({ path })}><FilePen size={13} /> 편집기에서 고치기</Button>}
+          {/* 문서 카드 창에는 편집기가 없다 → 본창으로 넘긴다 (카드 안의 startCreate 는 아무 화면도 바꾸지 못한다) */}
+          {HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => (IN_CARD ? void invokeCmd("card_handoff", { action: "edit", paths: [path] }).catch(fail) : startCreate({ path }))}><FilePen size={13} /> 편집기에서 고치기</Button>}
           <Button size="sm" variant="ghost" onClick={() => void rpc("reveal_file", { path }).catch(fail)}><FolderOpen size={13} /> 폴더</Button>
         </span>
       </div>

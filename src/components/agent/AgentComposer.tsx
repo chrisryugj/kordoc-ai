@@ -10,7 +10,7 @@ import { useApp } from "../../state/app";
 import { pickFiles, pickFolder } from "../../lib/native";
 import { baseName, formatOf } from "../../lib/format";
 import { Button } from "../ui/Button";
-import { AiWhere } from "../common/AiGate";
+import { AiWhere, subscriptionProblem } from "../common/AiGate";
 import { FormatBadge } from "../common/FormatBadge";
 import { useFileMenu } from "../common/file-menu";
 import { AiQuickSetup } from "./AiQuickSetup";
@@ -41,7 +41,8 @@ interface Props {
 }
 
 export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestions = [], placeholder, dropName, autoFocus, extra, locked = false, offHint, gallery = false }: Props) {
-  const { ai, registerDrop, dragTarget, toast } = useApp();
+  const { ai, registerDrop, dragTarget, toast, openSettings } = useApp();
+  const problem = subscriptionProblem(ai);
   const [text, setText] = useState("");
   const [galleryOpen, setGalleryOpen] = useState(gallery);
   // 대화 중에 "새 대화"를 누르면(gallery 가 다시 참) 목록을 다시 펼친다
@@ -129,7 +130,14 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
             : <Button onClick={() => send()} disabled={!text.trim() || !aiOn || locked} data-tip={aiOn ? "Enter로도 보냅니다 (줄바꿈은 Shift+Enter)" : "AI를 켜면 보낼 수 있습니다"}><Send size={14} /> 보내기</Button>}
         </div>
       </div>
-      {!aiOn && (setupOpen ? <AiQuickSetup /> : (
+      {!aiOn && (problem ? (
+        // 구독 계정을 켜 뒀는데 못 쓰는 상태: 무엇을 고칠지 알리고 설정으로
+        <div className="kd-aioff" role="status">
+          <Sparkles size={15} />
+          <span>{problem}</span>
+          <Button size="sm" variant="secondary" onClick={() => openSettings("set-ai")}>AI 연결 열기</Button>
+        </div>
+      ) : setupOpen ? <AiQuickSetup /> : (
         <div className="kd-aioff">
           <Sparkles size={15} />
           <span>AI가 꺼져 있습니다.{offHint ? ` ${offHint}` : ""}</span>

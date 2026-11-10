@@ -138,7 +138,8 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
     json: opts.json || Boolean(opts.schema),
     schema: opts.schema,
     signal: AbortSignal.any([opts.signal, guard.signal]),
-    onToken: opts.stream === false ? undefined : (t) => { count(t); if (!over) sendToken(t); },
+    // 화면으로 흘려보내지 않는 호출(stream: false)도 받는 글자는 센다: 끝난 뒤에만 보면 되풀이하는 답을 끝까지 기다리게 된다
+    onToken: (t) => { count(t); if (!over && opts.stream !== false) sendToken(t); },
   };
   let text: string;
   try {

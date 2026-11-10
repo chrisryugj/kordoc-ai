@@ -9,7 +9,7 @@ import { TipLayer } from "./components/ui/TipLayer";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { useToast } from "./hooks/useToast";
 import { useDeepLink, isLinkAction, type DeepLinkPayload, type LinkAction } from "./hooks/useDeepLink";
-import { useQuickActions } from "./hooks/useQuickActions";
+import { quickArriving, useQuickActions } from "./hooks/useQuickActions";
 import { isQuick } from "./lib/quick-actions";
 import { installRadioKeys } from "./lib/radio-keys";
 import { AppProvider, useApp, type Screen } from "./state/app";
@@ -140,11 +140,14 @@ function Shell() {
     else if (action === "pdfwork") startPdf({ paths });
     else if (action === "compare") {
       // 탐색기는 고른 파일을 제멋대로의 순서로 넘긴다 → 먼저 고친 파일이 고치기 전 문서다
-      const order = await rpc("scan_paths", { paths }).then((r) => [...r.files].sort((a, b) => (a.modified ?? 0) - (b.modified ?? 0)).map((f) => f.path), () => paths);
-      const [before, after] = order.length >= 2 ? [order[0], order[order.length - 1]] : paths;
+      const order = await rpc("scan_paths", { paths }).then((r) => [...r.files].sort((a, b) => (a.modified ?? 0) - (b.modified ?? 0)).map((f) => f.path), () => [] as string[]);
+      // 고친 시각을 다 알아냈을 때만 그 차례로 (못 읽었거나 걸러진 파일이 있으면 넘겨받은 차례 그대로, 알림도 그에 맞게)
+      const sorted = order.length === paths.length && order.length >= 2;
+      const [before, after] = sorted ? [order[0], order[order.length - 1]] : paths;
       startCompare(before, after);
-      if (paths.length > 2) toast(`문서 비교는 두 개씩 합니다. 가장 먼저 고친 것과 가장 나중에 고친 것을 놓았습니다(${paths.length}개 중).`, "info");
-      else if (paths.length === 2) toast("먼저 고친 문서를 고치기 전으로 놓았습니다. 반대면 화면에서 서로 바꾸세요.", "info");
+      if (sorted && paths.length > 2) toast(`문서 비교는 두 개씩 합니다. 가장 먼저 고친 것과 가장 나중에 고친 것을 놓았습니다(${paths.length}개 중).`, "info");
+      else if (sorted) toast("먼저 고친 문서를 고치기 전으로 놓았습니다. 반대면 화면에서 서로 바꾸세요.", "info");
+      else if (paths.length > 2) toast("문서 비교는 두 개씩 합니다. 앞의 두 문서를 놓았습니다.", "info");
     } else if (action === "collect" && outside) {
       startBatch({ paths, task: "collect" });
       toast(`${holdWhy} 시작을 누르면 시작합니다.`, "info");
@@ -159,6 +162,8 @@ function Shell() {
 
   const onLink = useCallback(async (p: DeepLinkPayload) => {
     if (p.type === "file") { void runAction(p.action, [p.path]); return; }
+    // 목록을 읽는 사이 앞 빠른 동작이 끝나도 "다 끝났다"고 알리지 않게 표시해 둔다 (알리면 창 없이 켜진 앱이 이 동작을 시작하자마자 꺼진다)
+    const arrived = quickArriving();
     try {
       const m = await rpc("read_batch_manifest", { path: p.manifestPath });
       void runAction(isLinkAction(m.action) ? m.action : "open", m.files);
@@ -166,6 +171,8 @@ function Shell() {
       // 창 없이 켜진 앱이면 알림 글이 안 보인다: 창을 연다
       void invokeCmd("shell_show").catch(() => undefined);
       toast(`넘겨받은 파일 목록을 읽지 못했습니다: ${errorText(e)}`, "error");
+    } finally {
+      arrived();
     }
   }, [runAction, toast]);
   useDeepLink(onLink, openDocs);

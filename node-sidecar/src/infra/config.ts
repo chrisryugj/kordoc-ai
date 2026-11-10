@@ -155,13 +155,25 @@ export function reload(): Settings {
   loadedAt = fileStamp();
   let loaded: unknown = {};
   if (existsSync(p)) {
+    let text: string | null = null;
     try {
-      loaded = JSON.parse(readFileSync(p, 'utf-8'));
+      text = readFileSync(p, 'utf-8');
     } catch (err) {
-      // 깨진 파일을 그대로 두면 다음 저장 한 번에 AI 키·기관 정보가 기본값으로 덮인다 → 옆으로 옮겨 남긴다
-      const kept = `${p}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-      try { renameSync(p, kept); } catch { /* 옮기지 못해도 기본값으로 연다 */ }
-      logger.error(`[config] 설정 파일이 깨져 기본값으로 엽니다 (${basename(kept)} 에 남김): ${err}`);
+      // 잠깐 못 읽은 것(다른 프로세스가 바꿔 넣는 중·백신이 쥠)은 깨진 것이 아니다. 여기서 파일을 옮기면 앱의 설정이 통째로 사라진다
+      // → 앞서 읽은 값이 있으면 그대로 쓰고(다음 확인 때 다시 읽게 표시), 처음이면 이번만 기본값으로 연다
+      logger.warn(`[config] 설정 파일을 읽지 못했습니다(파일은 그대로 둠): ${(err as NodeJS.ErrnoException).code ?? err}`);
+      loadedAt = -1;
+      if (cached) return cached;
+    }
+    if (text !== null) {
+      try {
+        loaded = JSON.parse(text);
+      } catch (err) {
+        // 내용이 깨진 파일을 그대로 두면 다음 저장 한 번에 AI 키·기관 정보가 기본값으로 덮인다 → 옆으로 옮겨 남긴다
+        const kept = `${p}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        try { renameSync(p, kept); } catch { /* 옮기지 못해도 기본값으로 연다 */ }
+        logger.error(`[config] 설정 파일이 깨져 기본값으로 엽니다 (${basename(kept)} 에 남김): ${err}`);
+      }
     }
   } else {
     loaded = migrateV1() ?? {};

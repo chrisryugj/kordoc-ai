@@ -149,6 +149,7 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
     try {
       l.skill ??= await createWorkSkill({
         files: () => l.body.paths,
+        said: () => l.body.turns.map((t) => t.request),
         outputs: l.body.turns.flatMap((t) => t.files),
         onFiles: (f) => patch((t) => ({ ...t, files: [...new Set([...t.files, ...f])] }), true),
         onSaved: (m) => patch((t) => ({ ...t, saved: t.saved + m })),

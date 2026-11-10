@@ -67,11 +67,16 @@ export function blindSpots(warnings: readonly string[] = []): { count: number; n
   const objects = num(/삽입 개체 (\d+)개/);
   const history = warnings.some((w) => /문서 이력/.test(w));
   const preview = warnings.some((w) => /미리보기 이미지.*지우지 못했/.test(w));
+  // 파일 안의 빈 자리(옛 판의 글 조각이 남을 수 있다)를 못 비웠거나, 무엇인지 모르는 부품을 검사하지 못했다
+  const slack = warnings.some((w) => /미할당 섹터.*비우지 못했/.test(w));
+  const unknown = warnings.some((w) => /알 수 없는 바이너리.*검사하지 못했/.test(w));
   const notes: string[] = [];
   if (objects) notes.push(`문서 안 개체 ${objects}개(다른 프로그램으로 넣은 문서·그림)는 가리지 못했습니다.`);
   if (history) notes.push('문서 이력이 들어 있습니다. 이전 판의 글은 조각 단위로만 검사했습니다.');
   if (preview) notes.push('첫 쪽 미리보기 그림을 지우지 못했습니다. 한글에서 다시 저장하면 새로 만들어집니다.');
-  return { count: objects + (history ? 1 : 0) + (preview ? 1 : 0), notes, pictures };
+  if (slack) notes.push('파일 안의 빈 자리를 비우지 못했습니다. 고치기 전 글 조각이 남아 있을 수 있으니, 한글에서 다른 이름으로 저장한 뒤 내보내세요.');
+  if (unknown) notes.push('파일 안에 무엇인지 알 수 없는 부품이 있어 검사하지 못했습니다.');
+  return { count: objects + (history ? 1 : 0) + (preview ? 1 : 0) + (slack ? 1 : 0) + (unknown ? 1 : 0), notes, pictures };
 }
 
 const norm = (s: string) => s.replace(/[\s\-–.()·,]/g, '').toLowerCase();
@@ -149,6 +154,10 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
   const report = parseCliJson<CliReport>(await runKordocCli(args, { signal }), '개인정보를 가리지 못했습니다.');
   let listed = report.fileHits.length ? report.fileHits : report.hits;
   let keptCount = 0;
+  const more: string[] = [];
+  let leftover = 0;
+  let pdfPath: string | undefined;
+  try {
   if (p.keep?.length) {
     // 되살리기 패치는 keep 출력으로 (틀 표 문서에서 기본 출력은 엔진이 거부). 원본·사본을 같은 출력으로 맞춘다
     const orig = await parse(await readFile(p.path), { layoutTables: 'keep' });
@@ -161,15 +170,16 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
         const masked = await parse(await readFile(report.output), { layoutTables: 'keep' });
         if (masked.success) {
           let md = masked.markdown;
-          for (const [form, f] of forms) md = md.split(form).join(f.orig);
+          // 가린 모양이 더 긴 가림의 앞부분과 같을 수 있다: 남길 이름 "김민"(김●)을 되살리다 다른 사람의 "김●●"까지 "김민●"로 바꾸면
+          // 가린 글에 엉뚱한 글자가 들어간다 → 앞뒤가 가림 글자가 아닌 자리만 되살린다
+          const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          for (const [form, f] of forms) md = md.replace(new RegExp(`(?<!${esc(maskChar)})${esc(form)}(?!${esc(maskChar)})`, 'g'), () => f.orig);
           if (md !== masked.markdown) await patchInPlace(report.output, md, format);
         }
       }
     }
   }
   // kordoc 주소 규칙이 놓친 도로명·지번 주소(rules.ts): 가린 사본에서 마저 가리고(미리 찾아보기면 원본에서 세기만) 목록에 더한다
-  const more: string[] = [];
-  let leftover = 0;
   if (rules.includes('address')) {
     const target = report.output ?? p.path;
     const isMd = target.toLowerCase().endsWith('.md');
@@ -198,9 +208,20 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
       }
     }
   }
-  let pdfPath: string | undefined;
+  } catch (err) {
+    // 사본을 만든 뒤의 손질(남길 글 되살리기·주소 마저 가리기)이 실패하면 반쯤 가린 사본이나, 원본을 복사만 한 사본이
+    // "가림" 이름으로 폴더에 남는다 → 그 파일을 지우고 실패를 알린다 (가리지 않은 파일을 가린 것으로 알고 내보내지 않게)
+    if (report.output && !p.dry_run) await rm(report.output, { force: true }).catch(() => undefined);
+    throw err;
+  }
   if (report.output && p.also_pdf && !report.output.toLowerCase().endsWith('.md')) {
-    pdfPath = (await exportPdf({ path: report.output, output_path: report.output.replace(/\.(hwpx|hwp)$/i, '.pdf') }, signal)).output_path;
+    // PDF 를 못 만들어도 가린 한글 사본은 온전하다 → 그것까지 버리지 않고 알리기만 한다
+    try {
+      pdfPath = (await exportPdf({ path: report.output, output_path: report.output.replace(/\.(hwpx|hwp)$/i, '.pdf') }, signal)).output_path;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      more.push(`PDF로는 저장하지 못했습니다: ${errorText(err)}`);
+    }
   }
   const blind = blindSpots(report.warnings);
   // 엔진이 삽입 그림이 있다고 알리면 그림 속 글자를 읽어 본다 (엔진은 화소를 보지 않는다). 걸리는 글이 없으면 조용히
@@ -227,7 +248,8 @@ async function redactPdfLike(p: RedactParams, rules: readonly RedactRule[], stem
   const bytes = formatOf(p.path) === 'image' ? await imageToPdf(raw) : raw;
   const r = await redactPdf(bytes, { rules, keep: keepMatcher(p.keep), dryRun: p.dry_run, signal });
   let outPath: string | undefined;
-  if (!p.dry_run && r.pdf && r.hits.length) {
+  // 다시 읽어 마저 칠한 곳만 있어도(처음 읽기에서는 0곳) 가린 사본을 만든다: 안 만들면 칠했다고 알리고 파일은 없다
+  if (!p.dry_run && r.pdf && (r.hits.length || r.repainted)) {
     outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.pdf` });
     await writeFile(outPath, r.pdf);
   }

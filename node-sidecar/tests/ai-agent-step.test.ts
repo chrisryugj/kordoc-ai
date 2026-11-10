@@ -102,3 +102,28 @@ describe('fitMessages', () => {
     expect(msgs[0].content).toBe('세 번 읽어');
   });
 });
+
+describe('agentStep: 형식이 깨진 답', () => {
+  const BROKEN = '{"say": "고치겠습니다", "calls": [{"tool": "replace_text", "args": {"find": "가';
+  const one = { system: '', tools, events: [{ role: 'user' as const, text: '가를 나로' }] };
+
+  it('JSON 을 쓰다 끊긴 답은 한 번 다시 받는다', async () => {
+    let n = 0;
+    let second = '';
+    reply = (b) => {
+      if (n++ === 0) return BROKEN;
+      second = lastUser(b);
+      return JSON.stringify({ say: '고쳤습니다', calls: [{ tool: 'replace_text', args: { find: '가', replace: '나' } }] });
+    };
+    const r = await agentStep(one, signal());
+    expect(n).toBe(2);
+    expect(second).toContain('JSON 형식이 깨져');
+    expect(r.text).toBe('고쳤습니다');
+    expect(r.calls).toHaveLength(1);
+  });
+
+  it('다시 받아도 깨져 있으면 깨진 글을 내보이지 않고 알린다', async () => {
+    reply = () => BROKEN;
+    await expect(agentStep(one, signal())).rejects.toThrow(/형식이 깨져 읽지 못했습니다/);
+  });
+});

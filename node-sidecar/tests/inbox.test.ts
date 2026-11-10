@@ -262,3 +262,13 @@ describe('한글 공문 속 그림 글자 (OCR 모델이 있을 때)', () => {
     await call('inbox_remove', { id: r.items[0].id });
   }, 60_000);
 });
+
+describe('기한 날짜 읽기', () => {
+  it('연도 없는 줄표 숫자는 날짜가 아니다 (서식 번호를 기한으로 읽지 않는다). 연도가 있으면 줄표 날짜도 읽는다', async () => {
+    const { untilDates } = await import('../src/core/inbox/dates.js');
+    expect(untilDates('서식 2-1부터 2-3까지 작성하여 제출', '2026-10-01')).toEqual([]);
+    expect(untilDates('2026-10-23까지 제출', '2026-10-01')).toEqual(['2026-10-23']);
+    expect(untilDates('10. 23.까지 제출', '2026-10-01')).toEqual(['2026-10-23']);
+    expect(untilDates('10월 23일까지 제출', '2026-10-01')).toEqual(['2026-10-23']);
+  });
+});

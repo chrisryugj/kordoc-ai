@@ -10,6 +10,7 @@ import { RPC_ERRORS, type JsonRpcRequest, type JsonRpcResponse } from './rpc/pro
 import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
+import { hasSecretKey } from './infra/secret-box.js';
 import { syncOfflineEnv } from './infra/net-guard.js';
 import { APP_VERSION, seedBundledModels } from './core/system/index.js';
 import { runMcpServer } from './mcp/server.js';
@@ -44,6 +45,9 @@ process.on('uncaughtException', (err) => {
 
 /** 메인 서버 루프 */
 async function main(): Promise<void> {
+  // 앱이 넘긴 설정 암호화 키를 먼저 꺼내 환경에서 지운다. API 키를 한 번도 저장하지 않은 PC 에서는 이 키를 읽을 일이 없어
+  // 환경에 그대로 남았고, 엔진이 띄우는 다른 프로그램(문서 변환 도구·인쇄용 브라우저)이 물려받았다
+  hasSecretKey();
   // 설정 로드 + 로그 레벨 적용
   try {
     const settings = getSettings();

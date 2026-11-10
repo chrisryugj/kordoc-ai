@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getSettings } from '../../infra/config.js';
 import { validatePath } from '../../infra/pathGuard.js';
 
@@ -70,16 +70,36 @@ export function splitDirOf(parent: string | undefined, source: string, name: str
   return basename(p).normalize('NFC') === name.normalize('NFC') ? p : join(p, name);
 }
 
+/** 결과를 이 폴더 안에만 두는 울타리 (MCP 서버가 허용 폴더를 정해 뜬 경우). 없으면 null */
+let fence: string | null = null;
+
+/** 바깥 AI 에이전트에 허용한 폴더가 있으면 결과도 그 안에 둔다. 설정의 저장 폴더(기본: 홈의 "KorDoc AI 결과")가 허용 폴더 밖이면
+ *  에이전트는 방금 만든 파일을 다시 열지 못하고(허용 폴더 밖), 그렇다고 그 폴더까지 열어 주면 앱이 다른 일로 만든 결과까지 보인다 */
+export function confineOutputs(root: string | null): void {
+  fence = root ? resolve(root) : null;
+}
+
+const within = (dir: string, root: string) => {
+  const rel = relative(root, resolve(dir));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+};
+
+/** 울타리가 있으면 그 안의 폴더로 — 밖을 가리키는 저장 폴더는 울타리 안의 같은 이름 폴더로 바꾼다 */
+function fenced(dir: string): string {
+  if (!fence || within(dir, fence)) return dir;
+  return join(fence, basename(dir) || 'KorDoc AI 결과');
+}
+
 /** 저장 폴더 — output_dir → 설정 출력 폴더 → 원본 옆 → 문서 폴더. 없으면 만든다 */
 export function outputDir(opts: { output_dir?: string; source?: string }): string {
   const configured = getSettings().convert.output_dir?.trim();
-  const dir = opts.output_dir
+  const dir = fenced(opts.output_dir
     ? validatePath(opts.output_dir)
     : configured
       ? validatePath(configured)
       : opts.source
         ? dirname(opts.source)
-        : documentsDir();
+        : documentsDir());
   mkdirSync(dir, { recursive: true });
   return dir;
 }

@@ -9,9 +9,15 @@ import type { AgentSkill, ExecutedToolCall, ToolExecution } from "./hwp-agent/ty
 /** 만들었다고 말하는 말투 (파일을 만든 도구 없이 이렇게 답하면 한 번 되묻는다) */
 const CLAIMS = /(만들었|저장했|바꿨|바꾸었|채웠|가렸|합쳤|고쳤)습니다/;
 
-export async function createWorkSkill(deps: { files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void; outputs?: string[] }): Promise<AgentSkill> {
+export async function createWorkSkill(deps: {
+  files: () => string[]; onFiles: (files: string[]) => void; onSaved?: (minutes: number) => void; outputs?: string[];
+  /** 사용자가 이 대화에서 한 요청들 — 요청에 경로나 파일 이름을 적은 파일은 붙이지 않아도 연다 */
+  said?: () => string[];
+}): Promise<AgentSkill> {
   const { system, tools } = await rpc("agent_tools", {});
   let made = 0;
+  // 도구가 찾아 준 파일 (같은 문서의 다른 판): 이어서 비교·읽기를 할 수 있게
+  const seen: string[] = [];
   // 이 대화에서 만든 파일: "이어서" 요청은 파일 이름만 말하므로 전체 경로를 맥락에 실어야 모델이 경로를 지어내지 않는다 (실측: Gemma 4 E4B 가 precheck 에 없는 경로를 넣음)
   // 저장해 둔 대화를 다시 열어 이어 시키면 그 대화에서 만든 파일부터 안다
   const outputs: string[] = [...new Set(deps.outputs ?? [])];
@@ -30,7 +36,11 @@ export async function createWorkSkill(deps: { files: () => string[]; onFiles: (f
     },
     async executeTool(call, signal): Promise<ToolExecution> {
       // 멈추면 엔진 안에서 돌던 작업도 함께 멈춘다
-      const r = await rpc("agent_tool_run", { name: call.name, input: call.input ?? {} }, { signal });
+      // scope: 사용자가 맡긴 것만 열게 한다 (붙인 파일·폴더, 이 대화에서 만든 파일, 요청에 적은 파일).
+      // 문서 속 글이 모델에게 다른 파일을 읽으라고 시켜도 엔진이 막는다
+      const scope = { files: [...new Set([...deps.files(), ...outputs, ...seen])], said: deps.said?.() ?? [] };
+      const r = await rpc("agent_tool_run", { name: call.name, input: call.input ?? {}, scope }, { signal });
+      for (const f of r.seen ?? []) if (!seen.includes(f)) seen.push(f);
       if (r.files?.length) {
         made += r.files.length;
         for (const f of r.files) if (!outputs.includes(f)) outputs.push(f);

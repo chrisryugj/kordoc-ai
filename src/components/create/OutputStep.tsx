@@ -193,15 +193,23 @@ export function OutputStep({ active }: { active: boolean }) {
     });
   })();
 
+  // 인쇄는 되돌릴 수 없다: 물음을 기다리거나 보내는 중에 단추를 또 누르면 두 부가 나간다 → 끝날 때까지 한 번만
+  const printing = useRef(false);
   const doPrint = () => void (async () => {
-    const p = await askGuides();
-    if (!p) return;
-    void print.run(async () => {
-      const path = await latest(p);
-      const r = await rpc("print_files", { files: [path], ...(printer ? { printer } : {}) });
-      if (r.failed.length) throw new Error(r.failed[0].reason);
-      return printer || "기본 프린터";
-    });
+    if (printing.current) return;
+    printing.current = true;
+    try {
+      const p = await askGuides();
+      if (!p) return;
+      await print.run(async () => {
+        const path = await latest(p);
+        const r = await rpc("print_files", { files: [path], ...(printer ? { printer } : {}) });
+        if (r.failed.length) throw new Error(r.failed[0].reason);
+        return printer || "기본 프린터";
+      });
+    } finally {
+      printing.current = false;
+    }
   })();
 
   /** 사본 저장 자리 — 출력 폴더·사용자 파일 옆이 있으면 거기(같은 이름은 (2)), 초안이면 저장 창 */

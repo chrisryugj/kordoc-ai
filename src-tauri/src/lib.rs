@@ -33,7 +33,7 @@ use shell::show_main;
 
 /// kordoc:// 주소 하나 처리 — 동작 주소(우클릭 메뉴 동작)는 묶음 수집기로, 그 밖(batch 매니페스트 등)은 그대로 프론트로
 fn route_url(app: &tauri::AppHandle, url: &str) {
-    match shell::parse_action_url(url) {
+    match shell::routed_action(url) {
         Some((action, path)) => app.state::<ShellCollector>().push(app, &action, vec![path]),
         None => {
             shell::deliver(app, "deep-link", url.into());
@@ -118,7 +118,7 @@ pub fn run() {
             #[cfg(not(any(target_os = "linux", target_os = "windows")))]
             let first_urls: Vec<String> = Vec::new();
             let quick_start = first.as_ref().map(|(a, _)| shell::is_quick(a)).unwrap_or(false)
-                || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::parse_action_url(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
+                || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::routed_action(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
             // 문서 카드(우클릭 "KorDoc AI에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
             let card_start = first.as_ref().map(|(a, _)| shell::is_card(a)).unwrap_or(false);
             if quick_start {
@@ -140,6 +140,8 @@ pub fn run() {
             if let Some((action, paths)) = first {
                 app.state::<ShellCollector>().push(&handle, &action, paths);
             }
+            // 내 실행 인자를 넣었다: 그새 다른 프로세스가 넘긴 파일과 한 묶음으로 넘어간다
+            shell::mark_primed();
             // 깔린 우클릭 메뉴가 옛 판이면 새 항목으로 (뒤에서)
             shell::refresh_menu_if_stale();
 

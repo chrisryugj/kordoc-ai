@@ -116,6 +116,33 @@ describe('redact', () => {
     }
   });
 
+  it('PDF 양식 칸에 적어 넣은 개인정보 — 미리 찾기는 칸이 있다고 알리고, 가릴 때 칸 속 글자까지 읽어 가린다', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595, 842]);
+    page.drawText('Application form for the autumn sports event of the province', { x: 50, y: 780, size: 14, font: await pdf.embedFont(StandardFonts.Helvetica) });
+    const field = pdf.getForm().createTextField('contact');
+    field.setText('hong@gaon.example');
+    field.addToPage(page, { x: 50, y: 600, width: 400, height: 40 });
+    const src = join(env.work, '양식 신청서.pdf');
+    writeFileSync(src, await pdf.save());
+    // 글자층에는 칸의 값이 없다 → 미리 찾기는 0곳이지만 조용히 넘어가지 않는다
+    const dry = await call('redact', { path: src, rules: ['email'], dry_run: true });
+    expect(dry.total).toBe(0);
+    expect(dry.residual).toBeGreaterThanOrEqual(1);
+    expect(dry.notes?.join(' ')).toMatch(/양식 칸/);
+    const r = await call('redact', { path: src, rules: ['email'] });
+    if (r.notes?.some((n: string) => /읽지 못했습니다|확인하지 못했습니다/.test(n))) {
+      // 글자 읽기 모델이 없는 PC: 가렸다고 하지 않고 사람이 보라고 알린다
+      expect(r.residual).toBeGreaterThanOrEqual(1);
+    } else {
+      // 칸 속 전자우편을 읽어 칠했다 → 가린 사본이 있고, 찾은 곳에 든다
+      expect(r.output_path).toMatch(/_가림\.pdf$/);
+      expect(r.total).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(r)).not.toContain('hong@gaon');
+    }
+  }, 60_000);
+
   it('엔진 경고: 가리지 못한 개체는 사람이 볼 곳으로 세고, 삽입 그림은 수만 넘긴다(그림 속 글자는 따로 읽는다)', async () => {
     const { blindSpots } = await import('../src/core/redact/index.js');
     const b = blindSpots([

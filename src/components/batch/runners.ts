@@ -17,7 +17,7 @@ export interface RowState {
 
 export type Outcome =
   | { kind: "files"; message: string; dir?: string }
-  | { kind: "single"; message: string; path: string; folder?: boolean }
+  | { kind: "single"; message: string; path: string; folder?: boolean; notes?: string[] }
   | { kind: "extract"; message: string; path: string; columns: string[]; rows: Array<Record<string, string>> }
   | { kind: "search"; message: string; query: string; results: RpcResult<"search_files">["results"] }
   | { kind: "gather"; message: string; result: RpcResult<"collect_gather"> }
@@ -105,6 +105,12 @@ export function mergeFailed(r: unknown): BatchItemResult[] {
   return Array.isArray(failed) ? (failed as BatchItemResult[]) : [];
 }
 
+/** 합치기 응답의 안내 (합본으로 옮기지 못한 그림·각주·머리글 같은 것) */
+export function mergeNotes(r: unknown): string[] {
+  const warnings = (r as { warnings?: unknown } | null)?.warnings;
+  return Array.isArray(warnings) ? warnings.filter((w): w is string => typeof w === "string") : [];
+}
+
 async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
   const { files, opts, signal, onProgress } = env;
   const paths = files.map((f) => f.path);
@@ -159,7 +165,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
         const r = (await rpc("merge_files", { files: paths, output_path: out, mode: "native" }, o)) as { output_path?: string } | null;
         const bad = mergeFailed(r);
         files.forEach((f) => { const x = bad.find((b) => b.path === f.path); env.setRow(f.path, x ? { status: "fail", error: x.error } : { status: "ok" }); });
-        return { kind: "single", message: `한글 파일 ${files.length - bad.length}개를 HWPX 한 파일로 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out };
+        return { kind: "single", message: `한글 파일 ${files.length - bad.length}개를 HWPX 한 파일로 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out, notes: mergeNotes(r) };
       }
       const r = await rpc("bundle_pdf", { paths, page_numbers: false, output_path: joinPath(dir, `${name}.pdf`) }, o);
       r.failed.forEach((x) => env.setRow(x.path, { status: "fail", error: x.error }));

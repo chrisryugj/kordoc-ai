@@ -82,7 +82,7 @@ pub const ACTIONS: &[Action] = &[
     Action { only: &[".pdf", ".hwp", ".hwpx", ".docx"], mac: true, ..act(Change, "shrink", "PDF 용량 줄이기", true) },
     Action { only: &[".pdf"], ..act(Change, "pagenum", "쪽 번호 넣기", true) },
     Action { only: &[".pdf", ".hwp", ".hwpx"], ..act(Change, "pdfimages", "쪽마다 그림으로 저장", true) },
-    Action { skip: &[".png", ".jpg", ".jpeg", ".xls", ".xlsx"], ..act(Change, "tables", "표를 엑셀로 뽑기", true) },
+    Action { skip: &[".png", ".jpg", ".jpeg", ".webp", ".xls", ".xlsx"], ..act(Change, "tables", "표를 엑셀로 뽑기", true) },
     Action { ..act(Change, "convert", "글로 바꾸기", true) },
     // 문서 카드(작은 창)에서 읽은 값을 고치고 지출조서·클립보드 표로. macOS 빠른 동작은 Finder 메뉴가 길어져 넣지 않는다
     Action { only: RECEIPTS, ..act(Change, "receipt", "영수증으로 지출조서 만들기", false) },
@@ -110,7 +110,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "9";
+const MENU_VERSION: &str = "10";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -142,6 +142,12 @@ fn reg_q(s: &str) -> String {
     s.replace('\\', r"\\").replace('"', r#"\""#)
 }
 
+/// 이 메뉴가 가리키는 실행 파일의 표지 — 경로(소문자)의 UTF-8 바이트를 16진수로. 영문·숫자뿐이라 reg 출력의 코드 페이지와 상관없이 견줄 수 있다
+#[cfg_attr(not(windows), allow(dead_code))]
+fn exe_mark(exe: &str) -> String {
+    exe.trim_start_matches(r"\\?\").to_lowercase().bytes().map(|b| format!("{b:02x}")).collect()
+}
+
 /// 메뉴를 지우고 새로 넣는 .reg 글. reg add 를 항목마다 부르면 수백 번이라 10초 넘게 걸려 reg import 한 번으로 깐다.
 /// 계단식 메뉴: 부모(이름·아이콘·여러 개 골라도 보이게·판) + 항목마다 하위 키 (이름 앞 두 자리 숫자로 차례, 묶음 사이 구분선은 CommandFlags)
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -151,7 +157,7 @@ fn reg_script(exe: &str) -> String {
         let root = reg_root(base);
         out += &format!("[-{root}]\r\n\r\n[{root}]\r\n\"MUIVerb\"=\"KorDoc AI\"\r\n\"Icon\"=\"{}\"\r\n\"SubCommands\"=\"\"\r\n", reg_q(&format!("\"{exe}\",0")));
         // 기본(Document)은 15개 넘게 고르면 메뉴를 숨긴다
-        out += &format!("\"MultiSelectModel\"=\"Player\"\r\n\"KorDocMenu\"=\"{MENU_VERSION}\"\r\n\r\n");
+        out += &format!("\"MultiSelectModel\"=\"Player\"\r\n\"KorDocMenu\"=\"{MENU_VERSION}\"\r\n\"KorDocExe\"=\"{}\"\r\n\r\n", exe_mark(exe));
         for (i, (a, label)) in items.iter().enumerate() {
             let sub = format!(r"{root}\shell\{:02}{}", i + 1, a.id);
             out += &format!("[{sub}]\r\n@=\"{}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n", reg_q(label));
@@ -241,9 +247,17 @@ pub fn shell_show(app: AppHandle) {
 
 /// 숨은 본창에서 빠른 동작이 돌고 있다 (들어온 때부터 화면이 shell_quick_done 을 부를 때까지)
 static QUICK_BUSY: AtomicBool = AtomicBool::new(false);
+/// 첫 인스턴스가 자기 실행 인자를 묶음에 넣었다 (setup 끝). 그 전에는 묶음을 넘기지 않는다:
+/// 꺼진 앱에서 여러 파일을 우클릭하면 둘째 프로세스의 파일이 먼저 들어오고, 첫 인스턴스 자신의 파일은 창을 만든 뒤에야 들어온다.
+/// 기다리지 않으면 "하나로 합치기"가 파일 하나짜리 둘로 갈린다
+static PRIMED: AtomicBool = AtomicBool::new(false);
+
+pub fn mark_primed() {
+    PRIMED.store(true, Ordering::SeqCst);
+}
 
 /// 꺼져 있던 앱이 우클릭(빠른 동작·카드)으로 켜졌을 때 끄는 규칙은 하나다:
-/// 본창을 한 번도 안 띄웠고, 카드 창이 하나도 없고, 숨은 본창에서 도는 빠른 동작도 없을 때만 끈다.
+/// 본창을 한 번도 안 띄웠고, 카드 창이 하나도 없고, 숨은 본창에서 도는 빠른 동작도, 엔진에 걸려 있는 일도 없을 때만 끈다.
 /// (카드에서 "PDF로 저장"을 시키고 카드를 닫으면 도는 일이 같이 죽었고, 빠른 동작이 끝나면 열려 있는 카드가 같이 닫혔다)
 fn exit_if_idle(app: &AppHandle) {
     use tauri::Manager;
@@ -256,14 +270,25 @@ fn exit_if_idle(app: &AppHandle) {
     if app.webview_windows().keys().any(|l| l.starts_with("card-")) {
         return;
     }
+    // 엔진이 아직 일하는 중이면(카드에서 시킨 변환, 막 넘어온 다음 묶음) 끝난 뒤 다시 본다. 지금 끄면 반쯤 된 결과만 남는다
+    let busy = app.try_state::<std::sync::Arc<crate::sidecar::manager::SidecarManager>>().map(|m| m.busy()).unwrap_or(false);
+    if busy {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            exit_if_idle(&app);
+        });
+        return;
+    }
     app.exit(0);
 }
 
 /// 화면: 빠른 동작을 다 마쳤다. 꺼진 앱이 우클릭으로 켜졌고 그 사이 창을 열지 않았으면 끈다 (알림이 뜰 틈을 두고)
 #[tauri::command]
 pub fn shell_quick_done(app: AppHandle, collector: tauri::State<'_, ShellCollector>) {
-    // 모으는 중인 다음 동작이 있으면 아직 일이 남았다 (그 동작이 끝나면 화면이 다시 부른다)
-    if !collector.gathering() {
+    // 모으는 중인 다음 빠른 동작이 있으면 아직 일이 남았다 (그 동작이 끝나면 화면이 다시 부른다).
+    // 카드 동작만 모으는 중이면 풀어 준다: 안 풀면 그 카드를 닫아도 앱이 숨은 채 남는다
+    if !collector.gathering_quick() {
         QUICK_BUSY.store(false, Ordering::SeqCst);
     }
     let gen = QUICK_GEN.load(Ordering::SeqCst);
@@ -308,6 +333,8 @@ pub struct Delivery {
 
 impl ShellCollector {
     pub fn push(&self, app: &AppHandle, action: &str, paths: Vec<String>) {
+        // 빈 경로(kordoc://pdf?path= 같은 주소)는 버린다: 받으면 화면이 처리할 것이 없어 끝났다는 신호도 오지 않고 숨은 앱이 남는다
+        let paths: Vec<String> = paths.into_iter().filter(|p| !p.trim().is_empty()).collect();
         if paths.is_empty() {
             return;
         }
@@ -332,11 +359,19 @@ impl ShellCollector {
         tauri::async_runtime::spawn(async move {
             use tauri::Manager;
             let me = app.state::<ShellCollector>();
+            let began = Instant::now();
             loop {
+                // 첫 인스턴스가 자기 파일을 넣기 전이면 기다린다 (넣으면 마지막 도착 시각이 그때로 밀린다). 30초는 안전판
+                if !PRIMED.load(Ordering::SeqCst) && began.elapsed() < Duration::from_secs(30) {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
                 let wait = {
                     let t = me.timing.lock().unwrap_or_else(|e| e.into_inner());
                     let (first, last) = t.unwrap_or((Instant::now(), Instant::now()));
-                    let many = me.queue.lock().unwrap_or_else(|e| e.into_inner()).len() > 1;
+                    let q = me.queue.lock().unwrap_or_else(|e| e.into_inner());
+                    // 여럿을 골랐다고 드러났거나, 묶어야 뜻이 있는 동작(합치기·비교)이면 넉넉히 기다린다
+                    let many = q.len() > 1 || q.iter().any(|(a, _)| batchy(a));
                     gather_wait(first, last, Instant::now(), many)
                 };
                 match wait {
@@ -353,9 +388,9 @@ impl ShellCollector {
         });
     }
 
-    /// 들어온 파일을 아직 묶는 중인가
-    fn gathering(&self) -> bool {
-        self.timing.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    /// 빠른 동작을 아직 묶는 중인가
+    fn gathering_quick(&self) -> bool {
+        self.timing.lock().unwrap_or_else(|e| e.into_inner()).is_some() && self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(a, _)| is_quick(a))
     }
 
     /// 화면이 준비 전이면 쌓고 None, 준비됐으면 그대로 돌려준다 (보내기는 부른 쪽)
@@ -379,7 +414,14 @@ impl ShellCollector {
 /// 여러 개를 골랐다고 드러난 뒤(둘째 파일이 온 뒤)의 기다림: 보안 프로그램이 프로그램 실행을 늦추는 PC 에서
 /// 수십 개가 0.4초 넘는 틈을 두고 오면 "하나로 합치기"가 두 묶음으로 갈려 반쪽 합본 둘이 생겼다
 const GATHER_QUIET_MANY: Duration = Duration::from_millis(1200);
-const GATHER_MAX_MANY: Duration = Duration::from_secs(15);
+/// 여럿일 때는 사실상 조용해질 때까지 기다린다: 탐색기의 실행은 반드시 끝나고, 도착이 이어지는 중에 끊으면 묶음이 갈린다
+/// (보안 프로그램이 느린 PC 에서 100개 넘게 고르면 15초를 넘겼다). 5분은 끝없이 기다리지 않게 하는 안전판
+const GATHER_MAX_MANY: Duration = Duration::from_secs(300);
+
+/// 파일을 묶어야 뜻이 있는 동작 — 파일 하나만 먼저 와도 짝을 기다린다
+fn batchy(action: &str) -> bool {
+    matches!(action, "join" | "xlsxmerge" | "pdfmerge" | "hwpmerge" | "compare")
+}
 
 /// 묶음을 더 기다릴 시간 (None 이면 지금 넘긴다): 마지막 도착 뒤 조용한 시간, 첫 도착 뒤 최대 시간까지.
 /// 파일 하나일 때는 짧게(카드·동작이 바로 뜨게), 둘 이상이면 넉넉히
@@ -563,7 +605,10 @@ fn write_manifest(action: &str, files: &[String]) -> std::io::Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!("kordoc-batch-{}.json", ms));
+    // 한 번에 묶음이 둘 넘어가면 같은 밀리초에 써진다 → 순번을 붙여 이름이 겹치지 않게 (겹치면 앞 동작이 사라지고 뒤 동작이 두 번 돈다).
+    // 이름은 엔진이 받는 꼴(kordoc-batch-<숫자>.json) 그대로
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!("kordoc-batch-{}{:03}.json", ms, SEQ.fetch_add(1, Ordering::SeqCst) % 1000));
     let body = serde_json::json!({ "action": action, "files": files, "created_at": ms.to_string() });
     std::fs::write(&path, serde_json::to_vec_pretty(&body)?)?;
     Ok(path)
@@ -609,6 +654,18 @@ pub fn parse_action_url(url: &str) -> Option<(String, String)> {
     Some((action, path))
 }
 
+/// 주소(kordoc://…)로 온 동작을 어떻게 돌릴지. 윈도에서는 빠른 동작(창 없이 바로 처리)을 그대로 돌리지 않고
+/// "여러 파일 한꺼번에" 화면에 파일만 올려 둔다: 주소는 웹·메일·문서 속 링크로도 올 수 있어, 누른 사람이 모르는 사이
+/// 폴더 안 문서 수천 개를 바꾸거나 글 사본을 만들 수 있다. 탐색기 우클릭은 실행 인자(--shell)로 오므로 그대로 바로 돈다.
+/// macOS 는 Finder 빠른 동작이 주소로 들어오므로 그대로 둔다
+pub fn routed_action(url: &str) -> Option<(String, String)> {
+    let (action, path) = parse_action_url(url)?;
+    if cfg!(not(target_os = "macos")) && is_quick(&action) {
+        return Some(("tools".into(), path));
+    }
+    Some((action, path))
+}
+
 // ── 메뉴 설치 ──
 
 /// 넣기·빼기·켤 때 다시 깔기를 하나씩 (켤 때 다시 깔기가 사용자가 막 뺀 메뉴를 되살리지 않게)
@@ -638,7 +695,12 @@ mod platform {
         if out.status.success() {
             Ok(())
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+            // reg 의 오류 글은 윈도 코드 페이지(CP949)라 그대로 옮기면 깨져 보인다 → 종료 코드와 할 일을 한국어로.
+            // 조회(query)는 메뉴가 없을 때도 실패로 끝나니 적지 않는다
+            if args.first() != Some(&"query") {
+                tracing::warn!("reg {} 실패 (종료 코드 {:?})", args.first().copied().unwrap_or(""), out.status.code());
+            }
+            Err("레지스트리를 바꾸지 못했습니다. 기관에서 레지스트리 편집을 막았을 수 있습니다. 정보통신 담당자에게 문의하세요.".into())
         }
     }
 
@@ -652,10 +714,11 @@ mod platform {
         let base = key(".hwpx");
         let Ok(out) = reg_out(&["query", &base]) else { return };
         let current = out.lines().any(|l| l.contains("KorDocMenu") && l.split_whitespace().last() == Some(MENU_VERSION));
-        // 다른 폴더에 다시 깔았거나 설치 방식을 바꿨으면 메뉴가 없어진 옛 실행 파일을 가리킨다 (아이콘 값에 실행 파일 경로가 있다).
+        // 다른 폴더에 다시 깔았거나 설치 방식을 바꿨으면 메뉴가 없어진 옛 실행 파일을 가리킨다. 깔 때 적어 둔 실행 파일 표지(KorDocExe)와 견준다:
+        // 경로 글자를 그대로 견주면 reg 출력이 윈도 코드 페이지라 사용자 이름이 한글인 PC 에서 늘 다르다고 나와 켤 때마다 메뉴를 다시 깔았다.
         // 개발 빌드는 깔린 메뉴를 자기 경로로 바꾸지 않는다
-        let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_lowercase());
-        let moved = !cfg!(debug_assertions) && exe.map(|e| !out.to_lowercase().contains(&e)).unwrap_or(false);
+        let exe = std::env::current_exe().ok().map(|p| exe_mark(&p.to_string_lossy()));
+        let moved = !cfg!(debug_assertions) && exe.map(|e| !out.contains(&e)).unwrap_or(false);
         if !current || moved {
             if let Err(e) = install_unlocked() {
                 tracing::warn!("우클릭 메뉴 다시 깔기 실패: {}", e);
@@ -690,8 +753,12 @@ mod platform {
     /// 윈도는 알림 권한 물음이 늘 "허용"으로 돌아와, 꺼 둔 PC 에서는 창 없이 한 일의 결과가 아무 데도 안 보인다
     pub fn toasts_enabled() -> bool {
         const BASE: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion";
-        let off = |key: String, value: &str| reg_out(&["query", &key, "/v", value]).map(|out| toast_switch_off(&out)).unwrap_or(false);
-        !off(format!(r"{}\PushNotifications", BASE), "ToastEnabled") && !off(format!(r"{}\Notifications\Settings\{}", BASE, APP_ID), "Enabled")
+        let read = |key: String, value: &str| reg_out(&["query", &key, "/v", value]).unwrap_or_default();
+        let off = |key: String, value: &str| toast_switch_off(&read(key, value));
+        // 기관이 그룹 정책으로 알림을 끈 PC (사용자·컴퓨터 정책)
+        const POLICY: &str = r"Software\Policies\Microsoft\Windows\CurrentVersion\PushNotifications";
+        let banned = |root: &str| reg_value_is_one(&read(format!(r"{}\{}", root, POLICY), "NoToastApplicationNotification"));
+        !off(format!(r"{}\PushNotifications", BASE), "ToastEnabled") && !off(format!(r"{}\Notifications\Settings\{}", BASE, APP_ID), "Enabled") && !banned("HKCU") && !banned("HKLM")
     }
 
     pub fn install() -> Result<(), String> {
@@ -861,6 +928,12 @@ fn toast_switch_off(reg_query_out: &str) -> bool {
     reg_query_out.lines().any(|l| l.contains("REG_DWORD") && l.trim_end().ends_with("0x0"))
 }
 
+/// `reg query … /v 값` 출력에서 값이 1 인가 (REG_DWORD 0x1 — 정책이 켜짐)
+#[cfg_attr(not(windows), allow(dead_code))]
+fn reg_value_is_one(reg_query_out: &str) -> bool {
+    reg_query_out.lines().any(|l| l.contains("REG_DWORD") && l.trim_end().ends_with("0x1"))
+}
+
 /// 창 없이 한 일의 결과를 시스템 알림으로 보여 줄 수 있는가 (못 하면 화면이 창을 열어 알린다)
 #[tauri::command]
 pub fn shell_toast_ok() -> bool {
@@ -957,6 +1030,9 @@ mod tests {
             let sub = k.strip_prefix(r"HKCU\").unwrap().to_string();
             assert!(nsh.contains(&format!(r#"DeleteRegKey HKCU "{}""#, sub)), "hooks.nsh 에 {} 지우기가 없습니다", k);
         }
+        // 앱 없이 메뉴를 지우는 파일(MSI 로 지운 뒤 남은 메뉴용, docs/remove-explorer-menu.reg)도 앱의 메뉴 빼기와 같은 글이다
+        let file = include_str!("../../docs/remove-explorer-menu.reg").replace("\r\n", "\n");
+        assert_eq!(file, reg_remove_script().replace("\r\n", "\n"), "docs/remove-explorer-menu.reg 을 EXTS·FOLDER_KEYS 에 맞추세요");
         // 앱의 메뉴 빼기도 같은 키를 다 지운다
         let rm = reg_remove_script();
         for k in EXTS.iter().map(|e| key(e)).chain(FOLDER_KEYS.iter().map(|(k, _)| k.to_string())) {
@@ -1119,11 +1195,61 @@ mod tests {
         // 끝없이 와도 첫 도착 뒤 4초에는 넘긴다
         assert_eq!(gather_wait(t0, t0 + ms(3900), t0 + ms(3950), false), Some(ms(50)));
         assert_eq!(gather_wait(t0, t0 + ms(3990), t0 + ms(4000), false), None);
-        // 둘 이상(여러 개 고름): 틈이 1.2초까지 벌어져도 한 묶음, 첫 도착 뒤 15초까지
+        // 둘 이상(여러 개 고름): 틈이 1.2초까지 벌어져도 한 묶음. 도착이 이어지는 동안은 끊지 않는다 (15초를 넘겨도)
         assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(700), true), Some(ms(800)));
         assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(1500), true), None);
         assert_eq!(gather_wait(t0, t0 + ms(4500), t0 + ms(5000), true), Some(ms(700)));
-        assert_eq!(gather_wait(t0, t0 + ms(14900), t0 + ms(15000), true), None);
+        assert_eq!(gather_wait(t0, t0 + ms(19_500), t0 + ms(20_000), true), Some(ms(700)));
+        // 안전판: 5분
+        assert_eq!(gather_wait(t0, t0 + ms(299_900), t0 + ms(300_000), true), None);
+    }
+
+    #[test]
+    fn pairing_actions_wait_for_their_partner() {
+        // 합치기·비교는 파일 하나만 먼저 와도 넉넉히 기다린다 (꺼진 앱에서 두 파일을 고르면 하나씩 따로 온다)
+        for a in ["join", "xlsxmerge", "compare", "pdfmerge", "hwpmerge"] {
+            assert!(batchy(a), "{a}");
+            assert!(is_action(a), "{a}");
+        }
+        for a in ["pdf", "redact", "ask", "open"] {
+            assert!(!batchy(a), "{a}");
+        }
+    }
+
+    #[test]
+    fn links_do_not_run_quick_actions_unseen() {
+        // 주소로 온 빠른 동작은 윈도에서 바로 돌리지 않고 여러 파일 한꺼번에 화면에 올려 둔다 (맥은 Finder 빠른 동작이 주소로 온다)
+        let quick = routed_action("kordoc://convert?path=C%3A%5CUsers").unwrap();
+        if cfg!(target_os = "macos") {
+            assert_eq!(quick.0, "convert");
+        } else {
+            assert_eq!(quick, ("tools".to_string(), "C:\\Users".to_string()));
+            assert!(!is_quick(&quick.0));
+        }
+        // 창을 여는 동작은 그대로
+        assert_eq!(routed_action("kordoc://pdfwork?path=%2Fa.pdf").unwrap().0, "pdfwork");
+        assert_eq!(routed_action("kordoc://batch?manifest=x"), None);
+    }
+
+    #[test]
+    fn exe_mark_is_ascii_whatever_the_path() {
+        let m = exe_mark(r"\\?\C:\Users\홍길동\AppData\Local\KorDoc AI\kordoc-ai.exe");
+        assert!(m.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(m, exe_mark(r"c:\users\홍길동\appdata\local\kordoc ai\KORDOC-AI.EXE"));
+        assert!(reg_script(r"C:\App\kordoc-ai.exe").contains(&format!("\"KorDocExe\"=\"{}\"", exe_mark(r"C:\App\kordoc-ai.exe"))));
+    }
+
+    #[test]
+    fn manifest_names_never_collide() {
+        let a = write_manifest("join", &["a".into(), "b".into()]).unwrap();
+        let b = write_manifest("pdf", &["c".into(), "d".into()]).unwrap();
+        assert_ne!(a, b);
+        for p in [&a, &b] {
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            assert!(name.starts_with("kordoc-batch-") && name.ends_with(".json"));
+            assert!(name["kordoc-batch-".len()..name.len() - 5].chars().all(|c| c.is_ascii_digit()), "{name}");
+            let _ = std::fs::remove_file(p);
+        }
     }
 
     #[test]

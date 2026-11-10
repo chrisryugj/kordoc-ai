@@ -7,7 +7,8 @@
  * 파일 자체가 깨졌으면(못 읽음·UTF-8 아님·JSON 아님·version 다름) 통째로 무시하고 error 로 화면에 알린다.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { logger } from './logger.js';
 
@@ -44,6 +45,47 @@ export function policyCandidates(env: NodeJS.ProcessEnv = process.env, platform:
   const nodeDir = path.dirname(execPath);
   if (path.basename(nodeDir) === 'node' && /^node(\.exe)?$/i.test(path.basename(execPath))) out.push(path.join(path.dirname(nodeDir), 'policy.json'));
   return out;
+}
+
+/** 보안 설명자(SDDL)의 소유자가 관리자 쪽인가 — Administrators(BA)·SYSTEM(SY)·TrustedInstaller */
+export function adminOwned(sddl: string): boolean {
+  const owner = /^\s*O:(S-[\d-]+|[A-Z]{2})/.exec(sddl)?.[1] ?? '';
+  return owner === 'BA' || owner === 'SY' || owner === 'S-1-5-32-544' || owner === 'S-1-5-18' || owner.startsWith('S-1-5-80-956008885-');
+}
+
+/** 파일 소유자의 SDDL 을 읽는다 (Windows). 경로는 환경 변수로 넘겨 따옴표·특수 문자 문제를 피한다 */
+function readOwnerSddl(path: string): string {
+  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '(Get-Acl -LiteralPath $env:KORDOC_POLICY_FILE).Sddl'], {
+    env: { ...process.env, KORDOC_POLICY_FILE: path }, encoding: 'utf-8', timeout: 15_000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
+
+const ownerSeen = new Map<string, boolean>();
+
+/** 기계 전체 자리(%ProgramData%·/Library)의 정책 파일을 믿어도 되는가 — 소유자가 관리자·시스템일 때만.
+ *  %ProgramData% 는 일반 사용자도 폴더와 파일을 만들 수 있다. 소유자를 보지 않으면 여럿이 쓰는 PC 에서 한 사용자가 정책 파일을 심어
+ *  다른 사용자의 앱이 엉뚱한 실행 파일을 띄우거나(구독 프로그램 위치) 문서를 엉뚱한 서버로 보내게(AI 서버 주소) 할 수 있다.
+ *  확인하지 못하면(확인 도구가 막힘) 믿지 않는다 */
+export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl): boolean {
+  try {
+    const st = statSync(path);
+    if (platform !== 'win32') return st.uid === 0;
+    const key = `${path}|${st.mtimeMs}|${st.size}`;
+    const hit = ownerSeen.get(key);
+    if (hit !== undefined) return hit;
+    const ok = adminOwned(readSddl(path));
+    ownerSeen.set(key, ok);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 이 자리는 기계 전체 정책 자리인가 (환경 변수로 준 자리·설치 폴더는 아니다: 그 사용자 자신만 바꿀 수 있다) */
+function isMachineSpot(source: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  if (env.KORDOC_AI_POLICY?.trim() === source) return false;
+  if (platform === 'win32') return !!env.ProgramData && win32.normalize(source).toLowerCase() === win32.join(env.ProgramData, 'KorDoc AI', 'policy.json').toLowerCase();
+  return platform === 'darwin' && source === '/Library/Application Support/KorDoc AI/policy.json';
 }
 
 /** 파일 → JSON 객체. 실패하면 화면에 그대로 보일 문장(무엇이 틀렸는지 + 할 일)으로 던진다 */
@@ -114,6 +156,11 @@ export function loadPolicy(shape: Obj): Policy | null {
   if (!source) return null;
   let raw: Obj;
   try {
+    if (isMachineSpot(source) && !machinePolicyTrusted(source)) {
+      throw new Error(process.platform === 'win32'
+        ? '파일 소유자가 관리자(Administrators)나 SYSTEM이 아니어서 적용하지 않았습니다. 관리자 권한 명령 프롬프트에서 복사하거나 icacls "<파일>" /setowner Administrators 를 실행하세요'
+        : '파일 소유자가 root가 아니어서 적용하지 않았습니다. sudo chown root 로 소유자를 바꾸세요');
+    }
     raw = readPolicyFile(source);
   } catch (err) {
     const error = (err as Error).message;

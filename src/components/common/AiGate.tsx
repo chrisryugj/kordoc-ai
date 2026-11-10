@@ -1,13 +1,30 @@
 import type { ReactNode } from "react";
 import { Cloud, Cpu, HardDrive, Server, Sparkles } from "lucide-react";
 import { useApp } from "../../state/app";
+import type { AiStatus } from "../../lib/contract";
 import { Button } from "../ui/Button";
 import { Empty } from "./Status";
+
+/** 구독 프로그램을 골랐는데 쓸 수 없는 상태(로그아웃·미설치·구독 아님·버전 낮음)면 그 까닭 — 없으면 null.
+ *  "AI가 꺼져 있습니다"로만 알리면 켜 둔 사람은 무엇을 고쳐야 하는지 모른다 */
+export function subscriptionProblem(ai: AiStatus | null): string | null {
+  const s = ai?.subscription_state;
+  return ai && !ai.configured && (s === "signed-out" || s === "metered" || s === "not-installed" || s === "needs-update") ? ai.error ?? null : null;
+}
 
 /** AI 가 연결돼 있지 않으면 안내만 보여 준다 */
 export function AiGate({ children }: { children: ReactNode }) {
   const { ai, openSettings } = useApp();
   if (ai?.configured) return <>{children}</>;
+  const problem = subscriptionProblem(ai);
+  if (problem) {
+    return (
+      <Empty icon={<Sparkles size={28} />} title="구독 계정 연결을 쓸 수 없습니다"
+        action={<Button onClick={() => openSettings("set-ai")}>AI 연결 열기</Button>}>
+        {problem} 고친 뒤 이 창으로 돌아오면 다시 확인합니다.
+      </Empty>
+    );
+  }
   return (
     <Empty
       icon={<Sparkles size={28} />}

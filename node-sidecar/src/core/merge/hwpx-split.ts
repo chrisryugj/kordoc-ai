@@ -12,6 +12,7 @@
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
 import { readManifest, sectionHrefs } from './hwpx-merge.js';
+import { blankPng } from '../redact/preview.js';
 
 type El = Element;
 
@@ -89,7 +90,7 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
 
   const parts: Uint8Array[] = [];
   const titles: string[] = [];
-  for (const piece of pieces) {
+  for (const [index, piece] of pieces.entries()) {
     const zip = await JSZip.loadAsync(bytes);
     const doc = parser.parseFromString(new XMLSerializer().serializeToString(piece.doc), 'text/xml');
     const root = doc.documentElement as unknown as El;
@@ -117,7 +118,22 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
       hpf = hpf.replace(re, it === keepItem ? `<opf:item ${it.attrs.replace(/\bhref="[^"]*"/, 'href="Contents/section0.xml"')}/>` : '');
     }
     hpf = hpf.replace(/<opf:itemref\s[^>]*idref="([^"]*)"[^>]*\/>/g, (m, id) => (manifest.items.some((i) => i.id === id && hrefs.includes(i.href)) && id !== keepItem?.id ? '' : m));
+
+    // 그림: 이 조각(과 머리·바탕쪽)이 쓰지 않는 것은 뺀다. 두면 조각 하나만 보내도 다른 조각의 그림이 모두 딸려 가고,
+    // 조각 수만큼 용량이 불어난다
+    const texts = await Promise.all(Object.keys(zip.files).filter((n) => /\.xml$/i.test(n)).map((n) => zip.file(n)!.async('string')));
+    for (const it of manifest.items) {
+      if (!/^BinData\//i.test(it.href) || !it.id || texts.some((t) => t.includes(`"${it.id}"`))) continue;
+      zip.remove(it.href);
+      hpf = hpf.replace(new RegExp(`<opf:item\\s${it.attrs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/>`), '');
+    }
     zip.file(hpfPath, hpf);
+
+    // 미리보기: 원본 첫 쪽의 글과 그림이 조각마다 그대로 들어 있다 → 글은 이 조각의 글로, 그림은 첫 조각만 남긴다
+    // (조각은 쪽이 바뀌는 곳에서 나뉘므로 첫 쪽 그림은 첫 조각의 내용이다)
+    const preview = piece.paras.map(textOf).filter(Boolean).join('\r\n').slice(0, 1000);
+    for (const f of zip.file(/^Preview\/PrvText\.txt$/i)) zip.file(f.name, preview);
+    if (index > 0) for (const f of zip.file(/^Preview\/PrvImage\./i)) zip.file(f.name, await blankPng(), { compression: 'STORE' });
     const header = parser.parseFromString(await zip.file('Contents/header.xml')!.async('string'), 'text/xml');
     header.documentElement?.setAttribute('secCnt', '1');
     zip.file('Contents/header.xml', new XMLSerializer().serializeToString(header));

@@ -33,6 +33,9 @@ export interface DocSession {
   withFields?: boolean;
   /** path 가 앱의 작업 사본 폴더에 있다 (새로 쓰기에서 만든 초안). 한글 파일로 저장하기 전까지는 거기에만 있다 */
   working?: boolean;
+  /** 고친 내용을 작업 사본에만 써 두었다 (PDF 저장·인쇄·검토를 하려고). dirty 는 내려갔지만 사용자가 저장한 것은 아니다 →
+   *  다른 문서를 열거나 앱을 끄기 전에 물어야 한다 (안 물으면 한 시간 고친 초안이 사용자 폴더 어디에도 없이 사라진다) */
+  parked?: boolean;
   /** 사용자가 연 기존 문서 (작업대·끌어 놓기) — 단계는 편집·내보내기만 */
   existing?: boolean;
   /** 편집기로 연 원본의 표 — 저장할 때 rhwp 가 빠뜨린 것을 원본에서 되붙인다 (editor_write) */
@@ -241,7 +244,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 디스크에 지금 내용이 있으니 사본은 지운다 (저장하는 사이 고친 것은 다음 차례에 다시 쓴다)
       dropRecovery(session.path);
       // 작업 사본에 쓴 것은 사용자가 저장한 게 아니다 (작업 사본 표시·저장 창 위치를 그대로 둔다)
-      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, ...(s.working && r.path === s.path ? {} : { working: false, savedAt: Date.now() }) } : s));
+      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, ...(s.working && r.path === s.path ? { parked: true } : { working: false, parked: false, savedAt: Date.now() }) } : s));
       return r.path;
     }
     // 편집기가 없거나 못 열렸으면 고칠 수도 없었으니 디스크의 지금 파일이 곧 문서다: 그대로 복사해 쓴다
@@ -249,7 +252,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const src = extOf(session.path);
       if (src !== fmt) throw new Error(`한글 편집기가 열리지 않아 ${fmt.toUpperCase()}로 바꿔 저장할 수 없습니다. ${src.toUpperCase()}로 저장하세요.`);
       const r = path === session.path ? { path } : await rpc("write_file", { path, data_b64: (await rpc("read_file_b64", { path: session.path })).data_b64, overwrite: true });
-      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), dirty: false, ...(s.working && r.path === s.path ? {} : { working: false, savedAt: Date.now() }) } : s));
+      setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), dirty: false, ...(s.working && r.path === s.path ? {} : { working: false, parked: false, savedAt: Date.now() }) } : s));
       return r.path;
     }
     throw new Error(editorState === "unavailable" || editorState === "error" ? FIELDS_LOST : NOT_READY);
@@ -310,10 +313,12 @@ export function CreateProvider({ children }: { children: ReactNode }) {
 
   /** 고친 내용이 남은 지금 문서를 다른 문서로 바꾸기 전에 묻는다 — 바꿔도 되면 true */
   const settleCurrent = useCallback(async (before = "새 문서를 열기 전에"): Promise<boolean> => {
-    if (!session || !(await syncDirty())) return true;
+    if (!session) return true;
+    // parked: 출력하느라 작업 사본에만 써 둔 초안 (편집기는 저장된 것으로 알지만 사용자는 저장한 적이 없다)
+    if (!(await syncDirty()) && !session.parked) return true;
     const a = await askUser({
       title: "저장하지 않은 문서",
-      body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{session.name}에서 고친 내용이 아직 저장되지 않았습니다. {before} 저장할까요? 버리면 고친 내용은 사라집니다.</p>,
+      body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{session.name}에서 고친 내용이 아직 한글 파일로 저장되지 않았습니다. {before} 저장할까요? 버리면 고친 내용은 사라집니다.</p>,
       choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "discard", label: "버리기", variant: "secondary" }, { id: "save", label: "저장" }],
     });
     if (a === "discard") {

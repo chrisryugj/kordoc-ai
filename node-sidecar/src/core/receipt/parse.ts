@@ -221,7 +221,7 @@ function findVendor(lines: ReceiptLine[]): ReceiptValue | undefined {
 }
 
 function findTotal(lines: ReceiptLine[], hints: number[]): ReceiptValue | undefined {
-  const cands: Array<{ tier: number; amount: number; line: ReceiptLine; i: number }> = [];
+  const cands: Array<{ tier: number; amount: number; line: ReceiptLine; i: number; shaky: boolean }> = [];
   lines.forEach((line, i) => {
     const h = head(line).replace(TAX_INCLUDED, '');
     if (NOT_TOTAL.test(h)) return;
@@ -230,13 +230,22 @@ function findTotal(lines: ReceiptLine[], hints: number[]): ReceiptValue | undefi
     // 값이 같은 줄에 없으면(칸 머리 줄) 바로 아래 줄의 같은 자리
     let amount = lastAmount(line, 1);
     let src = line;
-    if (amount === undefined && lines[i + 1]) { amount = lastAmount(lines[i + 1]); src = lines[i + 1]; }
-    if (amount !== undefined && amount > 0) cands.push({ tier, amount, line: src, i });
+    let shaky = false;
+    const next = lines[i + 1];
+    if (amount === undefined && next) {
+      // "합계금액 | 공급가액 | 세액" 아래 "110,000 | 100,000 | 10,000": 맨 끝 금액을 집으면 세액이 합계가 된다 → 이름표와 같은 칸(첫 칸)의 값.
+      // 칸이 맞지 않는데 금액이 여럿이면 어느 것이 합계인지 알 수 없다: 값은 내되 사람이 보게 낮은 믿음으로
+      const aligned = line.cells.length > 1 && next.cells.length === line.cells.length;
+      amount = aligned ? lastAmount({ ...next, text: next.cells[0], cells: [next.cells[0]] }) : lastAmount(next);
+      shaky = !aligned && amountsIn(next.text).filter((n) => n >= 100).length > 1;
+      src = next;
+    }
+    if (amount !== undefined && amount > 0) cands.push({ tier, amount, line: src, i, shaky });
   });
   if (cands.length) {
     const best = cands.reduce((a, b) => (b.tier < a.tier ? b : a));
     const agree = hints.includes(best.amount) || cands.some((c) => c !== best && c.amount === best.amount);
-    return val(String(best.amount), agree ? 0.97 : 0.88, best.line);
+    return val(String(best.amount), agree ? 0.97 : best.shaky ? 0.7 : 0.88, best.line);
   }
   // 이름표가 없으면 가장 큰 금액 (받은금액·거스름돈 줄은 빼고)
   let max: { amount: number; line: ReceiptLine } | undefined;
@@ -402,6 +411,13 @@ export function purposeOf(items: ReceiptItem[]): ReceiptValue {
   return { value: items.length > 1 ? `${first} 외 ${items.length - 1}건` : first, confidence: 0.7 };
 }
 
+/** 취소·환불 전표로 보이는가 — 거래 종류를 적은 말(승인취소·환불금액…)이나 음수로 적힌 합계(-11,000 · △11,000).
+ *  "교환·환불은 7일 이내" 같은 안내 글의 낱말만으로는 보지 않는다 */
+export function looksRefund(lines: readonly string[], totalLine = ''): boolean {
+  if (lines.some((l) => /승인취소|취소승인|결제취소|거래취소|매출취소|취소매출|취소전표|취소영수증|환불금액|환불승인|환불완료|반품영수증/.test(squash(l)))) return true;
+  return /(?<![\d가-힣A-Za-z])[-−–△▽]\s*[₩￦\\]?\s*\d{1,3}(?:,\d{3})+(?!\d)/.test(totalLine);
+}
+
 export function parseReceipt(raw: ReceiptLine[]): { fields: ReceiptFields; items: ReceiptItem[] } {
   // 카드번호는 처음부터 가린 줄로 (근거 줄에 남지 않게)
   const lines = maskCardLines(raw);
@@ -421,7 +437,9 @@ export function parseReceipt(raw: ReceiptLine[]): { fields: ReceiptFields; items
   set('brn', findBrn(lines, vendor ? lines.findIndex((l) => l.text === vendor.source) : -1));
   set('owner', findOwner(lines));
   set('address', findAddress(lines));
-  set('total', findTotal(lines, hints));
+  const total = findTotal(lines, hints);
+  // 취소·환불 전표의 금액은 부호 없이 읽힌다 → 그대로 더하면 지출 합계가 늘어난다. 사람이 보게 낮은 믿음으로
+  set('total', total && looksRefund(lines.map((l) => l.text), total.source) ? { ...total, confidence: Math.min(total.confidence, 0.6) } : total);
   set('supply', supply);
   set('vat', vat);
   set('payment', pay.payment);

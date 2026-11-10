@@ -26,9 +26,11 @@ export interface FailDetail {
   seconds?: number;
 }
 
-const hhmm = (ms: number) => {
+/** 한도가 풀리는 때 — 오늘이면 시각만, 다른 날이면 날짜까지 (주간 한도를 "13:00부터"로만 적으면 오늘 풀리는 줄 안다) */
+export const resetWhen = (ms: number, now = Date.now()) => {
   const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toDateString() === new Date(now).toDateString() ? time : `${d.getMonth() + 1}월 ${d.getDate()}일 ${time}`;
 };
 
 function sentence(kind: FailKind, p: SubscriptionProviderId, d: FailDetail): string {
@@ -39,7 +41,7 @@ function sentence(kind: FailKind, p: SubscriptionProviderId, d: FailDetail): str
     case 'metered': return `${name}가 구독이 아닌 방식(쓴 만큼 요금을 내는 API 키 등)으로 로그인돼 있어 보내지 않았습니다. ${LOGIN_COMMAND[p]} 명령으로 구독 계정에 다시 로그인하거나, API 키를 쓰려면 설정 › AI 연결에서 해당 서비스 칸을 고르세요.`;
     case 'not-installed': return `이 PC에서 ${name}를 찾지 못했습니다. ${name}를 설치하고 로그인한 뒤 다시 시도하세요.`;
     case 'needs-update': return `${name} 판이 낮습니다${why}. 설정 › AI 연결의 [업데이트] 단추를 누르거나 터미널에서 ${UPDATE_COMMAND[p]} 명령을 실행한 뒤 다시 시도하세요.`;
-    case 'rate-limit': return `${name} 구독 사용량 한도에 닿았습니다. ${d.resetsAt ? `${hhmm(d.resetsAt)}부터 다시 쓸 수 있습니다.` : '잠시 뒤 다시 시도하세요.'}`;
+    case 'rate-limit': return `${name} 구독 사용량 한도에 닿았습니다. ${d.resetsAt ? `${resetWhen(d.resetsAt)}부터 다시 쓸 수 있습니다.` : '한도가 풀린 뒤 다시 시도하거나 다른 AI 연결을 고르세요.'}`;
     case 'overloaded': return `${name} 서버가 붐빕니다. 잠시 뒤 다시 시도하세요.`;
     case 'server-error': return `${name} 서버에 오류가 났습니다. 잠시 뒤 다시 시도하세요.`;
     case 'network': return `${name}가 인터넷에 연결하지 못했습니다. 네트워크와 프록시 설정을 확인하세요.`;

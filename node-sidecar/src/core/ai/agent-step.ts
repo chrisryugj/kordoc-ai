@@ -93,17 +93,35 @@ export function checkArgs(tool: AgentToolDef, args: unknown): string | undefined
   return undefined;
 }
 
+/** 답 형식(JSON)을 쓰려던 글인가 — 그냥 한 말과 가른다 */
+const looksLikeJson = (text: string) => /^\s*(```(?:json)?\s*)?\{/.test(text) && /"(say|calls)"/.test(text);
+
 export async function agentStep(p: { system: string; tools: AgentToolDef[]; events: AgentEvent[] }, signal: AbortSignal): Promise<{ text: string; calls: AgentCall[]; redacted: number }> {
   const system = systemText(p.system, p.tools);
   // 맥락 크기를 못 알아내면(공급자 설정 오류 등) 줄이지 않고 보낸다: 오류는 ask 가 제대로 알린다
   const room = await contextCharBudget({ signal }).catch(() => Infinity);
-  const r = await ask({ system, messages: fitMessages(p.events, Math.max(2_000, room - system.length)), schema: REPLY, signal, stream: false });
+  const messages = fitMessages(p.events, Math.max(2_000, room - system.length));
+  let r = await ask({ system, messages, schema: REPLY, signal, stream: false });
   let reply: { say?: unknown; calls?: unknown };
   try {
     reply = parseJsonLoose(r.text);
   } catch {
-    // JSON 이 아니면 한 말로 본다 (도구 없이 끝)
-    return { text: r.text.trim(), calls: [], redacted: r.redacted };
+    // JSON 을 쓰려다 깨진 답(잘림·따옴표 빠짐)은 한 번만 다시 받는다: 그대로 "한 말"로 내면 깨진 JSON 이 화면에 뜨고 편집은 안 된 채 끝난다
+    if (!looksLikeJson(r.text)) return { text: r.text.trim(), calls: [], redacted: r.redacted };
+    const first = r.redacted;
+    r = await ask({
+      system,
+      messages: [...messages, { role: 'assistant', content: r.text.slice(0, 2_000) }, { role: 'user', content: '방금 답은 JSON 형식이 깨져 읽지 못했습니다. 같은 내용을 {"say": "...", "calls": [...]} JSON 한 덩이로만 다시 답하세요.' }],
+      schema: REPLY, signal, stream: false,
+    });
+    r = { ...r, redacted: r.redacted + first };
+    try {
+      reply = parseJsonLoose(r.text);
+    } catch {
+      if (looksLikeJson(r.text)) throw new Error('AI 답의 형식이 깨져 읽지 못했습니다. 다시 시도하거나 설정 › AI 연결에서 다른 모델을 고르세요.');
+      // JSON 이 아니면 한 말로 본다 (도구 없이 끝)
+      return { text: r.text.trim(), calls: [], redacted: r.redacted };
+    }
   }
   const byName = new Map(p.tools.map((t) => [t.name, t]));
   const calls: AgentCall[] = (Array.isArray(reply.calls) ? reply.calls : []).map((c, i) => {

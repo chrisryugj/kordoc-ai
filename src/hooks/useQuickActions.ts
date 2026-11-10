@@ -12,12 +12,32 @@ import { baseName } from "../lib/format";
 import { QUICK_LABEL, quickFallback, runQuick, type QuickAction } from "../lib/quick-actions";
 import { keepFromSettings } from "../components/workbench/tools/ReviewTool";
 
+/** 넘겨받는 중인 우클릭 동작 수 — 여러 파일 동작은 목록 파일을 읽은 뒤에야 차례에 들어온다.
+ *  그 사이 앞 동작이 끝나 "다 끝났다"고 알리면 Rust 가 막 시작하려는 다음 동작과 함께 앱을 끈다 */
+let arriving = 0;
+let settle: (() => void) | null = null;
+/** 동작을 넘겨받기 시작할 때 부르고, 차례에 넣었으면(또는 못 읽었으면) 돌려받은 함수를 부른다 */
+export function quickArriving(): () => void {
+  arriving++;
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    arriving--;
+    settle?.();
+  };
+}
+
 export function useQuickActions() {
   const app = useApp();
   const appRef = useRef(app);
   appRef.current = app;
   const queue = useRef<Array<{ action: QuickAction; paths: string[] }>>([]);
   const running = useRef(false);
+  // 도는 것도, 기다리는 것도, 넘겨받는 것도 없을 때만 다 끝났다고 알린다
+  settle = () => {
+    if (!running.current && !queue.current.length && arriving === 0) void invokeCmd("shell_quick_done").catch(() => undefined);
+  };
 
   // 엔진과 설정까지 (꺼진 앱이 켜질 때 설정을 읽기 전에 돌면 남길 연락처·저장 폴더가 빠진다)
   const waitReady = async () => {
@@ -65,7 +85,7 @@ export function useQuickActions() {
       }
     } finally {
       running.current = false;
-      void invokeCmd("shell_quick_done").catch(() => undefined);
+      settle?.();
     }
   }, []);
 

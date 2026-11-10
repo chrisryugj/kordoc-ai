@@ -52,7 +52,25 @@ export function MenuHost() {
     onClose={() => { if (current === m) closeMenu(); }} />;
 }
 
-const EDITABLE = 'input, textarea, [contenteditable=""], [contenteditable="true"]';
+const TEXT_INPUTS = new Set(["text", "search", "url", "tel", "email", "password", "number"]);
+
+/** 글을 쓸 수 있는 칸인가 — 여기서만 웹뷰 기본 메뉴(잘라내기·붙여넣기)를 둔다.
+ *  읽기 전용·잠긴 칸, 체크·날짜 같은 칸은 웹뷰가 글 쓰는 칸으로 보지 않아 "새로 고침·뒤로"가 든 쪽 메뉴를 띄운다 */
+function isTypingField(t: Element | null): boolean {
+  if (!t) return false;
+  if (t instanceof HTMLTextAreaElement) return !t.readOnly && !t.disabled;
+  if (t instanceof HTMLInputElement) return !t.readOnly && !t.disabled && TEXT_INPUTS.has(t.type);
+  return !!t.closest('[contenteditable=""], [contenteditable="true"]');
+}
+
+/** 웹뷰의 새로 고침 키(F5·Ctrl+R) 막기 — 앱을 띄울 때 한 번. 새로 고침이 되면 연 문서·PDF 책상·작업 결과·쓰던 글·도는 요청이 한꺼번에 사라진다 */
+export function guardReloadKeys() {
+  window.addEventListener("keydown", (e) => {
+    const reload = e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === "KeyR");
+    // 개발 중에는 Ctrl+Shift+R 로 새로 고친다
+    if (reload && !(import.meta.env.DEV && e.shiftKey)) e.preventDefault();
+  }, true);
+}
 
 /** 웹뷰 기본 메뉴 막기 — 앱을 띄울 때 한 번 */
 export function guardNativeMenu() {
@@ -60,11 +78,19 @@ export function guardNativeMenu() {
     // 화면이 제 메뉴를 띄웠다
     if (e.defaultPrevented) return;
     const t = e.target instanceof Element ? e.target : null;
-    if (t?.closest(EDITABLE)) return;
+    if (isTypingField(t)) return;
     // 개발 중에는 Shift+우클릭으로 기본 메뉴(검사)를 쓴다
     if (import.meta.env.DEV && e.shiftKey) return;
-    const text = window.getSelection()?.toString() ?? "";
-    if (!text.trim()) { e.preventDefault(); return; }
-    showMenu(e, [{ label: "복사", icon: <Copy size={14} />, shortcut: "Ctrl+C", onClick: () => void navigator.clipboard.writeText(text).catch(() => undefined) }], { label: "고른 글 메뉴" });
+    const copy = (s: string) => () => void navigator.clipboard.writeText(s).catch(() => undefined);
+    // 읽기만 하는 글 칸(만들어 준 독촉 글 등)은 칸 안에서 고른 글을, 고른 것이 없으면 칸 전체를 복사하게 한다
+    const box = t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && TEXT_INPUTS.has(t.type)) ? t : null;
+    const text = (box ? box.value.slice(box.selectionStart ?? 0, box.selectionEnd ?? 0) : "") || (window.getSelection()?.toString() ?? "");
+    if (text.trim()) {
+      showMenu(e, [{ label: "복사", icon: <Copy size={14} />, shortcut: "Ctrl+C", onClick: copy(text) }], { label: "고른 글 메뉴" });
+    } else if (box?.readOnly && box.value.trim()) {
+      showMenu(e, [{ label: "모두 복사", icon: <Copy size={14} />, onClick: copy(box.value) }], { label: "글 칸 메뉴" });
+    } else {
+      e.preventDefault();
+    }
   });
 }

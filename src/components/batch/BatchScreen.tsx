@@ -19,7 +19,7 @@ import { OrderList } from "../common/OrderList";
 import { MergeOrderDialog } from "../pipeline/MergeOrderDialog";
 import type { ImportedFile, MergeMode } from "../../types/pipeline";
 import { TASKS, GROUPS, DEFAULT_OPTS, accepts, resultLine, type BatchOpts } from "./tasks";
-import { mergeFailed, runTask, type Outcome, type RowState } from "./runners";
+import { mergeFailed, mergeNotes, runTask, type Outcome, type RowState } from "./runners";
 import { TaskOptions } from "./TaskOptions";
 import { keepFromSettings } from "../workbench/tools/ReviewTool";
 import { BatchResults } from "./BatchResults";
@@ -139,7 +139,7 @@ export function BatchScreen({ active }: { active: boolean }) {
       const r = (await rpc("merge_files", { files: ordered.map((f) => f.path), output_path: out, mode }, { signal })) as { output_path?: string } | null;
       const bad = mergeFailed(r);
       setRows(Object.fromEntries(ordered.map((f) => { const x = bad.find((b) => b.path === f.path); return [f.path, x ? { status: "fail", error: x.error } : { status: "ok" }]; })));
-      return { kind: "single", message: `문서 ${ordered.length - bad.length}개를 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out };
+      return { kind: "single", message: `문서 ${ordered.length - bad.length}개를 합쳤습니다${bad.length ? ` (${bad.length}개는 넣지 못함)` : ""}`, path: r?.output_path || out, notes: mergeNotes(r) };
     });
   };
 

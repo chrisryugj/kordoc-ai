@@ -5,7 +5,7 @@
  */
 
 import { assertAllowed } from '../net-guard.js';
-import { httpError, sseData, type ChatRequest, type LlmProvider } from './types.js';
+import { httpError, sendRetrying, sseData, type ChatRequest, type LlmProvider } from './types.js';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -27,36 +27,58 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
           { text: m.content },
         ],
       }));
-      const signal = AbortSignal.any([req.signal, AbortSignal.timeout(timeoutMs)]);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.api_key },
-        signal,
-        redirect: 'error', // 문서가 든 요청을 관문 없이 다른 주소로 다시 보내지 않게
-        body: JSON.stringify({
-          ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
-          contents,
-          generationConfig: {
-            ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
-            ...(req.json ? { responseMimeType: 'application/json' } : {}),
-            ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
-          },
-        }),
+      // 시간 제한은 응답이 멈춘 시간 기준 (전체 시간으로 재면 긴 초안이 받는 도중에 끊긴다)
+      const idle = new AbortController();
+      let timer: NodeJS.Timeout | undefined;
+      const touch = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => idle.abort(new Error('idle')), timeoutMs);
+      };
+      const signal = AbortSignal.any([req.signal, idle.signal]);
+      const body = JSON.stringify({
+        ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
+        contents,
+        generationConfig: {
+          ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
+          ...(req.json ? { responseMimeType: 'application/json' } : {}),
+          ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+        },
       });
-      if (!res.ok) throw await httpError(res, 'Gemini');
+      try {
+        touch();
+        const res = await sendRetrying(() => {
+          touch();
+          return fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-goog-api-key': cfg.api_key },
+            signal,
+            redirect: 'error', // 문서가 든 요청을 관문 없이 다른 주소로 다시 보내지 않게
+            body,
+          });
+        }, signal);
+        if (!res.ok) throw await httpError(res, 'Gemini');
 
-      let out = '';
-      for await (const data of sseData(res, signal)) {
-        let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>; error?: { message?: string } };
-        try { chunk = JSON.parse(data); } catch { continue; }
-        if (chunk.error) throw new Error(`Gemini: ${chunk.error.message ?? '오류'}`);
-        for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
-          if (part.thought || !part.text) continue;
-          out += part.text;
-          req.onToken?.(part.text);
+        let out = '';
+        for await (const data of sseData(res, signal)) {
+          touch();
+          let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>; error?: { message?: string } };
+          try { chunk = JSON.parse(data); } catch { continue; }
+          if (chunk.error) throw new Error(`Gemini: ${chunk.error.message ?? '오류'}`);
+          for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+            if (part.thought || !part.text) continue;
+            out += part.text;
+            req.onToken?.(part.text);
+          }
         }
+        return out;
+      } catch (err) {
+        if (idle.signal.aborted && !req.signal.aborted) {
+          throw new Error(`Gemini가 ${Math.round(timeoutMs / 1000)}초 동안 응답하지 않습니다. 잠시 뒤 다시 시도하고, 계속되면 문서를 나눠 보내세요.`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      return out;
     },
     /** 이 키로 쓸 수 있는 글 생성 모델 (공식 models.list, 이름 앞 "models/" 는 뗀다) */
     async listModels(signal) {

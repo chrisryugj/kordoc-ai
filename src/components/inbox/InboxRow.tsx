@@ -119,13 +119,24 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
 
   useEffect(() => setDue(item.due ?? ""), [item.due]);
   useEffect(() => setNote(item.note ?? ""), [item.note]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // 저장을 기다리는 날짜. 줄을 접거나 끝냄을 눌러 이 칸이 사라져도 버리지 않고 그때 저장한다 (고른 날짜가 조용히 사라지지 않게)
+  const pendingDue = useRef<string | null>(null);
+  const save = useRef(onUpdate);
+  save.current = onUpdate;
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    if (pendingDue.current) save.current({ due: pendingDue.current });
+  }, []);
 
   // 날짜 칸은 다 고친 뒤 한 번만 저장. 연도를 한 자씩 치는 동안은 0002·0020·0202년 같은 날짜가 지나가므로 2000년 이후만 받는다
   const changeDue = (v: string) => {
     setDue(v);
     window.clearTimeout(timer.current);
-    if (v && v !== item.due && Number(v.slice(0, 4)) >= 2000) timer.current = window.setTimeout(() => onUpdate({ due: v }), 600);
+    pendingDue.current = null;
+    if (v && v !== item.due && Number(v.slice(0, 4)) >= 2000) {
+      pendingDue.current = v;
+      timer.current = window.setTimeout(() => { pendingDue.current = null; onUpdate({ due: v }); }, 600);
+    }
   };
 
   return (

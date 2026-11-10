@@ -265,7 +265,8 @@ export interface RpcMethods {
   /** 지시문과 도구 목록. 같은 목록을 MCP(번들 --mcp)도 쓴다 (앱 전용 도구는 빼고) */
   agent_tools: [Record<string, never>, { system: string; tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }];
   /** 도구 하나 실행 — 결과는 늘 새 파일(원본·기존 파일을 덮지 않음). files = 만든 파일 */
-  agent_tool_run: [{ name: string; input: Record<string, unknown> }, { output: string; summary: string; isError?: boolean; files?: string[]; /** 손으로 할 때 걸릴 분(효과 집계 기준 가정치) */ saved_min?: number }];
+  /** scope: 사용자가 맡긴 것(붙인 파일·폴더와 이 대화에서 만든 파일, 사용자가 한 말). 주면 그 밖의 파일은 열지 않는다. seen: 도구가 찾아 준 파일(다른 판) */
+  agent_tool_run: [{ name: string; input: Record<string, unknown>; scope?: { files: string[]; said: string[] } }, { output: string; summary: string; isError?: boolean; files?: string[]; seen?: string[]; /** 손으로 할 때 걸릴 분(효과 집계 기준 가정치) */ saved_min?: number }];
 
   // ── 직장인 문서 작업 묶음 (methods/documents.ts — A) ──
   /** PDF·워드·스캔본·엑셀 → 고칠 수 있는 한글(HWPX). 레이아웃 그대로가 아니라 글·표를 다시 조판 */
@@ -776,6 +777,8 @@ export interface AiStatus {
   /** 내장 모델이 메모리에 올라 있음 */
   embedded_loaded: boolean;
   error?: string;
+  /** 구독 프로그램을 골랐을 때: 마지막으로 확인한 설치·로그인 상태 (아직 확인한 적이 없으면 없음 → 화면이 한 번 확인한다) */
+  subscription_state?: SubscriptionStatus['state'];
 }
 
 /** 이 PC 에서 찾은 로컬 모델 서버 */

@@ -32,6 +32,10 @@ pub struct SidecarManager {
     status: Arc<RwLock<SidecarStatus>>,
     next_id: AtomicU64,
     app_handle: RwLock<Option<tauri::AppHandle>>,
+    /// 엔진을 켤 때마다 오른다. 옛 엔진의 stdout 스레드가 뒤늦게 끝나면서 새 엔진의 대기 표·상태를 건드리지 않게
+    generation: Arc<AtomicU64>,
+    /// 마지막으로 엔진을 켠 때 (겹쳐 온 다시 켜기를 하나로)
+    last_start: std::sync::Mutex<Option<Instant>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -110,7 +114,19 @@ impl SidecarManager {
             status: Arc::new(RwLock::new(SidecarStatus::Stopped)),
             next_id: AtomicU64::new(1),
             app_handle: RwLock::new(None),
+            generation: Arc::new(AtomicU64::new(0)),
+            last_start: std::sync::Mutex::new(None),
         })
+    }
+
+    /// 엔진에 걸어 둔 호출이 아직 답을 기다리는가 (창 없이 켜진 앱을 끄기 전에 본다: 도는 일을 같이 죽이지 않게)
+    pub fn busy(&self) -> bool {
+        !self.pending.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+    }
+
+    fn child_alive(&self) -> bool {
+        let mut guard = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_mut().map(|c| matches!(c.try_wait(), Ok(None))).unwrap_or(false)
     }
 
     pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
@@ -119,7 +135,14 @@ impl SidecarManager {
 
     pub async fn start(&self) -> AppResult<()> {
         let _guard = self.start_lock.lock().await;
+        // 엔진이 죽으면 기다리던 호출마다 다시 켜기를 부른다. 차례로 다 돌리면 앞사람이 방금 켠 엔진을 뒷사람이 다시 죽여
+        // 앞사람의 재시도가 "엔진이 멈췄습니다"로 끝난다 → 방금(2초 안) 켜졌고 살아 있으면 그대로 쓴다
+        let fresh = self.last_start.lock().unwrap_or_else(|e| e.into_inner()).map(|t| t.elapsed() < Duration::from_secs(2)).unwrap_or(false);
+        if fresh && *self.status.read().await == SidecarStatus::Ready && self.child_alive() {
+            return Ok(());
+        }
         self.kill_child();
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         *self.status.write().await = SidecarStatus::Starting;
 
         let handle = self.app_handle.read().await.clone();
@@ -175,6 +198,7 @@ impl SidecarManager {
 
         let pending = Arc::clone(&self.pending);
         let status = Arc::clone(&self.status);
+        let current = Arc::clone(&self.generation);
         let h = handle.clone();
         std::thread::Builder::new()
             .name("sidecar-stdout".into())
@@ -213,6 +237,11 @@ impl SidecarManager {
                         }
                     }
                 }
+                // 그새 새 엔진이 켜졌으면 이 스레드는 옛 엔진 것이다: 새 엔진의 대기 표·상태는 건드리지 않는다
+                if current.load(Ordering::SeqCst) != generation {
+                    tracing::info!("stdout reader thread exiting (옛 엔진)");
+                    return;
+                }
                 // 프로세스 종료: 기다리던 호출을 전부 깨운다 (sender drop → 수신 측 오류)
                 pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 if let Ok(mut s) = status.try_write() {
@@ -229,6 +258,7 @@ impl SidecarManager {
         match self.call("ping", None).await {
             Ok(resp) if resp.result.as_ref().and_then(|v| v.as_str()) == Some("pong") => {
                 *self.status.write().await = SidecarStatus::Ready;
+                *self.last_start.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
                 tracing::info!("Sidecar ready");
                 Ok(())
             }

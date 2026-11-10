@@ -340,6 +340,24 @@ function forwardSaveKey(win) {
   }, true);
 }
 
+// 웹뷰의 새로 고침 키(F5·Ctrl+R)와 기본 우클릭 메뉴(새로 고침·뒤로)를 막는다. 편집기 창은 앱 화면과 출처가 달라 앱 쪽 가드가 닿지 않는다.
+// 새로 고침이 되면 고치던 문서가 사라진다. 키는 기본 동작만 막고 넘겨서 스튜디오·한컴 단축키는 그대로 듣는다.
+// 우클릭은 스튜디오가 제 메뉴를 띄운 곳(기본 동작을 이미 막음)과 글 쓰는 칸은 두고, 나머지만 막는다
+function guardBrowserDefaults(win) {
+  win.addEventListener('keydown', (e) => {
+    if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyR')) e.preventDefault();
+  }, true);
+  win.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented) return;
+    const t = e.target;
+    const typing = t && t.nodeType === 1 && (t.isContentEditable
+      || (t.tagName === 'TEXTAREA' && !t.readOnly && !t.disabled)
+      || (t.tagName === 'INPUT' && !t.readOnly && !t.disabled && /^(text|search|url|tel|email|password|number)$/.test(t.type)));
+    if (!typing) e.preventDefault();
+  });
+}
+guardBrowserDefaults(window);
+
 // 스튜디오 상태 줄의 개발자용 시간 표시 "(138.6ms)" 를 지운다 — 스튜디오 파일은 그대로 두고 같은 출처 iframe 의 글만 다듬는다
 function hideTimings(win) {
   const doc = win.document;
@@ -371,6 +389,7 @@ function hideTimings(win) {
     // 요청 제한 시간은 모든 동작에 같이 걸린다 — PDF 가져오기 설정 창이 사용자 답을 기다리는 동안 끊기지 않게 앱 쪽(10분)에 맞춘다
     studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'], requestTimeoutMs: 600_000 });
     forwardSaveKey(studio.element.contentWindow);
+    try { guardBrowserDefaults(studio.element.contentWindow); } catch { /* 못 걸어도 편집은 된다 */ }
     // 한컴 한글 단축키 (스튜디오 자동화로 명령을 부른다). 못 걸어도 편집은 된다
     try { installHangulKeys(studio.element.contentWindow); } catch (e) { console.warn('[host] 한컴 단축키를 걸지 못했습니다', e); }
     try { hideTimings(studio.element.contentWindow); } catch { /* 상태 줄 다듬기는 덤 */ }

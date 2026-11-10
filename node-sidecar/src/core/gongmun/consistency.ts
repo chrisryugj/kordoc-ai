@@ -162,7 +162,25 @@ function sumCheck(parts: Array<string | null>, total: string): { ok: true } | { 
   const sum = nums.reduce((a, n) => a + (n?.value ?? 0), 0);
   const tol = decimals ? (10 ** -decimals) * Math.max(1, real.length) / 2 : 0;
   if (Math.abs(sum - t.value) <= tol + 1e-9) return { ok: true };
+  // 계층 표: 큰 항목(인건비 1,000) 아래에 세부 항목(기본급 600·수당 400)이 이어지면 모두 더한 값은 합계보다 크다.
+  // 큰 항목만 더해 맞으면 맞는 합계다 (틀렸다고 하고 "고칠 값"까지 주면 맞는 합계를 틀린 값으로 바꾸게 된다)
+  if (Math.abs(topLevelSum(nums.map((n) => n?.value ?? 0)) - t.value) <= tol + 1e-9) return { ok: true };
   return { ok: false, expected: showNum(sum, decimals, total), got: plainText(total) };
+}
+
+/** 큰 항목만 더한 값 — 바로 아래 줄 둘 이상의 합과 같은 줄을 큰 항목으로 보고 그 아래 줄들은 건너뛴다 */
+export function topLevelSum(values: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    let acc = 0;
+    for (let j = i + 1; j < values.length; j++) {
+      acc += values[j];
+      if (j - i >= 2 && Math.abs(acc - values[i]) < 1e-9) { i = j; break; }
+      if (acc > values[i] + 1e-9) break;
+    }
+  }
+  return sum;
 }
 
 function compareSum(parts: Array<string | null>, total: string): { expected: string; got: string } | undefined {

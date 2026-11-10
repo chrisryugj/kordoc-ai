@@ -4,11 +4,12 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { CardApp } from "./card/CardApp";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
-import { MenuHost, guardNativeMenu } from "./components/ui/menu";
+import { MenuHost, guardNativeMenu, guardReloadKeys } from "./components/ui/menu";
 import "./index.css";
 
-// 웹뷰 기본 우클릭 메뉴(새로 고침·뒤로)를 막고 앱 메뉴만 쓴다
+// 웹뷰 기본 우클릭 메뉴(새로 고침·뒤로)와 새로 고침 키를 막는다
 guardNativeMenu();
+guardReloadKeys();
 
 // 탐색기 우클릭 "KorDoc AI에게 맡기기…"로 뜬 문서 카드 창 (Rust shell::open_card)
 const card = new URLSearchParams(window.location.search).get("card");

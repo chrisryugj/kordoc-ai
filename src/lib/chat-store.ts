@@ -119,11 +119,15 @@ export function saveChat(meta: ChatMeta, body0: ChatBody) {
   try {
     write();
   } catch {
-    // 가득 찼으면 가장 오래된 대화부터 지우고 한 번 더
+    // 가득 찼으면 가장 오래된 대화부터 하나씩 지우며 들어갈 때까지 (한꺼번에 여럿을 지우면 대화가 몇 개 없을 때 전부 사라진다)
     const list = loadChats().filter((c) => c.id !== meta.id);
-    for (const old of list.slice(Math.max(0, list.length - 10))) removeBody(old.id);
-    saveIndex(list.slice(0, Math.max(0, list.length - 10)));
-    try { write(); } catch { /* 이번 실행 동안만 */ }
+    let ok = false;
+    while (!ok && list.length) {
+      removeBody(list.pop()!.id);
+      try { write(); ok = true; } catch { /* 하나 더 */ }
+    }
+    saveIndex(list);
+    if (!ok) try { write(); } catch { /* 이번 실행 동안만 */ }
   }
   saveIndex([meta, ...loadChats().filter((c) => c.id !== meta.id)]);
 }

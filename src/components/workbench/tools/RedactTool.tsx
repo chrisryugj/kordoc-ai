@@ -14,7 +14,7 @@ import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { Check, Field } from "../../common/Field";
 import { ErrorLine, Note, SavedFile, Working } from "../../common/Status";
-import { num } from "../../../lib/format";
+import { baseName, num } from "../../../lib/format";
 import { keepFromSettings } from "./ReviewTool";
 
 export const RULES: Array<{ id: RedactRule; label: string; on: boolean }> = [
@@ -62,7 +62,9 @@ function hasBatchim(word: string): boolean {
 const splitKeep = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter((x) => x.length >= 2);
 
 export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview: number }) {
-  const { settings, openDocs, uiMode } = useApp();
+  const { settings, openDocs, uiMode, screen, docs, toast } = useApp();
+  const where = useRef({ screen, docs });
+  where.current = { screen, docs };
   const easy = uiMode === "easy";
   // 검토 탭의 가리기는 정보공개 공개본이 기본 (이름·주소까지). 번호만 가릴 때는 아래에서 고른다
   const [rules, setRules] = useState<Set<RedactRule>>(() => new Set(DISCLOSURE_RULES));
@@ -89,8 +91,12 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   // 스캔 쪽·그림 속 글자를 읽는 문서는 오래 걸린다 → 진행을 보이고 멈출 수 있게
   const runPreview = () => { save.reset(); void preview.run(({ signal, onProgress }) => rpc("redact", { ...params(), dry_run: true }, { signal, onProgress })); };
   const runSave = () => void save.run(({ signal, onProgress }) => rpc("redact", { ...params(), ...(keeps && alsoPdf ? { also_pdf: true } : {}) }, { signal, onProgress })).then((r) => {
-    // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다)
-    if (r?.output_path) openDocs([r.output_path]);
+    if (!r?.output_path) return;
+    // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다).
+    // 오래 걸리는 사이 다른 화면으로 갔거나 이 문서를 닫았으면 끌고 오지 않고 알리기만 한다 (하던 일·저장 안 한 설정을 밀어내지 않게)
+    const { screen: now, docs: open } = where.current;
+    if (now === "workbench" && open.some((d) => d.path === doc.path)) openDocs([r.output_path]);
+    else toast(`가린 사본을 저장했습니다: ${baseName(r.output_path)}`, "success");
   });
 
   useEffect(() => {
@@ -161,7 +167,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
               </tbody>
             </table>
           </>)}
-          {r.total > 0 && (save.busy ? <Working label="가린 사본을 만드는 중" progress={save.progress} onCancel={save.cancel} /> : (
+          {/* PDF 는 미리 찾기에서 0곳이어도 확인할 곳(양식 칸·그림 속 글자)이 있으면 가린 사본을 만들 수 있게: 그 글자는 사본을 만들 때 읽어 가린다 */}
+          {(r.total > 0 || (asPdf && r.residual > 0 && !r.unscanned)) && (save.busy ? <Working label="가린 사본을 만드는 중" progress={save.progress} onCancel={save.cancel} /> : (
             <div><Button onClick={runSave}><EyeOff size={14} /> 가린 사본 저장</Button></div>
           ))}
         </div>

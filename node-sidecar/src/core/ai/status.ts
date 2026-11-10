@@ -10,6 +10,10 @@ import { createOpenAiProvider } from '../../infra/llm/openai.js';
 import { createAnthropicProvider } from '../../infra/llm/anthropic.js';
 import { createGeminiProvider } from '../../infra/llm/gemini.js';
 import { normalizeLocalBase } from '../../infra/llm/local-servers.js';
+import { lastLogin } from '../../infra/llm/subscription/login.js';
+
+/** 구독 프로그램을 쓸 수 없다고 확인된 상태 (확인하지 못함(error)은 넣지 않는다: 잠깐의 실패로 AI 를 꺼진 것처럼 보이지 않게) */
+const NOT_USABLE = new Set(['signed-out', 'metered', 'not-installed', 'needs-update']);
 
 /** 설정만 보고 빠진 것을 알려 준다 (네트워크·모델 로드 없음) */
 export function aiStatus(): AiStatus {
@@ -47,10 +51,15 @@ export function aiStatus(): AiStatus {
       break;
     case 'claude-code':
     case 'codex':
-    case 'gemini-cli':
-      // 설치·로그인은 프로그램을 띄워야 알 수 있어 여기서는 보지 않는다 (ai_subscription_status, 실행 직전 확인)
+    case 'gemini-cli': {
+      // 설치·로그인은 프로그램을 띄워야 알 수 있어 여기서 띄우지는 않는다. 대신 마지막으로 확인한 결과(ai_subscription_status·보내기 직전 확인)를 본다:
+      // 로그아웃·미설치·구독 아님·버전 낮음으로 확인됐으면 연결됐다고 하지 않는다 (아직 확인한 적이 없으면 설정만 보고 연결로 둔다)
       model = ai[ai.provider === 'codex' ? 'codex' : ai.provider === 'gemini-cli' ? 'gemini_cli' : 'claude_code'].model || '기본 모델';
+      const seen = lastLogin(ai.provider);
+      if (seen) base.subscription_state = seen.state;
+      if (seen && NOT_USABLE.has(seen.state)) missing = seen.message ?? `${ai.provider} 프로그램을 쓸 수 없습니다. 설정 › AI 연결에서 상태를 확인하세요.`;
       break;
+    }
     default:
       missing = 'AI가 아직 연결되지 않았습니다. 설정 › AI 연결에서 내장 모델이나 AI 서버를 고르세요.';
   }

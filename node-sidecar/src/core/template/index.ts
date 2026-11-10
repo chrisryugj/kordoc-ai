@@ -13,7 +13,7 @@ import { sendProgress } from '../../infra/progress.js';
 import { errorText } from '../errors.js';
 import { parseDoc, readTextFile } from '../converter/index.js';
 import { parseCsv } from '../excel/csv.js';
-import { tableGrid } from '../excel/index.js';
+import { tableGrid, tableMerges } from '../excel/index.js';
 import { formatOf } from '../files/format.js';
 import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
 import { isHeaderField } from '../fill/index.js';
@@ -87,12 +87,23 @@ async function readRoster(dataPath: string): Promise<{ header: string[]; rows: A
     const table = r.blocks.find((b) => b.type === 'table' && b.table)?.table;
     if (!table) throw new Error('명부 첫 시트에서 표를 찾지 못했습니다.');
     grid = tableGrid(table);
+    // 세로로 합친 칸(부서를 여러 사람에 걸쳐 합친 명부)은 합친 줄마다 같은 값으로. 안 채우면 둘째 사람부터 그 칸이 빈 문서가 된다
+    for (const m of tableMerges(table) ?? []) {
+      for (let r = m.r + 1; r < m.r + m.rs && r < grid.length; r++) if (!(grid[r][m.c] ?? '').trim()) grid[r][m.c] = grid[m.r][m.c];
+    }
   } else throw new Error('명부는 엑셀(xlsx·xls)이나 CSV 파일로 넣으세요.');
   const filled = (r: string[]) => r.filter((c) => c.trim()).length;
   let hi = grid.findIndex((r) => filled(r) >= 2);
   if (hi < 0) hi = grid.findIndex((r) => filled(r) >= 1);
   if (hi < 0) throw new Error('명부가 비어 있습니다.');
-  const header = grid[hi].map((c, i) => c.replace(/\s*\n\s*/g, ' ').trim() || `열${i + 1}`);
+  // 같은 이름의 열이 둘이면 뒤 것에 번호를 붙인다 (이름으로 값을 모으므로, 그대로 두면 뒤 열이 앞 열 값을 지운다)
+  const seen = new Map<string, number>();
+  const header = grid[hi].map((c, i) => {
+    const name = c.replace(/\s*\n\s*/g, ' ').trim() || `열${i + 1}`;
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    return n > 1 ? `${name} (${n})` : name;
+  });
   const rows = grid.slice(hi + 1).map((cells, i) => ({ row: hi + 2 + i, cells })).filter((r) => filled(r.cells) > 0);
   return { header, rows };
 }

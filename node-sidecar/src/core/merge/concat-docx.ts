@@ -1,7 +1,7 @@
 /** DOCX 서식 유지 수합 — ZIP+XML body 이어붙이기 + 스타일/넘버링 병합 */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename } from 'node:path';
+import { dirname, basename, posix } from 'node:path';
 import JSZip from 'jszip';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- xmldom types need DOM lib
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
@@ -31,13 +31,17 @@ function getChildElements(parent: any, localName: string): any[] {
 
 const PAGE_BREAK = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:br w:type="page"/></w:r></w:p>';
 
-function remapRIds(xml: string, offset: number): string {
-  return xml.replace(/rId(\d+)/g, (_, num) => `rId${offset + parseInt(num, 10)}`);
-}
+const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const OFFICE_NS = 'urn:schemas-microsoft-com:office:office';
+const xmlAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function parseRels(xml: string): Array<{ id: string; target: string; type: string }> {
+/** mode: 바깥 링크면 'External' (빠뜨리면 워드가 링크 주소를 문서 안 부품으로 찾다가 문서를 못 연다) */
+interface Rel { id: string; target: string; type: string; mode?: string }
+
+function parseRels(xml: string): Rel[] {
   const doc: any = new DOMParser().parseFromString(xml, 'text/xml');
-  const rels: Array<{ id: string; target: string; type: string }> = [];
+  const rels: Rel[] = [];
   const elements = doc.getElementsByTagName('Relationship');
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
@@ -45,9 +49,90 @@ function parseRels(xml: string): Array<{ id: string; target: string; type: strin
       id: el.getAttribute('Id') || '',
       target: el.getAttribute('Target') || '',
       type: el.getAttribute('Type') || '',
+      ...(el.getAttribute('TargetMode') ? { mode: el.getAttribute('TargetMode') } : {}),
     });
   }
   return rels;
+}
+
+const relXml = (r: Rel) => `<Relationship Id="${xmlAttr(r.id)}" Type="${xmlAttr(r.type)}" Target="${xmlAttr(r.target)}"${r.mode ? ` TargetMode="${xmlAttr(r.mode)}"` : ''}/>`;
+
+/** 문서마다 하나뿐인 부품 — 서식·번호는 따로 합치고, 머리글·바닥글·각주·메모는 옮기지 않는다 (본문과 함께 옮기는 것은 그림·차트·삽입 개체) */
+const SINGLETON = /\/(styles|stylesWithEffects|numbering|settings|webSettings|fontTable|theme|footnotes|endnotes|comments|commentsExtended|commentsIds|commentsExtensible|people|header|footer|customXml|glossaryDocument)$/;
+
+interface Types { defaults: Map<string, string>; overrides: Map<string, string> }
+
+/** [Content_Types].xml — 확장자별 기본 종류와 부품별 종류 */
+function parseTypes(xml: string): Types {
+  const types: Types = { defaults: new Map(), overrides: new Map() };
+  const attr = (el: string, name: string) => el.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? '';
+  for (const m of xml.matchAll(/<Default\b[^>]*>/g)) types.defaults.set(attr(m[0], 'Extension').toLowerCase(), attr(m[0], 'ContentType'));
+  for (const m of xml.matchAll(/<Override\b[^>]*>/g)) types.overrides.set(attr(m[0], 'PartName'), attr(m[0], 'ContentType'));
+  return types;
+}
+
+interface Carry { zip: JSZip; base: JSZip; moved: Map<string, string>; types: Types; baseTypes: Types; addedTypes: string[] }
+
+/** 딸린 부품(그림·차트·삽입 개체)을 합본으로 옮긴다 — 같은 이름이 있으면 새 이름으로, 그 부품에 또 딸린 부품까지.
+ *  옮긴 경로를 돌려준다 (원본에 없는 부품이면 null) */
+async function bring(from: string, c: Carry): Promise<string | null> {
+  const known = c.moved.get(from);
+  if (known) return known;
+  const file = c.zip.file(from);
+  if (!file) return null;
+  const dir = posix.dirname(from);
+  const name = posix.basename(from);
+  const ext = posix.extname(name);
+  let to = from;
+  for (let n = 2; c.base.file(to); n++) to = `${dir}/${name.slice(0, name.length - ext.length)}_${n}${ext}`;
+  c.moved.set(from, to);
+  c.base.file(to, await file.async('uint8array'));
+  // 종류 표: 원본이 부품별로 적었으면 그대로, 아니면 확장자 기본값을 (첫 문서에 없던 그림 형식이면 워드가 문서를 못 연다)
+  const own = c.types.overrides.get(`/${from}`);
+  const key = ext.slice(1).toLowerCase();
+  if (own) {
+    c.addedTypes.push(`<Override PartName="${xmlAttr(`/${to}`)}" ContentType="${xmlAttr(own)}"/>`);
+  } else if (c.types.defaults.has(key) && !c.baseTypes.defaults.has(key)) {
+    c.baseTypes.defaults.set(key, c.types.defaults.get(key)!);
+    c.addedTypes.push(`<Default Extension="${xmlAttr(key)}" ContentType="${xmlAttr(c.types.defaults.get(key)!)}"/>`);
+  }
+  const relsFile = c.zip.file(`${dir}/_rels/${name}.rels`);
+  if (relsFile) {
+    const out: Rel[] = [];
+    for (const rel of parseRels(await relsFile.async('text'))) {
+      if (rel.mode === 'External') { out.push(rel); continue; }
+      const next = await bring(rel.target.startsWith('/') ? rel.target.slice(1) : posix.normalize(posix.join(dir, rel.target)), c);
+      if (next) out.push({ ...rel, target: posix.relative(posix.dirname(to), next) });
+    }
+    c.base.file(`${posix.dirname(to)}/_rels/${posix.basename(to)}.rels`,
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${out.map(relXml).join('')}</Relationships>`);
+  }
+  return to;
+}
+
+/** 본문 조각의 관계 id 를 합본의 새 id 로. 옮기지 않은 관계(머리글·바닥글, 원본에 없는 부품)를 가리키는 곳은 지운다
+ *  (그림·개체 안이면 그 그림·개체째로). 조각 자체를 지워야 하면 false */
+function rewire(root: any, ids: Map<string, string | null>): boolean {
+  const doomed: any[] = [];
+  const walk = (el: any) => {
+    const attrs = el.attributes;
+    for (let i = 0; attrs && i < attrs.length; i++) {
+      const a = attrs[i];
+      if (a.namespaceURI !== REL_NS && !(a.namespaceURI === OFFICE_NS && a.localName === 'relid')) continue;
+      const next = ids.get(a.value);
+      if (next) el.setAttributeNS(a.namespaceURI, a.name, next);
+      else doomed.push(el);
+    }
+    for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1) walk(c);
+  };
+  walk(root);
+  for (const el of doomed) {
+    let target = el;
+    for (let p = el; p; p = p === root ? null : p.parentNode) if (/^(drawing|object|pict)$/.test(p.localName ?? '')) target = p;
+    if (target === root) return false;
+    target.parentNode?.removeChild(target);
+  }
+  return true;
 }
 
 // ─── styles.xml 병합 ─────────��────────────────────────
@@ -64,16 +149,30 @@ function parseDocxStyles(xml: string): Map<string, string> {
   return map;
 }
 
-/** 두 styles.xml 병합 — 충돌 시 리네이밍 + 교차 참조 리매핑 */
+const styleName = (fragment: string) => fragment.match(/<w:name\s+w:val="([^"]*)"/)?.[1] ?? '';
+const styleType = (fragment: string) => fragment.match(/^<w:style\b[^>]*\bw:type="([^"]*)"/)?.[1] ?? 'paragraph';
+const isDefaultStyle = (fragment: string) => /^<w:style\b[^>]*\bw:default="(?:1|true|on)"/.test(fragment);
+/** 서식이 다른 서식을 가리키는 곳 */
+const STYLE_LINK = /(<w:(?:basedOn|next|link)\s+w:val=")([^"]*)(")/g;
+
+/** 문서의 기본 문단 서식 id (문단에 서식을 적지 않으면 이 서식을 쓴다) */
+function defaultParagraphStyle(stylesXml: string): string | undefined {
+  for (const [id, fragment] of parseDocxStyles(stylesXml)) if (styleType(fragment) === 'paragraph' && isDefaultStyle(fragment)) return id;
+  return undefined;
+}
+
+/** 두 styles.xml 병합 — 서식은 이름으로 맞춘다 (워드에서 서식을 가르는 것은 이름이고, id 는 문서마다 다르게 매겨진다).
+ *  - 이름과 정의가 같으면 첫 문서 서식을 쓴다. 편집 흔적 번호(rsid)만 다른 것은 같은 서식이다
+ *  - 이름은 같은데 정의가 다르면 새 id·새 이름의 사본으로 넣는다 (같은 이름의 서식이 둘이면 워드가 문서를 손상으로 본다)
+ *  - 첫 문서에 없는 이름이면 그대로 넣는다 (id 가 겹치면 새 id)
+ *  added 는 합본에 더할 서식 조각, remap 은 뒤 문서의 서식 id → 합본의 서식 id */
 function mergeDocxStyles(
   baseStylesXml: string,
   donorStylesXml: string,
   docIndex: number,
-): { mergedStylesXml: string; remap: Map<string, string> } {
+): { added: string[]; remap: Map<string, string> } {
   const baseStyles = parseDocxStyles(baseStylesXml);
   const donorStyles = parseDocxStyles(donorStylesXml);
-  const remap = new Map<string, string>();
-  const newElements: string[] = [];
 
   const normalize = (s: string): string => {
     let n = s.replace(/\s+/g, ' ').trim();
@@ -85,69 +184,82 @@ function mergeDocxStyles(
     });
     return n;
   };
+  /** 견줄 모양: 문서마다 다른 것(서식 id, 편집 흔적 번호)은 빼고, 다른 서식을 가리키는 곳은 그 서식의 이름으로 */
+  const canonical = (fragment: string, styles: Map<string, string>) => normalize(fragment
+    .replace(/\s+w:styleId="[^"]*"/, '')
+    .replace(/<w:rsid\b[^>]*\/>/g, '')
+    .replace(STYLE_LINK, (_, a, id, z) => a + styleName(styles.get(id) ?? '') + z));
+  const key = (fragment: string) => `${styleType(fragment)}\u0000${styleName(fragment).toLowerCase()}`;
 
-  // 1차: 충돌 감지 + remap 테이블 빌드
-  for (const [styleId, fragment] of donorStyles) {
-    const baseFragment = baseStyles.get(styleId);
+  const baseByName = new Map<string, string>();
+  for (const [id, fragment] of baseStyles) baseByName.set(key(fragment), id);
 
-    if (!baseFragment) {
-      newElements.push(fragment);
-      baseStyles.set(styleId, fragment);
-    } else if (normalize(baseFragment) === normalize(fragment)) {
-      // 동일: skip
-    } else {
-      // 충돌: 유니크한 이름 생성
-      let newId = `${styleId}_${docIndex}`;
-      let suffix = docIndex;
-      while (baseStyles.has(newId)) {
-        suffix++;
-        newId = `${styleId}_${suffix}`;
-      }
-      remap.set(styleId, newId);
-      const escaped = styleId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const renamed = fragment
-        .replace(`w:styleId="${styleId}"`, `w:styleId="${newId}"`)
-        .replace(new RegExp(`w:val="${escaped}"`, 'g'), `w:val="${newId}"`);
-      newElements.push(renamed);
-      baseStyles.set(newId, renamed);
+  // 1) 같은 이름의 첫 문서 서식과 정의가 같은가. 기대는 서식(basedOn)·짝 서식(link)이 사본이 되면 따라서 사본이 된다
+  const twin = new Map<string, string>();
+  for (const [id, fragment] of donorStyles) {
+    const baseId = baseByName.get(key(fragment));
+    if (baseId !== undefined && canonical(baseStyles.get(baseId)!, baseStyles) === canonical(fragment, donorStyles)) twin.set(id, baseId);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [id, fragment] of donorStyles) {
+      if (!twin.has(id)) continue;
+      const leans = [...fragment.matchAll(/<w:(?:basedOn|link)\s+w:val="([^"]*)"/g)].map((m) => m[1]);
+      if (leans.some((ref) => donorStyles.has(ref) && !twin.has(ref))) { twin.delete(id); changed = true; }
     }
   }
 
-  // 2차: 모든 donor 신규 스타일에 remap 일괄 적용 (basedOn/next/link 교차 참조)
-  if (remap.size > 0) {
-    for (let i = 0; i < newElements.length; i++) {
-      for (const [oldId, newId] of remap) {
-        const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // basedOn, next, link 등 w:val 참조를 리매핑 (이미 자기 자신은 1차에서 처리됨)
-        newElements[i] = newElements[i].replace(
-          new RegExp(`(<w:(?:basedOn|next|link|numStyleLink|styleLink)\\s+w:val=")${escaped}("\\s*/>)`, 'g'),
-          `$1${newId}$2`,
-        );
-      }
+  // 2) 사본·새 서식의 id 와 이름
+  const remap = new Map<string, string>();
+  const usedIds = new Set(baseStyles.keys());
+  const usedNames = new Set([...baseStyles.values()].map((f) => styleName(f).toLowerCase()));
+  const fresh = (want: string, used: Set<string>, next: (n: number) => string): string => {
+    let out = want;
+    for (let n = docIndex; used.has(out.toLowerCase()) || used.has(out); n++) out = next(n);
+    return out;
+  };
+  const adding: Array<{ from: string; id: string; name: string; fragment: string }> = [];
+  for (const [id, fragment] of donorStyles) {
+    const same = twin.get(id);
+    if (same !== undefined) {
+      if (same !== id) remap.set(id, same);
+      continue;
     }
+    const newId = fresh(id, usedIds, (n) => `${id}_${n}`);
+    const own = styleName(fragment);
+    const newName = fresh(own, usedNames, (n) => `${own} (${n})`);
+    usedIds.add(newId);
+    usedNames.add(newName.toLowerCase());
+    if (newId !== id) remap.set(id, newId);
+    adding.push({ from: id, id: newId, name: newName, fragment });
   }
 
-  let result = baseStylesXml;
-  if (newElements.length > 0) {
-    result = result.replace('</w:styles>', newElements.join('') + '</w:styles>');
-  }
+  // 3) 더할 조각: 새 id·새 이름, 기본 서식 표시는 뗀다(문서에 기본 서식은 하나), 다른 서식을 가리키는 곳은 합본의 id 로
+  const added = adding.map(({ from, id, name, fragment }) => fragment
+    .replace(`w:styleId="${from}"`, () => `w:styleId="${id}"`)
+    .replace(/^(<w:style\b[^>]*?)\s+w:default="[^"]*"/, '$1')
+    .replace(/(<w:name\s+w:val=")[^"]*(")/, (_, a, z) => a + name + z)
+    .replace(/(<w:(?:basedOn|next|link|numStyleLink|styleLink)\s+w:val=")([^"]*)(")/g, (_, a, ref, z) => a + (remap.get(ref) ?? ref) + z));
 
-  return { mergedStylesXml: result, remap };
+  return { added, remap };
+}
+
+/** 뒤 문서의 기본 문단 서식이 합본의 기본 서식과 다르면, 서식을 적지 않은 문단에 그 서식을 적어 준다
+ *  (안 적으면 그 문단들이 첫 문서의 기본 글꼴·크기·줄 간격으로 바뀐다) */
+function withParagraphStyle(xml: string, styleId: string): string {
+  const pStyle = `<w:pStyle w:val="${styleId}"/>`;
+  return xml
+    .replace(/<w:p(\s[^>]*)?\/>/g, (_, attrs = '') => `<w:p${attrs}><w:pPr>${pStyle}</w:pPr></w:p>`)
+    .replace(/<w:pPr\/>/g, () => `<w:pPr>${pStyle}</w:pPr>`)
+    .replace(/<w:pPr>(?!\s*<w:pStyle\b)/g, () => `<w:pPr>${pStyle}`)
+    .replace(/(<w:p(?:\s[^>]*)?>)(?!\s*<w:pPr\b)/g, (_, open) => `${open}<w:pPr>${pStyle}</w:pPr>`);
 }
 
 /** body XML의 스타일 참조 리매��� */
 function remapDocxStyleRefs(bodyXml: string, remap: Map<string, string>): string {
   if (remap.size === 0) return bodyXml;
-  let result = bodyXml;
-  for (const [oldId, newId] of remap) {
-    // w:pStyle, w:rStyle, w:tblStyle의 val 속성
-    const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(
-      new RegExp(`(<w:(?:pStyle|rStyle|tblStyle)\\s+w:val=")${escaped}("\\s*/>)`, 'g'),
-      `$1${newId}$2`,
-    );
-  }
-  return result;
+  // 한 번에 바꾼다 (하나씩 차례로 바꾸면 a→b, b→c 가 겹칠 때 a 가 c 까지 간다)
+  return bodyXml.replace(/(<w:(?:pStyle|rStyle|tblStyle|numStyleLink|styleLink)\s+w:val=")([^"]*)(")/g, (_, a, id, z) => a + (remap.get(id) ?? id) + z);
 }
 
 // ─── numbering.xml 병합 ───���───────────────────────────
@@ -179,6 +291,8 @@ function mergeNumbering(
   const abstractNumRemap = new Map<number, number>();
   const numIdRemap = new Map<number, number>();
 
+  const usedNsids = new Set([...baseXml.matchAll(/<w:nsid\s+w:val="([0-9A-Fa-f]{1,8})"/g)].map((x) => parseInt(x[1], 16)));
+
   // donor의 abstractNum 추출 + 리매핑
   const abstractNums: string[] = [];
   const anExtractRe = /<w:abstractNum\s+w:abstractNumId="(\d+)"[\s\S]*?<\/w:abstractNum>/g;
@@ -190,6 +304,14 @@ function mergeNumbering(
       `w:abstractNumId="${oldId}"`,
       `w:abstractNumId="${newId}"`,
     );
+    // 번호 정의의 고유 번호(nsid)가 앞 문서 것과 같으면 워드가 같은 목록으로 보고 번호를 이어 매긴다
+    // (같은 서식에서 나온 문서는 nsid 가 같다 → 둘째 문서의 "1." 이 "8." 이 된다) → 안 쓰는 번호로 바꾼다
+    fragment = fragment.replace(/(<w:nsid\s+w:val=")([0-9A-Fa-f]{1,8})(")/, (_, a, hex, z) => {
+      let n = parseInt(hex, 16);
+      while (usedNsids.has(n)) n = (n + 1) >>> 0;
+      usedNsids.add(n);
+      return a + n.toString(16).toUpperCase().padStart(8, '0') + z;
+    });
     abstractNums.push(fragment);
   }
 
@@ -201,7 +323,9 @@ function mergeNumbering(
     const newId = oldId + numIdOffset;
     numIdRemap.set(oldId, newId);
     let fragment = m[0]
-      .replace(`w:numId="${oldId}"`, `w:numId="${newId}"`);
+      .replace(`w:numId="${oldId}"`, `w:numId="${newId}"`)
+      // 목록의 고유 번호도 문서마다 같을 수 있다 (겹치면 안 된다. 없으면 워드가 새로 매긴다)
+      .replace(/^(<w:num\b[^>]*?)\s+w16cid:durableId="[^"]*"/, '$1');
     // abstractNumId 참조 리매핑
     fragment = fragment.replace(
       /(<w:abstractNumId\s+w:val=")(\d+)(")/g,
@@ -213,11 +337,16 @@ function mergeNumbering(
     nums.push(fragment);
   }
 
+  // 규격의 차례대로 넣는다: 번호 정의(abstractNum)가 모두 먼저, 목록(num)이 그 뒤.
+  // 섞어 넣으면 워드가 뒤에 온 정의를 못 읽어 뒤 문서의 목록이 앞 문서 목록에 이어 붙는다
+  const insertAt = (xml: string, at: number, text: string) => (at < 0 ? xml : xml.slice(0, at) + text + xml.slice(at));
   let mergedXml = baseXml;
-  if (abstractNums.length > 0 || nums.length > 0) {
-    const insert = [...abstractNums, ...nums].join('');
-    mergedXml = mergedXml.replace('</w:numbering>', insert + '</w:numbering>');
+  const end = (xml: string) => xml.search(/<w:numIdMacAtCleanup\b|<\/w:numbering>\s*$/);
+  if (abstractNums.length > 0) {
+    const firstNum = mergedXml.search(/<w:num\s/);
+    mergedXml = insertAt(mergedXml, firstNum >= 0 ? firstNum : end(mergedXml), abstractNums.join(''));
   }
+  if (nums.length > 0) mergedXml = insertAt(mergedXml, end(mergedXml), nums.join(''));
 
   return { mergedXml, abstractNumRemap, numIdRemap };
 }
@@ -247,8 +376,13 @@ export async function concatDocx(
   let baseDoc: any = null;
   let baseBody: any = null;
   let lastSectPr: any = null;
-  let nextRelOffset = 1000;
-  const additionalRels: Array<{ id: string; target: string; type: string }> = [];
+  /** 첫 문서의 구역 설정 — 머리글·바닥글 참조는 첫 문서 것만 합본에 있다 */
+  let baseSectPr: any = null;
+  let nextRelId = 1;
+  const additionalRels: Rel[] = [];
+  const warnings: string[] = [];
+  let baseTypes: Types = { defaults: new Map(), overrides: new Map() };
+  const addedTypes: string[] = [];
 
   // 스타일/넘버링 병합용
   let mergedStylesXml: string | null = null;
@@ -283,8 +417,14 @@ export async function concatDocx(
         const sectPrs = getChildElements(baseBody, 'sectPr');
         if (sectPrs.length > 0) {
           lastSectPr = sectPrs[sectPrs.length - 1];
+          baseSectPr = lastSectPr;
           baseBody.removeChild(lastSectPr);
         }
+        // 뒤 문서의 관계 id 는 첫 문서가 쓰는 번호 뒤부터 매긴다
+        const baseRels = zip.file('word/_rels/document.xml.rels');
+        if (baseRels) for (const rel of parseRels(await baseRels.async('text'))) nextRelId = Math.max(nextRelId, (parseInt(rel.id.replace(/\D/g, ''), 10) || 0) + 1);
+        const baseTypesFile = zip.file('[Content_Types].xml');
+        if (baseTypesFile) baseTypes = parseTypes(await baseTypesFile.async('text'));
 
         // base styles/numbering 읽기
         const stylesFile = zip.file('word/styles.xml');
@@ -299,22 +439,35 @@ export async function concatDocx(
 
       // 스타일 병합
       let styleRemap = new Map<string, string>();
+      let addedStyles: string[] = [];
+      /** 서식을 적지 않은 문단에 적어 줄 서식 (이 문서의 기본 문단 서식이 합본의 기본 서식과 다를 때) */
+      let implicitStyle: string | undefined;
       const donorStylesFile = zip.file('word/styles.xml');
       if (donorStylesFile && mergedStylesXml) {
         const donorStylesXml = await donorStylesFile.async('text');
         const result = mergeDocxStyles(mergedStylesXml, donorStylesXml, i + 1);
-        mergedStylesXml = result.mergedStylesXml;
+        addedStyles = result.added;
         styleRemap = result.remap;
+        const own = defaultParagraphStyle(donorStylesXml);
+        const merged = own === undefined ? undefined : styleRemap.get(own) ?? own;
+        if (merged !== undefined && merged !== defaultParagraphStyle(mergedStylesXml)) implicitStyle = merged;
       }
 
-      // 넘버링 병합
+      // 넘버링 병합 (번호 정의가 가리키는 서식도 합본의 id 로)
       let numIdRemap = new Map<number, number>();
       const donorNumFile = zip.file('word/numbering.xml');
       if (donorNumFile) {
-        const donorNumXml = await donorNumFile.async('text');
+        const donorNumXml = remapDocxStyleRefs(await donorNumFile.async('text'), styleRemap);
         const result = mergeNumbering(mergedNumberingXml, donorNumXml, i);
         mergedNumberingXml = result.mergedXml;
         numIdRemap = result.numIdRemap;
+      }
+      // 더하는 서식이 쓰는 번호도 합본의 번호로 바꿔 넣는다
+      if (addedStyles.length && mergedStylesXml) {
+        const insert = addedStyles.map((f) => remapNumIds(f, numIdRemap)).join('');
+        mergedStylesXml = /<\/w:styles>\s*$/.test(mergedStylesXml)
+          ? mergedStylesXml.replace(/<\/w:styles>\s*$/, () => `${insert}</w:styles>`)
+          : mergedStylesXml.replace(/<w:styles\b([^>]*)\/>\s*$/, (_, attrs) => `<w:styles${attrs}>${insert}</w:styles>`);
       }
 
       const doc: any = new DOMParser().parseFromString(docXml, 'text/xml');
@@ -322,66 +475,59 @@ export async function concatDocx(
       const body = bodies[0];
       if (!body) { failedFiles.push(files[i]); continue; }
 
+      // 이 문서의 관계: 바깥 링크는 그대로, 그림·차트·삽입 개체는 부품째 옮기고, 나머지(머리글·각주…)는 옮기지 않는다.
+      // 관계 id 는 이 문서 것만 새로 매긴다 (앞 문서의 관계까지 건드리면 같은 이름 그림이 뒤바뀐다)
+      const typesFile = zip.file('[Content_Types].xml');
+      const carry: Carry = { zip, base: baseZip, moved: new Map(), types: typesFile ? parseTypes(await typesFile.async('text')) : { defaults: new Map(), overrides: new Map() }, baseTypes, addedTypes };
+      const ids = new Map<string, string | null>();
+      const mine: Rel[] = [];
+      const relsFile = zip.file('word/_rels/document.xml.rels');
+      for (const rel of relsFile ? parseRels(await relsFile.async('text')) : []) {
+        let target: string | null = rel.target;
+        if (rel.mode !== 'External') {
+          if (SINGLETON.test(rel.type)) target = null;
+          else {
+            const to = await bring(rel.target.startsWith('/') ? rel.target.slice(1) : posix.normalize(posix.join('word', rel.target)), carry);
+            target = to && posix.relative('word', to);
+          }
+        }
+        if (!target) { ids.set(rel.id, null); continue; }
+        const id = `rId${nextRelId++}`;
+        ids.set(rel.id, id);
+        mine.push({ ...rel, id, target });
+      }
+
+      // body 자식 복사 (sectPr 은 따로). 다 만든 뒤에 붙인다: 도중에 실패한 문서가 반쯤 들어가지 않게
+      const nodes: any[] = [];
+      let sectPr: any = null;
+      let notes = 0;
+      let headers = 0;
+      const children: any[] = [];
+      for (let c = 0; c < body.childNodes.length; c++) if (body.childNodes[c].nodeType === 1) children.push(body.childNodes[c]);
+      for (const child of children) {
+        headers += child.getElementsByTagNameNS(W_NS, 'headerReference').length + child.getElementsByTagNameNS(W_NS, 'footerReference').length;
+        if (!rewire(child, ids)) continue;
+        let serialized = new XMLSerializer().serializeToString(child);
+        // 각주·미주·메모는 문서마다 따로 번호를 매긴 부품에 있다 → 표시를 남기면 첫 문서의 다른 각주를 가리킨다
+        serialized = serialized.replace(/<w:(?:footnoteReference|endnoteReference|commentReference|commentRangeStart|commentRangeEnd)\b[^>]*\/>/g, (el) => { if (!/Range(Start|End)/.test(el)) notes++; return ''; });
+        serialized = remapDocxStyleRefs(serialized, styleRemap);
+        if (implicitStyle) serialized = withParagraphStyle(serialized, implicitStyle);
+        serialized = remapNumIds(serialized, numIdRemap);
+        const reimported: any = new DOMParser().parseFromString(serialized, 'text/xml');
+        const node = baseDoc.importNode(reimported.documentElement, true);
+        if (child.localName === 'sectPr') sectPr = node;
+        else nodes.push(node);
+      }
+
       // page break 삽입
       const breakDoc: any = new DOMParser().parseFromString(PAGE_BREAK, 'text/xml');
       baseBody.appendChild(baseDoc.importNode(breakDoc.documentElement, true));
-
-      // body 자식 복사 (sectPr 제외)
-      const children = body.childNodes;
-      const currentOffset = nextRelOffset;
-      for (let c = 0; c < children.length; c++) {
-        const child = children[c];
-        if (child.nodeType !== 1) continue;
-        if (child.localName === 'sectPr' || child.tagName?.endsWith(':sectPr')) {
-          lastSectPr = child;
-          continue;
-        }
-        let serialized = new XMLSerializer().serializeToString(child);
-        serialized = remapRIds(serialized, currentOffset);
-        serialized = remapDocxStyleRefs(serialized, styleRemap);
-        serialized = remapNumIds(serialized, numIdRemap);
-        const reimported: any = new DOMParser().parseFromString(serialized, 'text/xml');
-        baseBody.appendChild(baseDoc.importNode(reimported.documentElement, true));
-      }
-
-      // 관계 파일 처리
-      const relsFile = zip.file('word/_rels/document.xml.rels');
-      if (relsFile) {
-        const relsXml = await relsFile.async('text');
-        const rels = parseRels(relsXml);
-        for (const rel of rels) {
-          additionalRels.push({
-            id: `rId${currentOffset + (parseInt(rel.id.replace('rId', ''), 10) || 0)}`,
-            target: rel.target,
-            type: rel.type,
-          });
-        }
-      }
-
-      // 미디어 파일 복사 (충돌 시 리네이밍 + 관계 타겟 갱신)
-      const mediaFiles = Object.keys(zip.files).filter(p => p.startsWith('word/media/'));
-      for (const mf of mediaFiles) {
-        const content = await zip.file(mf)!.async('uint8array');
-        if (baseZip.file(mf)) {
-          // 충돌: 리네이밍
-          const origName = mf.replace('word/media/', '');
-          const dot = origName.lastIndexOf('.');
-          const stem = dot > 0 ? origName.substring(0, dot) : origName;
-          const ext = dot > 0 ? origName.substring(dot) : '';
-          let idx = 2;
-          let newName = `${stem}_${idx}${ext}`;
-          while (baseZip.file(`word/media/${newName}`)) { idx++; newName = `${stem}_${idx}${ext}`; }
-          baseZip.file(`word/media/${newName}`, content);
-          // 관계 파일의 타겟도 갱신
-          for (const rel of additionalRels) {
-            if (rel.target === `media/${origName}`) rel.target = `media/${newName}`;
-          }
-        } else {
-          baseZip.file(mf, content);
-        }
-      }
-
-      nextRelOffset += 1000;
+      for (const node of nodes) baseBody.appendChild(node);
+      if (sectPr) lastSectPr = sectPr;
+      additionalRels.push(...mine);
+      const name = basename(files[i]);
+      if (notes) warnings.push(`${name}: 각주·미주·메모 ${notes}개는 합본으로 옮기지 못했습니다. 본문은 그대로입니다.`);
+      if (headers) warnings.push(`${name}: 머리글·바닥글은 옮기지 않았습니다. 합본은 첫 문서의 머리글·바닥글을 씁니다.`);
     } catch (err) {
       failedFiles.push(files[i]);
       logger.warn(`[concat-docx] 실패: ${files[i]} — ${err instanceof Error ? err.message : err}`);
@@ -391,19 +537,33 @@ export async function concatDocx(
   if (!baseZip || !baseDoc || !baseBody) throw new Error('합칠 수 있는 DOCX 파일이 없습니다');
 
   if (lastSectPr) {
-    baseBody.appendChild(baseDoc.importNode(lastSectPr, true));
+    // 쪽 설정은 마지막 문서 것, 머리글·바닥글 참조는 첫 문서 것 (그 부품만 합본에 있다)
+    if (baseSectPr && lastSectPr !== baseSectPr) {
+      const first = lastSectPr.firstChild;
+      for (const tag of ['headerReference', 'footerReference']) {
+        for (const ref of getChildElements(baseSectPr, tag)) lastSectPr.insertBefore(ref.cloneNode(true), first);
+      }
+    }
+    baseBody.appendChild(lastSectPr);
+  }
+
+  // 첫 문서에 번호 정의가 없었으면 번호 부품을 문서에 잇는다 (잇지 않으면 뒤 문서의 번호 목록이 번호 없이 나온다)
+  if (mergedNumberingXml && !baseZip.file('word/numbering.xml')) {
+    additionalRels.push({ id: `rId${nextRelId++}`, type: `${REL_NS}/numbering`, target: 'numbering.xml' });
+    addedTypes.push('<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>');
   }
 
   if (additionalRels.length > 0) {
     const relsFile = baseZip.file('word/_rels/document.xml.rels');
-    if (relsFile) {
-      let relsXml = await relsFile.async('text');
-      const newRels = additionalRels.map(r =>
-        `<Relationship Id="${r.id}" Target="${r.target}" Type="${r.type}"/>`,
-      ).join('\n');
-      relsXml = relsXml.replace('</Relationships>', `${newRels}\n</Relationships>`);
-      baseZip.file('word/_rels/document.xml.rels', relsXml);
-    }
+    const relsXml = relsFile
+      ? await relsFile.async('text')
+      : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    baseZip.file('word/_rels/document.xml.rels', relsXml.replace(/<\/Relationships>\s*$/, () => `${additionalRels.map(relXml).join('\n')}\n</Relationships>`));
+  }
+
+  if (addedTypes.length > 0) {
+    const typesFile = baseZip.file('[Content_Types].xml');
+    if (typesFile) baseZip.file('[Content_Types].xml', (await typesFile.async('text')).replace(/<\/Types>\s*$/, () => `${addedTypes.join('')}</Types>`));
   }
 
   // 병합된 styles.xml ��기
@@ -435,5 +595,6 @@ export async function concatDocx(
     file_count: files.length,
     total_length: outputBuffer.length,
     failed_files: failedFiles,
+    ...(warnings.length ? { warnings } : {}),
   };
 }

@@ -5,11 +5,11 @@
  * 그림에 걸리는 글이 없으면 조용히 넘어간다 (기관 표지·직인마다 경고를 띄우지 않게).
  */
 
-import { parse, type RedactRule } from 'kordoc';
+import type { RedactRule } from 'kordoc';
 import { sendProgress } from '../../infra/progress.js';
-import { parseDoc } from '../converter/index.js';
+import { parseBytes, parseDoc } from '../converter/index.js';
 import { imageToPdf } from './pdf.js';
-import { redactMarkdown } from './rules.js';
+import { countRead } from './rules.js';
 
 /** 한 문서에서 읽을 그림 수 상한 — 그림 수백 장짜리 문서에서 몇 분씩 붙잡지 않게 (넘는 것은 읽지 못한 것으로 센다) */
 const MAX_PICTURES = 24;
@@ -42,11 +42,13 @@ export async function scanPictures(path: string, rules: readonly RedactRule[], k
       const bytes = new Uint8Array(img.data);
       const meta = await sharp(Buffer.from(bytes)).metadata();
       if ((meta.width ?? 0) < MIN_SIDE || (meta.height ?? 0) < MIN_SIDE) continue;
-      const r = await parse(Buffer.from(await imageToPdf(bytes)), { ocr: 'force', images: false });
+      // 멈추기를 누르면 읽는 도중에도 멈춘다 (parseBytes 가 신호를 본다)
+      const r = await parseBytes(Buffer.from(await imageToPdf(bytes)), { ocr: 'force', images: false }, undefined, signal);
       if (!r.success) { out.unread++; continue; }
-      const found = redactMarkdown(r.markdown, { rules }).hits.filter((h) => !keep(r.markdown.slice(h.index, h.index + h.length))).length;
+      const found = countRead(r.markdown, rules, keep);
       if (found) { out.flagged++; out.hits += found; }
-    } catch {
+    } catch (err) {
+      if (signal?.aborted) throw err;
       // 못 여는 형식(WMF·EMF)이거나 깨진 그림
       out.unread++;
     }

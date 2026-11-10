@@ -3,9 +3,10 @@
  *  문서 보내기를 허용하고 저장하기 전에는 프로그램을 띄우지 않고 설치 위치만 본다. 프로그램 위치는 기관 배포 설정으로만 바꾼다. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpCircle, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, Copy, ExternalLink, RefreshCw } from "lucide-react";
 import type { Settings, SubscriptionStatus } from "../../lib/contract";
 import { rpc } from "../../lib/rpc";
+import { openExternal } from "../../lib/native";
 import { useApp } from "../../state/app";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
@@ -29,18 +30,52 @@ const INTRO: Record<SubProvider, string> = {
   "gemini-cli": "Google 계정으로 로그인한 Antigravity CLI(agy) 프로그램을 씁니다.",
 };
 
-function StatusView({ st }: { st: SubscriptionStatus }) {
+/** 프로그램을 만든 회사의 설치 안내 */
+const INSTALL_PAGE: Record<SubProvider, string> = {
+  "claude-code": "https://code.claude.com/docs/en/setup",
+  codex: "https://developers.openai.com/codex/cli",
+  "gemini-cli": "https://antigravity.google/",
+};
+/** 설치 전에 자주 헷갈리는 것 */
+const INSTALL_NOTE: Record<SubProvider, string> = {
+  "claude-code": "Claude Code는 채팅용 Claude 앱과 따로 설치하는 프로그램입니다. Claude 앱만 있으면 여기서 쓸 수 없습니다.",
+  codex: "Codex는 ChatGPT 앱과 따로 설치하는 프로그램입니다.",
+  "gemini-cli": "Antigravity CLI(agy)는 Google의 Antigravity 사이트에서 받습니다.",
+};
+const isMac = /Mac/i.test(navigator.userAgent);
+const TERMINAL = isMac ? "터미널" : "명령 프롬프트";
+
+function StatusView({ st, onCopy }: { st: SubscriptionStatus; onCopy: (text: string) => void }) {
   const ver = st.version ? ` · 버전 ${st.version}` : "";
   if (st.state === "ready") return <StatusLine tone="ok">로그인됨 ({st.provider === "gemini-cli" ? "Google 계정" : "구독"}{st.plan ? ` ${st.plan}` : ""}{ver})</StatusLine>;
   const tone = st.state === "unknown-login" || st.state === "installed" ? "warn" : "err";
   const title = { "unknown-login": "로그인됨 (구독인지 확인 못 함)", metered: "구독이 아닌 로그인", installed: "설치됨 (로그인은 허용한 뒤 확인)", "signed-out": "로그인 안 됨", "not-installed": "프로그램 없음",
     "needs-update": "버전이 낮음", error: "확인하지 못함", offline: "폐쇄망 모드", disabled: "기관에서 막음" }[st.state];
-  const showCmd = ["signed-out", "metered", "unknown-login", "not-installed"].includes(st.state);
+  const showCmd = ["signed-out", "metered", "unknown-login"].includes(st.state);
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <StatusLine tone={tone}>{title}{ver}</StatusLine>
       {st.message && <p className="kd-small">{st.message}</p>}
-      {showCmd && <p className="kd-small kd-muted">해결: 명령 프롬프트나 PowerShell에서 <code className="font-mono" style={{ color: "var(--color-text-primary)" }}>{st.login_command}</code>를 실행해 로그인한 뒤 다시 확인을 누르세요.</p>}
+      {showCmd && (
+        <>
+          {/* 터미널을 써 본 적 없는 사람도 따라 할 수 있게 차례로 */}
+          <ol className="kd-small kd-muted list-decimal pl-5">
+            <li>{isMac ? "Spotlight(⌘+Space)에서 터미널을 찾아 엽니다." : "시작 단추를 누르고 cmd 를 쳐서 명령 프롬프트를 엽니다."}</li>
+            <li>아래 명령을 붙여 넣고 Enter를 누릅니다. 브라우저가 열리면 로그인합니다.</li>
+            <li>이 창으로 돌아오면 상태를 다시 확인합니다.</li>
+          </ol>
+          <div className="flex items-center gap-2">
+            <code className="font-mono kd-small" style={{ color: "var(--color-text-primary)" }}>{st.login_command}</code>
+            <Button variant="ghost" size="sm" onClick={() => onCopy(st.login_command)} data-tip={`${TERMINAL}에 붙여 넣을 명령을 복사합니다`}><Copy size={13} /> 명령 복사</Button>
+          </div>
+        </>
+      )}
+      {st.state === "not-installed" && (
+        <>
+          <p className="kd-small kd-muted">{INSTALL_NOTE[st.provider]}{isMac ? "" : " 윈도에 설치해야 합니다. WSL(리눅스) 안에 설치한 것은 찾지 못합니다."} 설치하고 로그인한 뒤 이 창으로 돌아오면 다시 확인합니다.</p>
+          <div><Button variant="secondary" size="sm" onClick={() => void openExternal(INSTALL_PAGE[st.provider])} data-tip="프로그램을 만든 회사의 설치 안내를 브라우저로 엽니다"><ExternalLink size={13} /> 설치 안내 열기</Button></div>
+        </>
+      )}
     </div>
   );
 }
@@ -48,7 +83,7 @@ function StatusView({ st }: { st: SubscriptionStatus }) {
 export function SubscriptionPanel({ provider, draft, onChange }: {
   provider: SubProvider; draft: Ai; onChange: (patch: Partial<Ai>) => void;
 }) {
-  const { settings, toast } = useApp();
+  const { settings, toast, refreshAi } = useApp();
   const savedAllow = !!settings?.ai.allow_subscription;
   const lk = useLocked();
   const lp = (label: string, path: string) => lockProps(label, lk(path));
@@ -73,6 +108,26 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
   recheckRef.current = recheck;
   useEffect(() => { recheck(); }, [recheck]);
 
+  // 확인한 결과는 앱 전체의 "AI 연결됨" 표시에도 바로 반영한다 (엔진이 마지막 확인 결과를 본다)
+  const seen = check.result;
+  useEffect(() => { if (seen) void refreshAi(); }, [seen, refreshAi]);
+  // 터미널에서 로그인·설치하고 돌아오면 저절로 다시 확인한다 (다시 확인 단추를 찾아 누르지 않아도 되게)
+  const stuck = !!seen && seen.provider === provider && ["signed-out", "metered", "unknown-login", "not-installed", "needs-update", "error"].includes(seen.state);
+  const busyRef = useRef(false);
+  busyRef.current = check.busy || upd.busy;
+  useEffect(() => {
+    if (!stuck) return;
+    let last = Date.now();
+    const onFocus = () => {
+      if (busyRef.current || Date.now() - last < 10_000) return;
+      last = Date.now();
+      recheckRef.current();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [stuck]);
+  const copy = (text: string) => void navigator.clipboard.writeText(text).then(() => toast(`명령을 복사했습니다. ${TERMINAL}에 붙여 넣으세요.`, "success"), () => toast("복사하지 못했습니다. 명령을 직접 치세요.", "error"));
+
   const loadModels = () => void list.run(async ({ signal }) => {
     const items = (await rpc("ai_subscription_models", { provider }, { signal })).models;
     setModels({ provider, items });
@@ -95,7 +150,7 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
 
       <div className="kd-panel flex items-start gap-3 p-3">
         <div className="min-w-0 flex-1">
-          {check.busy ? <Working label="프로그램 상태를 확인하는 중" /> : st ? <StatusView st={st} /> : null}
+          {check.busy ? <Working label="프로그램 상태를 확인하는 중" /> : st ? <StatusView st={st} onCopy={copy} /> : null}
           <ErrorLine message={check.error} />
           <ErrorLine message={upd.error} />
         </div>

@@ -11,7 +11,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { assertAllowed, isPrivateAddress } from '../net-guard.js';
-import { createThinkFilter, httpError, sseData, type ChatRequest, type LlmProvider } from './types.js';
+import { createThinkFilter, httpError, sendRetrying, sseData, type ChatRequest, type LlmProvider } from './types.js';
 
 export interface OpenAiConfig {
   base_url: string;
@@ -191,10 +191,11 @@ export function createOpenAiProvider(cfg: OpenAiConfig, timeoutMs: number): LlmP
 
       try {
         touch();
-        let res = await post(optional);
+        // 잠깐 붐벼서 온 거절(503·분당 한도 등)은 조금 기다렸다 다시 보낸다 (모델을 올리는 중인 로컬 서버도 503 을 낸다)
+        let res = await sendRetrying(() => { touch(); return post(optional); }, signal);
         if ((res.status === 400 || res.status === 422) && Object.keys(optional).length) {
           await res.body?.cancel();
-          res = await post({});
+          res = await sendRetrying(() => { touch(); return post({}); }, signal);
         }
         refuseRedirect(res);
         if (!res.ok) throw await httpError(res, 'AI 서버');

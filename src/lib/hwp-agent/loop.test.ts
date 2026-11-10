@@ -65,3 +65,33 @@ describe("runAgent — 멈춘 요청", () => {
     expect(h.onTool.mock.calls.every(([t]) => !t.isError)).toBe(true);
   });
 });
+
+describe("runAgent — 헛도는 모델", () => {
+  const skill = (executeTool: AgentSkill["executeTool"]): AgentSkill => ({ systemPrompt: "", tools: [], executeTool } as unknown as AgentSkill);
+  const hooks = () => ({ onText: vi.fn(), onTool: vi.fn() });
+  const ac = () => new AbortController().signal;
+  const call = (input: Record<string, unknown> = {}) => ({ text: "", redacted: 0, calls: [{ id: "1", name: "read_document", input }] });
+
+  it("같은 호출에 같은 결과가 세 번 이어지면 멈춘다", async () => {
+    step.mockReset().mockResolvedValue(call());
+    const r = await runAgent({ skill: skill(async () => ({ output: "같은 글", summary: "읽음" })), events: [], request: "읽어", signal: ac(), hooks: hooks() });
+    expect(step).toHaveBeenCalledTimes(3);
+    expect(r.text).toMatch(/되풀이/);
+  });
+
+  it("문서를 바꾸는 호출은 같아도 되풀이로 세지 않는다 (한 곳씩 차례로 바꾸기)", async () => {
+    let n = 0;
+    step.mockReset().mockImplementation(async () => (n++ < 5 ? call({ find: "가", replace: "나" }) : { text: "다 바꿨습니다", redacted: 0, calls: [] }));
+    const r = await runAgent({ skill: skill(async () => ({ output: "1곳 바꿈", summary: "바꿈", mutated: true })), events: [], request: "바꿔", signal: ac(), hooks: hooks() });
+    expect(r.text).toBe("다 바꿨습니다");
+    expect(step).toHaveBeenCalledTimes(6);
+  });
+
+  it("부르는 도구마다 실패하는 차례가 다섯 번 이어지면 멈춘다", async () => {
+    let n = 0;
+    step.mockReset().mockImplementation(async () => call({ path: `없는 파일 ${n++}` }));
+    const r = await runAgent({ skill: skill(async (c) => ({ output: `못 찾음 ${String(c.input.path)}`, summary: "실패", isError: true })), events: [], request: "읽어", signal: ac(), hooks: hooks() });
+    expect(step).toHaveBeenCalledTimes(5);
+    expect(r.text).toMatch(/계속 실패/);
+  });
+});

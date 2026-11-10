@@ -63,7 +63,9 @@ export function EditStep({ visible }: { visible: boolean }) {
           )}
           {ready && busyText && <div className="kd-editor-busy"><Loader2 size={14} className="kd-spin" /> {busyText}</div>}
         </div>
-        {assistOpen && session && <EditorAssist />}
+        {/* 접어도 떼어 내지 않고 숨기기만 한다: 떼어 내면 돌던 편집기 AI 가 보이지 않는 채 계속 문서를 고치고(멈추기·되돌리기도 사라짐),
+            다시 펴면 대화·칸에 적던 값·다듬기 결과가 비어 있다 */}
+        {session && <div hidden={!assistOpen} style={{ display: assistOpen ? "contents" : "none" }}><EditorAssist /></div>}
       </div>
     </div>
   );

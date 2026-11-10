@@ -158,6 +158,31 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     try { setAi(await rpc("ai_status", {})); } catch { /* 엔진 준비 전 */ }
   }, []);
 
+  // 구독 프로그램(Claude Code·Codex·Antigravity CLI)을 골랐으면 설치·로그인 상태를 한 번 확인한다: 설정만 보고 연결됐다고 하면
+  // 로그아웃된 채 첫 요청을 보내고서야 안 된다는 것을 알게 된다. 안 되는 상태로 확인됐으면 창으로 돌아올 때 다시 본다
+  // (터미널에서 로그인하고 돌아오면 저절로 켜진다). 엔진은 허용 전·폐쇄망·기관 차단이면 프로그램을 띄우지 않는다
+  const subAsked = useRef({ provider: "", at: 0, busy: false });
+  const checkSubscription = useCallback(async (provider: "claude-code" | "codex" | "gemini-cli") => {
+    const s = subAsked.current;
+    if (s.busy) return;
+    subAsked.current = { provider, at: Date.now(), busy: true };
+    try { await rpc("ai_subscription_status", { provider }); } catch { /* 상태는 설정 화면에서 다시 볼 수 있다 */ }
+    subAsked.current.busy = false;
+    await refreshAi();
+  }, [refreshAi]);
+  useEffect(() => {
+    if (!ai) return;
+    const p = ai.provider;
+    if (p !== "claude-code" && p !== "codex" && p !== "gemini-cli") return;
+    // 아직 확인한 적이 없으면 한 번
+    if (ai.configured && ai.subscription_state === undefined && subAsked.current.provider !== p) void checkSubscription(p);
+    const stuck = ai.subscription_state === "signed-out" || ai.subscription_state === "metered" || ai.subscription_state === "not-installed" || ai.subscription_state === "needs-update";
+    if (!stuck) return;
+    const onFocus = () => { if (Date.now() - subAsked.current.at > 15_000) void checkSubscription(p); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [ai, checkSubscription]);
+
   // 엔진이 준비되면 설정·상태를 읽는다
   useEffect(() => {
     if (!ready) return;
@@ -217,6 +242,8 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     const prev = docsRef.current;
     const idx = prev.findIndex((d) => d.path === path);
     const next = prev.filter((d) => d.path !== path);
+    // 한 번에 여러 문서를 닫을 때(다른 문서 모두 닫기) 다음 호출이 방금 닫은 것까지 반영된 목록을 보게
+    docsRef.current = next;
     setDocs(next);
     setActivePath((cur) => (cur === path ? next[Math.max(0, idx - 1)]?.path ?? null : cur));
     // 닫은 문서에 걸려 있던 요청(요약 바로 시작 등)은 버린다: 남겨 두면 그 문서를 다시 열 때 또 돈다

@@ -240,6 +240,29 @@ describe('mail_merge', () => {
     const md2 = (await parse(readFileSync(r2.outputs[0]))).markdown ?? '';
     expect(md2).not.toContain('주무관 김가온');
   });
+
+  it('같은 이름의 열이 둘이고 뒤 열이 비어도 앞 열 값이 들어간다', async () => {
+    const csv = join(env.work, '같은열.csv');
+    writeFileSync(csv, '제목,전화번호,전화번호\n체육대회 안내,01012345678,\n');
+    const r = await call('mail_merge', { template: 'gian', data_path: csv });
+    expect(r.failed).toEqual([]);
+    const back = await parse(readFileSync(r.outputs[0]));
+    expect(back.success && back.markdown).toContain('010-1234-5678');
+    const plan = await call('mail_merge_plan', { template: 'gian', data_path: csv });
+    expect(plan.columns.map((c: { name: string }) => c.name)).toEqual(['제목', '전화번호', '전화번호 (2)']);
+  });
+
+  it('세로로 합친 칸은 합친 줄마다 같은 값으로 채운다 (둘째 줄부터 빈 문서가 되지 않게)', async () => {
+    const xlsx = join(env.work, '합친칸.xlsx');
+    writeFileSync(xlsx, await buildXlsx([{ name: '명부', header: true, rows: [['제목', '시행일'], ['첫 공문', '2026. 10. 1.'], ['둘째 공문', '']], merges: [{ r: 1, c: 1, rs: 2, cs: 1 }] }]));
+    const r = await call('mail_merge', { template: 'gian', data_path: xlsx });
+    expect(r.failed).toEqual([]);
+    expect(r.outputs).toHaveLength(2);
+    for (const out of r.outputs) {
+      const back = await parse(readFileSync(out));
+      expect(back.success && back.markdown).toContain('2026. 10. 1.');
+    }
+  });
 });
 
 describe('mail_merge_plan', () => {

@@ -8,7 +8,7 @@ import * as CFB from 'cfb';
 import JSZip from 'jszip';
 import { freeUnusedSectors } from '../hwp-save/hwp5.js';
 
-async function blankPng(): Promise<Buffer> {
+export async function blankPng(): Promise<Buffer> {
   const sharp = (await import('sharp')).default;
   return sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } }).png().toBuffer();
 }

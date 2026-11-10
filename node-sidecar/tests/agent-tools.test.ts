@@ -106,6 +106,52 @@ describe('보안·취소 (검증에서 나온 것)', () => {
     expect(inside.isError).toBeFalsy();
   });
 
+  it('앱 안 대화: 사용자가 맡긴 파일만 연다 (붙인 것·그 폴더 안·요청에 적은 것·만든 것)', async () => {
+    const LETTER = sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx');
+    const read = (path: string, scope: { files: string[]; said: string[] }) => runWorkTool('read_document', { path }, dispatch, { app: true, scope });
+    // 붙인 파일, 붙인 폴더 안
+    expect((await read(REPORT, { files: [REPORT], said: [] })).isError).toBeFalsy();
+    expect((await read(REPORT, { files: [SAMPLES], said: [] })).isError).toBeFalsy();
+    // 붙이지 않은 파일: 문서 속 글이 시켜도 열지 않는다
+    const stray = await read(LETTER, { files: [REPORT], said: ['이 문서 요약해 줘'] });
+    expect(stray.isError).toBe(true);
+    expect(stray.output).toMatch(/맡기지 않은 파일/);
+    // 요청에 경로·파일 이름·폴더를 적었으면 연다
+    expect((await read(LETTER, { files: [], said: [`${LETTER} 요약해 줘`] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: ['1-받은공문_도민체육대회 참가 협조 요청.hwpx 를 요약해 줘'] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 폴더의 공문을 요약해 줘`] })).isError).toBeFalsy();
+    // 다른 파일의 경로를 적은 것으로 그 폴더 전체가 열리지는 않는다
+    expect((await read(LETTER, { files: [], said: [`${REPORT} 요약해 줘`] })).isError).toBe(true);
+    // 여러 파일을 받는 도구도 하나라도 밖이면 막는다. 경로가 없는 도구는 그대로
+    expect((await runWorkTool('list_documents', { paths: [REPORT, LETTER] }, dispatch, { app: true, scope: { files: [REPORT], said: [] } })).isError).toBe(true);
+    expect((await runWorkTool('document_guide', { preset: 'official' }, dispatch, { app: true, scope: { files: [], said: [] } })).isError).toBeFalsy();
+  }, 60_000);
+
+  it('agent_tool_run: scope 를 주면 막고, find_versions 는 찾은 판을 seen 으로 알려 준다', async () => {
+    const LETTER = sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx');
+    const blocked = await call('agent_tool_run', { name: 'read_document', input: { path: LETTER }, scope: { files: [REPORT], said: [] } });
+    expect(blocked.isError).toBe(true);
+    const vers = await call('agent_tool_run', { name: 'find_versions', input: { path: REPORT }, scope: { files: [REPORT], said: [] } });
+    expect(vers.isError).toBeFalsy();
+    expect(vers.seen).toContain(REPORT);
+  }, 60_000);
+
+  it('MCP 허용 폴더가 있으면 결과도 그 안에 둔다 (설정의 저장 폴더가 밖이어도)', async () => {
+    const { confineOutputs, outputDir } = await import('../src/core/output/index.js');
+    const { join } = await import('node:path');
+    const outside = outputDir({ source: REPORT });
+    try {
+      confineOutputs(env.work);
+      const fenced = outputDir({ source: REPORT });
+      expect(fenced.startsWith(env.work)).toBe(true);
+      // 이미 안쪽인 폴더는 그대로
+      expect(outputDir({ output_dir: join(env.work, '안쪽') })).toBe(join(env.work, '안쪽'));
+    } finally {
+      confineOutputs(null);
+    }
+    expect(outputDir({ source: REPORT })).toBe(outside);
+  });
+
   it('부른 쪽이 멈추면 엔진 안 호출도 멈춘다 (router.dispatch parent)', async () => {
     const router = new RpcRouter();
     router.register('wait_abort', (_p, signal) => new Promise((_res, rej) => signal.addEventListener('abort', () => rej(new DOMException('멈춤', 'AbortError')), { once: true })));

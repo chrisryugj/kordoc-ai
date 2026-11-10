@@ -71,6 +71,7 @@ export function ContextMenu({ items, position, onClose, label, header, keyboard 
   useEffect(() => {
     const inside = (t: EventTarget | null) => !!menuRef.current && t instanceof Node && menuRef.current.contains(t);
     const onPointer = (e: MouseEvent) => { if (!inside(e.target)) close(false); };
+    // 사용자가 굴린 것만 닫는다. 화면이 스스로 굴리는 것(AI 답이 오는 동안 대화가 아래로 따라감)까지 닫으면 메뉴가 뜨자마자 사라진다
     const onScroll = (e: Event) => { if (!inside(e.target)) close(false); };
     const away = () => close(false);
     const onKey = (e: KeyboardEvent) => {
@@ -94,7 +95,8 @@ export function ContextMenu({ items, position, onClose, label, header, keyboard 
     const t = setTimeout(() => {
       window.addEventListener("mousedown", onPointer, true);
       window.addEventListener("contextmenu", onPointer);
-      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("wheel", onScroll, true);
+      window.addEventListener("touchmove", onScroll, true);
       window.addEventListener("resize", away);
       window.addEventListener("blur", away);
     }, 0);
@@ -103,7 +105,8 @@ export function ContextMenu({ items, position, onClose, label, header, keyboard 
       clearTimeout(t);
       window.removeEventListener("mousedown", onPointer, true);
       window.removeEventListener("contextmenu", onPointer);
-      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("wheel", onScroll, true);
+      window.removeEventListener("touchmove", onScroll, true);
       window.removeEventListener("resize", away);
       window.removeEventListener("blur", away);
       window.removeEventListener("keydown", onKey, true);

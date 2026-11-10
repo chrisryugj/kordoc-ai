@@ -256,7 +256,7 @@ describe('Codex', () => {
   }
 
   for (const [mode, kind, text] of [
-    ['usage', 'rate-limit', '잠시 뒤'],
+    ['usage', 'rate-limit', '한도가 풀린 뒤'],
     ['toolong', 'too-long', '문서가 너무 깁니다'],
     ['signedout', 'signed-out', 'codex login'],
     ['server', 'server-error', '서버에 오류'],

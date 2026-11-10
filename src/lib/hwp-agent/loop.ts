@@ -12,6 +12,10 @@ export type AgentEvent = RpcParams<"ai_agent_step">["events"][number];
 
 /** 요청 하나에서 모델 차례 상한 — 고장 난 모델이 도구를 끝없이 부르지 않게 */
 export const MAX_STEPS = 24;
+/** 같은 도구 호출(이름·값이 모두 같음)이 이만큼 이어지면 멈춘다 */
+export const SAME_CALLS = 3;
+/** 부른 도구가 모두 실패한 차례가 이만큼 이어지면 멈춘다 */
+export const FAILED_STEPS = 5;
 /** 이어 보내는 대화의 글자 상한 — 로컬 모델은 맥락이 짧아(4K~8K 토큰) 넘치면 지시문이 잘려 답 형식이 깨진다 */
 export const HISTORY_CHARS = 24_000;
 
@@ -49,6 +53,11 @@ export async function runAgent(opts: {
   let corrected = false;
   let text = "";
   let redacted = 0;
+  // 헛도는 모델을 일찍 멈춘다: 같은 도구를 같은 값으로 되풀이하거나, 부르는 도구마다 실패하는 차례가 이어질 때.
+  // 차례 상한(MAX_STEPS)까지 두면 그동안 AI 사용량만 쓰고 사용자는 몇 분을 기다린다
+  let lastCalls = "";
+  let sameCalls = 0;
+  let failedSteps = 0;
   const steps = async (): Promise<{ text: string; redacted: number }> => {
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
@@ -64,6 +73,7 @@ export async function runAgent(opts: {
         continue;
       }
       const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
+      let changed = false;
       for (const call of turn.calls) {
         if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
         if (call.inputError) {
@@ -80,10 +90,18 @@ export async function runAgent(opts: {
           out = { output: e instanceof Error ? e.message : String(e), isError: true, summary: `${call.name} 실패` };
         }
         executed.push({ name: call.name, ok: !out.isError });
+        if (out.mutated) changed = true;
         results.push({ id: call.id, name: call.name, output: out.output, ...(out.isError ? { isError: true } : {}) });
         hooks.onTool({ name: call.name, summary: out.summary, isError: !!out.isError });
       }
       events.push({ role: "tool", results });
+      // 되풀이: 같은 호출에 같은 결과가 왔고 바뀐 것도 없다 (한 곳씩 차례로 바꾸는 편집처럼 문서를 바꾼 차례는 세지 않는다)
+      const sig = changed ? "" : JSON.stringify([turn.calls.map((c) => [c.name, c.input]), results.map((r) => r.output)]);
+      sameCalls = sig && sig === lastCalls ? sameCalls + 1 : 1;
+      lastCalls = sig;
+      failedSteps = results.every((r) => r.isError) ? failedSteps + 1 : 0;
+      if (sameCalls >= SAME_CALLS) return { text: "같은 일을 되풀이해 멈췄습니다. 요청을 조금 바꾸거나 나눠서 다시 시도하세요.", redacted };
+      if (failedSteps >= FAILED_STEPS) return { text: "도구가 계속 실패해 멈췄습니다. 위 진행 줄의 실패 까닭을 확인하고 다시 시도하세요.", redacted };
     }
     return { text: text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.", redacted };
   };

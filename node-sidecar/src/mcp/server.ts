@@ -12,6 +12,7 @@ import { WORK_SYSTEM, runWorkTool, workToolDefs } from '../core/agent-tools/inde
 import { muteNotifications } from '../infra/progress.js';
 import { reloadIfChanged } from '../infra/config.js';
 import { syncOfflineEnv } from '../infra/net-guard.js';
+import { confineOutputs } from '../core/output/index.js';
 import { logger } from '../infra/logger.js';
 
 const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -57,7 +58,10 @@ export function runMcpServer(router: RpcRouter, version: string): void {
   muteNotifications();
   // 라이브러리가 console.log 로 stdout 을 더럽히지 않게
   console.log = console.info = (...a: unknown[]) => console.error(...a);
-  const handle = createMcpHandler(router, { version, root: process.env.KORDOC_ROOT || undefined });
+  const root = process.env.KORDOC_ROOT || undefined;
+  // 허용 폴더를 정했으면 결과도 그 안에 (설정의 저장 폴더가 밖이면 허용 폴더 안의 같은 이름 폴더로)
+  if (root) confineOutputs(root);
+  const handle = createMcpHandler(router, { version, root });
   const write = (r: Reply) => process.stdout.write(`${JSON.stringify(r, (_k, v: unknown) => (typeof v === 'string' ? (v as string & { toWellFormed(): string }).toWellFormed() : v))}\n`);
   const rl = createInterface({ input: process.stdin, terminal: false });
   rl.on('line', (line) => {

@@ -30,7 +30,15 @@ export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLa
   if (outcome.kind === "files") {
     return outcome.dir ? <SavedFile path={outcome.dir} folder label={outcome.message} /> : <Note tone="ok">{outcome.message}</Note>;
   }
-  if (outcome.kind === "single") return <SavedFile path={outcome.path} folder={outcome.folder} label={outcome.message} />;
+  if (outcome.kind === "single") {
+    if (!outcome.notes?.length) return <SavedFile path={outcome.path} folder={outcome.folder} label={outcome.message} />;
+    return (
+      <div className="flex flex-col gap-3">
+        <SavedFile path={outcome.path} folder={outcome.folder} label={outcome.message} />
+        {outcome.notes.map((n) => <Note key={n} tone="warn">{n}</Note>)}
+      </div>
+    );
+  }
   if (outcome.kind === "extract") {
     return (
       <div className="flex flex-col gap-3">
