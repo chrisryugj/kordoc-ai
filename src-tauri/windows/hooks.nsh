@@ -25,6 +25,7 @@
     DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.png\shell\KorDoc"
     DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.jpg\shell\KorDoc"
     DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.jpeg\shell\KorDoc"
+    DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.webp\shell\KorDoc"
     DeleteRegKey HKCU "Software\Classes\Directory\shell\KorDoc"
     DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\KorDoc"
   ${EndIf}

@@ -58,3 +58,21 @@ describe('설정 파일 바꿔 넣기: Windows 잠깐 잠김(EPERM·EBUSY)은 �
     expect(m).toBe(3);
   });
 });
+
+describe('reloadIfChanged — 다른 프로세스가 바꾼 설정', () => {
+  it('내가 저장한 것은 다시 읽지 않고, 밖에서 바뀐 파일은 다시 읽는다', async () => {
+    const { reloadIfChanged } = await import('../src/infra/config.js');
+    const { utimesSync, writeFileSync } = await import('node:fs');
+    const file = join(dir, 'settings.json');
+    await updateSettings({ privacy: { offline: false }, org: { name: '가온시' } });
+    expect(reloadIfChanged()).toBe(false);
+    // 앱(다른 프로세스)이 폐쇄망 모드를 켰다
+    const saved = JSON.parse(readFileSync(file, 'utf-8'));
+    writeFileSync(file, JSON.stringify({ ...saved, privacy: { offline: true } }));
+    utimesSync(file, new Date(), new Date(Date.now() + 5000));
+    expect(reloadIfChanged()).toBe(true);
+    expect(getSettings().privacy.offline).toBe(true);
+    expect(getSettings().org.name).toBe('가온시');
+    expect(reloadIfChanged()).toBe(false);
+  });
+});

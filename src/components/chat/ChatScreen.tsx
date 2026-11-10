@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpenText, Check, Loader2, PenLine, MessageSquarePlus, MousePointerClick, Pencil, Trash2, X } from "lucide-react";
+import { BookOpenText, Check, Loader2, PenLine, MessageSquarePlus, MessageSquareText, MousePointerClick, Pencil, Trash2, X } from "lucide-react";
+import { showMenu } from "../ui/menu";
 import { useApp } from "../../state/app";
 import { useChats } from "../../state/chats";
 import { rpc } from "../../lib/rpc";
@@ -44,15 +45,23 @@ function ChatItem({ c, active, running, onOpen, onRename, onRemove }: {
       </li>
     );
   }
+  const rename = () => { setDraft(c.title); setMode("edit"); };
   return (
-    <li className="kd-chatlist-item" data-active={active}>
+    <li className="kd-chatlist-item" data-active={active}
+      onContextMenu={(e) => showMenu(e, [
+        { label: "대화 열기", icon: <MessageSquareText size={14} />, onClick: onOpen },
+        { label: "이름 바꾸기", icon: <Pencil size={14} />, onClick: rename },
+        { type: "separator" },
+        // 지우기는 그 자리에서 한 번 더 묻는다
+        { label: "지우기…", icon: <Trash2 size={14} />, danger: true, onClick: () => setMode("confirm") },
+      ], { label: `${c.title} 대화 메뉴` })}>
       <button type="button" className="kd-chatlist-open" onClick={onOpen} aria-current={active ? "true" : undefined} title={c.title}>
         {running && <Loader2 size={14} className="kd-spin kd-chatlist-run" aria-label="일하는 중" />}
         <span className="kd-chatlist-title">{c.title}</span>
         {c.from === "card" && <span className="kd-chatlist-tag" title="탐색기 우클릭에서 시킨 대화"><MousePointerClick size={12} /></span>}
       </button>
       <span className="kd-chatlist-acts">
-        <button type="button" className="kd-chatlist-act" onClick={() => { setDraft(c.title); setMode("edit"); }} aria-label={`${c.title} 이름 바꾸기`}><Pencil size={14} /></button>
+        <button type="button" className="kd-chatlist-act" onClick={rename} aria-label={`${c.title} 이름 바꾸기`}><Pencil size={14} /></button>
         <button type="button" className="kd-chatlist-act" onClick={() => setMode("confirm")} aria-label={`${c.title} 지우기`}><Trash2 size={14} /></button>
       </span>
     </li>

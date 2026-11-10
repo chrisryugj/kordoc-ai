@@ -112,6 +112,12 @@ describe('부서 이름 맞추기', () => {
     ];
     expect([...columnTotals(cols, rows)]).toEqual([['a', 10]]);
   });
+  it('합계: 단위가 섞인 열은 더하지 않는다 (5천원 + 3만원 + 200원 은 208 이 아니다)', () => {
+    const cols = [{ key: 'a', label: '소요 예산', required: true }, { key: 'b', label: '참석 인원', required: true }];
+    const row = (a: string, b: string) => ({ file: a, dept: '', cells: new Map([['a', a], ['b', b]]) });
+    expect([...columnTotals(cols, [row('5천원', '3명'), row('3만원', '4명'), row('200원', '2')])]).toEqual([['b', 9]]);
+    expect([...columnTotals(cols, [row('5천원', '1'), row('30천원', '1')])]).toEqual([['a', 35], ['b', 2]]);
+  });
 });
 
 describe('collect_roster', () => {

@@ -13,7 +13,7 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 }));
 
 import { updateSettings } from '../src/infra/config.js';
-import { ask, contextCharBudget, parseJsonLoose } from '../src/infra/llm/index.js';
+import { ANSWER_TOO_LONG, answerCharCap, ask, contextCharBudget, parseJsonLoose } from '../src/infra/llm/index.js';
 import { createThinkFilter } from '../src/infra/llm/types.js';
 import { aiStatus, aiTest, listServerModels } from '../src/core/ai/status.js';
 import { RpcRouter } from '../src/rpc/router.js';
@@ -45,6 +45,22 @@ describe('ask (OpenAI 호환 스트림)', () => {
     const body = fake.chats().at(-1)!;
     expect(body.stream).toBe(true);
     expect(body.reasoning_effort).toBeUndefined(); // Ollama 가 아니면 보내지 않음
+  });
+
+  it('답이 상한(답 토큰 한도의 여섯 배, 적어도 4만 자)을 넘으면 끊고 한국어로 알린다', async () => {
+    expect(answerCharCap(100)).toBe(40_000);
+    expect(answerCharCap(10_000)).toBe(60_000);
+    const runaway = await startFakeOpenAi({ reply: () => '가나다라마바사 아자차카타파하. '.repeat(4000) });
+    await useServer(runaway);
+    try {
+      await expect(ask({ messages: [{ role: 'user', content: '초안' }], maxTokens: 100, signal: signal() })).rejects.toThrow(ANSWER_TOO_LONG);
+      // 화면으로 흘린 글도 상한 안에서 멈춘다
+      expect(h.tokens.join('').length).toBeLessThanOrEqual(40_000);
+      await expect(ask({ messages: [{ role: 'user', content: '초안' }], maxTokens: 100, signal: signal(), stream: false })).rejects.toThrow(ANSWER_TOO_LONG);
+    } finally {
+      await runaway.close();
+      await useServer(fake);
+    }
   });
 
   it('stream:false 면 토큰을 흘리지 않는다', async () => {

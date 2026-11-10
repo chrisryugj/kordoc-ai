@@ -6,7 +6,7 @@
  * settings.json 에는 사용자가 정한 값만 쓴다 — 고정값·기관 기본값을 굳혀 두지 않아야 정책을 고치거나 빼면 그대로 따라간다.
  */
 
-import { readFileSync, existsSync, mkdirSync, chmodSync, renameSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, chmodSync, renameSync, statSync } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir, totalmem } from 'node:os';
@@ -138,8 +138,21 @@ export function getSettings(): Readonly<Settings> {
 
 let tmpSeq = 0;
 
+/** 읽은 설정 파일의 고친 시각 — 다른 프로세스가 그 뒤에 바꿨는지 본다 */
+let loadedAt = 0;
+const fileStamp = () => statSync(configPath(), { throwIfNoEntry: false })?.mtimeMs ?? 0;
+
+/** 다른 프로세스(앱)가 설정 파일을 바꿨으면 다시 읽는다. MCP 서버는 따로 뜬 프로세스라, 앱에서 폐쇄망 모드를 켜거나
+ *  AI 를 바꿔도 처음 읽은 설정으로 계속 돈다 → 도구를 부를 때마다 이것으로 확인한다. 다시 읽었으면 true */
+export function reloadIfChanged(): boolean {
+  if (!cached || fileStamp() === loadedAt) return false;
+  reload();
+  return true;
+}
+
 export function reload(): Settings {
   const p = configPath();
+  loadedAt = fileStamp();
   let loaded: unknown = {};
   if (existsSync(p)) {
     try {
@@ -280,6 +293,8 @@ async function persist(next: Obj): Promise<void> {
     throw err;
   }
   try { chmodSync(p, 0o600); } catch { /* Windows 는 무시 */ }
+  // 내가 쓴 것은 "다른 프로세스가 바꿈"이 아니다
+  loadedAt = fileStamp();
 }
 
 /** 사용자 값에 patch 를 얹는다. 고정 경로는 버리고(정책을 빼면 원래 값이 돌아오게),

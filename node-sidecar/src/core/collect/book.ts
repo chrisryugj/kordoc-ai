@@ -24,7 +24,7 @@ export interface GatherRow {
 }
 
 const UNIT = '명|원|천원|만원|백만원|억원|건|개|개소|곳|회|대|권|부|가구|세대|kg|㎏|㎡|m²|톤|시간';
-const NUMERIC = new RegExp(`^([-+]?(?:\\d{1,3}(?:,\\d{3})+|0|[1-9]\\d*)(?:\\.\\d+)?)\\s*(?:${UNIT})?$`);
+const NUMERIC = new RegExp(`^([-+]?(?:\\d{1,3}(?:,\\d{3})+|0|[1-9]\\d*)(?:\\.\\d+)?)\\s*(${UNIT})?$`);
 const NOT_SUMMED = /번호|전화|연락처|내선|휴대|우편|연도|년도|일자|날짜|기간|시기|일시|생년|주민|코드|순번|연번|차수|학년|나이|연령/;
 
 export function numberOf(v: string): number | null {
@@ -41,6 +41,8 @@ export function columnTotals(columns: Column[], rows: GatherRow[]): Map<string, 
     if (!vals.length) continue;
     const nums = vals.map(numberOf);
     if (nums.some((n) => n === null)) continue;
+    // 단위가 섞인 열(5천원 · 3만원 · 200원)은 숫자만 더하면 틀린 합계가 된다 → 내지 않는다 (단위 없는 값은 같은 단위로 본다)
+    if (new Set(vals.map((v) => NUMERIC.exec(v)?.[2]).filter(Boolean)).size > 1) continue;
     out.set(col.key, Math.round((nums as number[]).reduce((a, b) => a + b, 0) * 1e6) / 1e6);
   }
   return out;

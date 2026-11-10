@@ -141,7 +141,9 @@ function Card({ input }: { input: CardInput }) {
   };
   const others = vers ? vers.versions.length - 1 : 0;
   const latestName = vers ? baseName(vers.latest) : "";
-  const title = single ? baseName(first) : `${baseName(first)} 외 ${input.paths.length - 1}개`;
+  // 폴더 하나를 우클릭한 경우 (안의 문서는 본창의 여러 파일 한꺼번에가 펼친다)
+  const folder = input.paths.length === 1 && fmt === "unknown";
+  const title = single || folder ? baseName(first) : `${baseName(first)} 외 ${input.paths.length - 1}개`;
   // 고른 문서보다 나중 판이 있다는 짚음은 하나로 (이름의 "최종"보다 나중 판 · 고른 문서보다 나중 판은 같은 말)
   const isNewer = (n: string) => n.startsWith('이름에 "최종"') || n.startsWith("고른 문서보다");
   const newer = vers && vers.latest !== first ? (vers.notes.find((n) => n.startsWith('이름에 "최종"')) ?? vers.notes.find((n) => n.startsWith("고른 문서보다"))) : undefined;
@@ -159,7 +161,7 @@ function Card({ input }: { input: CardInput }) {
             </button>
           ) : (
             <div className="kd-card-facts">
-              {single ? [KIND[fmt] ?? "문서", info?.page_count ? `${info.page_count}쪽` : "", info?.needs_ocr ? "스캔본" : "", info?.encrypted ? "암호 걸림" : ""].filter(Boolean).join(" · ") : "문서 1개"}
+              {single ? [KIND[fmt] ?? "문서", info?.page_count ? `${info.page_count}쪽` : "", info?.needs_ocr ? "스캔본" : "", info?.encrypted ? "암호 걸림" : ""].filter(Boolean).join(" · ") : "폴더 · 안의 문서를 모두 씁니다"}
             </div>
           )}
           {multi && filesOpen && (
@@ -253,7 +255,8 @@ function Card({ input }: { input: CardInput }) {
       </main>
 
       <footer className="kd-card-foot">
-        <Button size="sm" variant="secondary" onClick={() => void handoff("open", input.paths)} data-tip="본창을 열어 이 문서로 이어서 합니다"><LayoutGrid size={13} /> 앱에서 이어서</Button>
+        {/* 폴더는 문서 화면이 열지 못한다 → 여러 파일 한꺼번에 화면으로 */}
+        <Button size="sm" variant="secondary" onClick={() => void handoff(folder ? "tools" : "open", input.paths)} data-tip={folder ? "본창의 여러 파일 한꺼번에 화면에 이 폴더의 문서를 놓습니다" : "본창을 열어 이 문서로 이어서 합니다"}><LayoutGrid size={13} /> 앱에서 이어서</Button>
         {single && HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => void handoff("edit", [first])} data-tip="본창의 한글 편집기로 엽니다"><FilePen size={13} /> 편집기에서 고치기</Button>}
         {input.paths.length === 2 && <Button size="sm" variant="ghost" onClick={() => void handoff("compare", input.paths)} data-tip="본창에서 두 문서의 바뀐 곳을 나란히 봅니다"><GitCompareArrows size={13} /> 두 문서 비교 화면</Button>}
       </footer>

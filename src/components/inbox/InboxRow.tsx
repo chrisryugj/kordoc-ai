@@ -1,7 +1,8 @@
 /** 받은 공문 한 줄 + 펼친 자세히 보기 (요청 전체·문서 정보·기한 고치기·메모·열기·회신·빼기) */
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, ExternalLink, Reply, Scale, Trash2 } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, Reply, Scale, Trash2 } from "lucide-react";
+import { useFileMenu } from "../common/file-menu";
 import { useApp } from "../../state/app";
 import { stem } from "../../lib/format";
 import { rpc } from "../../lib/rpc";
@@ -36,11 +37,24 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   const reply = () => start(item.path);
   // 펼친 칸·문서 보기 머리와 같은 말로
   const replyLabel = aiOn ? "회신 쓰기" : "서식으로 회신 쓰기";
+  const menu = useFileMenu();
+  // 우클릭 "목록에서 빼기…": 줄을 펼치고 묻는 줄을 띄운다 (메모·기한까지 지워지니 메뉴에서 바로 빼지 않는다)
+  const [askRemove, setAskRemove] = useState(0);
+  // 접었다 다시 펼칠 때 묻는 줄이 또 뜨지 않게
+  useEffect(() => { if (!open) setAskRemove(0); }, [open]);
+  const onMenu = (e: React.MouseEvent) => menu.open(e, item.path, {
+    before: [
+      { label: replyLabel, icon: <Reply size={14} />, onClick: reply },
+      { label: done ? "할 일로 되돌리기" : "끝냄으로 표시", icon: <Check size={14} />, onClick: () => onUpdate({ status: done ? "todo" : "done" }) },
+      { label: open ? "자세히 보기 접기" : "자세히 보기", icon: <ChevronRight size={14} />, onClick: onToggle },
+    ],
+    after: [{ label: "목록에서 빼기…", icon: <Trash2 size={14} />, danger: true, onClick: () => { if (!open) onToggle(); setAskRemove((n) => n + 1); } }],
+  });
 
   return (
     <>
       {/* 줄 어디를 눌러도 펼친다 (단추·끝냄 칸은 제 할 일만). 키보드는 제목 단추로 */}
-      <tr className="kd-inbox-row" data-done={done} data-open={open}
+      <tr className="kd-inbox-row" data-done={done} data-open={open} onContextMenu={onMenu}
         onClick={(e) => { if (!(e.target as HTMLElement).closest("button, input, label, a")) onToggle(); }}>
         <td>
           {item.due ? (
@@ -82,7 +96,7 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
       {open && (
         <tr className="kd-inbox-detail" id={`inbox-${item.id}`}>
           <td colSpan={6}>
-            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} replyLabel={aiOn ? "회신 쓰기" : "서식으로 회신 쓰기"} replyTip={tip} />
+            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} replyLabel={replyLabel} replyTip={tip} askRemove={askRemove} />
           </td>
         </tr>
       )}
@@ -90,8 +104,8 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   );
 }
 
-function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabel, replyTip }: {
-  item: InboxItem; today: string; done: boolean; onUpdate: (p: InboxPatch) => void; onRemove: () => void; onReply: () => void; replyLabel: string; replyTip: string;
+function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabel, replyTip, askRemove }: {
+  item: InboxItem; today: string; done: boolean; onUpdate: (p: InboxPatch) => void; onRemove: () => void; onReply: () => void; replyLabel: string; replyTip: string; askRemove: number;
 }) {
   const { openDocs } = useApp();
   const auto = autoDue(item);
@@ -107,11 +121,11 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
   useEffect(() => setNote(item.note ?? ""), [item.note]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  // 날짜 칸은 다 고친 뒤 한 번만 저장 (덜 친 날짜는 빈 값이라 무시)
+  // 날짜 칸은 다 고친 뒤 한 번만 저장. 연도를 한 자씩 치는 동안은 0002·0020·0202년 같은 날짜가 지나가므로 2000년 이후만 받는다
   const changeDue = (v: string) => {
     setDue(v);
     window.clearTimeout(timer.current);
-    if (v && v !== item.due) timer.current = window.setTimeout(() => onUpdate({ due: v }), 600);
+    if (v && v !== item.due && Number(v.slice(0, 4)) >= 2000) timer.current = window.setTimeout(() => onUpdate({ due: v }), 600);
   };
 
   return (
@@ -162,7 +176,7 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
           data-tip={`공문이 인용한 법령을 법제처 원문과 맞춰 봅니다.${item.sent_date ? ` 시행일(${dueText(item.sent_date, today)}) 당시 조문과 지금 조문도 견줍니다.` : ""}`}><Scale size={13} /> 인용 법령 확인</Button>
         <span className="flex-1" />
         {/* 적어 둔 메모·고친 기한도 함께 사라지므로 한 번 묻는다 */}
-        <ConfirmRemove ask="목록에서 뺄까요? 메모·기한도 지워집니다. 파일은 그대로입니다." verb="빼기" onConfirm={onRemove}>
+        <ConfirmRemove ask="목록에서 뺄까요? 메모·기한도 지워집니다. 파일은 그대로입니다." verb="빼기" onConfirm={onRemove} openSignal={askRemove}>
           {(open) => <Button variant="ghost" size="sm" onClick={open} data-tip="접수함 목록에서만 뺍니다. 파일은 그대로 둡니다."><Trash2 size={13} /> 목록에서 빼기</Button>}
         </ConfirmRemove>
       </div>

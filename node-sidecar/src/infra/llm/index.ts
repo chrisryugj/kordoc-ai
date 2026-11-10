@@ -121,17 +121,41 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
       system = r.text;
     }
   }
+  // 답 길이 상한: 서버가 max_tokens 를 무시하거나 모델이 같은 말을 끝없이 되풀이하면 수십만 자가 온다.
+  // 그 글이 미리보기·검사로 넘어가면 엔진이 몇 분씩 멈춰 다른 일(문서 열기·편집기)까지 못 한다 → 넘으면 그 자리에서 끊는다
+  const cap = answerCharCap(opts.maxTokens);
+  const guard = new AbortController();
+  let got = 0;
+  let over = false;
+  const count = (t: string) => {
+    got += t.length;
+    if (got > cap && !over) { over = true; guard.abort(); }
+  };
   const req: ChatRequest = {
     system,
     messages,
     maxTokens: opts.maxTokens,
     json: opts.json || Boolean(opts.schema),
     schema: opts.schema,
-    signal: opts.signal,
-    onToken: opts.stream === false ? undefined : sendToken,
+    signal: AbortSignal.any([opts.signal, guard.signal]),
+    onToken: opts.stream === false ? undefined : (t) => { count(t); if (!over) sendToken(t); },
   };
-  const text = await p.chat(req);
+  let text: string;
+  try {
+    text = await p.chat(req);
+  } catch (err) {
+    if (over) throw new Error(ANSWER_TOO_LONG);
+    throw err;
+  }
+  if (over || text.length > cap) throw new Error(ANSWER_TOO_LONG);
   return { text, redacted };
+}
+
+export const ANSWER_TOO_LONG = 'AI 답이 끝없이 길어져 멈췄습니다. 같은 말을 되풀이했을 수 있습니다. 다시 시도하거나 다른 모델로 바꿔 보세요.';
+
+/** AI 답 글자 수 상한 — 답 토큰 한도의 여섯 배(토큰 하나가 길어야 네댓 자), 적어도 4만 자 */
+export function answerCharCap(maxTokens?: number): number {
+  return Math.max(40_000, (maxTokens ?? 8192) * 6);
 }
 
 /** JSON 응답 파싱 — 코드펜스·앞뒤 잡문·끝 쉼표가 섞여도 첫 객체를 꺼낸다 */

@@ -3,7 +3,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { isTauri, loadMock } from "./rpc";
+import { invokeCmd, isTauri, loadMock } from "./rpc";
 
 export const DOC_EXTENSIONS = [
   "hwp", "hwpx", "hml", "pdf", "xls", "xlsx", "docx", "pptx",
@@ -69,6 +69,8 @@ export async function notifySystem(title: string, body: string) {
 export async function notifyQuick(title: string, body: string): Promise<boolean> {
   if (!isTauri) return false;
   try {
+    // 윈도는 권한 물음이 늘 허용으로 돌아온다 → 알림을 꺼 둔 PC 인지는 따로 본다
+    if (!(await invokeCmd<boolean>("shell_toast_ok").catch(() => true))) return false;
     let ok = await isPermissionGranted();
     if (!ok) ok = (await requestPermission()) === "granted";
     if (!ok) return false;

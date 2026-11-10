@@ -2,7 +2,8 @@
 
 import "./batch.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, FilePlus2, FolderPlus, Loader2, Play, RotateCcw, Sparkles, Trash2, XCircle, Layers } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, ExternalLink, FilePlus2, FolderOpen, FolderPlus, Loader2, Play, RotateCcw, Sparkles, Trash2, XCircle, Layers } from "lucide-react";
+import { useFileMenu } from "../common/file-menu";
 import type { FileEntry } from "../../lib/contract";
 import { useApp, type BatchTaskId } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
@@ -37,6 +38,7 @@ function RowStatus({ s }: { s?: RowState }) {
 export function BatchScreen({ active }: { active: boolean }) {
   const { batchIntent, registerDrop, dragTarget, setBadge, ai, toast, settings, startCompare, startPdf, uiMode, setUiMode, openSettings } = useApp();
   const mainRef = useRef<HTMLDivElement>(null);
+  const menu = useFileMenu();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [skipped, setSkipped] = useState(0);
   // 서무가 가장 품이 많이 드는 일 (부서 제출물 모으기)
@@ -108,6 +110,8 @@ export function BatchScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!batchIntent || batchIntent.nonce === handled.current) return;
     handled.current = batchIntent.nonce;
+    // 일하는 중에 넘어온 요청(탐색기 우클릭 등)은 받지 않는다: 받으면 도는 작업의 파일 목록·결과 줄이 새 것과 섞인다
+    if (busyRef.current) { toast("앞 작업이 끝나지 않아 새 요청을 받지 못했습니다. 끝나거나 멈춘 뒤 다시 하세요.", "info"); return; }
     const { paths, task: t, autoRun } = batchIntent.value;
     if (t) {
       setTask(t);
@@ -251,14 +255,24 @@ export function BatchScreen({ active }: { active: boolean }) {
                           const s = rows[f.path];
                           const off = !accepts(def, f.format);
                           return (
-                            <li key={f.path} className="kd-filerow" data-off={off}>
+                            <li key={f.path} className="kd-filerow" data-off={off}
+                              onContextMenu={(e) => menu.open(e, f.path, {
+                                before: s?.output ? [
+                                  { label: "만든 파일 열기", icon: <ExternalLink size={14} />, onClick: () => void rpc("open_file", { path: s.output! }).catch((err) => toast(errorText(err), "error")) },
+                                  { label: "만든 파일을 폴더에서 보기", icon: <FolderOpen size={14} />, onClick: () => void rpc("reveal_file", { path: s.output! }).catch((err) => toast(errorText(err), "error")) },
+                                ] : [],
+                                after: [
+                                  { label: "목록에서 빼기", icon: <Trash2 size={14} />, disabled: run.busy, hint: run.busy ? "작업이 끝난 뒤 뺄 수 있습니다" : undefined, onClick: () => setFiles((prev) => prev.filter((x) => x.path !== f.path)) },
+                                  ...(off ? [] : [{ label: "이 파일만 남기기", disabled: run.busy || files.length < 2, onClick: () => setFiles([f]) }]),
+                                ],
+                              })}>
                               <FormatBadge format={f.format} />
                               <span className="min-w-0 flex-1">
                                 <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{f.name}</span>
                                 <span className="kd-row-desc block" title={s?.output ?? f.path}>{off ? "이 일에는 쓰지 않는 형식" : s?.error ?? (s?.output ? baseName(s.output) : `${baseName(dirName(f.path))} 폴더 · ${fileSize(f.size)}`)}</span>
                               </span>
                               <RowStatus s={s} />
-                              {s?.output && <button type="button" className="kd-link kd-small kd-hit32 flex-none" onClick={() => void rpc("reveal_file", { path: s.output! }).catch(() => undefined)}>폴더에서 보기</button>}
+                              {s?.output && <button type="button" className="kd-link kd-small kd-hit32 flex-none" onClick={() => void rpc("reveal_file", { path: s.output! }).catch((err) => toast(errorText(err), "error"))}>폴더에서 보기</button>}
                               <button type="button" className="kd-icon-btn" disabled={run.busy} onClick={() => setFiles((prev) => prev.filter((x) => x.path !== f.path))} aria-label={`${f.name} 빼기`}><Trash2 size={14} /></button>
                             </li>
                           );

@@ -20,7 +20,7 @@ import { useStartSample } from "../home/HomeSamples";
 import "./FirstRunWizard.css";
 
 export function FirstRunWizard() {
-  const { settings, saveSettings, setFirstRun, openSettings, ready, uiMode, setUiMode } = useApp();
+  const { settings, saveSettings, setFirstRun, openSettings, ready, uiMode, setUiMode, toast } = useApp();
   const startSample = useStartSample();
   const meta = useGongmunMeta();
   const [step, setStep] = useState(0);
@@ -142,7 +142,8 @@ export function FirstRunWizard() {
   const finish = async (practice = false) => {
     if (!(await save(true))) return;
     done();
-    if (offerMenu && addMenu) await invokeCmd("shell_menu_install").catch(() => undefined);
+    // 켜 달라고 한 메뉴를 못 넣었으면 알린다 (조용히 넘어가면 우클릭 메뉴가 왜 없는지 알 길이 없다)
+    if (offerMenu && addMenu) await invokeCmd("shell_menu_install").catch((e) => toast(`탐색기 우클릭 메뉴를 넣지 못했습니다: ${errorText(e)} 설정 › 저장과 연결에서 다시 켤 수 있습니다.`, "error"));
     if (practice) {
       // AI 없이도 되는 예제(개인정보 가리기)로, AI 가 준비됐으면 받은 공문 회신 예제로
       const r = await rpc("samples_list", {}).catch(() => null);

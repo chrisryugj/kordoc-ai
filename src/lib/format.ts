@@ -86,7 +86,9 @@ export function timeAgo(ms: number, now = Date.now()): string {
   if (s < 60) return "방금";
   if (s < 3600) return `${Math.floor(s / 60)}분 전`;
   if (s < 86400) return `${Math.floor(s / 3600)}시간 전`;
-  if (s < 172800) return "어제";
+  // "어제"는 지난 시간이 아니라 달력 날짜로 (수요일 새벽 1시에 본 월요일 밤 11시는 26시간 전이지만 그저께다)
+  const day = (t: number) => { const x = new Date(t); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  if (Math.round((day(now) - day(ms)) / 86_400_000) === 1) return "어제";
   const d = new Date(ms);
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }

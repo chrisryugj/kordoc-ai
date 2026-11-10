@@ -5,7 +5,7 @@
  */
 
 import type { AgentTurn } from "../hooks/useWorkAgent";
-import type { AgentEvent } from "./hwp-agent/loop";
+import { trimHistory, type AgentEvent } from "./hwp-agent/loop";
 
 export interface ChatMeta {
   id: string;
@@ -87,13 +87,28 @@ export const MAX_TURNS = 60;
 const MAX_BODY_CHARS = 600_000;
 const MAX_TEXT = 20_000;
 
+/** 저장하는 도구 결과 한 건의 글자 상한 (문서 읽기 결과는 문서 전문이라 수십만 자가 된다) */
+const MAX_TOOL_OUT = 4_000;
+
+/** 모델에 이어 보낼 대화의 저장본 — 도구 결과는 앞부분만, 길이는 다음 요청에 실제로 이어 보낼 만큼만(loop 의 trimHistory 와 같은 기준).
+ *  이것을 줄이지 않으면 큰 문서를 한 번 읽은 대화가 저장소를 다 차지해, 화면에 보이는 요청이 잘려 나가거나 다른 대화가 지워진다 */
+function fitEvents(events: AgentEvent[]): AgentEvent[] {
+  const copy = events.map((e): AgentEvent => (e.role === "tool"
+    ? { ...e, results: e.results.map((r) => (r.output.length > MAX_TOOL_OUT ? { ...r, output: `${r.output.slice(0, MAX_TOOL_OUT)}…(줄임)` } : r)) }
+    : { ...e }));
+  trimHistory(copy);
+  return copy;
+}
+
 /** 오래된 요청부터 덜고, 아주 긴 답 글은 앞부분만 남긴다 */
 export function fitBody(body: ChatBody): ChatBody {
   let turns = body.turns.slice(-MAX_TURNS).map((t) => (t.text.length > MAX_TEXT ? { ...t, text: `${t.text.slice(0, MAX_TEXT)}…` } : t));
-  let out = { ...body, turns };
+  let out = { ...body, turns, events: fitEvents(body.events) };
+  // 그래도 크면 화면에 보이는 요청보다 모델 기억을 먼저 버린다 (기억은 다음 요청에서 다시 쌓인다)
+  if (JSON.stringify(out).length > MAX_BODY_CHARS) out = { ...out, events: [] };
   while (JSON.stringify(out).length > MAX_BODY_CHARS && turns.length > 1) {
     turns = turns.slice(1);
-    out = { ...body, turns };
+    out = { ...out, turns };
   }
   return out;
 }

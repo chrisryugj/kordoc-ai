@@ -8,8 +8,9 @@ import "./pdf.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDownToLine, ArrowUpToLine, ArrowLeftRight, Combine, Copy, Ellipsis, FilePlus2, FileStack, ImageDown, ListChecks, Maximize2,
-  Keyboard, Redo2, RotateCcw, RotateCw, Scissors, Shrink, Split, Trash2, Undo2, X, FileOutput, Hash,
+  Keyboard, Redo2, RotateCcw, RotateCw, Save, Scissors, Shrink, Split, Trash2, Undo2, X, FileOutput, Hash,
 } from "lucide-react";
+import { useFileMenu } from "../common/file-menu";
 import { useApp } from "../../state/app";
 import { rpc, errorText } from "../../lib/rpc";
 import { DOC_EXTENSIONS, notifySystem, pickFiles } from "../../lib/native";
@@ -73,7 +74,8 @@ export function PdfScreen({ active }: { active: boolean }) {
   const [zoom, setZoomState] = useState<Zoom>(() => readPref<Zoom>("kordoc-pdf-zoom", "l"));
   const [opening, setOpening] = useState<{ done: number; total: number; name: string } | null>(null);
   const [finding, setFinding] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuEntry[] } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuEntry[]; label?: string; header?: string; keyboard?: boolean; from?: "pick" | "more" } | null>(null);
+  const fileMenu = useFileMenu();
   const [preview, setPreview] = useState<string | null>(null);
   const [spec, setSpec] = useState<string | null>(null);
   const [keysOpen, setKeysOpen] = useState(false);
@@ -239,6 +241,11 @@ export function PdfScreen({ active }: { active: boolean }) {
     });
   }, [save, opts, names]);
 
+  // 다른 화면으로 넘어가면(우클릭 동작 등) 크게 보기·메뉴를 닫는다: 숨은 채로 남으면 그 화면의 키를 가로챈다
+  useEffect(() => {
+    if (!active) { setPreview(null); setMenu(null); }
+  }, [active]);
+
   // ── 키 ──
   useEffect(() => {
     if (!active) return;
@@ -279,8 +286,12 @@ export function PdfScreen({ active }: { active: boolean }) {
     const b = boardRef.current;
     const n = keys.size;
     const first = b.items[0]?.key === key;
+    const at = b.items.findIndex((it) => it.key === key) + 1;
     setMenu({
-      x, y, items: [
+      x, y, label: n > 1 ? `고른 ${n}쪽 메뉴` : `${at}쪽 메뉴`,
+      // 여러 쪽을 골랐으면 아래 일이 몇 쪽에 미치는지 먼저 밝힌다 (크게 보기·나누기만 누른 쪽 하나)
+      ...(n > 1 ? { header: `${num(n)}쪽 고름` } : {}),
+      items: [
         { label: "크게 보기", shortcut: "Enter", icon: <Maximize2 size={14} />, onClick: () => setPreview(key) },
         SEP,
         { label: "오른쪽으로 돌리기", shortcut: "R", icon: <RotateCw size={14} />, onClick: () => commit(rotate(boardRef.current, keys, 90)) },
@@ -293,8 +304,43 @@ export function PdfScreen({ active }: { active: boolean }) {
         { label: "맨 뒤로", icon: <ArrowDownToLine size={14} />, onClick: () => commit(move(boardRef.current, keys, boardRef.current.items.length)) },
         ...(n > 1 ? [{ label: "고른 쪽 차례 거꾸로", icon: <ArrowLeftRight size={14} />, onClick: () => commit(reverse(boardRef.current, keys)) }] : []),
         SEP,
-        { label: n > 1 ? `${n}쪽 지우기` : "지우기", shortcut: "Delete", icon: <Trash2 size={14} />, danger: true, onClick: () => doRemove(keys) },
+        { label: n > 1 ? `고른 ${num(n)}쪽만 PDF로 저장` : "이 쪽만 PDF로 저장", icon: <Save size={14} />, disabled: save.busy, hint: save.busy ? "앞 저장이 끝난 뒤 할 수 있습니다" : undefined, onClick: () => doSave("selected") },
+        SEP,
+        { label: n > 1 ? `${num(n)}쪽 지우기` : "지우기", shortcut: "Delete", icon: <Trash2 size={14} />, danger: true, onClick: () => doRemove(keys) },
       ],
+    });
+  };
+
+  /** 쪽이 없는 빈 바탕 */
+  const deskMenu = (x: number, y: number) => {
+    const b = boardRef.current;
+    setMenu({
+      x, y, label: "PDF 책상 메뉴", items: [
+        { label: "파일 추가", icon: <FilePlus2 size={14} />, shortcut: "Ctrl+O", onClick: pick },
+        { label: "맨 뒤에 빈 쪽 넣기", icon: <FilePlus2 size={14} />, onClick: () => commit(insertBlank(boardRef.current, null)) },
+        SEP,
+        { label: "모두 고르기", shortcut: "Ctrl+A", onClick: () => setSel(selectKeys(all(), b.items[0]?.key ?? null)) },
+        { label: "고르기 풀기", shortcut: "Esc", disabled: !sel.keys.size, onClick: () => setSel(NO_SELECTION) },
+        SEP,
+        { label: "되돌리기", shortcut: "Ctrl+Z", icon: <Undo2 size={14} />, disabled: !past.current.length, onClick: undo },
+        { label: "다시 실행", shortcut: "Ctrl+Y", icon: <Redo2 size={14} />, disabled: !future.current.length, onClick: redo },
+      ],
+    });
+  };
+
+  /** 넣은 파일 칩 */
+  const chipMenu = (e: React.MouseEvent, f: Board["files"][number]) => {
+    e.preventDefault();
+    const keys = () => boardRef.current.items.filter((it) => it.file === f.id).map((it) => it.key);
+    setMenu({
+      x: e.clientX, y: e.clientY, label: `${f.name} 메뉴`, items: fileMenu.items(f.path, {
+        before: [
+          { label: "이 파일 쪽 모두 고르기", icon: <ListChecks size={14} />, onClick: () => { const k = keys(); setSel(selectKeys(k, k[0] ?? null)); } },
+          { label: "이 파일 쪽 맨 앞으로", icon: <ArrowUpToLine size={14} />, onClick: () => commit(move(boardRef.current, new Set(keys()), 0)) },
+          { label: "이 파일 쪽 맨 뒤로", icon: <ArrowDownToLine size={14} />, onClick: () => commit(move(boardRef.current, new Set(keys()), boardRef.current.items.length)) },
+        ],
+        after: [{ label: "책상에서 빼기", icon: <X size={14} />, hint: "되돌리기(Ctrl+Z)로 다시 놓을 수 있습니다", onClick: () => commit(removeFile(boardRef.current, f.id)) }],
+      }),
     });
   };
 
@@ -302,7 +348,7 @@ export function PdfScreen({ active }: { active: boolean }) {
     const r = e.currentTarget.getBoundingClientRect();
     const b = boardRef.current;
     setMenu({
-      x: r.left, y: r.bottom + 4, items: [
+      x: r.left, y: r.bottom + 4, label: "고르기", from: "pick", keyboard: e.detail === 0, items: [
         { label: "모두 고르기", shortcut: "Ctrl+A", onClick: () => setSel(selectKeys(all(), b.items[0]?.key ?? null)) },
         { label: "고르기 풀기", shortcut: "Esc", disabled: !sel.keys.size, onClick: () => setSel(NO_SELECTION) },
         SEP,
@@ -320,7 +366,7 @@ export function PdfScreen({ active }: { active: boolean }) {
     const r = e.currentTarget.getBoundingClientRect();
     const keys = pickedOr(() => one(focus));
     setMenu({
-      x: r.left, y: r.bottom + 4, items: [
+      x: r.left, y: r.bottom + 4, label: "더 보기", from: "more", keyboard: e.detail === 0, items: [
         { label: "맨 앞으로", icon: <ArrowUpToLine size={14} />, disabled: !keys.size, onClick: () => commit(move(boardRef.current, keys, 0)) },
         { label: "맨 뒤로", icon: <ArrowDownToLine size={14} />, disabled: !keys.size, onClick: () => commit(move(boardRef.current, keys, boardRef.current.items.length)) },
         { label: "고른 쪽 차례 거꾸로", icon: <ArrowLeftRight size={14} />, disabled: keys.size < 2, onClick: () => commit(reverse(boardRef.current, keys)) },
@@ -331,7 +377,9 @@ export function PdfScreen({ active }: { active: boolean }) {
           { label: "번갈아 섞기, 뒤 파일은 거꾸로", icon: <ArrowLeftRight size={14} />, onClick: () => commit(interleave(boardRef.current, a, c, true)) },
         ]),
         { label: "자른 곳 모두 풀기", icon: <Scissors size={14} />, disabled: !boardRef.current.cuts.length, onClick: () => commit({ ...boardRef.current, cuts: [] }) },
-        { label: "책상 비우기", icon: <X size={14} />, danger: true, onClick: () => { commit(EMPTY); setSel(NO_SELECTION); setFocus(null); } },
+        // 다른 일과 떼어 놓는다 (잘못 눌러도 되돌릴 수 있음을 밝힌다)
+        SEP,
+        { label: "책상 비우기", icon: <X size={14} />, danger: true, hint: "되돌리기(Ctrl+Z)로 다시 놓을 수 있습니다", onClick: () => { commit(EMPTY); setSel(NO_SELECTION); setFocus(null); } },
       ],
     });
   };
@@ -370,7 +418,7 @@ export function PdfScreen({ active }: { active: boolean }) {
               {board.files.map((f) => {
                 const n = items.filter((it) => it.file === f.id).length;
                 return (
-                  <div key={f.id} role="listitem" className="kd-pdf-chip">
+                  <div key={f.id} role="listitem" className="kd-pdf-chip" onContextMenu={(e) => chipMenu(e, f)}>
                     {/* 키보드로도 고르게 단추로 (빼기 X 와 나란히) */}
                     <button type="button" className="kd-pdf-chip-pick" data-tip={`${f.path}\n누르면 이 파일 쪽을 모두 고릅니다`}
                       onClick={() => { const keys = items.filter((it) => it.file === f.id).map((it) => it.key); setSel(selectKeys(keys, keys[0] ?? null)); }}>
@@ -395,7 +443,7 @@ export function PdfScreen({ active }: { active: boolean }) {
           {items.length > 0 && (
             <div className="kd-pdf-tools" role="toolbar" aria-label="쪽 다루기">
               <span className="kd-pdf-count" aria-live="polite">{picked ? <><b>{num(picked)}</b> / {num(items.length)}쪽 고름</> : <><b>{num(items.length)}</b>쪽 · 파일 {num(usedFiles.length)}개</>}</span>
-              <button type="button" className="kd-pdf-tool" onClick={pickMenu} aria-haspopup="menu" aria-label={finding ? "빈 쪽 찾는 중" : "고르기"}><ListChecks size={16} /><span className="kd-pdf-tool-label">{finding ? "빈 쪽 찾는 중" : "고르기"}</span></button>
+              <button type="button" className="kd-pdf-tool" onClick={pickMenu} aria-haspopup="menu" aria-expanded={menu?.from === "pick"} aria-label={finding ? "빈 쪽 찾는 중" : "고르기"}><ListChecks size={16} /><span className="kd-pdf-tool-label">{finding ? "빈 쪽 찾는 중" : "고르기"}</span></button>
               {spec != null && (
                 <form className="kd-pdf-row" onSubmit={(e) => { e.preventDefault(); applySpec(); }}>
                   <input className="kd-input" style={{ width: 120, height: 32 }} autoFocus value={spec} placeholder="1-3, 5" aria-label="고를 쪽 번호" onChange={(e) => setSpec(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setSpec(null); }} />
@@ -408,7 +456,7 @@ export function PdfScreen({ active }: { active: boolean }) {
               <button type="button" className="kd-pdf-tool" data-danger="true" disabled={!picked} title="고른 쪽 지우기 (Delete)" aria-label="지우기" onClick={() => doRemove(sel.keys)}><Trash2 size={16} /><span className="kd-pdf-tool-label">지우기</span></button>
               <button type="button" className="kd-pdf-tool" disabled={!picked} title="고른 쪽 복제 (Ctrl+D)" aria-label="복제" onClick={() => commit(duplicate(boardRef.current, sel.keys))}><Copy size={16} /><span className="kd-pdf-tool-label">복제</span></button>
               <button type="button" className="kd-pdf-tool" data-tip="고른 쪽 뒤에 빈 쪽을 넣습니다. 고른 쪽이 없으면 지금 쪽 뒤, 지금 쪽도 없으면 맨 뒤에 넣습니다." aria-label="빈 쪽" onClick={() => commit(insertBlank(boardRef.current, lastPicked()))}><FilePlus2 size={16} /><span className="kd-pdf-tool-label">빈 쪽</span></button>
-              <button type="button" className="kd-pdf-tool" onClick={moreMenu} aria-haspopup="menu" aria-label="더 보기"><Ellipsis size={16} /></button>
+              <button type="button" className="kd-pdf-tool" onClick={moreMenu} aria-haspopup="menu" aria-expanded={menu?.from === "more"} aria-label="더 보기"><Ellipsis size={16} /></button>
               <span className="kd-sep" />
               <button type="button" className="kd-pdf-tool" disabled={!past.current.length} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" onClick={undo}><Undo2 size={16} /><span className="kd-pdf-tool-label">되돌리기</span></button>
               <button type="button" className="kd-pdf-tool" disabled={!future.current.length} title="다시 실행 (Ctrl+Y)" aria-label="다시 실행" onClick={redo}><Redo2 size={16} /></button>
@@ -418,7 +466,7 @@ export function PdfScreen({ active }: { active: boolean }) {
           {items.length ? (
             <PageGrid board={board} sel={sel} focus={focus} size={ZOOM[zoom]} thumbs={thumbs} groups={groups} dropOver={dragTarget === "pdf"} keysOff={!!preview || !!menu}
               onSelect={setSel} onFocus={setFocus} onMove={(keys, to) => commit(move(boardRef.current, keys, to))}
-              onCut={(key) => commit(toggleCut(boardRef.current, key))} onMenu={cardMenu} onOpen={setPreview} onKey={onGridKey} />
+              onCut={(key) => commit(toggleCut(boardRef.current, key))} onMenu={cardMenu} onDeskMenu={deskMenu} onOpen={setPreview} onKey={onGridKey} />
           ) : (
             <div className="kd-pdf-desk" data-drop="pdf" data-over={dragTarget === "pdf"}>
               <EmptyDesk onPick={pick} opening={opening} />
@@ -446,7 +494,9 @@ export function PdfScreen({ active }: { active: boolean }) {
         )}
       </div>
 
-      {menu && <ContextMenu items={menu.items} position={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu key={`${menu.x}:${menu.y}`} items={menu.items} position={menu} label={menu.label} header={menu.header} keyboard={menu.keyboard}
+        // 메뉴가 열린 채 다른 쪽을 우클릭하면 새 메뉴가 먼저 서고 앞 메뉴의 닫기가 뒤따라 온다 → 제 메뉴일 때만 닫는다
+        onClose={() => setMenu((cur) => (cur === menu ? null : cur))} />}
       {preview && (
         <PagePreview board={board} pageKey={preview} onGo={(k) => { setPreview(k); setFocus(k); setSel({ keys: new Set([k]), anchor: k }); }}
           onRotate={(k, d) => commit(rotate(boardRef.current, new Set([k]), d))}

@@ -17,6 +17,7 @@ import { AiGate, AiWhere } from "../common/AiGate";
 import { ChatThread } from "../common/ChatThread";
 import { Empty, ErrorLine } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
+import { useFileMenu } from "../common/file-menu";
 
 type Mode = "polish" | "concise" | "formal" | "plain" | "gaejosik" | "narrative" | "public" | "press" | "expand" | "english" | "custom";
 const MODES: Array<{ value: Mode; label: string }> = [
@@ -32,6 +33,7 @@ function Ask() {
   const [paths, setPaths] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const chat = useChat(paths);
+  const menu = useFileMenu();
   const handled = useRef(0);
 
   useEffect(() => {
@@ -59,7 +61,8 @@ function Ask() {
         {paths.length === 0 ? <p className="kd-small kd-muted py-2">물어볼 문서를 끌어다 놓거나 붙이세요. 여러 문서에 함께 물어도 됩니다.</p> : (
           <ul className="flex flex-col gap-1 py-2">
             {paths.map((p) => (
-              <li key={p} className="kd-attach-item">
+              <li key={p} className="kd-attach-item"
+                onContextMenu={(e) => menu.open(e, p, { after: [{ label: "붙인 문서에서 빼기", icon: <X size={14} />, onClick: () => setPaths((cur) => cur.filter((x) => x !== p)) }] })}>
                 <FormatBadge format={formatOf(p)} />
                 <span className="kd-small min-w-0 flex-1 font-semibold" style={{ overflowWrap: "anywhere" }}>{baseName(p)}</span>
                 <button type="button" className="kd-icon-btn" style={{ width: 26, height: 26 }} onClick={() => setPaths(paths.filter((x) => x !== p))} aria-label={`${baseName(p)} 빼기`}><X size={13} /></button>

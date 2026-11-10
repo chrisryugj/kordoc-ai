@@ -129,7 +129,7 @@ if ($p.ExitCode -ne 0) { Write-Error "우클릭 메뉴를 넣지 못했습니다
 Test-Path 'HKCU:\Software\Classes\SystemFileAssociations\.hwpx\shell\KorDoc'   # True 면 들어 있음
 ```
 
-- 지울 때: 사용자 단위 설치(NSIS)의 제거 프로그램은 제거하는 사용자의 메뉴를 함께 지움. MSI 로 일괄 제거하면 다른 사용자 계정의 메뉴가 남을 수 있으므로, 제거 전에 사용자마다 `--shell-menu uninstall` 을 실행함.
+- 지울 때: 사용자 단위 설치(NSIS)의 제거 프로그램은 제거하는 사용자의 메뉴를 함께 지움. MSI 제거는 우클릭 메뉴를 지우지 않음(제거하는 사용자의 것도 남음). 남은 메뉴를 누르면 "프로그램을 찾을 수 없음"이 뜨므로, MSI 로 깔았으면 제거 전에 사용자마다 `--shell-menu uninstall` 을 실행함. 이미 제거했으면 `reg delete "HKCU\Software\Classes\SystemFileAssociations\.hwpx\shell\KorDoc" /f` 처럼 확장자마다 `KorDoc` 키를 지우거나, 앱을 다시 깔아 설정 › 저장과 연결에서 메뉴를 끈 뒤 제거함.
 - macOS 는 Finder 빠른 동작(`~/Library/Services/KorDoc - … .workflow`)으로 들어가고, 같은 명령을 `"/Applications/KorDoc AI.app/Contents/MacOS/kordoc-ai" --shell-menu install` 로 실행함.
 
 ## 공유 폴더 (네트워크 경로)

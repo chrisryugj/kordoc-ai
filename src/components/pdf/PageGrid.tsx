@@ -25,6 +25,8 @@ interface Props {
   onMove: (keys: Set<string>, to: number) => void;
   onCut: (key: string) => void;
   onMenu: (key: string, x: number, y: number) => void;
+  /** 쪽이 없는 빈 바탕을 우클릭 */
+  onDeskMenu: (x: number, y: number) => void;
   onOpen: (key: string) => void;
   onKey: (e: KeyboardEvent<HTMLDivElement>, key: string | null) => void;
   /** 크게 보기처럼 위에 뜬 창이 키를 받는 동안 (격자는 키를 무시) */
@@ -274,7 +276,11 @@ export function PageGrid(p: Props) {
     <div ref={deskRef} className="kd-pdf-desk" data-drop="pdf" data-over={p.dropOver} tabIndex={-1} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       onPointerUp={(e) => endDrag(e)} onPointerCancel={(e) => endDrag(e, true)} onKeyDown={onKeyDown}
       // 우클릭(맥은 Control+누르기)은 메뉴만: 손을 뗄 때 고르기를 바꾸지 않고, 끌던 중이면 끌기를 버린다
-      onContextMenu={dropDrag}>
+      onContextMenu={(e) => {
+        dropDrag();
+        // 쪽 카드가 제 메뉴를 띄우지 않은 빈 바탕이면 책상 메뉴
+        if (!e.defaultPrevented) { e.preventDefault(); p.onDeskMenu(e.clientX, e.clientY); }
+      }}>
       <div ref={gridRef} className="kd-pdf-grid" role="listbox" aria-multiselectable="true" aria-label="쪽 목록. 화살표로 옮겨 가고 Space로 고릅니다"
         style={{ "--pg": `${size}px`, "--pg-gap": `${GAP_X}px` } as React.CSSProperties}>
         {board.items.map((it, i) => {

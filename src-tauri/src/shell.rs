@@ -58,9 +58,9 @@ use Group::*;
 
 const HANGUL: &[&str] = &[".hwp", ".hwpx"];
 const DOCS: &[&str] = &[".hwp", ".hwpx", ".hml", ".hwpml", ".docx", ".pdf"];
-const IMAGES: &[&str] = &[".png", ".jpg", ".jpeg"];
+const IMAGES: &[&str] = &[".png", ".jpg", ".jpeg", ".webp"];
 /// 영수증으로 지출조서: 그림·PDF (사진·스캔·전자영수증)
-const RECEIPTS: &[&str] = &[".png", ".jpg", ".jpeg", ".pdf"];
+const RECEIPTS: &[&str] = &[".png", ".jpg", ".jpeg", ".webp", ".pdf"];
 const NONE: &[&str] = &[];
 
 const fn act(group: Group, id: &'static str, label: &'static str, quick: bool) -> Action {
@@ -110,11 +110,11 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "8";
+const MENU_VERSION: &str = "9";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
-    ".hwp", ".hwpx", ".hml", ".hwpml", ".pdf", ".docx", ".xls", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg",
+    ".hwp", ".hwpx", ".hml", ".hwpml", ".pdf", ".docx", ".xls", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg", ".webp",
 ];
 
 /// 확장자별 메뉴 키. 설치 프로그램의 제거 훅(windows/hooks.nsh)도 같은 키를 지운다 (테스트가 맞춰 본다)
@@ -239,18 +239,39 @@ pub fn shell_show(app: AppHandle) {
     show_main(&app);
 }
 
-/// 화면: 빠른 동작을 다 마쳤다. 꺼진 앱이 빠른 동작으로 켜졌고 그 사이 창을 열지 않았으면 끈다 (알림이 뜰 틈을 두고)
-#[tauri::command]
-pub fn shell_quick_done(app: AppHandle) {
-    if !COLD_QUICK.load(Ordering::SeqCst) || SHOWN.load(Ordering::SeqCst) {
+/// 숨은 본창에서 빠른 동작이 돌고 있다 (들어온 때부터 화면이 shell_quick_done 을 부를 때까지)
+static QUICK_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// 꺼져 있던 앱이 우클릭(빠른 동작·카드)으로 켜졌을 때 끄는 규칙은 하나다:
+/// 본창을 한 번도 안 띄웠고, 카드 창이 하나도 없고, 숨은 본창에서 도는 빠른 동작도 없을 때만 끈다.
+/// (카드에서 "PDF로 저장"을 시키고 카드를 닫으면 도는 일이 같이 죽었고, 빠른 동작이 끝나면 열려 있는 카드가 같이 닫혔다)
+fn exit_if_idle(app: &AppHandle) {
+    use tauri::Manager;
+    if SHOWN.load(Ordering::SeqCst) || QUICK_BUSY.load(Ordering::SeqCst) {
         return;
+    }
+    if !COLD_QUICK.load(Ordering::SeqCst) && !CARD_COLD.load(Ordering::SeqCst) {
+        return;
+    }
+    if app.webview_windows().keys().any(|l| l.starts_with("card-")) {
+        return;
+    }
+    app.exit(0);
+}
+
+/// 화면: 빠른 동작을 다 마쳤다. 꺼진 앱이 우클릭으로 켜졌고 그 사이 창을 열지 않았으면 끈다 (알림이 뜰 틈을 두고)
+#[tauri::command]
+pub fn shell_quick_done(app: AppHandle, collector: tauri::State<'_, ShellCollector>) {
+    // 모으는 중인 다음 동작이 있으면 아직 일이 남았다 (그 동작이 끝나면 화면이 다시 부른다)
+    if !collector.gathering() {
+        QUICK_BUSY.store(false, Ordering::SeqCst);
     }
     let gen = QUICK_GEN.load(Ordering::SeqCst);
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        // 그사이 새 우클릭 동작이 왔거나 창을 열었으면 그대로 둔다 (그 동작이 끝나면 화면이 다시 부른다)
-        if !SHOWN.load(Ordering::SeqCst) && QUICK_GEN.load(Ordering::SeqCst) == gen {
-            app.exit(0);
+        // 그사이 새 우클릭 동작이 왔으면 그대로 둔다
+        if QUICK_GEN.load(Ordering::SeqCst) == gen {
+            exit_if_idle(&app);
         }
     });
 }
@@ -294,6 +315,7 @@ impl ShellCollector {
         QUICK_GEN.fetch_add(1, Ordering::SeqCst);
         if is_quick(action) {
             mark_cold_quick();
+            QUICK_BUSY.store(true, Ordering::SeqCst);
         }
         {
             let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
@@ -314,7 +336,8 @@ impl ShellCollector {
                 let wait = {
                     let t = me.timing.lock().unwrap_or_else(|e| e.into_inner());
                     let (first, last) = t.unwrap_or((Instant::now(), Instant::now()));
-                    gather_wait(first, last, Instant::now())
+                    let many = me.queue.lock().unwrap_or_else(|e| e.into_inner()).len() > 1;
+                    gather_wait(first, last, Instant::now(), many)
                 };
                 match wait {
                     Some(d) => tokio::time::sleep(d).await,
@@ -328,6 +351,11 @@ impl ShellCollector {
             };
             flush(&app, items);
         });
+    }
+
+    /// 들어온 파일을 아직 묶는 중인가
+    fn gathering(&self) -> bool {
+        self.timing.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     /// 화면이 준비 전이면 쌓고 None, 준비됐으면 그대로 돌려준다 (보내기는 부른 쪽)
@@ -348,9 +376,16 @@ impl ShellCollector {
     }
 }
 
-/// 묶음을 더 기다릴 시간 (None 이면 지금 넘긴다): 마지막 도착 뒤 GATHER_QUIET, 첫 도착 뒤 GATHER_MAX 까지
-fn gather_wait(first: Instant, last: Instant, now: Instant) -> Option<Duration> {
-    let until = (last + GATHER_QUIET).min(first + GATHER_MAX);
+/// 여러 개를 골랐다고 드러난 뒤(둘째 파일이 온 뒤)의 기다림: 보안 프로그램이 프로그램 실행을 늦추는 PC 에서
+/// 수십 개가 0.4초 넘는 틈을 두고 오면 "하나로 합치기"가 두 묶음으로 갈려 반쪽 합본 둘이 생겼다
+const GATHER_QUIET_MANY: Duration = Duration::from_millis(1200);
+const GATHER_MAX_MANY: Duration = Duration::from_secs(15);
+
+/// 묶음을 더 기다릴 시간 (None 이면 지금 넘긴다): 마지막 도착 뒤 조용한 시간, 첫 도착 뒤 최대 시간까지.
+/// 파일 하나일 때는 짧게(카드·동작이 바로 뜨게), 둘 이상이면 넉넉히
+fn gather_wait(first: Instant, last: Instant, now: Instant, many: bool) -> Option<Duration> {
+    let (quiet, max) = if many { (GATHER_QUIET_MANY, GATHER_MAX_MANY) } else { (GATHER_QUIET, GATHER_MAX) };
+    let until = (last + quiet).min(first + max);
     (until > now).then(|| until - now)
 }
 
@@ -441,16 +476,9 @@ fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>,
     }
 }
 
-/// 카드 창이 닫혔다: 앱이 카드로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드가 없으면 끈다
+/// 카드 창이 닫혔다: 앱이 우클릭으로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드도 도는 빠른 동작도 없으면 끈다
 pub fn card_closed(app: &AppHandle) {
-    use tauri::Manager;
-    if !CARD_COLD.load(Ordering::SeqCst) || SHOWN.load(Ordering::SeqCst) {
-        return;
-    }
-    if app.webview_windows().keys().any(|l| l.starts_with("card-")) {
-        return;
-    }
-    app.exit(0);
+    exit_if_idle(app);
 }
 
 /// 카드 → 본창: "앱에서 이어서"·비교·편집기 등 본창의 동작으로 넘긴다 (우클릭 동작과 같은 길)
@@ -519,7 +547,12 @@ fn send_to_main(app: &AppHandle, action: &str, paths: &[String]) {
                 let url = format!("kordoc://batch?manifest={}", urlencoding::encode(&m.to_string_lossy()));
                 deliver(app, "deep-link", url.into());
             }
-            Err(e) => tracing::error!("batch manifest 쓰기 실패: {}", e),
+            Err(e) => {
+                // 화면이 받을 것이 없으니 끝났다는 신호도 오지 않는다: 숨은 채 남지 않게 창을 띄운다
+                tracing::error!("batch manifest 쓰기 실패: {}", e);
+                QUICK_BUSY.store(false, Ordering::SeqCst);
+                show_main(app);
+            }
         }
     }
 }
@@ -536,6 +569,15 @@ fn write_manifest(action: &str, files: &[String]) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// 드라이브 맨 위 폴더의 빈 곳을 우클릭하면 명령줄이 `"D:\"` 로 끝나고, Windows 인자 규칙은 `\"` 를 따옴표 글자로 읽어
+/// 인자가 `D:"` 가 된다 → 끝의 따옴표를 역슬래시로 되돌린다 (경로에는 따옴표가 올 수 없다)
+fn unquote_root(arg: &str) -> String {
+    match arg.strip_suffix('"') {
+        Some(head) => format!("{head}\\"),
+        None => arg.to_string(),
+    }
+}
+
 /// 실행 인자 → (동작, 파일들). `--shell <동작> <파일…>` 또는 파일만(= open)
 pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     let rest: Vec<&String> = args.iter().skip(1).collect();
@@ -543,7 +585,7 @@ pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
         return None;
     }
     if rest[0] == "--shell" && rest.len() >= 3 && is_action(rest[1]) {
-        return Some((rest[1].clone(), rest[2..].iter().map(|s| s.to_string()).collect()));
+        return Some((rest[1].clone(), rest[2..].iter().map(|s| unquote_root(s)).collect()));
     }
     let files: Vec<String> = rest
         .iter()
@@ -610,7 +652,11 @@ mod platform {
         let base = key(".hwpx");
         let Ok(out) = reg_out(&["query", &base]) else { return };
         let current = out.lines().any(|l| l.contains("KorDocMenu") && l.split_whitespace().last() == Some(MENU_VERSION));
-        if !current {
+        // 다른 폴더에 다시 깔았거나 설치 방식을 바꿨으면 메뉴가 없어진 옛 실행 파일을 가리킨다 (아이콘 값에 실행 파일 경로가 있다).
+        // 개발 빌드는 깔린 메뉴를 자기 경로로 바꾸지 않는다
+        let exe = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_lowercase());
+        let moved = !cfg!(debug_assertions) && exe.map(|e| !out.to_lowercase().contains(&e)).unwrap_or(false);
+        if !current || moved {
             if let Err(e) = install_unlocked() {
                 tracing::warn!("우클릭 메뉴 다시 깔기 실패: {}", e);
             }
@@ -638,6 +684,14 @@ mod platform {
         let r = reg(&["import", &path.to_string_lossy()]);
         let _ = std::fs::remove_file(&path);
         r
+    }
+
+    /// 윈도 알림이 켜져 있는가: 알림 전체(ToastEnabled)와 이 앱(Enabled) 스위치. 값이 없으면 켜진 것이다.
+    /// 윈도는 알림 권한 물음이 늘 "허용"으로 돌아와, 꺼 둔 PC 에서는 창 없이 한 일의 결과가 아무 데도 안 보인다
+    pub fn toasts_enabled() -> bool {
+        const BASE: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion";
+        let off = |key: String, value: &str| reg_out(&["query", &key, "/v", value]).map(|out| toast_switch_off(&out)).unwrap_or(false);
+        !off(format!(r"{}\PushNotifications", BASE), "ToastEnabled") && !off(format!(r"{}\Notifications\Settings\{}", BASE, APP_ID), "Enabled")
     }
 
     pub fn install() -> Result<(), String> {
@@ -697,6 +751,11 @@ mod platform {
     pub fn status() -> MenuStatus {
         let installed = services_dir().map(|d| installed_in(&d)).unwrap_or(false);
         MenuStatus { supported: true, installed, kind: "quick-action" }
+    }
+
+    /// 맥은 알림 권한 물음이 실제 상태를 돌려준다 (화면이 그것으로 판단)
+    pub fn toasts_enabled() -> bool {
+        true
     }
 
     pub fn refresh_if_stale() {
@@ -787,6 +846,25 @@ mod platform {
         Ok(())
     }
     pub fn refresh_if_stale() {}
+    pub fn toasts_enabled() -> bool {
+        true
+    }
+}
+
+/// tauri.conf.json 의 identifier (윈도 알림 설정이 이 이름으로 남는다)
+#[cfg_attr(not(windows), allow(dead_code))]
+const APP_ID: &str = "com.kordoc-ai.app";
+
+/// `reg query … /v 값` 출력에서 스위치가 꺼졌는가 (REG_DWORD 0x0)
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toast_switch_off(reg_query_out: &str) -> bool {
+    reg_query_out.lines().any(|l| l.contains("REG_DWORD") && l.trim_end().ends_with("0x0"))
+}
+
+/// 창 없이 한 일의 결과를 시스템 알림으로 보여 줄 수 있는가 (못 하면 화면이 창을 열어 알린다)
+#[tauri::command]
+pub fn shell_toast_ok() -> bool {
+    platform::toasts_enabled()
 }
 
 /// 켤 때: 깔린 메뉴가 옛 판이면 새 항목으로 다시 깐다 (뒤에서)
@@ -936,6 +1014,16 @@ mod tests {
     }
 
     #[test]
+    fn toast_switch_reads_reg_query_output() {
+        let off = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\r\n    ToastEnabled    REG_DWORD    0x0\r\n\r\n";
+        let on = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\r\n    ToastEnabled    REG_DWORD    0x1\r\n\r\n";
+        assert!(toast_switch_off(off));
+        assert!(!toast_switch_off(on));
+        // 값이 없으면(reg 가 오류를 내 빈 출력) 켜진 것으로 본다
+        assert!(!toast_switch_off(""));
+    }
+
+    #[test]
     fn reg_script_builds_menus_in_one_import() {
         let exe = r"C:\Users\홍 길동\AppData\Local\KorDoc AI\kordoc-ai.exe";
         let s = reg_script(exe);
@@ -1024,13 +1112,28 @@ mod tests {
     fn gathers_until_arrivals_stop() {
         let t0 = Instant::now();
         let ms = Duration::from_millis;
-        // 마지막 도착 뒤 0.4초 기다린다 (계속 오면 미룬다)
-        assert_eq!(gather_wait(t0, t0, t0), Some(ms(400)));
-        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(500)), Some(ms(200)));
-        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(700)), None);
+        // 파일 하나: 마지막 도착 뒤 0.4초 기다린다 (카드·동작이 바로 뜨게)
+        assert_eq!(gather_wait(t0, t0, t0, false), Some(ms(400)));
+        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(500), false), Some(ms(200)));
+        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(700), false), None);
         // 끝없이 와도 첫 도착 뒤 4초에는 넘긴다
-        assert_eq!(gather_wait(t0, t0 + ms(3900), t0 + ms(3950)), Some(ms(50)));
-        assert_eq!(gather_wait(t0, t0 + ms(3990), t0 + ms(4000)), None);
+        assert_eq!(gather_wait(t0, t0 + ms(3900), t0 + ms(3950), false), Some(ms(50)));
+        assert_eq!(gather_wait(t0, t0 + ms(3990), t0 + ms(4000), false), None);
+        // 둘 이상(여러 개 고름): 틈이 1.2초까지 벌어져도 한 묶음, 첫 도착 뒤 15초까지
+        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(700), true), Some(ms(800)));
+        assert_eq!(gather_wait(t0, t0 + ms(300), t0 + ms(1500), true), None);
+        assert_eq!(gather_wait(t0, t0 + ms(4500), t0 + ms(5000), true), Some(ms(700)));
+        assert_eq!(gather_wait(t0, t0 + ms(14900), t0 + ms(15000), true), None);
+    }
+
+    #[test]
+    fn drive_root_background_path_is_repaired() {
+        // 드라이브 맨 위 빈 곳 우클릭: 명령줄 "D:\" 가 인자 D:" 로 온다
+        let a = vec!["app".into(), "--shell".into(), "join".into(), "D:\"".into()];
+        assert_eq!(parse_args(&a), Some(("join".into(), vec!["D:\\".into()])));
+        // 보통 경로는 그대로
+        let b = vec!["app".into(), "--shell".into(), "join".into(), "D:\\자료 모음".into()];
+        assert_eq!(parse_args(&b), Some(("join".into(), vec!["D:\\자료 모음".into()])));
     }
 
     #[test]

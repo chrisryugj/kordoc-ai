@@ -8,7 +8,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,6 +160,19 @@ async function backupOnce(path: string): Promise<void> {
   if (!existsSync(bak)) await copyFile(path, bak);
 }
 
+/** 설정 파일을 통째로 바꿔 쓴다 (옆에 다 쓴 뒤 바꿔치기). 다른 프로그램(Claude·Codex 등)의 설정이라,
+ *  쓰는 도중에 꺼지거나 디스크가 차면 반쯤 쓴 파일이 남아 그 프로그램의 설정이 통째로 날아간다 */
+async function writeWhole(path: string, text: string): Promise<void> {
+  const tmp = `${path}.kordoc-tmp`;
+  try {
+    await writeFile(tmp, text, 'utf-8');
+    await rename(tmp, path);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
 async function isConfigured(c: ClientDef): Promise<boolean> {
   if (!existsSync(c.configPath)) return false;
   if (c.key === 'toml') return stripTomlServer(await readFile(c.configPath, 'utf-8')).found;
@@ -195,7 +208,7 @@ export async function installMcpConfig(ids: string[], rootDir?: string): Promise
       if (c.key === 'toml') {
         const old = existsSync(c.configPath) ? await readFile(c.configPath, 'utf-8') : '';
         if (old) await backupOnce(c.configPath);
-        await writeFile(c.configPath, withTomlServer(old, env), 'utf-8');
+        await writeWhole(c.configPath, withTomlServer(old, env));
       } else {
         const { data, hadComments } = await readConfig(c.configPath);
         const servers = data[c.key] && typeof data[c.key] === 'object' ? (data[c.key] as Record<string, unknown>) : {};
@@ -203,7 +216,7 @@ export async function installMcpConfig(ids: string[], rootDir?: string): Promise
         servers[SERVER_NAME] = serverEntry(c.key, env);
         data[c.key] = servers;
         if (hadComments) await backupOnce(c.configPath);
-        await writeFile(c.configPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+        await writeWhole(c.configPath, `${JSON.stringify(data, null, 2)}\n`);
       }
       logger.info(`[mcp-setup] ${c.name}: ${SERVER_NAME} MCP 등록 → ${c.configPath}`);
       installed.push(id);

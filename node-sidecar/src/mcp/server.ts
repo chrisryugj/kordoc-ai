@@ -10,6 +10,8 @@ import type { RpcRouter } from '../rpc/router.js';
 import { routerDispatch } from '../rpc/dispatch.js';
 import { WORK_SYSTEM, runWorkTool, workToolDefs } from '../core/agent-tools/index.js';
 import { muteNotifications } from '../infra/progress.js';
+import { reloadIfChanged } from '../infra/config.js';
+import { syncOfflineEnv } from '../infra/net-guard.js';
 import { logger } from '../infra/logger.js';
 
 const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -40,6 +42,8 @@ export function createMcpHandler(router: RpcRouter, opts: { version: string; roo
         const name = String(msg.params?.name ?? '');
         const args = msg.params?.arguments;
         const input = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+        // 앱에서 그새 설정을 바꿨으면 따른다 (폐쇄망 모드를 켰는데 이 프로세스만 인터넷 AI 로 보내지 않게)
+        if (reloadIfChanged()) syncOfflineEnv();
         const r = await runWorkTool(name, input, dispatch, { root: opts.root });
         return ok({ content: [{ type: 'text', text: `${r.summary}\n\n${r.output}` }], isError: !!r.isError });
       }

@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleAlert, ExternalLink, FolderOpen, Info, Loader2, Square, XCircle } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { Progress } from "../../lib/rpc";
-import { rpc } from "../../lib/rpc";
+import { rpc, errorText } from "../../lib/rpc";
 import { baseName } from "../../lib/format";
+import { useApp } from "../../state/app";
+import { useFileMenu } from "./file-menu";
 
 type Tone = "ok" | "warn" | "err" | "busy" | "info" | "muted";
 
@@ -61,19 +63,23 @@ export function ErrorLine({ message }: { message: string }) {
 
 /** 저장한 파일 한 줄 — 파일 열기·폴더에서 보기 */
 export function SavedFile({ path, label = "저장했습니다", folder }: { path: string; label?: string; folder?: boolean }) {
+  const { toast } = useApp();
+  const menu = useFileMenu();
+  // 파일을 옮겼거나 지웠으면 열리지 않는다 → 아무 일도 안 일어나는 것처럼 보이지 않게 알린다
+  const fail = (e: unknown) => toast(errorText(e), "error");
   return (
-    <div className="kd-note" data-tone="ok">
+    <div className="kd-note" data-tone="ok" onContextMenu={(e) => menu.open(e, path, { folder })}>
       <CheckCircle2 size={15} />
       <div className="min-w-0 flex-1">
         <div className="font-semibold">{label}</div>
         <div className="kd-path mt-0.5" title={path}>{folder ? path : baseName(path)}</div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {!folder && (
-            <Button variant="secondary" size="sm" onClick={() => void rpc("open_file", { path }).catch(() => undefined)}>
+            <Button variant="secondary" size="sm" onClick={() => void rpc("open_file", { path }).catch(fail)}>
               <ExternalLink size={13} /> 열기
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={() => void (folder ? rpc("open_folder", { path }) : rpc("reveal_file", { path })).catch(() => undefined)}>
+          <Button variant="secondary" size="sm" onClick={() => void (folder ? rpc("open_folder", { path }) : rpc("reveal_file", { path })).catch(fail)}>
             <FolderOpen size={13} /> 폴더에서 보기
           </Button>
         </div>

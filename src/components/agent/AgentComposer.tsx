@@ -12,6 +12,7 @@ import { baseName, formatOf } from "../../lib/format";
 import { Button } from "../ui/Button";
 import { AiWhere } from "../common/AiGate";
 import { FormatBadge } from "../common/FormatBadge";
+import { useFileMenu } from "../common/file-menu";
 import { AiQuickSetup } from "./AiQuickSetup";
 import { PromptGallery } from "./PromptGallery";
 import { addMyPrompt } from "../../lib/my-prompts";
@@ -47,10 +48,15 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
   useEffect(() => { setGalleryOpen(gallery); }, [gallery]);
   const [saved, setSaved] = useState(0);
   const [setupOpen, setSetupOpen] = useState(false);
+  const menu = useFileMenu();
   const box = useRef<HTMLTextAreaElement>(null);
   const pathsRef = useRef(paths);
   pathsRef.current = paths;
-  const add = (p: string[]) => onPaths([...new Set([...pathsRef.current, ...p])]);
+  // 끌어다 놓기 받는 함수는 한 번만 등록된다 → 붙일 곳(onPaths)도 그때그때 최신 것을 봐야 한다.
+  // 안 그러면 대화를 바꾼 뒤 놓은 파일이 처음 열려 있던 대화에 붙는다
+  const onPathsRef = useRef(onPaths);
+  onPathsRef.current = onPaths;
+  const add = (p: string[]) => onPathsRef.current([...new Set([...pathsRef.current, ...p])]);
 
   useEffect(() => (dropName ? registerDrop(dropName, add) : undefined), [dropName, registerDrop]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (autoFocus) box.current?.focus(); }, [autoFocus]);
@@ -98,7 +104,8 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
         {paths.length > 0 && (
           <div className="kd-ask-files" aria-label="붙인 파일">
             {paths.map((p) => (
-              <span key={p} className="kd-ask-file" title={p}>
+              <span key={p} className="kd-ask-file" title={p}
+                onContextMenu={(e) => menu.open(e, p, { after: [{ label: "붙인 파일에서 빼기", icon: <X size={14} />, onClick: () => onPaths(paths.filter((x) => x !== p)) }] })}>
                 <FormatBadge format={formatOf(p)} />
                 <span>{baseName(p)}</span>
                 <button type="button" onClick={() => onPaths(paths.filter((x) => x !== p))} aria-label={`${baseName(p)} 빼기`}><X size={13} /></button>
@@ -107,7 +114,9 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
           </div>
         )}
         <textarea ref={box} className="kd-ask-input" rows={2} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
-          placeholder={placeholder ?? "AI에게 맡길 일 입력 · 문서는 끌어다 놓기"} aria-label="AI에게 맡길 일" disabled={busy} />
+          placeholder={placeholder ?? "AI에게 맡길 일 입력 · 문서는 끌어다 놓기"} aria-label="AI에게 맡길 일"
+          // 일하는 동안 못 쓰게만 한다(disabled 가 아니라 readOnly): disabled 면 초점이 빠져, 붙여 넣기가 "글을 문서로 열기"로 넘어가 화면이 바뀐다
+          readOnly={busy} aria-busy={busy} />
         <div className="kd-ask-bar">
           <Button size="sm" variant="ghost" onClick={() => void pickFiles().then((p) => p.length && add(p))} data-tip="한글·PDF·워드·엑셀·그림 파일을 고릅니다. 끌어다 놓아도 됩니다"><FileUp size={14} /> 파일 첨부</Button>
           <Button size="sm" variant="ghost" onClick={() => void pickFolder().then((d) => d && add([d]))} data-tip="폴더 안 문서를 모두 넘깁니다 (제출물 취합 등)"><FolderUp size={14} /> 폴더 첨부</Button>

@@ -126,13 +126,30 @@ input:focus-visible, select:focus-visible {
 .kd-context-menu {
   position: fixed;
   z-index: var(--z-menu);
-  min-width: 170px;
-  max-width: 260px;
+  min-width: 180px;
+  max-width: 300px;
+  /* 항목이 많아도 화면을 넘지 않게 — 넘치면 메뉴 안에서 굴린다 */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 4px 0;
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-xl);
+  outline: none;
+  user-select: none;
+}
+/* 메뉴 틀은 키를 받으려고 초점을 가질 뿐이다 — 테두리는 고른 항목에만 */
+.kd-context-menu:focus, .kd-context-menu:focus-visible { outline: none; border-radius: var(--radius-lg); }
+.kd-ctx-item:focus-visible { outline: none; border-radius: 0; }
+.kd-ctx-header {
+  padding: 6px 12px 4px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .kd-ctx-item {
   display: flex;
@@ -149,23 +166,28 @@ input:focus-visible, select:focus-visible {
   text-align: left;
   transition: background-color 0.1s;
 }
-.kd-ctx-item:hover, .kd-ctx-item:focus-visible {
+/* 마우스를 올린 항목과 키보드로 고른 항목은 같은 바탕, 키보드일 때만 테두리를 더한다 (초점이 곧 고른 항목이라 둘이 따로 놀지 않는다) */
+.kd-ctx-item:hover, .kd-ctx-item:focus {
   background: var(--color-bg-tertiary);
   outline: none;
 }
-.kd-ctx-item:disabled {
+.kd-ctx-item:focus-visible { box-shadow: inset 0 0 0 2px var(--color-accent); }
+.kd-ctx-item[aria-disabled="true"] {
   color: var(--color-text-disabled);
   cursor: default;
 }
-.kd-ctx-item:disabled .kd-ctx-icon { color: var(--color-text-disabled); }
+.kd-ctx-item[aria-disabled="true"]:hover, .kd-ctx-item[aria-disabled="true"]:focus { background: none; }
+.kd-ctx-item[aria-disabled="true"] .kd-ctx-icon { color: var(--color-text-disabled); }
 .kd-ctx-danger { color: var(--color-error); }
-.kd-ctx-danger:hover, .kd-ctx-danger:focus-visible {
+.kd-ctx-danger:hover, .kd-ctx-danger:focus {
   background: color-mix(in srgb, var(--color-error) 6%, transparent);
 }
-.kd-ctx-icon { display: flex; align-items: center; color: var(--color-text-muted); }
+/* 아이콘 칸은 메뉴 안에서 폭이 같다 — 아이콘 없는 항목도 글 머리가 맞는다 */
+.kd-ctx-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; color: var(--color-text-muted); }
 .kd-ctx-danger .kd-ctx-icon { color: var(--color-error); }
-.kd-ctx-label { flex: 1; }
-.kd-ctx-shortcut { font-size: var(--fs-caption); color: var(--color-text-muted); margin-left: auto; }
+.kd-ctx-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.kd-ctx-hint { display: block; margin-top: 1px; font-size: var(--fs-caption); color: var(--color-text-muted); line-height: 1.35; }
+.kd-ctx-shortcut { font-size: var(--fs-caption); color: var(--color-text-muted); margin-left: auto; padding-left: 12px; white-space: nowrap; }
 .kd-ctx-separator { height: 1px; margin: 4px 0; background: var(--color-border); }
 
 /* ============================================

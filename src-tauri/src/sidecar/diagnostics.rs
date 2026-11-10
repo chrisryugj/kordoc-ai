@@ -30,8 +30,9 @@ pub fn summarize_value(value: Option<&serde_json::Value>) -> String {
                         break;
                     }
                     let lowered = key.to_ascii_lowercase();
-                    // oc: 법제처 인증키(사용자 아이디)는 로그에 남기지 않는다
+                    // oc: 법제처 인증키(사용자 아이디), password: 암호 걸린 문서를 열 때 넣은 암호 — 로그에 남기지 않는다
                     let summarized = if lowered.contains("api_key")
+                        || lowered.contains("password")
                         || lowered.contains("token")
                         || lowered.contains("authorization")
                         || lowered == "oc"
@@ -123,4 +124,18 @@ pub fn summarize_response(resp: &JsonRpcResponse) -> String {
         return err.message.clone();
     }
     "null".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secrets_never_reach_the_log() {
+        let v = serde_json::json!({ "path": "C:/문서/보고.hwp", "password": "p@ss-1234", "api_key": "sk-abc", "oc": "hong" });
+        let out = summarize_value(Some(&v));
+        assert!(!out.contains("p@ss-1234"), "{}", out);
+        assert!(!out.contains("sk-abc"), "{}", out);
+        assert!(!out.contains("hong"), "{}", out);
+    }
 }

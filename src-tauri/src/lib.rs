@@ -71,6 +71,8 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE)
+                // 카드 창(card-0, card-1 …)은 이름이 켤 때마다 다시 쓰이고 갈래마다 크기가 다르다: 앞 카드의 크기·자리를 물려받지 않게
+                .with_filter(|label| !label.starts_with("card-"))
                 .build(),
         )
         .manage(manager)
@@ -89,6 +91,7 @@ pub fn run() {
             shell::shell_take_pending,
             shell::shell_show,
             shell::shell_quick_done,
+            shell::shell_toast_ok,
             shell::card_handoff,
             quit_app,
             quit_cancelled,

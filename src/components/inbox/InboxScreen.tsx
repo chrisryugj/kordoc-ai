@@ -12,7 +12,8 @@ import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { Seg } from "../common/Field";
 import { Empty, ErrorLine, Note, SavedFile, Working } from "../common/Status";
-import { daysLeft, sortItems, todayIso, urgentCount, type InboxItem } from "./dday";
+import { daysLeft, sortItems, urgentCount, type InboxItem } from "./dday";
+import { useToday } from "./useToday";
 import { InboxRow, type InboxPatch } from "./InboxRow";
 import "./inbox.css";
 
@@ -30,7 +31,7 @@ export function InboxScreen({ active }: { active: boolean }) {
   const [failed, setFailed] = useState<Failed>([]);
   const adding = useTask<number>();
   const ledger = useTask<{ output_path: string; count: number }>();
-  const today = todayIso();
+  const today = useToday();
 
   const setFilter = (f: Filter) => { setFilterState(f); writePref("kordoc-inbox-filter", f); };
 

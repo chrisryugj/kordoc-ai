@@ -11,7 +11,7 @@ vi.mock('../src/infra/progress.js', async (importOriginal) => ({
 }));
 
 import { updateSettings } from '../src/infra/config.js';
-import { agentStep } from '../src/core/ai/agent-step.js';
+import { agentStep, fitMessages } from '../src/core/ai/agent-step.js';
 import { tempDir } from './tmp-dirs.js';
 
 process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-agent-');
@@ -77,5 +77,28 @@ describe('agentStep', () => {
     reply = () => '그건 할 수 없습니다.';
     const r = await agentStep({ system: '', tools, events: [{ role: 'user', text: '해 줘' }] }, signal());
     expect(r).toMatchObject({ text: '그건 할 수 없습니다.', calls: [] });
+  });
+});
+
+describe('fitMessages', () => {
+  const read = (id: string, n: number) => [
+    { role: 'assistant' as const, text: '', calls: [{ id, name: 'read_document', input: {} }] },
+    { role: 'tool' as const, results: [{ id, name: 'read_document', output: '가'.repeat(n) }] },
+  ];
+
+  it('맥락이 넉넉하면 그대로', () => {
+    const msgs = fitMessages([{ role: 'user', text: '읽어 줘' }, ...read('a', 5_000)], 400_000);
+    expect(msgs).toHaveLength(3);
+    expect(msgs[2].content.length).toBeGreaterThan(5_000);
+  });
+
+  it('맥락이 짧으면 결과 한 건을 줄이고, 그래도 넘치면 오래된 결과부터 걷어 낸다 (최근 결과는 둔다)', () => {
+    const events = [{ role: 'user' as const, text: '세 번 읽어' }, ...read('a', 9_000), ...read('b', 9_000), ...read('c', 9_000)];
+    const msgs = fitMessages(events, 7_000);
+    expect(msgs).toHaveLength(events.length);
+    expect(msgs.reduce((n, m) => n + m.content.length, 0)).toBeLessThanOrEqual(7_000);
+    expect(msgs[2].content).toContain('길어서 뺐습니다');
+    expect(msgs[6].content).toContain('가가가');
+    expect(msgs[0].content).toBe('세 번 읽어');
   });
 });

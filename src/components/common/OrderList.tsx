@@ -3,17 +3,28 @@
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, ChevronUp, GripVertical, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, X } from "lucide-react";
 import { FormatBadge } from "./FormatBadge";
+import { useFileMenu } from "./file-menu";
 import { baseName, formatOf } from "../../lib/format";
 
 function Row({ path, index, total, onMove, onRemove, note }: {
   path: string; index: number; total: number; onMove: (to: number) => void; onRemove: () => void; note?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: path });
+  const menu = useFileMenu();
   return (
     <li ref={setNodeRef} className="kd-order-row" data-dragging={isDragging}
-      style={{ transform: CSS.Transform.toString(transform), transition }} {...attributes}>
+      style={{ transform: CSS.Transform.toString(transform), transition }} {...attributes}
+      onContextMenu={(e) => menu.open(e, path, {
+        before: [
+          { label: "맨 위로", icon: <ChevronsUp size={14} />, disabled: index === 0, onClick: () => onMove(0) },
+          { label: "위로", icon: <ChevronUp size={14} />, disabled: index === 0, onClick: () => onMove(index - 1) },
+          { label: "아래로", icon: <ChevronDown size={14} />, disabled: index === total - 1, onClick: () => onMove(index + 1) },
+          { label: "맨 아래로", icon: <ChevronsDown size={14} />, disabled: index === total - 1, onClick: () => onMove(total - 1) },
+        ],
+        after: [{ label: "목록에서 빼기", icon: <X size={14} />, onClick: onRemove }],
+      })}>
       <button type="button" className="kd-icon-btn kd-grip" {...listeners} aria-label="끌어서 순서 바꾸기" tabIndex={-1}>
         <GripVertical size={15} />
       </button>

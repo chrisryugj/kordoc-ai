@@ -1,7 +1,8 @@
 /** 오늘(홈) — 맨 위 "무엇을 할까요?" 말로 시키기(문서는 홈 어디에 놓아도 거기 붙음), 기한이 다가온 공문, 자주 하는 일, 최근 문서(처음 쓰는 날은 예제), 업무별 목차 */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, History, CalendarClock, LayoutGrid, LifeBuoy } from "lucide-react";
+import { ChevronRight, History, CalendarClock, LayoutGrid, LifeBuoy, X } from "lucide-react";
+import { useFileMenu } from "../common/file-menu";
 import { useApp, type ToolId } from "../../state/app";
 import { Button } from "../ui/Button";
 import { ConfirmRemove } from "../ui/ConfirmRemove";
@@ -16,6 +17,7 @@ import { pickFiles } from "../../lib/native";
 import { baseName, dirName, num, stem, timeAgo } from "../../lib/format";
 import type { RecoveryEntry, UsageReport } from "../../lib/contract";
 import { daysLeft, dueBadge, dueText, sortItems, type InboxItem } from "../inbox/dday";
+import { useToday } from "../inbox/useToday";
 
 /** 기한 임박: 할 일 가운데 기한이 지났거나 7일 안인 것 */
 const SOON_DAYS = 7;
@@ -79,12 +81,14 @@ function Recovered({ active }: { active: boolean }) {
 /** 접수함에서 기한이 다가온 공문 셋까지 (없으면 자리도 없다) */
 function DueSoon({ active }: { active: boolean }) {
   const { ready, go, openDocs } = useApp();
+  const menu = useFileMenu();
   const [items, setItems] = useState<InboxItem[]>([]);
   useEffect(() => {
     if (!ready || !active) return;
     rpc("inbox_list", {}).then((r) => setItems(sortItems(r.items))).catch(() => setItems([]));
   }, [ready, active]);
-  const soon = items.filter((it) => it.status === "todo" && it.due && daysLeft(it.due) <= SOON_DAYS).slice(0, 3);
+  const today = useToday();
+  const soon = items.filter((it) => it.status === "todo" && it.due && daysLeft(it.due, today) <= SOON_DAYS).slice(0, 3);
   if (!soon.length) return null;
   return (
     <section className="kd-home-block" aria-labelledby="due-t">
@@ -94,13 +98,14 @@ function DueSoon({ active }: { active: boolean }) {
       </div>
       <div className="kd-rows">
         {soon.map((it) => {
-          const b = dueBadge(it.due!);
+          const b = dueBadge(it.due!, today);
           return (
-            <button key={it.id} type="button" className="kd-row" onClick={() => openDocs([it.path])}>
+            <button key={it.id} type="button" className="kd-row" onClick={() => openDocs([it.path])}
+              onContextMenu={(e) => menu.open(e, it.path, { before: [{ label: "접수함에서 보기", icon: <CalendarClock size={14} />, onClick: () => go("inbox") }] })}>
               <span className="kd-badge kd-num" data-tone={b.tone}>{b.label}</span>
               <span className="kd-row-main">
                 <span className="kd-row-title block">{it.title || stem(it.name)}</span>
-                <span className="kd-row-desc block">{[it.sender, `${dueText(it.due!)}까지`].filter(Boolean).join(" · ")}</span>
+                <span className="kd-row-desc block">{[it.sender, `${dueText(it.due!, today)}까지`].filter(Boolean).join(" · ")}</span>
               </span>
             </button>
           );
@@ -111,7 +116,8 @@ function DueSoon({ active }: { active: boolean }) {
 }
 
 function RecentDocs() {
-  const { recent, openDocs, clearRecent } = useApp();
+  const { recent, openDocs, clearRecent, removeRecent } = useApp();
+  const menu = useFileMenu();
   return (
     <section className="kd-home-block" aria-labelledby="recent-t">
       <div className="kd-block-head">
@@ -120,7 +126,8 @@ function RecentDocs() {
       </div>
       <div className="kd-rows">
         {recent.slice(0, 4).map((d) => (
-          <button key={d.path} type="button" className="kd-row" onClick={() => openDocs([d.path])}>
+          <button key={d.path} type="button" className="kd-row" onClick={() => openDocs([d.path])}
+            onContextMenu={(e) => menu.open(e, d.path, { after: [{ label: "최근 목록에서 빼기", icon: <X size={14} />, onClick: () => removeRecent(d.path) }] })}>
             <FormatBadge format={d.format} />
             <span className="kd-row-main">
               <span className="kd-row-title block">{d.name}</span>

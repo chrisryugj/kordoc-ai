@@ -52,8 +52,19 @@ fn timeout_for(method: &str) -> u64 {
     if method == "ping" {
         return 120;
     }
+    // 파일 수만큼 늘어나는 묶음 작업: 한글 문서 수백 개를 PDF 로 바꾸면 30분을 넘는다. 30분에 끊으면 하던 일이 날아가고
+    // 처음부터 다시 해야 한다. 멈추는 것은 화면의 멈추기 단추로 (AI 도구 실행도 안에서 묶음 작업을 부른다)
+    if method.ends_with("_batch") || BATCH_METHODS.contains(&method) {
+        return 6 * 3600;
+    }
     1800
 }
+
+/// 넣은 파일 수만큼 오래 걸리는 메서드 (이름이 _batch 로 끝나는 것 말고)
+const BATCH_METHODS: [&str; 15] = [
+    "collect_gather", "collect_run", "search_files", "inbox_add", "style_apply", "mail_merge", "merge_files", "bundle_pdf",
+    "pdf_compose", "pdf_to_images", "print_files", "receipt_read", "org_corpus_add", "template_add", "agent_tool_run",
+];
 
 /// 엔진이 죽었거나 아직 안 켜졌을 때. 프론트(src/lib/rpc.ts DEAD)가 "프로세스 종료" 글자를 보고 엔진을 다시 켜서 한 번 더 부른다
 const ENGINE_STOPPED: &str = "문서 엔진이 멈췄습니다(프로세스 종료). 잠시 뒤 다시 시도하세요. 계속되면 앱을 다시 켜세요.";
@@ -434,11 +445,12 @@ mod tests {
 
     #[test]
     fn long_jobs_do_not_time_out_at_two_minutes() {
-        for m in [
-            "to_hwpx", "to_hwpx_batch", "compare_hwpx", "bundle_pdf", "pdf_stamp", "extract_images", "search_files",
-            "collect_fields", "collect_run", "template_add", "template_analyze", "inbox_add", "law_check", "convert_batch",
-        ] {
+        for m in ["to_hwpx", "compare_hwpx", "pdf_stamp", "extract_images", "collect_fields", "template_analyze", "law_check"] {
             assert_eq!(timeout_for(m), 1800, "{m}");
+        }
+        // 파일 수만큼 늘어나는 묶음 작업은 30분에 끊지 않는다
+        for m in ["to_hwpx_batch", "convert_batch", "redact_batch", "bundle_pdf", "search_files", "collect_run", "collect_gather", "inbox_add", "template_add", "agent_tool_run"] {
+            assert_eq!(timeout_for(m), 6 * 3600, "{m}");
         }
         for m in ["ai_summarize", "ai_fit_lines", "llm_download", "engine_selftest"] {
             assert_eq!(timeout_for(m), 3600, "{m}");

@@ -6,7 +6,7 @@
  * 인자가 도구 정의(필수 항목·형)에 안 맞으면 inputError 로 돌려 모델이 고쳐 부르게 한다.
  */
 
-import { ask, parseJsonLoose, type ChatMessage, type JsonSchema } from '../../infra/llm/index.js';
+import { ask, contextCharBudget, parseJsonLoose, type ChatMessage, type JsonSchema } from '../../infra/llm/index.js';
 
 export interface AgentToolDef { name: string; description: string; inputSchema: Record<string, unknown> }
 export interface AgentCall { id: string; name: string; input: Record<string, unknown>; inputError?: string }
@@ -43,8 +43,22 @@ export function systemText(system: string, tools: AgentToolDef[]): string {
   ].join('\n');
 }
 
-/** 대화 → 모델 메시지. 도구 결과는 사용자 차례의 글로 싣는다 */
-export function toMessages(events: AgentEvent[]): ChatMessage[] {
+/** 대화를 모델 맥락(글자 수 budget)에 맞춘다. 로컬 모델은 맥락이 짧아(8K 토큰이면 만 자 안팎) 문서를 두어 번 읽으면 넘치는데,
+ *  넘치면 서버가 앞부분(지시문·도구 목록)을 조용히 잘라 답 형식이 깨진다. 도구 결과 한 건의 상한을 맥락에 맞춰 줄이고,
+ *  그래도 넘치면 오래된 도구 결과부터 내용을 걷어 낸다 (가장 최근 결과는 모델이 지금 보고 답해야 하니 둔다) */
+export function fitMessages(events: AgentEvent[], budget: number): ChatMessage[] {
+  const msgs = toMessages(events, Math.max(1_000, Math.min(RESULT_CHARS, Math.floor(budget / 3))));
+  const size = () => msgs.reduce((n, m) => n + m.content.length, 0);
+  const tools = events.flatMap((e, i) => (e.role === 'tool' ? [i] : []));
+  for (const i of tools.slice(0, -1)) {
+    if (size() <= budget) break;
+    msgs[i] = { role: 'user', content: '도구 결과: (앞서 받은 결과는 길어서 뺐습니다. 다시 필요하면 도구를 다시 부르세요)' };
+  }
+  return msgs;
+}
+
+/** 대화 → 모델 메시지 (대화 한 건이 메시지 하나). 도구 결과는 사용자 차례의 글로 싣는다 */
+export function toMessages(events: AgentEvent[], resultChars = RESULT_CHARS): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of events) {
     if (e.role === 'user') {
@@ -53,7 +67,7 @@ export function toMessages(events: AgentEvent[]): ChatMessage[] {
       out.push({ role: 'assistant', content: JSON.stringify({ say: e.text, calls: e.calls.map((c) => ({ tool: c.name, args: c.input })) }) });
     } else {
       const lines = e.results.map((r) => {
-        const body = r.output.length > RESULT_CHARS ? `${r.output.slice(0, RESULT_CHARS)}\n(결과가 길어 잘렸습니다)` : r.output;
+        const body = r.output.length > resultChars ? `${r.output.slice(0, resultChars)}\n(결과가 길어 잘렸습니다)` : r.output;
         return `### ${r.name}${r.isError ? ' (실패)' : ''}\n${body}`;
       });
       out.push({ role: 'user', content: `도구 결과:\n${lines.join('\n\n')}` });
@@ -80,7 +94,10 @@ export function checkArgs(tool: AgentToolDef, args: unknown): string | undefined
 }
 
 export async function agentStep(p: { system: string; tools: AgentToolDef[]; events: AgentEvent[] }, signal: AbortSignal): Promise<{ text: string; calls: AgentCall[]; redacted: number }> {
-  const r = await ask({ system: systemText(p.system, p.tools), messages: toMessages(p.events), schema: REPLY, signal, stream: false });
+  const system = systemText(p.system, p.tools);
+  // 맥락 크기를 못 알아내면(공급자 설정 오류 등) 줄이지 않고 보낸다: 오류는 ask 가 제대로 알린다
+  const room = await contextCharBudget({ signal }).catch(() => Infinity);
+  const r = await ask({ system, messages: fitMessages(p.events, Math.max(2_000, room - system.length)), schema: REPLY, signal, stream: false });
   let reply: { say?: unknown; calls?: unknown };
   try {
     reply = parseJsonLoose(r.text);

@@ -118,35 +118,50 @@ function Shell() {
   // 우클릭 메뉴·파일 연결로 들어온 동작. 빠른 동작은 창 없이 돌리고 알림만(useQuickActions), 그 밖은 맞는 화면으로.
   // kordoc:// 주소는 웹·메일 링크로도 올 수 있어서, 문서를 밖으로 보내는 일(인터넷 AI 요약)은
   // 자동으로 하지 않고 문서만 열어 둔다. 사용자가 요약하기를 눌러야 보낸다
-  const runAction = useCallback((action: LinkAction, paths: string[]) => {
+  const runAction = useCallback(async (action: LinkAction, paths: string[]) => {
     if (isQuick(action)) { quick(action, paths); return; }
+    // 문서가 인터넷 AI 로 나갈 수 있는가. 꺼진 앱이 이 동작으로 켜지면 AI 설정을 읽기 전이라 엔진에 물어본다.
+    // 그래도 모르면 나갈 수 있다고 보고 바로 시작하지 않는다
+    const usesAi = action === "precheck" || action === "collect" || action === "summarize";
+    const status = ai ?? (usesAi ? await rpc("ai_status", {}).catch(() => null) : null);
+    const outside = !status || status.is_cloud;
+    const holdWhy = status ? "외부 AI로 보내기 전에 확인하세요." : "AI 설정을 아직 읽지 못해 바로 시작하지 않았습니다.";
     // ask·versions 는 Rust 가 문서 카드 창으로 연다. 여기 오는 건 카드를 못 띄운 경우 → 문서 화면으로
     if (action === "open" || action === "ask" || action === "versions") openDocs(paths);
     else if (action === "tools") startBatch({ paths });
     else if (action === "edit") {
       startCreate({ path: paths[0] });
       if (paths.length > 1) toast("한글 편집기는 한 번에 한 문서를 엽니다. 첫 문서를 열었습니다.", "info");
+    } else if (action === "precheck" && outside) {
+      // 점검은 AI 검토까지 이어서 돈다 → 요약과 같은 까닭으로 인터넷 AI 면 바로 시작하지 않는다
+      openDocs(paths, { tool: "review" });
+      toast(`${holdWhy} 점검 시작을 누르면 시작합니다.`, "info");
     } else if (action === "precheck") openDocs(paths, { tool: "review", run: "precheck" });
     else if (action === "pdfwork") startPdf({ paths });
-    else if (action === "compare") startCompare(paths[0], paths[1]);
-    else if (action === "collect") startBatch({ paths, task: "collect", autoRun: true });
+    else if (action === "compare") {
+      // 탐색기는 고른 파일을 제멋대로의 순서로 넘긴다 → 먼저 고친 파일이 고치기 전 문서다
+      const order = await rpc("scan_paths", { paths }).then((r) => [...r.files].sort((a, b) => (a.modified ?? 0) - (b.modified ?? 0)).map((f) => f.path), () => paths);
+      const [before, after] = order.length >= 2 ? [order[0], order[order.length - 1]] : paths;
+      startCompare(before, after);
+      if (paths.length > 2) toast(`문서 비교는 두 개씩 합니다. 가장 먼저 고친 것과 가장 나중에 고친 것을 놓았습니다(${paths.length}개 중).`, "info");
+      else if (paths.length === 2) toast("먼저 고친 문서를 고치기 전으로 놓았습니다. 반대면 화면에서 서로 바꾸세요.", "info");
+    } else if (action === "collect" && outside) {
+      startBatch({ paths, task: "collect" });
+      toast(`${holdWhy} 시작을 누르면 시작합니다.`, "info");
+    } else if (action === "collect") startBatch({ paths, task: "collect", autoRun: true });
     // 영수증은 Rust 가 문서 카드로 연다. 여기 오는 건 카드의 "본창에서 열기"
     else if (action === "receipt") startBatch({ paths, task: "receipt", autoRun: true });
-    else if (action === "summarize" && ai?.is_cloud) {
+    else if (action === "summarize" && outside) {
       openDocs(paths, { tool: "ai" });
-      toast("외부 AI로 보내기 전에 확인하세요. 요약하기를 누르면 보냅니다.", "info");
-    } else if (action === "summarize" && !ai) {
-      // 꺼진 앱이 이 동작으로 켜지면 AI 설정을 읽기 전에 들어온다. 인터넷 AI 일 수 있으니 자동으로 보내지 않는다
-      openDocs(paths, { tool: "ai" });
-      toast("AI 설정을 아직 읽지 못해 바로 시작하지 않았습니다. 요약하기를 누르면 시작합니다.", "info");
+      toast(`${holdWhy} 요약하기를 누르면 ${status ? "보냅니다" : "시작합니다"}.`, "info");
     } else if (action === "summarize") openDocs(paths, { tool: "ai", run: "summarize" });
   }, [openDocs, startBatch, startPdf, startCreate, startCompare, quick, ai, toast]);
 
   const onLink = useCallback(async (p: DeepLinkPayload) => {
-    if (p.type === "file") { runAction(p.action, [p.path]); return; }
+    if (p.type === "file") { void runAction(p.action, [p.path]); return; }
     try {
       const m = await rpc("read_batch_manifest", { path: p.manifestPath });
-      runAction(isLinkAction(m.action) ? m.action : "open", m.files);
+      void runAction(isLinkAction(m.action) ? m.action : "open", m.files);
     } catch (e) {
       // 창 없이 켜진 앱이면 알림 글이 안 보인다: 창을 연다
       void invokeCmd("shell_show").catch(() => undefined);
@@ -221,7 +236,7 @@ function Shell() {
       <NavRail collapsed={collapsed} onToggle={toggleNav} />
       <main id="main" className="kd-main">
         {SCREENS.map((s) => visited.has(s.id) && (
-          <ErrorBoundary key={s.id}>{s.render(screen === s.id)}</ErrorBoundary>
+          <ErrorBoundary key={s.id} hidden={screen !== s.id}>{s.render(screen === s.id)}</ErrorBoundary>
         ))}
       </main>
       {firstRun && <FirstRunWizard />}

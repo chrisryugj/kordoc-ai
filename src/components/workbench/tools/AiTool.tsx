@@ -55,7 +55,8 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
   }, [cancel, stop]);
 
   const onCite = (c: Citation) => (c.path === doc.path ? c.page && onGoPage(c.page) : openDocs([c.path], { page: c.page }));
-  const text = summary.result?.summary ?? stream;
+  // 다시 요약하는 동안에는 새로 오는 글을 보인다 (앞 결과가 남아 있어 새 요약이 안 도는 것처럼 보이지 않게)
+  const text = summary.busy ? stream : summary.result?.summary ?? stream;
 
   return (
     <AiGate>

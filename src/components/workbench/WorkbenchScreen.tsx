@@ -7,6 +7,7 @@ import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
 import { Empty } from "../common/Status";
+import { useFileMenu } from "../common/file-menu";
 import { DocWorkspace } from "./DocWorkspace";
 import { useLooksReceived } from "./docText";
 import { useReply } from "./reply";
@@ -28,6 +29,7 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
   useEffect(() => setBadge("workbench", docs.length ? String(docs.length) : undefined), [docs.length, setBadge]);
 
   const open = () => void pickFiles().then((p) => p.length && openDocs(p));
+  const menu = useFileMenu();
   const info = current?.info;
   // 머리에는 문서 열기와 이 문서에 맞는 주 행동 하나만. 나머지는 도구 탭 안에
   // (읽기: 최종본 찾기·AI에게 시키기, 고치기: 한글 편집기·PDF 쪽 정리). 다 읽기 전·암호를 묻는 중·못 연 문서는 info 가 없어 숨는다.
@@ -74,7 +76,14 @@ export function WorkbenchScreen({ active }: { active: boolean }) {
               </div>
               <ul className="kd-doclist-items">
                 {docs.map((d) => (
-                  <li key={d.path} className="kd-docitem" aria-current={d.path === activePath ? "true" : undefined}>
+                  <li key={d.path} className="kd-docitem" aria-current={d.path === activePath ? "true" : undefined}
+                    onContextMenu={(e) => menu.open(e, d.path, {
+                      inWorkbench: true,
+                      after: [
+                        { label: "닫기", icon: <X size={14} />, onClick: () => closeDoc(d.path) },
+                        ...(docs.length > 1 ? [{ label: "다른 문서 모두 닫기", onClick: () => docs.filter((x) => x.path !== d.path).forEach((x) => closeDoc(x.path)) }] : []),
+                      ],
+                    })}>
                     <button type="button" className="kd-docitem-main" onClick={() => setActive(d.path)}>
                       <FormatBadge format={d.format} />
                       <span className="min-w-0">

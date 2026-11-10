@@ -11,6 +11,7 @@ import { baseName, dirName, formatOf } from "../../lib/format";
 import type { AgentTurn } from "../../hooks/useWorkAgent";
 import { Button } from "../ui/Button";
 import { FormatBadge } from "../common/FormatBadge";
+import { useFileMenu } from "../common/file-menu";
 import "./agent.css";
 
 const ICON: Array<[RegExp, ReactNode]> = [
@@ -52,8 +53,9 @@ export function ResultCard({ path }: { path: string }) {
   const { startCreate, toast } = useApp();
   const fmt = formatOf(path);
   const fail = (e: unknown) => toast(e instanceof Error ? e.message : String(e), "error");
+  const menu = useFileMenu();
   return (
-    <div className="kd-result">
+    <div className="kd-result" onContextMenu={(e) => menu.open(e, path)}>
       <Thumb path={path} />
       <div className="kd-result-main">
         <span className="kd-result-name">{baseName(path)}</span>

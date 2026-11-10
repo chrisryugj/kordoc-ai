@@ -4,6 +4,9 @@ import { Button } from "./Button";
 
 interface Props {
   children: ReactNode;
+  /** 숨은 화면의 오류 안내는 보이지 않는다. 화면마다 하나씩 감싸므로, 이것이 없으면 한 화면이 죽었을 때
+   *  그 안내가 다른 화면 위에도 겹쳐 뜬다 (화면은 스스로 숨지만 안내는 화면 대신 그려진다) */
+  hidden?: boolean;
 }
 
 interface State {
@@ -61,6 +64,8 @@ export class ErrorBoundary extends Component<Props, State> {
         <div
           className="flex flex-col items-center justify-center h-full p-8 select-none"
           role="alert"
+          hidden={this.props.hidden}
+          style={this.props.hidden ? { display: "none" } : undefined}
         >
           <div
             className="w-16 h-16 rounded-full flex items-center justify-center mb-4"

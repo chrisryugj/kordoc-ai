@@ -86,8 +86,9 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   const keeps = fmt === "hwpx" || fmt === "hwp";
   const asPdf = fmt === "pdf" || fmt === "image";
   const params = () => ({ path: doc.path, rules: [...rules], mask_char: (easy ? "" : mask) || "●", keep: splitKeep(keepValue) });
-  const runPreview = () => { save.reset(); void preview.run(() => rpc("redact", { ...params(), dry_run: true })); };
-  const runSave = () => void save.run(() => rpc("redact", { ...params(), ...(keeps && alsoPdf ? { also_pdf: true } : {}) })).then((r) => {
+  // 스캔 쪽·그림 속 글자를 읽는 문서는 오래 걸린다 → 진행을 보이고 멈출 수 있게
+  const runPreview = () => { save.reset(); void preview.run(({ signal, onProgress }) => rpc("redact", { ...params(), dry_run: true }, { signal, onProgress })); };
+  const runSave = () => void save.run(({ signal, onProgress }) => rpc("redact", { ...params(), ...(keeps && alsoPdf ? { also_pdf: true } : {}) }, { signal, onProgress })).then((r) => {
     // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다)
     if (r?.output_path) openDocs([r.output_path]);
   });
@@ -134,7 +135,7 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
       </div>
       {keeps && <Check label="가린 사본을 PDF로도 저장" checked={alsoPdf} onChange={setAlsoPdf} />}
 
-      {preview.busy ? <Working label="개인정보를 찾는 중" /> : (
+      {preview.busy ? <Working label="개인정보를 찾는 중" progress={preview.progress} onCancel={preview.cancel} /> : (
         <div><Button variant="secondary" onClick={runPreview} disabled={!rules.size}
           data-tip={`${keeps ? "서식을 그대로 두고 글자만 가린 사본을 만듭니다." : asPdf ? "개인정보 자리를 검게 칠하고 글자층을 지운 PDF를 만듭니다." : "가린 글을 글 파일(.md)로 만듭니다."} 먼저 찾은 곳을 보여 주고, 원본은 그대로 둡니다.`}><ScanSearch size={14} /> 미리 찾아보기</Button></div>
       )}
@@ -146,8 +147,10 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
             <Note tone={r.residual ? "warn" : "ok"}>
               고른 항목에서 개인정보를 찾지 못했습니다.{uncheckedLine(r)}
               {r.unscanned ? <span className="block mt-0.5">글자를 읽지 못한 곳이 {num(r.unscanned)}곳 있습니다{r.unscanned_pages?.length ? `(${r.unscanned_pages.join("·")}쪽)` : ""}. 그 부분은 직접 확인하세요.</span> : null}
+              {r.notes?.map((n) => <span key={n} className="block mt-0.5">{n}</span>)}
             </Note>
-          ) : (
+          ) : (<>
+            {r.notes?.length ? <Note tone="warn">{r.notes.map((n) => <span key={n} className="block">{n}</span>)}</Note> : null}
             <table className="kd-table">
               <caption className="kd-label text-left pb-1">찾은 개인정보 {num(r.total)}건{r.kept ? ` (남길 것 ${num(r.kept)}곳은 뺐습니다)` : ""}</caption>
               <thead><tr><th>항목</th><th className="text-right">건수</th><th>보기</th></tr></thead>
@@ -157,8 +160,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
                 ))}
               </tbody>
             </table>
-          )}
-          {r.total > 0 && (save.busy ? <Working label="가린 사본을 만드는 중" progress={save.progress} /> : (
+          </>)}
+          {r.total > 0 && (save.busy ? <Working label="가린 사본을 만드는 중" progress={save.progress} onCancel={save.cancel} /> : (
             <div><Button onClick={runSave}><EyeOff size={14} /> 가린 사본 저장</Button></div>
           ))}
         </div>
@@ -168,10 +171,13 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
         <div ref={savedRef} className="flex flex-col gap-3 kd-redact-saved" role="status">
           {s.residual > 0 && (
             <Note tone="warn">
-              <span className="block font-semibold">아직 다 가려지지 않았을 수 있습니다: 의심 {num(s.residual)}곳</span>
+              <span className="block font-semibold">아직 다 가려지지 않았을 수 있습니다: 확인할 곳 {num(s.residual)}곳</span>
+              {s.notes?.map((n) => <span key={n} className="block mt-0.5">{n}</span>)}
               <span className="block mt-0.5">
-                {s.unscanned ? `글자를 읽지 못한 곳이 ${num(s.unscanned)}곳${s.unscanned_pages?.length ? `(${s.unscanned_pages.join("·")}쪽)` : ""} 있습니다. ` : ""}
-                가린 뒤 다시 검사했더니 개인정보로 보이는 곳이 남았습니다. 문서 화면에 연 사본을 직접 확인한 뒤 내보내세요.
+                {s.unscanned && !s.notes?.length ? `글자를 읽지 못한 곳이 ${num(s.unscanned)}곳${s.unscanned_pages?.length ? `(${s.unscanned_pages.join("·")}쪽)` : ""} 있습니다. ` : ""}
+                {s.unscanned_pages?.length && s.notes?.length ? `${s.unscanned_pages.join("·")}쪽은 글자를 읽지 못했습니다. ` : ""}
+                {s.residual > (s.unscanned ?? 0) && !s.notes?.length ? "가린 뒤 다시 검사했더니 개인정보로 보이는 곳이 남았습니다. " : ""}
+                문서 화면에 연 사본을 직접 확인한 뒤 내보내세요.
               </span>
             </Note>
           )}

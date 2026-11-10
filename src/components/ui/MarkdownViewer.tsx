@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { memo, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -7,7 +7,7 @@ import { Copy, Check, Sparkles, MessageSquareText } from "lucide-react";
 import { Button } from "./Button";
 import { Seg } from "../common/Field";
 import { Tooltip } from "./Tooltip";
-import { ContextMenu } from "./ContextMenu";
+import { showMenu } from "./menu";
 import { openExternal } from "../../lib/native";
 // "글만" 저장과 같은 변환 (엔진 정본, 의존 없는 순수 함수): 표시를 걷고 표는 탭으로 이은 줄
 import { markdownToPlain } from "../../../node-sidecar/src/core/converter/plain";
@@ -48,11 +48,13 @@ const sanitizeSchema = {
     td: [...(defaultSchema.attributes?.td ?? []), "colSpan", "rowSpan", "colspan", "rowspan"],
   },
 };
+// 그릴 때마다 새 배열을 주면 react-markdown 이 처리기를 다시 만든다
+const REMARK = [remarkGfm];
+const REHYPE: React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"] = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight = 500, fillHeight, plain }: MarkdownViewerProps) {
   const [view, setView] = useState<"rendered" | "source">("rendered");
   const [copied, setCopied] = useState<"" | "md" | "plain">("");
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
 
   const handleCopy = useCallback(async (kind: "md" | "plain") => {
     // 메신저용: 마크다운 표시(#·|·**·\~)를 걷고 표는 칸을 탭으로 이은 줄로. 글 파일은 이미 꾸밈이 없다
@@ -115,21 +117,40 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
         className={`overflow-y-auto${fillHeight ? " flex-1 min-h-0" : ""}`}
         style={fillHeight ? undefined : { maxHeight }}
         onContextMenu={(e) => {
-          const sel = window.getSelection()?.toString();
-          if (sel && sel.trim()) {
-            e.preventDefault();
-            e.stopPropagation();
-            setCtxMenu({ x: e.clientX, y: e.clientY, text: sel });
-          }
+          const picked = window.getSelection()?.toString() ?? "";
+          showMenu(e, [
+            { label: "고른 글 복사", icon: <Copy size={14} />, shortcut: "Ctrl+C", disabled: !picked.trim(), hint: picked.trim() ? undefined : "먼저 글을 끌어서 고르세요", onClick: () => void copyText(picked) },
+            { type: "separator" },
+            { label: "글 전체 복사", icon: <MessageSquareText size={14} />, onClick: () => void handleCopy("plain") },
+            ...(plain ? [] : [{ label: "글(마크다운) 전체 복사", onClick: () => void handleCopy("md") }]),
+          ], { label: "본문 메뉴" });
         }}
       >
         {plain ? (
           <pre className="p-5 ts-sm whitespace-pre-wrap" style={{ color: "var(--color-text-secondary)", fontFamily: "inherit", lineHeight: 1.7, overflowWrap: "anywhere" }}>{markdown}</pre>
         ) : view === "rendered" ? (
           <div className="markdown-body p-5 ts-sm">
+            <Rendered markdown={markdown} />
+          </div>
+        ) : (
+          <pre
+            className="p-5 ts-2xs text-mono whitespace-pre-wrap overflow-x-auto"
+            style={{ color: "var(--color-text-secondary)", backgroundColor: "var(--color-bg-primary)" }}
+          >
+            {markdown}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 마크다운을 그린 본문 — 글이 바뀔 때만 다시 푼다. 긴 문서는 푸는 데 오래 걸려, 복사됨 표시나 메뉴 같은 작은 변화마다 다시 풀면 화면이 버벅인다 */
+const Rendered = memo(function Rendered({ markdown }: { markdown: string }) {
+  return (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+              remarkPlugins={REMARK}
+              rehypePlugins={REHYPE}
               components={{
                 h1: (props) => <h1 style={{ fontSize: "var(--fs-h2)", fontWeight: 700, marginTop: "0.8em", marginBottom: "0.4em", color: "var(--color-text-primary)" }} {...props} />,
                 h2: (props) => <h2 style={{ fontSize: "var(--fs-h3)", fontWeight: 700, marginTop: "0.7em", marginBottom: "0.3em", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "0.2em" }} {...props} />,
@@ -166,26 +187,5 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
             >
               {markdown}
             </ReactMarkdown>
-          </div>
-        ) : (
-          <pre
-            className="p-5 ts-2xs text-mono whitespace-pre-wrap overflow-x-auto"
-            style={{ color: "var(--color-text-secondary)", backgroundColor: "var(--color-bg-primary)" }}
-          >
-            {markdown}
-          </pre>
-        )}
-      </div>
-
-      {ctxMenu && (
-        <ContextMenu
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-          onClose={() => setCtxMenu(null)}
-          items={[
-            { label: "고른 글 복사", icon: <Copy size={13} />, onClick: () => { navigator.clipboard.writeText(ctxMenu.text); } },
-          ]}
-        />
-      )}
-    </div>
   );
-}
+});

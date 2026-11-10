@@ -1,7 +1,7 @@
 /** RPC 메서드 — 시스템·설정·파일 열기·목록 펼치기·MCP·모델·배치 매니페스트 */
 
 import { execFile } from 'node:child_process';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { RpcRouter } from '../router.js';
@@ -115,6 +115,14 @@ export function registerSystem(router: RpcRouter): void {
     }
     const obj = parsed as { action?: unknown; files?: unknown; created_at?: unknown };
     if (!obj || typeof obj.action !== 'string' || !Array.isArray(obj.files)) throw new Error('manifest 형식 오류 (action + files 필요)');
+    // 지난 목록은 치운다 (안 치우면 우클릭할 때마다 임시 폴더에 고른 파일 경로 목록이 쌓여 남는다).
+    // 방금 읽은 것은 두지만(엔진이 죽었다 켜지면 화면이 한 번 더 읽는다) 다음 우클릭 때 치워진다
+    const old = Date.now() - 10 * 60_000;
+    for (const f of await readdir(tmpdir()).catch(() => [] as string[])) {
+      if (!/^kordoc-batch-\d+\.json$/.test(f) || f === name) continue;
+      const p2 = join(tmpdir(), f);
+      if (((await stat(p2).catch(() => null))?.mtimeMs ?? Infinity) < old) await rm(p2, { force: true }).catch(() => undefined);
+    }
     return {
       action: obj.action,
       files: obj.files.filter((f): f is string => typeof f === 'string'),

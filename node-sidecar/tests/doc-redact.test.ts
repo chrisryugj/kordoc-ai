@@ -97,6 +97,84 @@ describe('redact', () => {
     }
   });
 
+  it('PDF — 글자층이 있는 쪽에 붙은 그림 속 글자도 읽어 가린다 (못 읽으면 숨기지 않고 알린다)', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595, 842]);
+    page.drawText('contact lee@gaon.example for the schedule of the event', { x: 50, y: 760, size: 14, font: await pdf.embedFont(StandardFonts.Helvetica) });
+    page.drawImage(await pdf.embedPng(await makePng(1200, 300, 'mail hong@gaon.example')), { x: 50, y: 500, width: 480, height: 120 });
+    const src = join(env.work, '붙임 있는 안내.pdf');
+    writeFileSync(src, await pdf.save());
+    const r = await call('redact', { path: src, rules: ['email'] });
+    expect(r.output_path).toMatch(/_가림\.pdf$/);
+    if (r.notes?.some((n: string) => n.includes('읽지 못했습니다'))) {
+      // 글자 읽기 모델이 없는 PC: 글자층만 가렸고, 그림은 못 봤다고 알린다
+      expect(r.total).toBe(1);
+      expect(r.residual).toBeGreaterThanOrEqual(1);
+    } else {
+      expect(r.total).toBe(2);
+    }
+  });
+
+  it('엔진 경고: 가리지 못한 개체는 사람이 볼 곳으로 세고, 삽입 그림은 수만 넘긴다(그림 속 글자는 따로 읽는다)', async () => {
+    const { blindSpots } = await import('../src/core/redact/index.js');
+    const b = blindSpots([
+      '삽입 그림 2개(BinData/image1.png, BinData/image2.jpg)는 화소 속 글자(스캔 문서 등)를 탐지하지 못합니다',
+      '삽입 개체 1개(BinData/ole1.ole — OLE·EMF)는 가리지 못합니다',
+    ]);
+    expect(b).toMatchObject({ count: 1, pictures: 2 });
+    expect(b.notes).toHaveLength(1);
+    expect(blindSpots([])).toMatchObject({ count: 0, pictures: 0 });
+    expect(blindSpots(undefined).notes).toEqual([]);
+  });
+
+  it('한글 문서 안 그림: 그림 속 글자에 개인정보가 보이면 알리고, 없으면(직인·표지) 조용하다', async () => {
+    const withPicture = async (name: string, text: string) => {
+      const doc = join(env.work, `${name}.hwpx`);
+      writeFileSync(doc, Buffer.from(await markdownToHwpx('# 신청서\n\n신청인 가온 (인)\n\n문의: kim@gaon.example\n')));
+      const img = join(env.work, `${name}.png`);
+      writeFileSync(img, await makePng(1200, 300, text));
+      const sealed = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
+      expect(sealed.placed).toBe(1);
+      return sealed.output_path as string;
+    };
+    const clean = await call('redact', { path: await withPicture('직인', 'GAON CITY'), rules: ['email'] });
+    // 본문과 첫 쪽 미리보기 글에서 한 번씩
+    expect(clean.total).toBeGreaterThanOrEqual(1);
+    // 글자 읽기 모델이 없는 PC 에서는 그림을 읽지 못했다고 알린다 (조용히 넘어가지 않는다)
+    const noOcr = clean.notes?.some((n: string) => n.includes('읽지 못했습니다'));
+    if (!noOcr) expect(clean).toMatchObject({ residual: 0, unscanned: 0 });
+    expect(clean.notes?.some((n: string) => n.includes('개인정보로 보이는')) ?? false).toBe(false);
+
+    const leak = await call('redact', { path: await withPicture('신분증', 'mail hong@gaon.example'), rules: ['email'] });
+    // 그림 속 글자는 가린 곳에 넣지 않는다 (가리지 못했다)
+    expect(leak.total).toBe(clean.total);
+    expect(leak.residual).toBeGreaterThanOrEqual(1);
+    expect(leak.notes?.join(' ')).toMatch(noOcr ? /읽지 못했습니다/ : /그림 1개에서 개인정보로 보이는 글자 1곳/);
+    // 미리 찾아보기도 같은 안내를 낸다 (가릴 것이 본문에 없어도 그림은 본다)
+    const dry = await call('redact', { path: await withPicture('신분증2', 'mail hong@gaon.example'), rules: ['email'], dry_run: true });
+    expect(dry.notes?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('주소만 있는 문서 — 엔진 규칙에 안 걸려도 가린 사본을 만들고, 첫 쪽 미리보기 글에도 남기지 않는다', async () => {
+    const JSZip = (await import('jszip')).default;
+    const src = join(env.work, '주소만.hwpx');
+    writeFileSync(src, Buffer.from(await markdownToHwpx('# 방문 안내\n\n오실 곳: 가온시 한빛로 123, 101동 1004호\n')));
+    const r = await call('redact', { path: src, rules: ['address'] });
+    expect(r.total).toBe(1);
+    expect(r.residual).toBe(0);
+    expect(r.output_path).toMatch(/주소만_가림\.hwpx$/);
+    const out = readFileSync(r.output_path);
+    const back = await parse(out);
+    if (!back.success) throw new Error(back.error);
+    expect(back.markdown).toContain('가온시');
+    expect(back.markdown).not.toContain('한빛로');
+    const zip = await JSZip.loadAsync(out);
+    const preview = await zip.file('Preview/PrvText.txt')?.async('string');
+    expect(preview ?? '').not.toContain('한빛로');
+    expect(Object.keys(zip.files)[0]).toBe('mimetype');
+  });
+
   it('남길 것 — 기관 대표번호·담당 공무원 이름은 가리지 않고, 나머지는 가린다', async () => {
     const doc = join(env.work, '안내문.hwpx');
     writeFileSync(doc, Buffer.from(await markdownToHwpx('# 안내\n\n문의: 주무관 김가온(031-000-1234), 신청인 연락처 010-2345-6789\n')));

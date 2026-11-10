@@ -27,6 +27,8 @@ export interface FileEntry {
   name: string;
   size: number;
   format: DocFormat;
+  /** 고친 시각 (ms) */
+  modified?: number;
 }
 
 export interface PagePreview {
@@ -743,6 +745,8 @@ export interface RedactResult {
   unscanned?: number;
   /** 글자를 읽지 못한 쪽 번호 (PDF·스캔) */
   unscanned_pages?: number[];
+  /** 검사·가리기를 못 한 것의 안내 (문서 안 그림·개체·문서 이력, PDF 주석 등) — 사람이 볼 곳 */
+  notes?: string[];
   /** 이번에 보지 않은 개인정보 항목 — "남은 곳 없음"과 함께 밝힌다 */
   unchecked_rules?: RedactRule[];
   /** 남길 것(keep)이라 가리지 않은 곳 수 */

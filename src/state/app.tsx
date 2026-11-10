@@ -81,6 +81,8 @@ interface AppValue {
   startPdf: (p: PdfStart) => void;
   recent: RecentDoc[];
   clearRecent: () => void;
+  /** 최근 문서 목록에서 하나만 뺀다 (파일은 그대로) */
+  removeRecent: (path: string) => void;
   theme: ThemePref;
   setTheme: (t: ThemePref) => void;
   uiMode: UiMode;
@@ -217,6 +219,8 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     const next = prev.filter((d) => d.path !== path);
     setDocs(next);
     setActivePath((cur) => (cur === path ? next[Math.max(0, idx - 1)]?.path ?? null : cur));
+    // 닫은 문서에 걸려 있던 요청(요약 바로 시작 등)은 버린다: 남겨 두면 그 문서를 다시 열 때 또 돈다
+    setFocus((cur) => (cur?.value.path === path ? null : cur));
   }, []);
 
   const updateDoc = useCallback((path: string, patch: Partial<OpenDoc>) => {
@@ -248,6 +252,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     createIntent, startCreate: (c) => { setCreateIntent(intent(c)); setScreen("create"); },
     pdfIntent, startPdf: (p) => { setPdfIntent(intent(p)); setScreen("pdf"); },
     recent, clearRecent: () => { setRecent([]); saveRecent([]); },
+    removeRecent: (path) => setRecent((prev) => { const next = prev.filter((d) => d.path !== path); saveRecent(next); return next; }),
     theme, setTheme: (t) => { setThemeState(t); writePref("kordoc-theme", t); },
     uiMode, setUiMode: (m) => { setUiModeState(m); writePref("kordoc-ui-mode", m); },
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),

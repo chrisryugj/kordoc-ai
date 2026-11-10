@@ -19,7 +19,7 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
   const seen = new Set<string>();
   let skipped = 0;
 
-  const addFile = (path: string, size: number) => {
+  const addFile = (path: string, st: { size: number; mtimeMs: number } | null) => {
     const format = formatOf(path);
     if (format === 'unknown' || isJunkName(basename(path)) || files.length >= MAX_FILES) {
       skipped++;
@@ -27,7 +27,7 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
     }
     if (seen.has(path)) return;
     seen.add(path);
-    files.push({ path, name: basename(path), size, format });
+    files.push({ path, name: basename(path), size: st?.size ?? 0, format, ...(st ? { modified: Math.round(st.mtimeMs) } : {}) });
   };
 
   const walk = async (dir: string, depth: number): Promise<void> => {
@@ -38,7 +38,7 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
       if (isJunkName(e.name) || e.name === 'node_modules' || e.isSymbolicLink()) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) await walk(p, depth + 1);
-      else if (e.isFile()) addFile(p, (await stat(p).catch(() => null))?.size ?? 0);
+      else if (e.isFile()) addFile(p, await stat(p).catch(() => null));
     }
   };
 
@@ -46,7 +46,7 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
     const st = await stat(p).catch(() => null);
     if (!st) skipped++;
     else if (st.isDirectory()) await walk(p, 0);
-    else if (st.isFile()) addFile(p, st.size);
+    else if (st.isFile()) addFile(p, st);
   }
   return { files, skipped };
 }

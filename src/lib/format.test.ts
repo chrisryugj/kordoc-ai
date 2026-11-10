@@ -1,7 +1,7 @@
 /** 경로·형식 표기 도우미 — Windows 경로와 슬래시 경로 둘 다 */
 
 import { describe, it, expect } from "vitest";
-import { baseName, dirName, extOf, formatOf, joinPath, stem } from "./format";
+import { baseName, dirName, extOf, formatOf, joinPath, stem, timeAgo } from "./format";
 
 describe("format", () => {
   it("이름·폴더·확장자", () => {
@@ -18,5 +18,13 @@ describe("format", () => {
   it("형식", () => {
     expect(formatOf("x.hml")).toBe("hwpml");
     expect(formatOf("x.zip")).toBe("unknown");
+  });
+  it("얼마 전: 어제는 지난 시간이 아니라 달력 날짜로", () => {
+    const at = (d: number, h: number) => new Date(2026, 10, d, h, 0, 0).getTime();
+    expect(timeAgo(at(11, 9), at(11, 9) + 30_000)).toBe("방금");
+    expect(timeAgo(at(10, 23), at(11, 1))).toBe("2시간 전");
+    expect(timeAgo(at(10, 9), at(11, 10))).toBe("어제");
+    // 그저께 밤 → 오늘 새벽: 26시간 전이지만 어제가 아니다
+    expect(timeAgo(at(9, 23), at(11, 1))).toBe("11월 9일");
   });
 });

@@ -23,6 +23,8 @@ export interface PdfRedaction {
   unscanned: number[];
   /** 칠한 뒤 다시 읽었더니 남은 곳 + 자리를 못 잡은 곳 */
   residual: number;
+  /** 사람이 볼 곳 안내 (그림 속 글자를 못 읽은 쪽, 자리를 못 찾은 곳) */
+  notes: string[];
   pdf?: Uint8Array;
 }
 
@@ -36,9 +38,60 @@ interface PdfiumModule {
   _FPDFText_GetUnicode(tp: number, i: number): number;
   _FPDFText_GetCharBox(tp: number, i: number, l: number, r: number, b: number, t: number): number;
   _FPDF_PageToDevice(page: number, sx: number, sy: number, w: number, h: number, rot: number, px: number, py: number, dx: number, dy: number): number;
+  _FPDFPage_CountObjects(page: number): number;
+  _FPDFPage_GetObject(page: number, i: number): number;
+  _FPDFPageObj_GetType(obj: number): number;
+  _FPDFPageObj_GetBounds(obj: number, l: number, b: number, r: number, t: number): number;
+  _FPDFFormObj_CountObjects(obj: number): number;
+  _FPDFFormObj_GetObject(obj: number, i: number): number;
+  _FPDFPage_GetAnnotCount(page: number): number;
+  _FPDFPage_GetAnnot(page: number, i: number): number;
+  _FPDFAnnot_GetSubtype(annot: number): number;
+  _FPDFPage_CloseAnnot(annot: number): void;
 }
 
 const internals = (page: PDFiumPage) => page as unknown as { module: PdfiumModule; pageIdx: number };
+
+/** PDFium 개체 종류 — 그림 3, 묶음(안에 그림이 들 수 있다) 5 */
+const OBJ_IMAGE = 3;
+const OBJ_FORM = 5;
+/** 쪽 그림에 글이 찍혀 나오는 주석 — 글상자 3, 도장 13, 양식 칸 20 */
+const TEXT_ANNOTS = new Set([3, 13, 20]);
+/** 이보다 큰 그림은 글이 들었을 수 있다고 본다 (쪽 넓이의 2%: 신분증·통장 사본. 기관 표지·직인은 그보다 작다) */
+const BIG_IMAGE = 0.02;
+
+/** 글자층이 있어도 글자층 밖에 글이 있을 만한 쪽인가 — 큰 그림(붙여 넣은 신분증·통장 사본)이나 글이 찍히는 주석.
+ *  글자층만 보면 그 글은 검사도 못 하고 쪽 그림에는 그대로 찍혀 나간다 */
+function hasTextOutsideLayer(page: PDFiumPage, pageArea: number): boolean {
+  const { module: M, pageIdx } = internals(page);
+  const p = M.wasmExports.malloc(16);
+  try {
+    const holdsImage = (obj: number, depth: number): boolean => {
+      const type = M._FPDFPageObj_GetType(obj);
+      if (type === OBJ_IMAGE) return true;
+      if (type !== OBJ_FORM || depth > 4) return false;
+      for (let i = 0, n = M._FPDFFormObj_CountObjects(obj); i < n; i++) if (holdsImage(M._FPDFFormObj_GetObject(obj, i), depth + 1)) return true;
+      return false;
+    };
+    for (let i = 0, n = M._FPDFPage_CountObjects(pageIdx); i < n; i++) {
+      const obj = M._FPDFPage_GetObject(pageIdx, i);
+      if (!holdsImage(obj, 0)) continue;
+      if (!M._FPDFPageObj_GetBounds(obj, p, p + 4, p + 8, p + 12)) return true;
+      const [l, b, r, t] = new Float32Array(M.HEAPU8.buffer, p, 4);
+      if ((r - l) * (t - b) >= pageArea * BIG_IMAGE) return true;
+    }
+    for (let i = 0, n = M._FPDFPage_GetAnnotCount(pageIdx); i < n; i++) {
+      const annot = M._FPDFPage_GetAnnot(pageIdx, i);
+      if (!annot) continue;
+      const kind = M._FPDFAnnot_GetSubtype(annot);
+      M._FPDFPage_CloseAnnot(annot);
+      if (TEXT_ANNOTS.has(kind)) return true;
+    }
+    return false;
+  } finally {
+    M.wasmExports.free(p);
+  }
+}
 
 /** 쪽 글자층 — 글자마다 한 칸 (UTF-16 위치 → 글자 번호) */
 function pageChars(page: PDFiumPage): { text: string; charAt: number[]; tp: number } {
@@ -78,17 +131,27 @@ function charBoxes(page: PDFiumPage, tp: number, text: string, charAt: number[],
 }
 
 /** 걸린 곳 모으기 — 쪽 글에서 바로 찾은 것 + 문서 전체(표 머리글 문맥)에서 찾은 원문을 쪽 글에서 다시 찾은 것. 겹치면 하나로 */
-function pageHits(text: string, rules: readonly RedactRule[], known: Map<string, RedactRule>, keep: (s: string) => boolean): RedactHit[] {
+function pageHits(text: string, rules: readonly RedactRule[], known: Map<string, RedactRule>, keep: (s: string) => boolean, located?: Set<string>): RedactHit[] {
   const hits: RedactHit[] = redactText(text, { rules }).hits.slice();
   for (const [orig, rule] of known) {
-    let i = text.indexOf(orig);
-    while (i >= 0) {
-      if (!hits.some((h) => i < h.index + h.length && h.index < i + orig.length)) hits.push({ rule, index: i, length: orig.length, masked: redactText(orig, { rules: [rule] }).text });
-      i = text.indexOf(orig, i + orig.length);
+    // 쪽 글은 줄바꿈·띄어쓰기가 문서 전체 글과 다르다 → 띄어쓰기를 무시하고 찾는다
+    for (const m of text.matchAll(spaceBlind(orig))) {
+      located?.add(orig);
+      const i = m.index;
+      const length = m[0].length;
+      if (!hits.some((h) => i < h.index + h.length && h.index < i + length)) hits.push({ rule, index: i, length, masked: redactText(orig, { rules: [rule] }).text });
     }
   }
   return hits.filter((h) => !keep(text.slice(h.index, h.index + h.length)));
 }
+
+/** 글자 사이 띄어쓰기·줄바꿈을 무시하는 찾기식 */
+function spaceBlind(s: string): RegExp {
+  const chars = [...s.replace(/\s+/g, '')].map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(chars.join('\\s*'), 'g');
+}
+
+const squeeze = (s: string) => s.replace(/\s+/g, '');
 
 /** 글자 폭 어림 (한글·한자 1, 영문·숫자·문장부호 0.55, 띄어쓰기 0.3) */
 const charW = (c: string) => (/\s/.test(c) ? 0.3 : /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u4e00-\u9fff\u3000-\u303f]/.test(c) ? 1 : 0.55);
@@ -190,16 +253,21 @@ export async function redactPdf(
   if (whole?.success) {
     for (const h of redactMarkdown(whole.markdown, { rules }).hits) {
       const orig = whole.markdown.slice(h.index, h.index + h.length);
-      if (orig.length >= 2 && !/[\\*|]/.test(orig)) known.set(orig, h.rule);
+      if (squeeze(orig).length >= 2 && !/[\\*|]/.test(orig)) known.set(orig, h.rule);
     }
   }
   const doc: PDFiumDocument = await openPdf(bytes);
   const hits: PdfHit[] = [];
+  const notes: string[] = [];
+  /** 쪽 글에서 자리를 찾은 문서 전체 원문 */
+  const located = new Set<string>();
   let residual = 0;
   try {
     const count = doc.getPageCount();
     const pageBoxes: Box[][] = [];
     const scanned: number[] = [];
+    /** 글자층도 있고 큰 그림·주석도 있는 쪽 → 글자층 글(띄어쓰기 뺌). 그림 속 글자는 따로 읽는다 */
+    const mixed = new Map<number, string>();
     for (let i = 0; i < count; i++) {
       signal?.throwIfAborted();
       const page = doc.getPage(i);
@@ -207,7 +275,9 @@ export async function redactPdf(
       try {
         // 글자가 거의 없으면 스캔 쪽 (그림만)
         if (text.replace(/\s/g, '').length < 5) { scanned.push(i + 1); pageBoxes.push([]); continue; }
-        const found = pageHits(text, rules, known, keep);
+        const { originalWidth, originalHeight } = page.getOriginalSize();
+        if (hasTextOutsideLayer(page, originalWidth * originalHeight)) mixed.set(i + 1, squeeze(text));
+        const found = pageHits(text, rules, known, keep, located);
         const boxes: Box[] = [];
         for (const h of found) {
           const b = charBoxes(page, tp, text, charAt, h.index, h.index + h.length);
@@ -222,22 +292,31 @@ export async function redactPdf(
       }
     }
 
-    // 스캔 쪽은 OCR 로
+    // 스캔 쪽, 그리고 글자층 밖에 글이 있을 만한 쪽(큰 그림·주석)은 OCR 로
     const unscanned: number[] = [];
     const ocrPages = new Set<number>();
-    if (scanned.length) {
-      sendProgress({ current: 0, total: scanned.length, message: '스캔 쪽 글자를 읽는 중' });
-      const ocr = await ocrBlocks(bytes, scanned, signal);
-      for (const pn of scanned) {
+    /** 그림 속 글자를 읽지 못한 쪽 (글자층은 가렸다) */
+    const blind: number[] = [];
+    const toRead = [...scanned, ...mixed.keys()].sort((a, b) => a - b);
+    if (toRead.length) {
+      sendProgress({ current: 0, total: toRead.length, message: scanned.length ? '스캔 쪽 글자를 읽는 중' : '그림 속 글자를 읽는 중' });
+      const ocr = await ocrBlocks(bytes, toRead, signal);
+      for (const pn of toRead) {
         const blocks = ocr?.get(pn);
-        if (!blocks?.length) { unscanned.push(pn); continue; }
+        const layer = mixed.get(pn);
+        // OCR 자체가 안 되면(모델 없음) 그림 속 글자를 본 것이 아니다. 되는데 글이 없으면 그림에 글이 없는 것
+        if (layer !== undefined ? !ocr : !blocks?.length) { (layer !== undefined ? blind : unscanned).push(pn); continue; }
         ocrPages.add(pn);
+        if (!blocks?.length) continue;
+        // 글자층에서 이미 정확한 자리로 가린 글은 건너뛴다 (어림 상자로 넓게 덧칠하지 않게). 그림에만 있는 글이 여기서 걸린다.
+        // 같은 글이 글자층과 그림 양쪽에 있으면 여기서 빠지지만, 칠한 쪽을 다시 읽는 마지막 검사에서 걸려 칠해진다
+        const skip = layer === undefined ? keep : (s: string) => keep(s) || layer.includes(squeeze(s));
         const lineH = Math.min(...blocks.filter((b) => !b.table && b.bbox).map((b) => b.bbox!.height), 14);
         const boxes = pageBoxes[pn - 1];
         for (const b of blocks) {
-          if (b.table) { boxes.push(...tableCellBoxes(b, rules, keep, hits)); continue; }
+          if (b.table) { boxes.push(...tableCellBoxes(b, rules, skip, hits)); continue; }
           const text = b.text ?? '';
-          const found = pageHits(text, rules, known, keep);
+          const found = pageHits(text, rules, known, skip, located);
           for (const h of found) {
             boxes.push(...estimateBoxes({ text, bbox: b.bbox! }, h.index, h.index + h.length, lineH));
             hits.push({ rule: h.rule, masked: h.masked });
@@ -245,12 +324,16 @@ export async function redactPdf(
         }
       }
     }
-    if (opts.dryRun) return { hits, unscanned, residual: residual + unscanned.length };
+    // 문서 전체 글에서는 걸렸는데 어느 쪽에서도 자리를 못 찾은 곳 — 가리지 못했으니 숨기지 않는다
+    const lost = [...known.keys()].filter((orig) => !located.has(orig) && !keep(orig)).length;
+    if (lost) notes.push(`문서 글에서 찾은 ${lost}곳은 쪽에서 자리를 찾지 못해 가리지 못했습니다. 눈으로 확인하세요.`);
+    if (blind.length) notes.push(`그림이나 주석이 있는 ${blind.join(', ')}쪽은 그림 속 글자를 읽지 못했습니다. 눈으로 확인하세요.`);
+    residual += lost + blind.length;
+    if (opts.dryRun) return { hits, unscanned, residual: residual + unscanned.length, notes };
 
     // 쪽 그림 + 검은 상자 → 새 PDF (글자층 없음)
     const sharp = (await import('sharp')).default;
-    const out = await PDFDocument.create();
-    const recheck: Uint8Array[] = [];
+    const shots: Array<{ jpg: Buffer; pw: number; ph: number }> = [];
     for (let i = 0; i < count; i++) {
       signal?.throwIfAborted();
       sendProgress({ current: i + 1, total: count, message: `${i + 1}/${count}쪽 가리는 중` });
@@ -281,25 +364,66 @@ export async function redactPdf(
       const data = new Uint8Array(r.data);
       paint(data, r.width, r.height, dev);
       const jpg = await sharp(Buffer.from(data), { raw: { width: r.width, height: r.height, channels: 4 } }).flatten({ background: '#ffffff' }).jpeg({ quality: 82 }).toBuffer();
-      const image = await out.embedJpg(jpg);
-      out.addPage([originalWidth, originalHeight]).drawImage(image, { x: 0, y: 0, width: originalWidth, height: originalHeight });
-      if (ocrPages.has(i + 1)) recheck.push(jpg);
+      shots.push({ jpg, pw: originalWidth, ph: originalHeight });
+    }
+
+    // OCR 로 읽은 쪽은 칠한 그림을 다시 읽는다 (어림잡은 자리가 빗나갔을 수 있고, 주석 글은 여기서야 보인다).
+    // 남은 곳은 그 자리를 마저 칠하고, 어림이니 사람이 볼 곳으로 센다
+    const recheck = [...ocrPages].sort((a, b) => a - b);
+    if (recheck.length) {
+      signal?.throwIfAborted();
+      sendProgress({ current: count, total: count, message: '가린 쪽을 다시 읽어 확인하는 중' });
+      const again = await PDFDocument.create();
+      for (const pn of recheck) {
+        const img = await again.embedJpg(shots[pn - 1].jpg);
+        again.addPage([img.width, img.height]).drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+      }
+      const r = await parse(Buffer.from(await again.save()), { ocr: 'force', images: false }).catch(() => null);
+      if (r?.success) {
+        const by = new Map<number, IRBlock[]>();
+        for (const b of flatten(r.blocks)) if (b.bbox && b.pageNumber) by.set(b.pageNumber, [...(by.get(b.pageNumber) ?? []), b]);
+        let placed = 0;
+        for (const [k, pn] of recheck.entries()) {
+          const blocks = by.get(k + 1) ?? [];
+          const left: PdfHit[] = [];
+          const boxes: Box[] = [];
+          const lineH = Math.min(...blocks.filter((b) => !b.table).map((b) => b.bbox!.height), 34);
+          for (const b of blocks) {
+            if (b.table) { boxes.push(...tableCellBoxes(b, rules, keep, left)); continue; }
+            const text = b.text ?? '';
+            for (const h of pageHits(text, rules, known, keep)) {
+              boxes.push(...estimateBoxes({ text, bbox: b.bbox! }, h.index, h.index + h.length, lineH));
+              left.push({ rule: h.rule, masked: h.masked });
+            }
+          }
+          if (!left.length) continue;
+          placed += left.length;
+          // 글자층 쪽에서 새로 걸린 곳(그림·주석 글)은 찾은 곳에도 넣는다. 스캔 쪽은 처음 읽을 때 이미 셌다
+          if (mixed.has(pn)) hits.push(...left);
+          const shot = shots[pn - 1];
+          const { data, info } = await sharp(shot.jpg).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+          const px = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          // 다시 읽은 쪽은 그림 화소가 곧 pt (아래가 0) → 위가 0 인 화소 자리로
+          paint(px, info.width, info.height, boxes.map((b) => [b.x0 - 3, info.height - b.y1 - 3, b.x1 + 3, info.height - b.y0 + 3]));
+          shot.jpg = await sharp(Buffer.from(px), { raw: { width: info.width, height: info.height, channels: 4 } }).flatten({ background: '#ffffff' }).jpeg({ quality: 82 }).toBuffer();
+        }
+        residual += placed;
+        // 상자 없이 본문에만 잡힌 글이 더 있으면 그것도 센다 (자리를 몰라 칠하지 못했다)
+        const inText = redactMarkdown(r.markdown, { rules }).hits.filter((h) => !keep(r.markdown.slice(h.index, h.index + h.length))).length;
+        residual += Math.max(0, inText - placed);
+        if (placed) notes.push(`다시 읽어 보니 ${placed}곳이 남아 있어 그 자리를 마저 칠했습니다. 어림으로 칠했으니 눈으로 확인하세요.`);
+      }
+    }
+
+    const out = await PDFDocument.create();
+    for (const s of shots) {
+      const image = await out.embedJpg(s.jpg);
+      out.addPage([s.pw, s.ph]).drawImage(image, { x: 0, y: 0, width: s.pw, height: s.ph });
     }
     out.setProducer('KorDoc AI');
     out.setCreator('KorDoc AI');
     const pdf = await out.save();
-
-    // 스캔 쪽은 칠한 그림을 다시 읽어 남은 곳을 센다 (어림잡은 자리가 빗나갔을 수 있다)
-    if (recheck.length) {
-      const again = await PDFDocument.create();
-      for (const jpg of recheck) {
-        const img = await again.embedJpg(jpg);
-        again.addPage([img.width, img.height]).drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-      }
-      const r = await parse(Buffer.from(await again.save()), { ocr: 'force', images: false }).catch(() => null);
-      if (r?.success) residual += redactMarkdown(r.markdown, { rules }).hits.filter((h) => !keep(r.markdown.slice(h.index, h.index + h.length))).length;
-    }
-    return { hits, unscanned, residual: residual + unscanned.length, pdf };
+    return { hits, unscanned, residual: residual + unscanned.length, notes, pdf };
   } finally {
     doc.destroy();
   }

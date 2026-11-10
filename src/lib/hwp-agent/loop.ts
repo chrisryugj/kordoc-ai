@@ -43,43 +43,58 @@ export async function runAgent(opts: {
   const { skill, events, signal, hooks } = opts;
   const context = skill.buildContext?.() ?? "";
   trimHistory(events);
+  const mark = events.length;
   events.push({ role: "user", text: opts.request, ...(context ? { context } : {}) });
   const executed: ExecutedToolCall[] = [];
   let corrected = false;
   let text = "";
   let redacted = 0;
-  for (let step = 0; step < MAX_STEPS; step++) {
-    if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
-    const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events }, { signal });
-    redacted += turn.redacted;
-    if (turn.text) { text = turn.text; hooks.onText(text); }
-    events.push({ role: "assistant", text: turn.text, calls: turn.calls.map(({ id, name, input }) => ({ id, name, input })) });
-    if (!turn.calls.length) {
-      const fix = corrected ? null : skill.verifyResponse?.(text, executed) ?? null;
-      if (!fix) return { text, redacted };
-      corrected = true;
-      events.push({ role: "user", text: fix });
-      continue;
-    }
-    const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
-    for (const call of turn.calls) {
+  const steps = async (): Promise<{ text: string; redacted: number }> => {
+    for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
-      if (call.inputError) {
-        results.push({ id: call.id, name: call.name, output: call.inputError, isError: true });
-        hooks.onTool({ name: call.name, summary: call.inputError, isError: true });
+      const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events }, { signal });
+      redacted += turn.redacted;
+      if (turn.text) { text = turn.text; hooks.onText(text); }
+      events.push({ role: "assistant", text: turn.text, calls: turn.calls.map(({ id, name, input }) => ({ id, name, input })) });
+      if (!turn.calls.length) {
+        const fix = corrected ? null : skill.verifyResponse?.(text, executed) ?? null;
+        if (!fix) return { text, redacted };
+        corrected = true;
+        events.push({ role: "user", text: fix });
         continue;
       }
-      let out;
-      try {
-        out = await skill.executeTool({ id: call.id, name: call.name, input: call.input }, signal);
-      } catch (e) {
-        out = { output: e instanceof Error ? e.message : String(e), isError: true, summary: `${call.name} 실패` };
+      const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
+      for (const call of turn.calls) {
+        if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
+        if (call.inputError) {
+          results.push({ id: call.id, name: call.name, output: call.inputError, isError: true });
+          hooks.onTool({ name: call.name, summary: call.inputError, isError: true });
+          continue;
+        }
+        let out;
+        try {
+          out = await skill.executeTool({ id: call.id, name: call.name, input: call.input }, signal);
+        } catch (e) {
+          // 멈추기를 눌러 끊긴 도구는 실패가 아니다 (실패로 적으면 진행 줄에 가짜 실패가 뜬다)
+          if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
+          out = { output: e instanceof Error ? e.message : String(e), isError: true, summary: `${call.name} 실패` };
+        }
+        executed.push({ name: call.name, ok: !out.isError });
+        results.push({ id: call.id, name: call.name, output: out.output, ...(out.isError ? { isError: true } : {}) });
+        hooks.onTool({ name: call.name, summary: out.summary, isError: !!out.isError });
       }
-      executed.push({ name: call.name, ok: !out.isError });
-      results.push({ id: call.id, name: call.name, output: out.output, ...(out.isError ? { isError: true } : {}) });
-      hooks.onTool({ name: call.name, summary: out.summary, isError: !!out.isError });
+      events.push({ role: "tool", results });
     }
-    events.push({ role: "tool", results });
+    return { text: text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.", redacted };
+  };
+  try {
+    return await steps();
+  } catch (e) {
+    // 멈추거나 실패한 요청은 짝이 안 맞는 채로 남는다(답 없는 요청, 결과 없는 도구 호출) → 다음 요청에서 모델이 헷갈리거나
+    // 서버가 대화를 거부한다. 이 요청을 걷어 내고, 그 전에 실제로 한 일이 있으면 한 줄로만 남긴다
+    events.length = mark;
+    const did = executed.filter((x) => x.ok).map((x) => x.name);
+    if (did.length) events.push({ role: "user", text: opts.request }, { role: "assistant", text: `(중간에 멈췄습니다. 그 전에 실행한 도구: ${did.join(", ")})`, calls: [] });
+    throw e;
   }
-  return { text: text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.", redacted };
 }

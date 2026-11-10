@@ -6,7 +6,7 @@
  * 결과·로그에는 원본 개인정보를 싣지 않는다 — samples 는 가려진 문자열, 파일 이름 속 개인정보도 가린다.
  */
 
-import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { DEFAULT_REDACT_RULES, parse, type RedactHit } from 'kordoc';
 import type { BatchItemResult, RedactResult, RedactRule } from '../../types/rpc-contract.js';
@@ -19,6 +19,8 @@ import { outputDir, outputFile, stemOf } from '../output/index.js';
 import { patchDocument } from '../hwpx-tools/index.js';
 import { exportPdf } from '../export/index.js';
 import { imageToPdf, redactPdf } from './pdf.js';
+import { pictureNotes, scanPictures } from './pictures.js';
+import { sealPreview } from './preview.js';
 import { missedAddressHits, redactMarkdown, redactText } from './rules.js';
 
 export const ALL_RULES: readonly RedactRule[] = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'crn', 'ip', 'name', 'address'];
@@ -51,7 +53,25 @@ interface CliReport {
   fileHits: CliHit[];
   residual: CliHit[];
   unscanned: string[];
+  /** 엔진이 검사·가리기를 못 한 것들의 안내 (삽입 그림·삽입 개체·문서 이력·미리보기 그림) */
+  warnings?: string[];
   output: string | null;
+}
+
+/** 엔진 안내에서 "가렸다고 말하면 안 되는 것"을 센다: 삽입 개체(OLE·EMF)·문서 이력·지우지 못한 미리보기 그림.
+ *  이것을 버리면 가리지 못한 것이 있는데 "못 본 곳 0"으로 나간다. 삽입 그림(pictures)은 수만 돌려준다:
+ *  그림 속 글자는 scanPictures 가 따로 읽어, 걸리는 글이 있거나 읽지 못한 그림만 알린다 */
+export function blindSpots(warnings: readonly string[] = []): { count: number; notes: string[]; pictures: number } {
+  const num = (re: RegExp) => warnings.reduce((n, w) => n + Number(re.exec(w)?.[1] ?? 0), 0);
+  const pictures = num(/삽입 그림 (\d+)개/);
+  const objects = num(/삽입 개체 (\d+)개/);
+  const history = warnings.some((w) => /문서 이력/.test(w));
+  const preview = warnings.some((w) => /미리보기 이미지.*지우지 못했/.test(w));
+  const notes: string[] = [];
+  if (objects) notes.push(`문서 안 개체 ${objects}개(다른 프로그램으로 넣은 문서·그림)는 가리지 못했습니다.`);
+  if (history) notes.push('문서 이력이 들어 있습니다. 이전 판의 글은 조각 단위로만 검사했습니다.');
+  if (preview) notes.push('첫 쪽 미리보기 그림을 지우지 못했습니다. 한글에서 다시 저장하면 새로 만들어집니다.');
+  return { count: objects + (history ? 1 : 0) + (preview ? 1 : 0), notes, pictures };
 }
 
 const norm = (s: string) => s.replace(/[\s\-–.()·,]/g, '').toLowerCase();
@@ -148,6 +168,8 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
     }
   }
   // kordoc 주소 규칙이 놓친 도로명·지번 주소(rules.ts): 가린 사본에서 마저 가리고(미리 찾아보기면 원본에서 세기만) 목록에 더한다
+  const more: string[] = [];
+  let leftover = 0;
   if (rules.includes('address')) {
     const target = report.output ?? p.path;
     const isMd = target.toLowerCase().endsWith('.md');
@@ -155,11 +177,24 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
     const extra = missedAddressHits(md, maskChar).filter((h) => !keep(md.slice(h.index, h.index + h.length)));
     if (extra.length) {
       listed = [...listed, ...extra.map((h) => ({ rule: h.rule, masked: h.masked }))];
+      // 엔진 규칙에 걸린 것이 없으면 엔진은 사본을 만들지 않는다 → 원본을 복사해 거기서 가린다 (안 그러면 찾았다고만 하고 파일이 없다)
+      const fresh = !report.output && Boolean(outPath);
+      if (fresh) { await copyFile(p.path, outPath!); report.output = outPath!; }
       if (report.output) {
         let out = md;
         for (const h of extra) out = out.slice(0, h.index) + h.masked + out.slice(h.index + h.length);
         if (isMd) await writeFile(report.output, out, 'utf-8');
-        else await patchInPlace(report.output, out, format);
+        else {
+          await patchInPlace(report.output, out, format);
+          // 본문 패치는 첫 쪽 미리보기 글·그림을 건드리지 않는다 → 거기 남은 주소를 마저 가린다
+          const pairs = extra.map((h) => [md.slice(h.index, h.index + h.length), h.masked] as const);
+          const { imageLeft } = await sealPreview(report.output, format, pairs, fresh);
+          if (imageLeft) { leftover++; more.push('첫 쪽 미리보기 그림에 주소가 남아 있을 수 있습니다. 한글에서 다시 저장하면 새로 만들어집니다.'); }
+          // 본문·표가 아닌 곳(머리말·글상자 등)에 있어 패치가 닿지 않은 주소
+          const back = await parse(await readFile(report.output), { layoutTables: 'keep' }).then((r) => (r.success ? r.markdown : ''), () => '');
+          const still = missedAddressHits(back, maskChar).filter((h) => !keep(back.slice(h.index, h.index + h.length))).length;
+          if (still) { leftover += still; more.push(`주소 ${still}곳은 가리지 못했습니다. 눈으로 확인하세요.`); }
+        }
       }
     }
   }
@@ -167,13 +202,20 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
   if (report.output && p.also_pdf && !report.output.toLowerCase().endsWith('.md')) {
     pdfPath = (await exportPdf({ path: report.output, output_path: report.output.replace(/\.(hwpx|hwp)$/i, '.pdf') }, signal)).output_path;
   }
+  const blind = blindSpots(report.warnings);
+  // 엔진이 삽입 그림이 있다고 알리면 그림 속 글자를 읽어 본다 (엔진은 화소를 보지 않는다). 걸리는 글이 없으면 조용히
+  const pics = blind.pictures ? await scanPictures(p.path, rules, keep, signal) : null;
+  const picNotes = pics ? pictureNotes(pics) : [];
+  const notes = [...picNotes, ...blind.notes, ...more];
+  const unseen = report.unscanned.length + blind.count + (pics?.unread ?? 0);
   return {
     ...(report.output ? { output_path: report.output } : {}),
     ...(pdfPath ? { pdf_path: pdfPath } : {}),
     hits: summarize(listed),
     total: listed.length,
-    residual: report.residual.length + report.unscanned.length,
-    unscanned: report.unscanned.length,
+    residual: report.residual.length + unseen + (pics?.hits ?? 0) + leftover,
+    unscanned: unseen,
+    ...(notes.length ? { notes } : {}),
     preserved: !report.output || !report.output.toLowerCase().endsWith('.md'),
     unchecked_rules: unchecked(rules),
     ...(keptCount ? { kept: keptCount } : {}),
@@ -196,6 +238,7 @@ async function redactPdfLike(p: RedactParams, rules: readonly RedactRule[], stem
     residual: r.residual,
     unscanned: r.unscanned.length,
     ...(r.unscanned.length ? { unscanned_pages: r.unscanned } : {}),
+    ...(r.notes.length ? { notes: r.notes } : {}),
     preserved: false,
     unchecked_rules: unchecked(rules),
   };

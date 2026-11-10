@@ -53,4 +53,23 @@ describe("대화 크기 상한 (fitBody)", () => {
     expect(JSON.stringify(out).length).toBeLessThanOrEqual(600_000);
     expect(out.turns.at(-1)!.request).toBe("요청 49");
   });
+  it("큰 문서를 읽은 도구 결과는 저장본에서만 줄이고, 화면에 보이는 요청은 그대로 둔다", async () => {
+    const { fitBody } = await import("./chat-store");
+    const big = "문".repeat(500_000);
+    const events = [
+      { role: "user" as const, text: "이 문서 요약해 줘", context: "붙인 문서 목록" },
+      { role: "assistant" as const, text: "", calls: [{ id: "1", name: "read_document", input: {} }] },
+      { role: "tool" as const, results: [{ id: "1", name: "read_document", output: big }] },
+      { role: "assistant" as const, text: "요약입니다", calls: [] },
+    ];
+    const body = { paths: [], events, turns: Array.from({ length: 30 }, (_, i) => turn(i, "다".repeat(5_000))) };
+    const out = fitBody(body);
+    expect(out.turns).toHaveLength(30);
+    expect(JSON.stringify(out).length).toBeLessThan(600_000);
+    const kept = out.events.find((e) => e.role === "tool");
+    expect(kept && "results" in kept && kept.results[0].output.length).toBeLessThan(4_100);
+    // 도는 중인 대화(메모리)는 건드리지 않는다
+    expect(events[2].results![0].output.length).toBe(500_000);
+    expect(events[0].context).toBe("붙인 문서 목록");
+  });
 });

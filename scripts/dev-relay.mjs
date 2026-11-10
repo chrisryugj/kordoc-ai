@@ -114,6 +114,9 @@ async function invoke(cmd, args = {}) {
     case 'plugin:notification|notify':
       shellLog.push({ cmd, args, at: Date.now() });
       return null;
+    // 시스템 알림 켜짐 (끈 PC 를 시험할 땐 KORDOC_RELAY_TOAST=off)
+    case 'shell_toast_ok':
+      return process.env.KORDOC_RELAY_TOAST !== 'off';
     case 'sidecar_call':
       if (args.method === 'cancel') {
         child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: nextId++, method: 'cancel', params: args.params ?? {} })}\n`);

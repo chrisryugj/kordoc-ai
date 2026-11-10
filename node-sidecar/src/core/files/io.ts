@@ -1,7 +1,7 @@
 /** 바이트 저장·읽기 (write_file·read_file_b64) — 편집기 내보내기 등. 확장자 허용 목록 + 크기 상한 */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname } from 'node:path';
 import { showFieldGuides } from '../render/guides.js';
 
@@ -22,8 +22,14 @@ export async function writeFileB64(p: { path: string; data_b64: string; overwrit
   const data = Buffer.from(p.data_b64, 'base64');
   await mkdir(dirname(p.path), { recursive: true });
   const tmp = `${p.path}.kordoc-tmp`;
-  await writeFile(tmp, data);
-  await rename(tmp, p.path);
+  try {
+    await writeFile(tmp, data);
+    await rename(tmp, p.path);
+  } catch (err) {
+    // 바꿔치기를 못 하면(파일이 한글에서 열려 있음 등) 임시 파일을 폴더에 남기지 않는다
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
   return { path: p.path };
 }
 
