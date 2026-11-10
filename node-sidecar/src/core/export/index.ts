@@ -40,8 +40,8 @@ async function imageToPdf(path: string): Promise<Uint8Array> {
 
 /** 글 변환본 PDF — 그림은 data URI 로 본문에 넣는다 */
 async function textToPdf(path: string, signal?: AbortSignal): Promise<Uint8Array> {
-  // 브라우저 인쇄라 BMP·TIFF 그림은 그려지지 않는다: PNG 로. PDF 그림은 읽는 차례 제자리에
-  const r = await parseDoc(path, { images: true, imageFormat: 'png', imagePlacement: 'flow', signal });
+  // 브라우저 인쇄라 BMP·TIFF 그림은 그려지지 않는다: 그런 그림만 PNG 로. PDF 그림은 읽는 차례 제자리에
+  const r = await parseDoc(path, { images: true, drawableImages: true, imagePlacement: 'flow', signal });
   const byName = new Map((r.images ?? []).map((i) => [i.filename, `data:${i.mimeType};base64,${Buffer.from(i.data).toString('base64')}`]));
   const md = r.markdown.replace(/(!\[[^\]]*\]\()([^)\s]+)(\))/g, (m, a: string, src: string, b: string) => (byName.has(src) ? a + byName.get(src) + b : m));
   return markdownToPdf(md, { preset: 'default' });

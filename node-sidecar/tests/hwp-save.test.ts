@@ -8,7 +8,7 @@ import * as CFB from 'cfb';
 import init, { HwpDocument } from '@rhwp/core';
 import { TAG, ctrlId, inlineControls, readHwp5, readRecords, writeHwp5, writeRecord, type Hwp5 } from '../src/core/hwp-save/hwp5.js';
 import { fillTabWidths, hasZeroWidthTabs, restoreFieldKinds, restoreSectionTails, tailStart } from '../src/core/hwp-save/fixups.js';
-import { EDITOR_REOPEN_NEEDED, editorOpen, editorWrite, fixHwp } from '../src/core/hwp-save/index.js';
+import { EDITOR_REOPEN_NEEDED, editorOpen, editorWrite, fixHwp, nameByBytes } from '../src/core/hwp-save/index.js';
 
 const require = createRequire(import.meta.url);
 beforeAll(async () => {
@@ -121,6 +121,22 @@ describe('보정 규칙', () => {
     expect(asked).toEqual([2, 3]);
     // 폭 0 탭이 없으면 엔진을 열 필요가 없다
     expect(hasZeroWidthTabs(fake({ 'BodyText/Section0': Buffer.concat([rec(TAG.PARA_HEADER, 0), rec(TAG.PARA_TEXT, 1, Buffer.concat([text('A'), stored, text('\r')]))]) }), new Map())).toBe(false);
+  });
+});
+
+describe('복구 사본 이름', () => {
+  it('바이트에 맞는 확장자로 — PDF 를 가져와 고치던 문서의 사본(HWPX)을 .pdf 이름으로 주면 편집기가 PDF 가져오기 창을 띄운다', () => {
+    const zip = new Uint8Array([0x50, 0x4b, 3, 4, 0, 0]);
+    const cfb = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    expect(nameByBytes('받은 공문.pdf', zip)).toBe('받은 공문.hwpx');
+    expect(nameByBytes('보고서.hwpx', zip)).toBe('보고서.hwpx');
+    expect(nameByBytes('보고서.HWPX', zip)).toBe('보고서.HWPX');
+    expect(nameByBytes('옛 문서.hwp', zip)).toBe('옛 문서.hwpx');
+    expect(nameByBytes('이름없음', zip)).toBe('이름없음.hwpx');
+    // 모르는 바이트는 이름 그대로
+    expect(nameByBytes('문서.pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toBe('문서.pdf');
+    // 복합 문서 꼴만으로는 HWP 인지 알 수 없다 (판정은 isHwp5 가 한다): 이름을 망가뜨리지 않는지만 본다
+    expect(nameByBytes('문서.hwp', cfb)).toBe('문서.hwp');
   });
 });
 

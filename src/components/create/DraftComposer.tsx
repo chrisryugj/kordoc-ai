@@ -159,6 +159,9 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
     if (f.changes.length) setMarkdown(f.markdown);
   };
 
+  /** 부탁 글도 참고 문서도 없다: 보내면 AI 가 주제를 지어내 엉뚱한 문서를 쓴다 */
+  const nothingToWrite = !instruction.trim() && !refs.length;
+
   const runDraft = (instr = instruction, kd = kind, rf = refs) => {
     setMarkdown("");
     setFit(null);
@@ -185,6 +188,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
     handledSeed.current = seed.nonce;
     const autoDraft = !!(seed.kind && seed.references?.length && ai?.configured);
     const apply = () => {
+      // 다른 일을 시작한다: 앞 초안 때 적은 부탁 글이 남으면 "초안 쓰기"를 다시 누를 때 새 갈래에 옛 부탁이 실려 간다
+      if (seed.kind || seed.references || seed.preset) setInstruction("");
       if (seed.kind) pickKind(seed.kind);
       if (seed.preset) { setKind("general"); setPreset(seed.preset); setOrgOn(true); }
       if (seed.references) setRefs(seed.references);
@@ -308,9 +313,10 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
                 <div className="flex-1" />
                 {draft.busy
                   ? <Button variant="secondary" onClick={draft.cancel}><Square size={13} /> 멈추기</Button>
-                  : <Button onClick={() => runDraft()} disabled={!!k.ref && !refs.length} data-tip="AI가 쓰는 글이 바로 보입니다. 다 쓰면 미리보기와 표기법 검사가 나옵니다"><Sparkles size={14} /> 초안 쓰기</Button>}
+                  : <Button onClick={() => runDraft()} disabled={(!!k.ref && !refs.length) || nothingToWrite} data-tip="AI가 쓰는 글이 바로 보입니다. 다 쓰면 미리보기와 표기법 검사가 나옵니다"><Sparkles size={14} /> 초안 쓰기</Button>}
               </div>
               {k.ref && !refs.length && <p className="kd-small kd-muted">{k.ref} 필요</p>}
+              {!k.ref && nothingToWrite && <p className="kd-small kd-muted">무엇을 쓸지 위 칸에 적거나 참고 문서를 붙이면 켜집니다</p>}
               <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded={orgRead !== undefined} on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />
               {draftOrg && !draft.busy && markdown.trim() && <StatusLine tone="ok">우리 기관 {draftOrg.label} {draftOrg.count}건의 구성을 따라 썼습니다</StatusLine>}
               <ErrorLine message={draft.error} />

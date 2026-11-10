@@ -126,6 +126,25 @@ export function lintFindings(text: string, parsed: boolean): LintFinding[] {
   }));
 }
 
+const WEEKDAYS = '일월화수목금토';
+const DATED = /(\d{4})\s*[.년]\s*(\d{1,2})\s*[.월]\s*(\d{1,2})\s*[.일]?\s*\(\s*([일월화수목금토])\s*(?:요일)?\s*\)/g;
+const WEEKDAY_CLAIM = /요일.{0,16}(일치하지|맞지|틀리|틀렸|다르|다릅|아니|아닙|오류)|(일치하지|맞지 않|틀렸|틀리|오류).{0,16}요일/;
+
+/** AI 지적이 "날짜와 요일이 안 맞는다"인데, 지적이 인용한 날짜(연도 있는 것)의 요일이 실제로는 맞다 — 작은 모델이 요일 계산을 틀린 것.
+ *  날짜가 하나일 때만 판단한다(두 날짜를 견준 지적은 다른 문제일 수 있다). 진짜 요일 오류는 표기법 검사(WEEKDAY_MISMATCH)가 계산으로 잡는다 */
+export function isFalseWeekdayClaim(issue: Pick<ReviewIssue, 'location' | 'message' | 'suggestion'>): boolean {
+  const text = `${issue.location ?? ''} ${issue.message} ${issue.suggestion ?? ''}`;
+  if (!WEEKDAY_CLAIM.test(text)) return false;
+  const pairs = new Map<string, boolean>();
+  for (const m of text.matchAll(DATED)) {
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const date = new Date(Date.UTC(y, mo - 1, d));
+    if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return false; // 없는 날짜(2. 30.)는 진짜 오류일 수 있다
+    pairs.set(`${y}-${mo}-${d}-${m[4]}`, WEEKDAYS[date.getUTCDay()] === m[4]);
+  }
+  return pairs.size === 1 && [...pairs.values()][0];
+}
+
 export async function reviewDocument(params: { path: string }, signal: AbortSignal): Promise<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }> {
   sendProgress({ current: 0, total: 3, message: '문서 읽는 중' });
   const doc = await loadDoc(params.path, signal);
@@ -161,15 +180,17 @@ export async function reviewDocument(params: { path: string }, signal: AbortSign
     }
   }
 
-  // 같은 지적(분류+내용) 한 번만, 심각한 것부터
+  // 같은 지적(분류+내용) 한 번만, 심각한 것부터. 계산으로 틀린 것이 드러나는 요일 지적은 뺀다
   const seen = new Set<string>();
   const order = { error: 0, warning: 1, info: 2 };
-  const merged = issues
-    .filter((x) => { const k = `${x.category}|${x.message}`; if (seen.has(k)) return false; seen.add(k); return true; })
-    .sort((a, b) => order[a.severity] - order[b.severity]);
+  const unique = issues.filter((x) => { const k = `${x.category}|${x.message}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const merged = unique.filter((x) => !isFalseWeekdayClaim(x)).sort((a, b) => order[a.severity] - order[b.severity]);
+  const dropped = unique.length - merged.length;
+  if (dropped) logger.info(`[ai_review] 요일이 실제로 맞는 날짜를 틀렸다고 한 지적 ${dropped}건을 뺐습니다`);
 
   const count = (s: ReviewIssue['severity']) => merged.filter((x) => x.severity === s).length;
-  const head = pieces.length === 1 && summaries[0]
+  // 뺀 지적이 있으면 모델의 한 줄 평("요일 오류가 있습니다")도 믿을 수 없다: 건수 줄로
+  const head = pieces.length === 1 && summaries[0] && !dropped
     ? summaries[0]
     : `검토 사항 ${merged.length}건 (오류 ${count('error')} · 주의 ${count('warning')} · 제안 ${count('info')})`;
   const tail = all.length > pieces.length ? ` 문서가 길어 앞 ${pieces.length}/${all.length} 부분만 검토했습니다.` : '';

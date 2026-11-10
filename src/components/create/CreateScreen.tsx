@@ -78,6 +78,15 @@ function CreateBody({ active }: { active: boolean }) {
     void openInEditor(createIntent.value.path, rec ? { recover: true, title: rec.title, ...(rec.working ? { working: true } : { existing: true }) } : { existing: true, ...(task ? { agentTask: task } : {}) });
   }, [createIntent, openInEditor]);
 
+  // 홈·문서 보기·접수함의 "회신 쓰기"·"새로 쓰기"(파일 없이 들어옴) → 작성 단계를 보인다.
+  // 앞 문서가 편집·출력 단계에 있으면 초안이 숨은 작성 화면에서 혼자 돌고 화면은 앞 문서의 출력 단계로 남았다. 앞 문서는 편집 단계에 그대로 남는다
+  const composed = useRef(0);
+  useEffect(() => {
+    if (!createIntent || createIntent.value.path || createIntent.nonce === composed.current) return;
+    composed.current = createIntent.nonce;
+    setStep("compose");
+  }, [createIntent, setStep]);
+
   return (
     <div className="kd-screen" hidden={!active}>
       <header className="kd-head kd-create-head">

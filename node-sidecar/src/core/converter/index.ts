@@ -31,10 +31,8 @@ export interface ParseDocOptions {
   htmlTables?: boolean;
   /** 원본 표 구조 그대로 (패치·양식 경로) */
   keepLayout?: boolean;
-  /** 그림을 이 형식으로 (브라우저로 그리는 PDF·HTML 은 BMP·TIFF 를 못 그린다). 이름·MIME·바이트가 같이 바뀐다 */
-  imageFormat?: ParseOptions['imageFormat'];
-  /** 거의 한 색인 그림(빈 판·단색 띠·옅은 바탕)을 뺀다 */
-  dropBlankImages?: boolean;
+  /** 브라우저가 못 그리는 그림(BMP·TIFF 등)만 PNG 로 바꾼다 — 브라우저로 그리는 PDF·HTML·마크다운용. 글(markdown)과 images 만 맞춘다(blocks 는 그대로) */
+  drawableImages?: boolean;
   /** PDF 그림 블록을 쪽 끝이 아니라 읽는 차례 제자리에 ("flow") */
   imagePlacement?: ParseOptions['imagePlacement'];
   /** 주면 쪽 진행률을 알림으로 보낸다 */
@@ -102,7 +100,7 @@ export async function parseDoc(path: string, opts: ParseDocOptions = {}): Promis
   const buf = await readFile(path);
   signal?.throwIfAborted();
   const label = opts.progressLabel;
-  const r = await parseBytes(buf, {
+  const base: Omit<ParseOptions, 'onProgress'> = {
     filePath: path,
     pages: opts.pages,
     password: opts.password,
@@ -111,15 +109,36 @@ export async function parseDoc(path: string, opts: ParseDocOptions = {}): Promis
     plain: opts.plain,
     htmlTables: opts.htmlTables,
     layoutTables: opts.keepLayout ? 'keep' : undefined,
-    imageFormat: opts.imageFormat,
-    dropBlankImages: opts.dropBlankImages,
     imagePlacement: opts.imagePlacement,
-  }, (current, total) => {
+  };
+  const r = await parseBytes(buf, base, (current, total) => {
     if (label) sendProgress({ current, total, message: `${label} ${current}/${total}쪽` });
   }, signal);
   signal?.throwIfAborted();
   if (!r.success) throw parseFailure(r, !!opts.password);
-  return r;
+  return opts.drawableImages && opts.images ? withDrawableImages(r, buf, base, signal) : r;
+}
+
+/** 브라우저가 그리는 그림 형식 */
+const DRAWABLE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']);
+
+/** 브라우저가 못 그리는 그림(BMP·TIFF 등)만 PNG 로 바꿔 끼운다.
+ *  엔진의 imageFormat 은 모든 그림을 바꿔 JPEG 사진까지 무손실 PNG 로 부풀린다(사진 문서가 몇 배로 커진다).
+ *  못 그리는 그림이 있을 때만 같은 옵션으로 한 번 더 읽어(그림 차례가 같다) 그 그림의 이름·바이트만 가져온다. 못 바꾼 그림(WMF 등)은 그대로 */
+async function withDrawableImages(r: ParseSuccess, buf: Buffer, base: Omit<ParseOptions, 'onProgress'>, signal?: AbortSignal): Promise<ParseSuccess> {
+  const images = r.images ?? [];
+  if (images.every((i) => DRAWABLE.has(i.mimeType))) return r;
+  const again = await parseBytes(buf, { ...base, imageFormat: 'png' }, undefined, signal).catch((err) => { if (signal?.aborted) throw err; return null; });
+  const png = again?.success ? again.images ?? [] : [];
+  if (png.length !== images.length) return r;
+  let markdown = r.markdown;
+  images.forEach((img, i) => {
+    const p = png[i];
+    if (DRAWABLE.has(img.mimeType) || !DRAWABLE.has(p.mimeType)) return;
+    if (p.filename !== img.filename) markdown = markdown.split(`(${img.filename})`).join(`(${p.filename})`).split(`"${img.filename}"`).join(`"${p.filename}"`);
+    Object.assign(img, { filename: p.filename, data: p.data, mimeType: p.mimeType });
+  });
+  return { ...r, markdown };
 }
 
 /** kordoc 경고 → 화면 문장 (OCR 필요 경고는 CLI 안내 대신 할 일로) */
@@ -142,8 +161,8 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
     pages: p.pages,
     ocr: p.ocr,
     images: keepImages,
-    // 마크다운·HTML 은 브라우저·미리보기 창이 그림을 그린다: PNG 로 통일하고 PDF 그림은 읽는 차례 제자리에
-    imageFormat: format === 'md' || format === 'html' ? 'png' : undefined,
+    // 마크다운·HTML 은 브라우저·미리보기 창이 그림을 그린다: 못 그리는 형식만 PNG 로, PDF 그림은 읽는 차례 제자리에
+    drawableImages: format === 'md' || format === 'html',
     imagePlacement: 'flow',
     plain: format === 'txt',
     htmlTables: p.html_tables,

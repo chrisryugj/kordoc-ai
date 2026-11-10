@@ -61,9 +61,10 @@ rmSync(packs, { recursive: true, force: true });
 mkdirSync(packs, { recursive: true });
 run(npm, ['pack', `@rhwp/core@${RHWP_VERSION}`, `@rhwp/editor@${RHWP_VERSION}`, '--silent'], packs);
 for (const t of readdirSync(packs).filter((f) => f.endsWith('.tgz'))) {
-  const dir = join(packs, t.replace(/\.tgz$/, ''));
-  mkdirSync(dir, { recursive: true });
-  run('tar', ['-xzf', t, '-C', dir], packs);
+  const name = t.replace(/\.tgz$/, '');
+  mkdirSync(join(packs, name), { recursive: true });
+  // 풀 곳은 상대 이름으로: Git Bash 의 GNU tar 는 "C:\…" 의 콜론을 원격 호스트로 읽어 실패한다 (Windows 기본 tar 는 둘 다 됨)
+  run('tar', ['-xzf', t, '-C', name], packs);
 }
 const corePkg = join(packs, `rhwp-core-${RHWP_VERSION}`, 'package');
 const sdkPkg = join(packs, `rhwp-editor-${RHWP_VERSION}`, 'package');

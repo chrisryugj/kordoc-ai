@@ -32,6 +32,13 @@ const TRACKED = 0x4000;
 export const EDITOR_REOPEN_NEEDED = '편집기 엔진이 다시 시작돼 이 문서의 저장 보정 정보가 없어졌습니다. 원본을 지키려고 저장하지 않았습니다. HWPX로 저장하거나, 문서를 닫고 다시 연 뒤 고쳐 주세요.';
 export const RECOVERY_GONE = '되살릴 사본이 없습니다. 이미 저장했거나 버린 문서입니다. 문서를 그냥 여세요.';
 
+/** 바이트가 말하는 형식의 이름 (ZIP → .hwpx, 복합 문서 → .hwp, 그 밖은 그대로) */
+export function nameByBytes(name: string, bytes: Uint8Array): string {
+  const ext = bytes[0] === 0x50 && bytes[1] === 0x4b ? '.hwpx' : isHwp5(bytes) ? '.hwp' : '';
+  if (!ext || name.toLowerCase().endsWith(ext)) return name;
+  return name.replace(/\.[^.\\/]*$/, '') + ext;
+}
+
 export async function editorOpen(path: string, recover = false): Promise<{ data_b64: string; name: string; size: number; token: string; tracked: boolean }> {
   const copy = recover ? recoveryBytes(path) : null;
   if (recover && !copy) throw new Error(RECOVERY_GONE);
@@ -47,7 +54,9 @@ export async function editorOpen(path: string, recover = false): Promise<{ data_
   const shown = copy ?? original;
   return {
     data_b64: Buffer.from(shown).toString('base64'),
-    name: file.name,
+    // 복구 사본은 편집기가 내보낸 한글 문서다. PDF 를 가져와 고치던 문서면 원본 이름이 .pdf 라,
+    // 그 이름으로 주면 편집기가 PDF 가져오기 창을 띄워 사본(HWPX)을 PDF 로 읽으려다 실패한다: 바이트에 맞는 확장자로
+    name: copy ? nameByBytes(file.name, copy) : file.name,
     size: shown.length,
     token,
     tracked,

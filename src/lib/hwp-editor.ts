@@ -18,8 +18,19 @@ type Incoming = { kd: "res"; id: number; ok: boolean; result?: unknown; error?: 
 /** 동작별 기본 시간 제한 — 열기·내보내기는 큰 문서에서 오래 걸린다 */
 const TIMEOUT: Partial<Record<EditorOp, number>> = { load: 120_000, export: 120_000, find: 30_000, replace_selection: 30_000 };
 
-/** PDF 열기 — 가져오기 설정 창(쪽 모양 그대로·다시 짜기, 열기 암호)에서 사용자를 기다린다 */
+/** PDF 열기 — 가져오기 창(처리 설정, 필요하면 열기 암호)에서 사용자를 기다린다 */
 const PDF_LOAD_TIMEOUT = 600_000;
+
+/** 편집기가 PDF 로 볼 입력인가 — 편집기와 같은 기준(이름이 .pdf 이거나 앞 1024바이트 안에 %PDF-).
+ *  이름만 보면 확장자가 틀린 PDF 가 가져오기 창을 띄우고도 2분 제한에 끊긴다 */
+export function isPdfInput(bytes: Uint8Array, name: string): boolean {
+  if (/\.pdf$/i.test(name)) return true;
+  const head = bytes.subarray(0, 1024);
+  for (let i = 0; i + 4 < head.length; i++) {
+    if (head[i] === 0x25 && head[i + 1] === 0x50 && head[i + 2] === 0x44 && head[i + 3] === 0x46 && head[i + 4] === 0x2d) return true;
+  }
+  return false;
+}
 
 /** 시간 제한 안에 답이 없었다 — 편집기는 아직 그 일을 하고 있을 수 있다(큰 문서 열기면 iframe 을 내려야 멈춘다) */
 export class EditorTimeoutError extends Error {
@@ -82,8 +93,9 @@ export class HwpEditorClient {
   /** 편의: 바이트로 열기 (복사본을 넘겨 호출한 쪽 버퍼를 지키지 않는다면 그대로 transfer).
    *  PDF 는 편집기가 가져오기 설정 창을 띄우고 사용자 답을 기다리니 시간 제한을 넉넉히 */
   async open(bytes: Uint8Array, name: string): Promise<number> {
+    const pdf = isPdfInput(bytes, name);
     const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    const r = await this.call("load", { bytes: buf, name }, [buf], /\.pdf$/i.test(name) ? PDF_LOAD_TIMEOUT : undefined);
+    const r = await this.call("load", { bytes: buf, name }, [buf], pdf ? PDF_LOAD_TIMEOUT : undefined);
     return r.pageCount;
   }
 

@@ -42,8 +42,8 @@ export async function toHwpx(
       warnings.push(`서식 그대로 옮기지 못해 글·표를 다시 짰습니다 (${errorText(err)}).`);
     }
   }
-  // PDF 그림은 쪽 끝에 몰지 않고 읽는 차례 제자리에, 빈 판·단색 띠 그림은 빼고 한글 문서로
-  const r = await parseDoc(p.path, { ocr: p.ocr, images: true, imagePlacement: 'flow', dropBlankImages: true, progressLabel: quiet ? undefined : `${basename(p.path)} 읽는 중`, signal });
+  // PDF 그림은 쪽 끝에 몰지 않고 읽는 차례 제자리에
+  const r = await parseDoc(p.path, { ocr: p.ocr, images: true, imagePlacement: 'flow', progressLabel: quiet ? undefined : `${basename(p.path)} 읽는 중`, signal });
   if (!r.markdown.trim()) throw new Error('문서에서 글자를 찾지 못했습니다. 스캔본이면 글자 읽기(OCR)를 켜고 다시 시도하세요.');
   // 'auto': 문서 모양(수신·시행 줄, □○ 항목, 회의록·보도자료 등)을 보고 갈래를 고른다
   const preset = p.preset === 'auto' ? guessPreset(r.markdown) : p.preset ? presetOf(p.preset) : undefined;

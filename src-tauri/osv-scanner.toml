@@ -48,3 +48,7 @@ reason = "zbus_names: 관리 중단(정보성). Linux D-Bus(zbus) 전이 의존"
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0372"
 reason = "zvariant_derive: 관리 중단(정보성). Linux D-Bus(zbus) 전이 의존"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0441"
+reason = "pin-utils: 관리 중단(정보성, 2026-10-01 저장소 보관). hyper 1.8(reqwest) 전이 의존이고 알려진 취약점은 없음. Windows 빌드 그래프에는 들어가지 않음(cargo tree -i pin-utils 가 비어 있음). hyper 가 core::pin::pin! 으로 옮기면 빠진다"

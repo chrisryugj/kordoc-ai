@@ -182,8 +182,8 @@ export function markdownTables(md: string): Array<{ rows: number; cols: number }
 /** 내용 문서 하나 → 그 서식의 HWPX 바이트 */
 export async function restyle(path: string, f: StyleFormat, signal?: AbortSignal): Promise<{ bytes: Uint8Array; content: NormalizedContent; warnings: string[] }> {
   const fmt = formatOf(path);
-  // PDF 그림은 읽는 차례 제자리에, 빈 판·단색 띠 그림은 빼고 서식을 입힌다
-  const r = await parseDoc(path, { images: true, imagePlacement: 'flow', dropBlankImages: true, signal });
+  // PDF 그림은 읽는 차례 제자리에
+  const r = await parseDoc(path, { images: true, imagePlacement: 'flow', signal });
   if (!r.markdown.trim()) throw new Error('문서에서 글자를 찾지 못했습니다. 스캔본이면 설정에서 글자 읽기(OCR)를 켜고 다시 시도하세요.');
   // 한글 문서는 글자 크기로 제목 줄을 찾아 둔다 (kordoc 글에는 제목 표시가 없다)
   let titleHint: string | undefined;

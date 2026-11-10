@@ -52,7 +52,8 @@ export function presetOf(input?: string): GongmunPreset {
 /** 이미 있는 문서를 한글로 다시 짤 때 문서 모양을 보고 갈래를 고른다. 확실하지 않으면 undefined (서식을 억지로 입히지 않고 꾸밈 없이) */
 export function guessPreset(markdown: string): GongmunPreset | undefined {
   const head = markdown.slice(0, 4000);
-  const title = (/^#\s+(.+)$/m.exec(head)?.[1] ?? head.split('\n').find((l) => l.trim()) ?? '').trim();
+  // 맨 위 그림(로고) 줄은 제목이 아니다 (PDF 그림을 읽는 차례 제자리에 두면 첫 줄이 그림일 수 있다)
+  const title = (/^#\s+(.+)$/m.exec(head)?.[1] ?? head.split('\n').find((l) => l.trim() && !/^\s*(!\[|<img\b)/i.test(l)) ?? '').trim();
   const has = (re: RegExp) => re.test(head);
   // 수신 줄 + (제목 줄·시행 번호·"1. 관련:") = 시행문·기안문. 옛 서식은 "수 신"·"제 목".
   // 보도자료를 보고하는 내부결재 공문("제목 언론보도 자료 보고")이 보도자료로 잡히지 않게 보도자료보다 먼저 본다 (실공문 210건 모두 기안문)

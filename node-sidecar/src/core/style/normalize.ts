@@ -165,8 +165,13 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
     const h1 = blocks.findIndex((b) => b.kind === 'heading' && b.level === 1);
     const hint = opts.titleHint?.replace(/\s+/g, ' ').trim();
     const hinted = hint ? blocks.findIndex((b) => b.kind === 'para' && b.text.replace(/\s+/g, ' ').trim() === hint) : -1;
+    // 앞 세 덩이 안에서 찾되 그림 덩이(맨 위 로고)는 세지 않는다
+    let pics = 0;
     const at = h1 >= 0 ? h1 : hinted >= 0 ? hinted
-      : blocks.findIndex((b, i) => i < 3 && b.kind === 'para' && visible(b.text) <= 60 && !readMarker(unescapeLead(b.text)) && !/다\.?$/.test(b.text));
+      : blocks.findIndex((b, i) => {
+        if (b.kind === 'raw' && /^(!\[|<img\b)/i.test(b.text)) { pics++; return false; }
+        return i - pics < 3 && b.kind === 'para' && visible(b.text) <= 60 && !readMarker(unescapeLead(b.text)) && !/다\.?$/.test(b.text);
+      });
     if (at >= 0) {
       title = (blocks[at] as { text: string }).text;
       blocks.splice(at, 1);

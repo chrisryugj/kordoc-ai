@@ -46,7 +46,7 @@ function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) =>
       <FileDrop drop="create-convert" files={file ? [file] : []} onAdd={(p) => setFile(p[0])} onRemove={() => setFile("")}
         title="파일을 끌어다 놓기" hint="PDF · 워드 · 엑셀 · 스캔본 그림" pickTip="글과 표를 한글 문서로 다시 짭니다. 스캔본은 글자를 읽어서 옮깁니다" />
       {formatOf(file) === "hwp" && <Note tone="info">HWP는 바꿀 필요가 없습니다. <button type="button" className="kd-link" onClick={() => void openInEditor(file, { existing: true })}>편집기로 바로 열기</button></Note>}
-      {formatOf(file) === "pdf" && <Note tone="info">쪽 모양을 그대로 살리려면 <button type="button" className="kd-link" onClick={() => void openInEditor(file, { existing: true, title: stem(file) })}>PDF를 편집기로 바로 열기</button>. 편집기가 가져오기 방식을 묻고, 저장하면 원본은 두고 새 한글 문서가 됩니다.</Note>}
+      {formatOf(file) === "pdf" && <Note tone="info">쪽 모양을 그대로 살리려면 <button type="button" className="kd-link" onClick={() => void openInEditor(file, { existing: true, title: stem(file) })}>PDF를 편집기로 바로 열기</button>. 편집기가 가져오기 창을 띄우고, 저장하면 원본은 두고 새 한글 문서가 됩니다.</Note>}
       {/* 세부 옵션: 쉬운 화면에선 자동 그대로 */}
       <div className="kd-form-row kd-adv">
         <SelectField label="문서 갈래" hint="자동은 문서 모양을 보고 고릅니다" value={preset} onChange={setPreset}

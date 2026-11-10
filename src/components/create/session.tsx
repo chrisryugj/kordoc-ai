@@ -7,7 +7,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { EditorTimeoutError, HwpEditorClient } from "../../lib/hwp-editor";
+import { EditorTimeoutError, HwpEditorClient, isPdfInput } from "../../lib/hwp-editor";
 import type { EditorDocState } from "../../../node-sidecar/src/types/editor-bridge";
 import { rpc, errorText } from "../../lib/rpc";
 import { b64ToBuffer, bytesToB64, pickSavePath } from "../../lib/native";
@@ -46,6 +46,7 @@ const NOT_READY = "한글 편집기가 아직 열리지 않았습니다. 잠시 
 const FIELDS_LOST = "한글 편집기가 열리지 않아 채운 칸 값을 저장할 수 없습니다. 앱을 다시 켠 뒤 서식을 다시 채우세요.";
 const OPEN_FAILED = "한글 편집기가 이 문서를 열지 못해 편집기를 닫았습니다. 고치지 않은 그대로 저장·출력하거나, 문서를 다시 열어 보세요.";
 const BIG_STOPPED = "한글 편집기가 2분 안에 이 문서를 열지 못해 멈췄습니다. 고치지 않은 그대로 저장·출력하거나 문서 화면에서 내용을 보세요.";
+const PDF_STOPPED = "PDF 가져오기가 10분 안에 끝나지 않아 편집기를 닫았습니다. 다시 열어 가져오기 창에서 가져오기를 누르세요.";
 
 export type PendingAgentTask = AgentTask & { seq: number };
 
@@ -273,12 +274,15 @@ export function CreateProvider({ children }: { children: ReactNode }) {
 
   const outputFile = useCallback(async () => {
     if (!session) throw new Error("내보낼 문서가 없습니다. 작성 단계에서 시작점을 고르세요.");
-    if (!(await syncDirty())) return session.path;
+    // PDF 를 가져와 연 문서(아직 한글 파일로 저장 전): 디스크 파일은 PDF 이고 문서는 편집기 안에만 있다.
+    // 고치지 않았어도 늘 편집기 내용을 한글 형식 이름의 작업 사본으로 낸다 (PDF 경로·.pdf 이름으로 내면 PDF 저장·인쇄·합본이 깨진다)
+    const imported = extOf(session.path) !== session.format;
+    if (!imported && !(await syncDirty())) return session.path;
     if (session.working) return saveTo(session.path);
     // 사용자 파일·서식함 서식은 덮지 않는다: 지금 편집기 내용을 작업 사본으로
     const ed = client.current;
     if (editorState !== "ready" || !ed || opening.current) throw new Error(NOT_READY);
-    const target = await workingFile(session.name);
+    const target = await workingFile(imported ? `${stem(session.name)}.${session.format}` : session.name);
     const r = await rpc("write_file", { path: target, data_b64: bytesToB64((await ed.save(session.format)).buffer as ArrayBuffer), overwrite: true });
     return r.path;
   }, [session, syncDirty, saveTo, editorState]);
@@ -330,6 +334,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   }, [session, syncDirty, askUser, saveTo, ensureSaved, toast, dropRecovery]);
 
   const openInEditor = useCallback(async (path: string, opts?: OpenOpts) => {
+    // 앞 열기가 아직 끝나지 않았다 (PDF 가져오기 창은 답을 최대 10분 기다린다): 겹쳐 열면 두 열기가 서로를 끊는다
+    if (opening.current) { toast("앞 문서를 여는 중입니다. 편집기의 가져오기 창을 먼저 끝내세요.", "info"); return; }
     // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
     const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
     if (pages > RHWP_MAX_PAGES && (await askUser({
@@ -359,6 +365,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     opening.current = true;
     putAgentTask(null);
     recovery.current = { seq: -1, at: 0, busy: false, gen: recovery.current.gen + 1 };
+    // PDF 가져오기를 취소하면 되돌아갈 곳 (편집기에는 앞 문서가 그대로 남는다)
+    const back = { session, step };
     setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
     setBusyText("한글 편집기를 여는 중");
@@ -370,11 +378,14 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const file = await rpc("editor_open", { path, ...(recover ? { recover: true } : {}) });
       setSession((s) => (s && s.path === path ? { ...s, token: file.token } : s));
       if (file.tracked) toast("변경 내용 추적이 든 문서입니다. 고친 흔적이 함께 보일 수 있고, 저장하면 보이는 그대로 본문이 되며 추적 기록은 남지 않습니다. 처음 덮어쓸 때 원본은 .bak 파일로 남습니다.", "info");
+      const bytes = new Uint8Array(b64ToBuffer(file.data_b64));
+      // PDF 는 가져오기 창이 답을 기다리는 10분, 그 밖은 2분: 안내 문장도 그에 맞춘다
+      const stopped = isPdfInput(bytes, file.name) ? PDF_STOPPED : BIG_STOPPED;
       try {
-        await ed.open(new Uint8Array(b64ToBuffer(file.data_b64)), file.name);
+        await ed.open(bytes, file.name);
       } catch (e) {
         // 제때 못 열면 iframe 을 내려야 편집기가 열기를 멈춘다 (그대로 두면 몇 분씩 CPU 를 쓴다)
-        if (e instanceof EditorTimeoutError) { stopEditor(BIG_STOPPED); throw new Error(BIG_STOPPED); }
+        if (e instanceof EditorTimeoutError) { stopEditor(stopped); throw new Error(stopped); }
         throw e;
       }
       loaded = true;
@@ -389,15 +400,23 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 다 연 뒤에야 건다: 앞 문서가 열려 있는 동안 요청이 앞 문서로 가지 않게
       if (opts?.agentTask) putAgentTask({ seq, ...opts.agentTask });
     } catch (e) {
-      if (!loaded && client.current) stopEditor(OPEN_FAILED);
-      // PDF 가져오기 설정 창에서 취소했다
-      if (/PDF_IMPORT_CANCELLED/.test(errorText(e))) toast("PDF 가져오기를 취소했습니다.", "info");
-      else toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
+      if (/PDF_IMPORT_CANCELLED/.test(errorText(e))) {
+        // PDF 가져오기 설정 창에서 취소했다: 오류가 아니다. 편집기는 앞 문서를 그대로 들고 있으니 앞 문서·앞 단계로 되돌린다
+        // (PDF 세션을 남기면 "편집기를 열지 못했습니다" 화면에 저장 단추가 켜진 채 갇힌다)
+        setSession(back.session);
+        setStep(back.session ? back.step : "compose");
+        toast("PDF 가져오기를 취소했습니다.", "info");
+      } else {
+        if (!loaded && client.current) stopEditor(OPEN_FAILED);
+        // 가져오지 못한 PDF 는 "고치지 않은 그대로 저장"할 한글 문서가 없다: 세션을 남기지 않고 작성 단계로
+        if (!loaded && extOf(path) === "pdf") { setSession(null); setStep("compose"); }
+        toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
+      }
     } finally {
       opening.current = false;
       setBusyText("");
     }
-  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast, dropRecovery]);
+  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast, dropRecovery, session, step]);
 
   // 트레이 "완전 종료" 전에 편집 중인 문서를 묻는다
   useEffect(() => onQuitGuard(() => settleCurrent("앱을 끄기 전에")), [settleCurrent]);

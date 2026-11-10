@@ -130,7 +130,8 @@ function RewriteTab() {
     setSource(r.text);
     setOut("");
     setReplaced(false);
-    if (!r.text.trim()) throw new Error("편집기에서 고칠 글을 고르거나, 고칠 문단에 커서를 두세요.");
+    // 표 칸·글상자 안에서는 편집기가 문단을 알려 주지 않는다 (기안문 머리·결재란도 표다)
+    if (!r.text.trim()) throw new Error(r.target ? "커서가 있는 문단이 비어 있습니다. 고칠 글이 있는 문단에 커서를 두세요." : "본문 문단에 커서를 두고 다시 누르세요. 표 칸 안의 글은 가져올 수 없으니 복사해서 아래 칸에 붙여 넣으세요.");
   });
   const run = () => {
     setOut("");

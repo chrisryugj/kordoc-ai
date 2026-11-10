@@ -167,6 +167,46 @@ describe('convert 그림', () => {
   }, 60_000);
 });
 
+describe('convert 그림 형식', () => {
+  /** 24비트 BMP (아래에서 위로, 줄마다 4바이트 맞춤) */
+  const makeBmp = (w: number, h: number): Buffer => {
+    const row = Math.ceil((w * 3) / 4) * 4;
+    const buf = Buffer.alloc(54 + row * h);
+    buf.write('BM', 0, 'latin1');
+    buf.writeUInt32LE(buf.length, 2);
+    buf.writeUInt32LE(54, 10);
+    buf.writeUInt32LE(40, 14);
+    buf.writeInt32LE(w, 18);
+    buf.writeInt32LE(h, 22);
+    buf.writeUInt16LE(1, 26);
+    buf.writeUInt16LE(24, 28);
+    buf.writeUInt32LE(row * h, 34);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) buf.writeUInt8((x * 7 + y * 13) % 256, 54 + y * row + x * 3 + (x % 3));
+    return buf;
+  };
+
+  it('마크다운으로 내보낼 때 브라우저가 못 그리는 BMP 만 PNG 로, JPEG 사진은 바이트 그대로', async () => {
+    const sharp = (await import('sharp')).default;
+    const jpeg = await sharp(await makePng(320, 200, 'PHOTO')).jpeg({ quality: 80 }).toBuffer();
+    const hwpx = join(env.work, '사진과비트맵.hwpx');
+    writeFileSync(hwpx, Buffer.from(await markdownToHwpx('# 그림\n\n![사진](photo.jpg)\n\n![옛 그림](old.bmp)', { images: { 'photo.jpg': jpeg, 'old.bmp': makeBmp(64, 40) } })));
+    const r = await call('convert', { path: hwpx, format: 'md' });
+    const dir = join(env.out, 'images', '사진과비트맵');
+    const files = readdirSync(dir).sort();
+    const kinds = files.map((f) => {
+      const b = readFileSync(join(dir, f));
+      return b[0] === 0xff && b[1] === 0xd8 ? 'jpeg' : b[0] === 0x89 && b[1] === 0x50 ? 'png' : b[0] === 0x42 && b[1] === 0x4d ? 'bmp' : 'other';
+    });
+    expect(kinds.sort()).toEqual(['jpeg', 'png']);
+    // JPEG 은 다시 인코딩하지 않는다 (무손실 PNG 로 바꾸면 몇 배로 커진다)
+    const kept = files.find((f) => readFileSync(join(dir, f))[0] === 0xff)!;
+    expect(readFileSync(join(dir, kept)).equals(jpeg)).toBe(true);
+    // 글의 그림 자리도 저장한 파일 이름과 같다
+    for (const f of files) expect(r.content).toContain(f);
+    expect(r.content).not.toMatch(/\.bmp\)/);
+  }, 60_000);
+});
+
 describe('extract_images', () => {
   it('문서 속 그림을 폴더로', async () => {
     const png = await makePng(120, 60);
@@ -177,13 +217,13 @@ describe('extract_images', () => {
     expect(readdirSync(r.output_dir)).toHaveLength(1);
   });
 
-  it('빈 판(한 색 그림)은 꺼내지 않는다', async () => {
+  it('한 색 그림도 꺼낸다 (흰 로고·색 견본처럼 뜻 있는 그림일 수 있다)', async () => {
     const sharp = (await import('sharp')).default;
-    const blank = await sharp({ create: { width: 200, height: 80, channels: 3, background: '#ffffff' } }).png().toBuffer();
-    const hwpx = join(env.work, '빈그림문서.hwpx');
-    writeFileSync(hwpx, Buffer.from(await markdownToHwpx('# 그림\n\n![로고](logo.png)\n\n![빈 판](blank.png)', { images: { 'logo.png': await makePng(120, 60), 'blank.png': blank } })));
+    const chip = await sharp({ create: { width: 200, height: 80, channels: 3, background: '#ffffff' } }).png().toBuffer();
+    const hwpx = join(env.work, '색견본문서.hwpx');
+    writeFileSync(hwpx, Buffer.from(await markdownToHwpx('# 그림\n\n![로고](logo.png)\n\n![색 견본](chip.png)', { images: { 'logo.png': await makePng(120, 60), 'chip.png': chip } })));
     const r = await call('extract_images', { path: hwpx });
-    expect(r.count).toBe(1);
+    expect(r.count).toBe(2);
   });
 
   it('그림 없는 문서는 안내 오류, allow_empty(일괄 처리)면 빈 결과', async () => {
@@ -220,6 +260,9 @@ describe('to_hwpx', () => {
     expect(b.results.map((x: { note?: string }) => x.note)).toEqual(['보고서 서식', '꾸밈 없이']);
     // 규칙: 계획서·회의록·보도자료·공고, 수신만 있고 제목·시행이 없으면 기안문으로 보지 않음
     expect(guessPreset('# 2027 업무 계획\n\n□ 목표\n○ 가\n○ 나\n□ 과제\n')).toBe('plan');
+    // 제목 표시(#)가 없고 맨 위가 그림(로고)이어도 그 아래 첫 글 줄을 제목으로 본다
+    expect(guessPreset('![image](image_001.png)\n\n2027 업무 계획\n\n□ 목표\n○ 가\n○ 나\n□ 과제\n')).toBe(guessPreset('2027 업무 계획\n\n□ 목표\n○ 가\n○ 나\n□ 과제\n'));
+    expect(guessPreset('![image](image_001.png)\n\n3분기 회의록\n\n참석자: 홍길동')).toBe('minutes');
     expect(guessPreset('# 3분기 회의록\n\n참석자: 홍길동')).toBe('minutes');
     expect(guessPreset('# 보도자료\n\n보도 일시: 2026. 10. 1.')).toBe('press');
     expect(guessPreset('# 하반기 교육 안내\n\n아래와 같이 교육을 엽니다.')).toBe('notice');
