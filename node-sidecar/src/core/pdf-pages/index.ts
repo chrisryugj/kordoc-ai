@@ -30,8 +30,8 @@ const norm = (deg: number) => (((Math.round(deg / 90) * 90) % 360) + 360) % 360;
 // ── 원본 열기 ──
 
 let swept = false;
-/** 하루 지난 임시 PDF 지우기 (켤 때마다 한 번) */
-function sweepWorkDir() {
+/** 하루 지난 임시 PDF(문서 사본) 지우기 (켤 때마다 한 번). 엔진이 뜰 때도 부른다: PDF 작업을 다시 하지 않는 PC 에 사본이 계속 남지 않게 */
+export function sweepWorkDir() {
   if (swept) return;
   swept = true;
   try {

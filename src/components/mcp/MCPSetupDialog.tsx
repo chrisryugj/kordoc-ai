@@ -187,7 +187,10 @@ export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogPro
 
               </>
             ) : (
-              <div className="kd-mcp-wait" data-tone="err">이 PC의 AI 도구를 찾지 못했습니다. 창을 닫았다가 다시 열어 보세요.</div>
+              <div className="kd-mcp-wait" data-tone="err">
+                이 PC의 AI 도구를 찾지 못했습니다.
+                <Button size="sm" variant="secondary" onClick={() => void detect()} disabled={loading}><RefreshCw size={13} className={loading ? "kd-spin" : undefined} /> 다시 찾기</Button>
+              </div>
             )
           )}
 
@@ -204,7 +207,7 @@ export function MCPSetupDialog({ isOpen, onClose, showToast }: MCPSetupDialogPro
                   {env.clients.map((c) => <PathRow key={c.id} label={c.name} path={c.config_path} />)}
                 </div>
               ) : !loading && (
-                <p className="kd-mcp-hint">설정 파일 위치를 찾지 못했습니다. 자동 연결 탭에서 다시 찾기를 눌러 보세요.</p>
+                <p className="kd-mcp-hint">설정 파일 위치를 찾지 못했습니다. 자동 연결 탭에서 다시 찾기를 누르세요.</p>
               )}
             </>
           )}

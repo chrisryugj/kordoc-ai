@@ -50,7 +50,12 @@ const readBody = (req: IncomingMessage) => new Promise<string>((resolve) => {
   req.on('end', () => resolve(s));
 });
 
-async function sse(res: ServerResponse, text: string, reasoning?: string, stallMs?: number) {
+/** 답 글 끝에 이 표지를 붙이면 길이 한도에서 끊긴 답(finish_reason: length)으로 보낸다 */
+export const CUT = '⟪길이 한도⟫';
+
+async function sse(res: ServerResponse, raw: string, reasoning?: string, stallMs?: number) {
+  const cut = raw.endsWith(CUT);
+  const text = cut ? raw.slice(0, -CUT.length) : raw;
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const send = (delta: Record<string, unknown>) => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
   if (reasoning) for (const part of reasoning.match(/.{1,4}/gs) ?? []) send({ reasoning: part });
@@ -60,6 +65,7 @@ async function sse(res: ServerResponse, text: string, reasoning?: string, stallM
     if (i === 0 && stallMs) await new Promise((r) => setTimeout(r, stallMs));
   }
   if (res.destroyed) return;
+  res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: cut ? 'length' : 'stop' }] })}\n\n`);
   res.write('data: [DONE]\n\n');
   res.end();
 }

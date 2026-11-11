@@ -71,8 +71,10 @@ export function tighten(text: string, lines = false): { text: string; at: number
       while (gap(text[j])) j++;
       const prev = out.at(-1) ?? '';
       const next = text[j] ?? '';
-      // 줄을 넘어 붙일 때, 다음 줄이 "- " 로 시작하면 목록 표지다 ("총 인원 900101" / "- 1234567명 참석" 을 주민번호로 잇지 않는다)
-      const listItem = lines && next === '-' && /[\n\r]/.test(text.slice(i, j)) && /\s/.test(text[j + 1] ?? '');
+      // 줄을 넘어 붙일 때, 다음 줄이 "- 숫자+세는 말"이면 목록 항목이다 ("총 인원 900101" / "- 1234567명 참석" 을 주민번호로 잇지 않는다).
+      // 세는 말이 없으면 번호가 줄표 앞에서 줄이 바뀐 것일 수 있어 잇는다 ("900101" / "- 1234567", "010-1234" / "- 5678")
+      const listItem = lines && next === '-' && /[\n\r]/.test(text.slice(i, j))
+        && /^-\s+\d[\d,]*\s*(?:명|건|개|회|원|부|매|쪽|일|시간|분|%|퍼센트|위|차|곳|대|권)/.test(text.slice(j, j + 40));
       const joins = listItem ? false : prev === '@' || next === '@'
         || (next === '-' && /\d/.test(prev))
         || (prev === '-' && /\d/.test(next) && /\d/.test(out.at(-2) ?? ''));

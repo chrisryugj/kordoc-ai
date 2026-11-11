@@ -632,9 +632,17 @@ pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     if rest[0] == "--shell" && rest.len() >= 3 && is_action(rest[1]) {
         return Some((rest[1].clone(), rest[2..].iter().map(|s| unquote_root(s)).collect()));
     }
+    // 주소(kordoc://…)로 켜진 실행은 그 주소 하나만 다룬다. 주소 속 `|` 나 따옴표로 갈라져 나온 나머지 토큰을 파일로 보면
+    // 링크 하나로 임의 파일이 "앱에서 열기"로 뜬다 (single-instance 플러그인은 인자를 `|` 로 이어 보내고 다시 `|` 로 자른다)
+    if rest.iter().any(|a| a.starts_with("kordoc:")) {
+        return None;
+    }
+    // 네트워크 경로(\\서버\공유)는 있는지 찔러 보지도 않는다: is_file() 만으로 그 서버에 접속이 나가고(계정 인증이 따라간다),
+    // 응답 없는 서버면 이 호출이 도는 화면 스레드가 접속 시간 초과까지 멈춘다. 엔진도 이런 경로는 열지 않는다
+    let unc = |a: &str| a.starts_with("\\\\") || a.starts_with("//");
     let files: Vec<String> = rest
         .iter()
-        .filter(|a| !a.starts_with("-") && !a.starts_with("kordoc:") && std::path::Path::new(a.as_str()).is_file())
+        .filter(|a| !a.starts_with("-") && !unc(a) && std::path::Path::new(a.as_str()).is_file())
         .map(|s| s.to_string())
         .collect();
     (!files.is_empty()).then(|| ("open".to_string(), files))
@@ -997,6 +1005,18 @@ mod tests {
         let a = vec!["app".into(), "--shell".into(), "redact".into(), "C:\\a.hwp".into()];
         assert_eq!(parse_args(&a), Some(("redact".into(), vec!["C:\\a.hwp".into()])));
         assert_eq!(parse_args(&["app".into(), "--shell".into(), "evil".into(), "x".into()]), None);
+    }
+
+    #[test]
+    fn deep_link_launch_never_opens_other_tokens_as_files() {
+        // 실제로 있는 파일을 인자로 줘도, 주소(kordoc:)가 섞인 실행이면 파일로 열지 않는다
+        let me = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        assert_eq!(parse_args(&["app".into(), me.clone()]), Some(("open".into(), vec![me.clone()])));
+        assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), me.clone()]), None);
+        assert_eq!(parse_args(&["app".into(), me.clone(), "kordoc://open?path=a".into()]), None);
+        // 네트워크 경로는 찔러 보지 않고 버린다
+        assert_eq!(parse_args(&["app".into(), "\\\\192.0.2.1\\share\\a.hwp".into()]), None);
+        assert_eq!(parse_args(&["app".into(), "//192.0.2.1/share/a.hwp".into()]), None);
     }
 
     #[test]

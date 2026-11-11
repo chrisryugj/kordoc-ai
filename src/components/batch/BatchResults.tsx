@@ -15,10 +15,16 @@ function mark(excerpt: string, query: string) {
   return parts.flatMap((p, i) => (i === 0 ? [p] : [<mark key={i} className="kd-mark">{query}</mark>, p]));
 }
 
+/** 결과 객체마다 번호 (같은 실행의 결과는 같은 번호) */
+const ids = new WeakMap<object, number>();
+let idSeq = 0;
+const idOf = (o: object) => ids.get(o) ?? (ids.set(o, ++idSeq), idSeq);
+
 export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLate: () => void }) {
   const { openDocs } = useApp();
   if (outcome.kind === "gather") return <GatherResult result={outcome.result} message={outcome.message} onAddLate={onAddLate} />;
-  if (outcome.kind === "mailmerge") return <MailMergeResult result={outcome.result} message={outcome.message} />;
+  // 다시 돌린 결과는 새로 그린다: 그대로 두면 앞 묶음으로 만든 합본·PDF·인쇄 결과가 새 묶음 옆에 남는다
+  if (outcome.kind === "mailmerge") return <MailMergeResult key={idOf(outcome)} result={outcome.result} message={outcome.message} />;
   if (outcome.kind === "receipt") {
     return (
       <div className="flex flex-col gap-3">

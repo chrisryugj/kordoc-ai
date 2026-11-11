@@ -99,9 +99,18 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
     const { screen: now, docs: open } = where.current;
     const here = now === "workbench" && open.some((d) => d.path === doc.path);
     setOpened(here);
-    if (here) openDocs([r.output_path]);
+    // 사본을 열면 이 패널(원본 문서의 자리)은 가려진다. 남은 의심 곳·엔진 안내가 같이 숨으면 다 끝난 것처럼 보이니 알림으로도 띄운다
+    const left = r.residual > 0
+      ? `가린 사본에 아직 확인할 곳이 ${num(r.residual)}곳 있습니다. 내보내기 전에 사본을 직접 읽어 확인하세요.`
+      : r.notes?.[0] ?? "";
+    if (here) {
+      openDocs([r.output_path]);
+      if (left) toast(left, "error");
+    } else if (left) toast(`가린 사본을 저장했습니다(${baseName(r.output_path)}). ${left}`, "error");
     else toast(`가린 사본을 저장했습니다: ${baseName(r.output_path)}`, "success");
   });
+  // 찾는 중에 가릴 것을 바꾸면 도는 찾기도 끊는다. 결과만 비우면 옛 규칙의 표가 떠서, 표에 보인 것과 저장되는 것이 어긋난다
+  const changed = () => { preview.cancel(); preview.reset(); };
 
   useEffect(() => {
     if (autoPreview && autoPreview !== lastAuto.current) { lastAuto.current = autoPreview; runPreview(); }
@@ -118,11 +127,11 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
       <Field label="쓰임">
         <div className="flex flex-wrap gap-1.5 pb-1">
           <button type="button" className="kd-chip kd-chip-lg" aria-pressed={people}
-            onClick={() => { setRules(new Set(DISCLOSURE_RULES)); preview.reset(); }}>
+            onClick={() => { setRules(new Set(DISCLOSURE_RULES)); changed(); }}>
             정보공개 공개본 (이름·주소까지)
           </button>
           <button type="button" className="kd-chip kd-chip-lg" aria-pressed={!people && !rules.has("name") && !rules.has("address")}
-            onClick={() => { setRules(new Set(RULES.filter((x) => x.on).map((x) => x.id))); preview.reset(); }}>
+            onClick={() => { setRules(new Set(RULES.filter((x) => x.on).map((x) => x.id))); changed(); }}>
             번호만 가리기
           </button>
         </div>
@@ -132,10 +141,10 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
       </Field>
       <div className="kd-adv flex flex-col gap-4">
       <Field label="가릴 것">
-        <RuleChecks rules={rules} onChange={(n) => { setRules(n); preview.reset(); }} />
+        <RuleChecks rules={rules} onChange={(n) => { setRules(n); changed(); }} />
       </Field>
       <Field label="남길 것" hint="쉼표로 나눠 적습니다. 설정의 기관 전화·팩스와 내 이름을 미리 넣었습니다.">
-        <input className="kd-input" value={keepValue} onChange={(e) => { setKeepText(e.target.value); preview.reset(); }} placeholder="예: 031-000-0000, 김가온" aria-label="남길 것" />
+        <input className="kd-input" value={keepValue} onChange={(e) => { setKeepText(e.target.value); changed(); }} placeholder="예: 031-000-0000, 김가온" aria-label="남길 것" />
       </Field>
       {!asPdf && (
         <Field label="가림 글자" hint="가린 자리에 넣을 글자 하나">

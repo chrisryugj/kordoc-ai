@@ -5,7 +5,7 @@
  */
 
 import { lintGongmunText, lintMuncheText } from 'kordoc';
-import { ask, contextCharBudget } from '../../infra/llm/index.js';
+import { ask, contextCharBudget, restoreMasked } from '../../infra/llm/index.js';
 import { sendProgress, sendToken } from '../../infra/progress.js';
 import { chunkText } from './docs.js';
 import { cleanOutput, FIDELITY_RULES, tokensFor } from './prompts.js';
@@ -87,11 +87,14 @@ export async function rewriteText(
     const r = await ask({
       system: SYSTEM,
       messages: [{ role: 'user', content: `${instructionFor(mode, params.instruction, pieces[i])}\n\n[원문]\n${pieces[i]}` }],
-      maxTokens: Math.min(MAX_OUT_TOKENS, tokensFor(pieces[i].length * factor) + 200),
+      maxTokens: Math.min(MAX_OUT_TOKENS, tokensFor(pieces[i].length * factor * 1.3) + 300),
       signal,
     });
+    // 답이 길이 한도에서 끊겼으면 넣지 않는다: 끊긴 조각을 다음 조각과 이으면 가운데가 빠진 글이 문서에 들어간다
+    if (r.truncated) throw new Error('AI 답이 길이 한도에 걸려 중간에서 끊겼습니다. 글을 더 짧게 골라 나눠서 다시 시도하세요.');
     redacted += r.redacted;
-    outs.push(cleanOutput(r.text, pieces[i]).replace(/[ \t]+$/gm, ''));
+    // 보내기 전에 가린 전화·전자우편·주소는 답에서 원래 값으로 되돌린다 (가린 채로 문서에 바꿔 넣지 않게)
+    outs.push(cleanOutput(r.redacted ? restoreMasked(pieces[i], r.text) : r.text, pieces[i]).replace(/[ \t]+$/gm, ''));
   }
   // 원문에서 조각 사이에 있던 구분자(빈 줄·줄바꿈·빈칸) 그대로 잇는다
   let result = outs.map((o, i) => o + (i < outs.length - 1 ? chunks[i].sep : '')).join('').trim();

@@ -51,22 +51,29 @@ function excerpt(text: string, start: number, end: number): string {
   return `${a > 0 ? '…' : ''}${text.slice(a, b).replace(/\s+/g, ' ').trim()}${b < text.length ? '…' : ''}`;
 }
 
+const ENTITY: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
+/** 마크다운 이스케이프(\~ \* \_ …)와 HTML 엔티티를 글자로 */
+const plainMarks = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!|~<>])/g, '$1').replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_m, k: string) => ENTITY[k]);
+
 /** 공백을 뺀 글에서 찾고 원래 위치로 되돌려 앞뒤 문맥을 붙인다 */
 export function findHits(chunks: Entry['chunks'], query: string, max: number): Array<{ page?: number; excerpt: string }> {
   const q = [...query].filter((ch) => !isSpace(ch)).map(fold).join('');
   const hits: Array<{ page?: number; excerpt: string }> = [];
   if (!q) return hits;
   for (const c of chunks) {
+    // 찾는 글은 마크다운이다: "10:00\~17:00" · "&lt;KTX 이용 안내&gt;" · "R&amp;D" 처럼 적혀 있어, 그대로 찾으면
+    // 물결·꺾쇠·& 가 든 낱말은 문서에 있어도 0건이 된다 → 표기를 풀고 찾는다
+    const text = plainMarks(c.text);
     let compact = '';
     const pos: number[] = [];
-    for (let i = 0; i < c.text.length; i++) {
-      const ch = c.text[i];
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
       if (isSpace(ch)) continue;
       compact += fold(ch);
       pos.push(i);
     }
     for (let at = compact.indexOf(q); at >= 0 && hits.length < max; at = compact.indexOf(q, at + q.length)) {
-      hits.push({ ...(c.page ? { page: c.page } : {}), excerpt: excerpt(c.text, pos[at], pos[at + q.length - 1] + 1) });
+      hits.push({ ...(c.page ? { page: c.page } : {}), excerpt: excerpt(text, pos[at], pos[at + q.length - 1] + 1) });
     }
     if (hits.length >= max) break;
   }
@@ -76,10 +83,10 @@ export function findHits(chunks: Entry['chunks'], query: string, max: number): A
 export async function searchFiles(
   p: { paths: string[]; query: string; max_hits?: number },
   signal: AbortSignal,
-): Promise<{ results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number }> {
+): Promise<{ results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number; truncated?: boolean }> {
   if (!p.query?.trim()) throw new Error('찾을 낱말을 적으세요.');
   const max = Math.min(Math.max(p.max_hits ?? 20, 1), 200);
-  const { files } = await scanPaths(p.paths);
+  const { files, truncated } = await scanPaths(p.paths);
   const results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }> = [];
   let searched = 0;
   let failed = 0;
@@ -95,5 +102,5 @@ export async function searchFiles(
       failed++;
     }
   }
-  return { results, searched, failed };
+  return { results, searched, failed, ...(truncated ? { truncated: true } : {}) };
 }

@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { LayoutGrid, ReceiptText } from "lucide-react";
+import { LayoutGrid, ReceiptText, RotateCcw } from "lucide-react";
 import type { RpcResult } from "../lib/contract";
 import { useApp } from "../state/app";
 import { useTask } from "../hooks/useTask";
@@ -46,6 +46,8 @@ export function ReceiptCard({ paths }: { paths: string[] }) {
       <main className="kd-card-body">
         {(!started || read.busy) && <Working label="영수증을 읽는 중" progress={read.progress} onCancel={read.busy ? read.cancel : undefined} />}
         <ErrorLine message={read.error} />
+        {/* 읽기가 실패했거나 멈췄으면 여기서 다시 읽을 수 있게 (없으면 본창으로 넘기는 길만 남는다) */}
+        {started && !read.busy && !read.result && <div><Button size="sm" onClick={() => setStarted(false)}><RotateCcw size={13} /> 다시 읽기</Button></div>}
         {read.result && (
           <ReceiptEditor receipts={read.result.receipts} aiUsed={read.result.ai_used} warnings={read.result.warnings} autoCopy />
         )}

@@ -60,7 +60,7 @@ export function getProvider(): LlmProvider {
 }
 
 /** OpenAI 호환 주소가 이름이면 실제 주소를 풀어 둔다 (내부 DNS 이름을 클라우드로 오판하지 않게) */
-async function primeHost(): Promise<void> {
+export async function primeHost(): Promise<void> {
   const { ai } = getSettings();
   if (ai.provider === 'openai') await resolveOpenAiHost(ai.openai.base_url);
   if (ai.provider === 'local') await resolveOpenAiHost(ai.local.base_url);
@@ -87,6 +87,25 @@ export async function contextCharBudget(opts: { reserveTokens?: number; signal?:
   return Math.max(1500, Math.floor((tokens - (opts.reserveTokens ?? 2048)) * CHARS_PER_TOKEN));
 }
 
+/** 외부 AI 로 보낼 때 가린 값("02-●●●-7114")이 답에 그대로 실려 오면 원래 값으로 되돌린다. source 는 보낸 글(가리기 전).
+ *  고쳐 쓴 글·칸 값은 문서에 그대로 들어가므로, 되돌리지 않으면 전화·전자우편·주소가 ● 로 바뀐 문서가 만들어진다.
+ *  같은 가림 모양이 서로 다른 값에서 나왔으면(끝자리가 같은 전화 둘) 어느 값인지 알 수 없어 그 모양은 그대로 둔다 */
+export function restoreMasked(source: string, answer: string): string {
+  if (!answer.includes('●')) return answer;
+  const r = redactMarkdown(source, { rules: CLOUD_RULES });
+  const byMask = new Map<string, Set<string>>();
+  for (const h of r.hits) {
+    if (!h.masked.includes('●')) continue;
+    if (!byMask.has(h.masked)) byMask.set(h.masked, new Set());
+    byMask.get(h.masked)!.add(source.slice(h.index, h.index + h.length));
+  }
+  let out = answer;
+  for (const [masked, originals] of [...byMask].sort((a, b) => b[0].length - a[0].length)) {
+    if (originals.size === 1) out = out.split(masked).join([...originals][0]);
+  }
+  return out;
+}
+
 export interface AskOptions {
   system?: string;
   messages: ChatMessage[];
@@ -102,7 +121,7 @@ export interface AskOptions {
 /** 공급자 호출 — 클라우드면 설정에 따라 개인정보를 가린 뒤 보낸다.
  *  system 은 가리지 않으니 고정 지시문만 넣고, 문서·기관 정보 같은 내용은 messages 로 보낼 것.
  *  구독 프로그램(Claude Code·Codex)은 system 도 대화와 같은 글로 넘어가므로 system 까지 가린다. */
-export async function ask(opts: AskOptions): Promise<{ text: string; redacted: number }> {
+export async function ask(opts: AskOptions): Promise<{ text: string; redacted: number; truncated?: boolean }> {
   await primeHost();
   const p = getProvider();
   const { ai } = getSettings();
@@ -127,6 +146,8 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
   const guard = new AbortController();
   let got = 0;
   let over = false;
+  /** 답이 길이 한도에서 끊겼다 (부른 쪽이 본다: 고쳐 쓰기는 끊긴 글을 문서에 넣으면 안 된다) */
+  let truncated = false;
   const count = (t: string) => {
     got += t.length;
     if (got > cap && !over) { over = true; guard.abort(); }
@@ -140,6 +161,7 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
     signal: AbortSignal.any([opts.signal, guard.signal]),
     // 화면으로 흘려보내지 않는 호출(stream: false)도 받는 글자는 센다: 끝난 뒤에만 보면 되풀이하는 답을 끝까지 기다리게 된다
     onToken: (t) => { count(t); if (!over && opts.stream !== false) sendToken(t); },
+    onTruncated: () => { truncated = true; },
   };
   let text: string;
   try {
@@ -149,7 +171,7 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
     throw err;
   }
   if (over || text.length > cap) throw new Error(ANSWER_TOO_LONG);
-  return { text, redacted };
+  return { text, redacted, ...(truncated ? { truncated: true } : {}) };
 }
 
 export const ANSWER_TOO_LONG = 'AI 답이 끝없이 길어져 멈췄습니다. 같은 말을 되풀이했을 수 있습니다. 다시 시도하거나 다른 모델로 바꿔 보세요.';

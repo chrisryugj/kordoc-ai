@@ -1,6 +1,6 @@
 /** 편집 보조 패널 — AI 대화(열린 문서를 말로 고치기) · 칸 채우기 · 점검(표기법 검사·법령 근거 확인·팀장 눈으로 검토) · AI 다듬기 (편집기와 postMessage 로 주고받음) */
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ClipboardCheck, Download, Replace, Scale, Sparkles, SpellCheck, Square, Undo2 } from "lucide-react";
 import type { LintFinding, ReviewIssue, RpcResult } from "../../lib/contract";
 import { useApp } from "../../state/app";
@@ -28,6 +28,8 @@ function FieldsTab() {
   const [fields, setFields] = useState<FormField[] | null>(null);
   const [initial, setInitial] = useState<Record<string, string>>({});
   const [nonce, setNonce] = useState(0);
+  /** 이 탭에서 편집기에 마지막으로 넣은 칸 값 */
+  const sent = useRef<Record<string, string>>({});
   const load = useTask<void>();
   const put = useTask<{ applied: string[]; missing: string[] }>();
 
@@ -36,6 +38,7 @@ function FieldsTab() {
     const vals = names.length ? (await call("get_fields", { names })).values : {};
     setFields(names.map((n) => ({ name: n })));
     setInitial(vals);
+    sent.current = {};
     setNonce((x) => x + 1);
   });
   useEffect(() => {
@@ -54,10 +57,16 @@ function FieldsTab() {
         <TemplateForm key={nonce} compact fields={fields} initial={initial} finishLabel="편집기에 넣기" busy={put.busy}
           onFinish={(values) => void put.run(async () => {
             // 이 탭에서 바꾼 칸만 넣는다. 손대지 않은 칸까지 보내면, 그사이 편집기에서 직접 쓴 글이 문서를 열 때 읽어 둔 값(빈 값)으로 덮인다
-            const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => (v ?? "") !== (initial[k] ?? "")));
+            const edited = Object.entries(values).filter(([k, v]) => (v ?? "") !== (initial[k] ?? ""));
+            // 앞서 넣은 그 값 그대로인 칸은 다시 보내지 않는다(그사이 편집기에서 그 칸을 직접 고쳤으면 덮인다).
+            // 다만 편집기에서 실행 취소해 문서를 열 때 값으로 돌아간 칸은 다시 넣는다
+            const again = edited.filter(([k, v]) => sent.current[k] === (v ?? "")).map(([k]) => k);
+            const now = again.length ? (await call("get_fields", { names: again })).values : {};
+            const changed = Object.fromEntries(edited.filter(([k, v]) => sent.current[k] !== (v ?? "") || (now[k] ?? "") === (initial[k] ?? "")));
             if (!Object.keys(changed).length) return { applied: [], missing: [] };
-            // 기준(문서를 열 때 읽은 값)은 넣은 뒤에도 그대로 둔다: 편집기에서 실행 취소한 뒤 다시 누르면 같은 값을 다시 넣을 수 있어야 한다
-            return call("put_fields", { values: changed });
+            const r = await call("put_fields", { values: changed });
+            for (const k of r.applied) sent.current[k] = changed[k] ?? "";
+            return r;
           })} />
       )}
       <ErrorLine message={put.error} />

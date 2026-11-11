@@ -194,6 +194,14 @@ export async function lawCheck(p: Params, signal?: AbortSignal, opts: Options = 
         if (row) { hit = { name, row }; break; }
         seen.push(...rows);
       }
+      // 따옴표 없이 쓴 법령명은 어디서 시작하는지 몰라 후보 몇 개만 묻는다. 후보가 정확히 맞지 않아도, 찾아진 법령 가운데
+      // 인용한 글의 끝 어절들이 그 이름과 같으면 그 법령이다 ("…하나인 공공기관의 정보공개에 관한 법률" → 공공기관의 정보공개에 관한 법률)
+      if (!hit && names.length > 1) {
+        const words = first.split(/\s+/);
+        const tails = new Set(words.map((_, k) => normName(words.slice(k).join(' '))));
+        const row = seen.filter((r) => r.current && tails.has(normName(r.name))).sort((a, b) => normName(b.name).length - normName(a.name).length)[0];
+        if (row) hit = { name: row.name, row };
+      }
       netFails = 0;
       if (hit) {
         if (!needArticles) return { kind: 'found', ...hit };
@@ -271,6 +279,7 @@ export async function lawCheck(p: Params, signal?: AbortSignal, opts: Options = 
     const a = r.arts?.[articleKey(f.jo, f.branch)];
     let c: LawCitation;
     let nowText: string | undefined;
+    let nowSig: string | undefined;
     if (!a || a.deleted) {
       c = {
         ...base, status: 'article_missing', missing: 'article', ...(a ? { article_text: a.text } : {}), url: lawUrl(law),
@@ -283,6 +292,7 @@ export async function lawCheck(p: Params, signal?: AbortSignal, opts: Options = 
         c = { ...base, status: 'article_missing', missing: hit.missing, ...shared, ...(hit.text ? { cited_text: hit.text } : {}), reason: hit.reason };
       } else {
         nowText = hit.text;
+        nowSig = hit.sig;
         c = { ...base, status: 'ok', ...shared, cited_text: hit.text };
         const m = sentence ? wordMatch(sentence, [a.title ?? '', hit.text ?? ''].join(' '), cites) : undefined;
         if (m) c.match = m;
@@ -304,6 +314,9 @@ export async function lawCheck(p: Params, signal?: AbortSignal, opts: Options = 
         c.changed_since = { kind: 'deleted_since', reason: `${asOfLabel} 당시에는 있었으나 지금은 ${c.missing === 'article' && !a ? '없는' : '삭제된'} ${unit}입니다.`, then_text: thenText };
       } else if (thenText !== undefined && nowText !== undefined && !sameText(thenText, nowText)) {
         c.changed_since = { kind: 'amended', reason: `${asOfLabel} 이후 개정되었습니다(현행과 다름).`, then_text: thenText, ...wordDiff(thenText, nowText) };
+      } else if (thenText !== undefined && nowText !== undefined && th?.sig && nowSig && th.sig !== nowSig && (thenText.includes('…') || nowText.includes('…'))) {
+        // 여기 보이는 글은 길어서 잘린 것이다. 잘린 글은 같아도 전체 글(지문)이 다르면 뒤쪽이 개정된 것이다
+        c.changed_since = { kind: 'amended', reason: `${asOfLabel} 이후 개정되었습니다(현행과 다름). 조문이 길어 바뀐 곳이 여기 보이는 부분 밖에 있습니다. 법제처에서 전문을 확인하세요.`, then_text: thenText };
       } else if (thenText === undefined && nowText === undefined && c.reason) {
         c.reason = `${c.reason} ${asOfLabel} 당시에도 없었습니다.`;
       }

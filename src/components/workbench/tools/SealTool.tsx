@@ -13,14 +13,16 @@ import { Field } from "../../common/Field";
 import { ErrorLine, Note, SavedFile, Working } from "../../common/Status";
 
 export function SealTool({ doc }: ToolProps) {
-  const { settings, go } = useApp();
-  const [image, setImage] = useState(settings?.org.seal_image ?? "");
+  const { settings, openSettings } = useApp();
+  // 따로 고른 그림이 없으면 설정에 등록한 그림을 쓴다 (설정에서 등록하고 돌아오면 바로 반영되게 처음 한 번만 읽지 않는다)
+  const [picked, setImage] = useState("");
+  const image = picked || settings?.org.seal_image || "";
   const [anchor, setAnchor] = useState("(인)");
   const task = useTask<{ output_path: string; placed: number }>();
 
   return (
     <div className="flex flex-col gap-4">
-      <Field label="도장 그림 (PNG)" hint={settings?.org.seal_image ? "내 기관 정보에 등록한 그림입니다" : undefined}>
+      <Field label="도장 그림 (PNG)" hint={image && image === settings?.org.seal_image ? "내 기관 정보에 등록한 그림입니다" : undefined}>
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <span className="kd-path flex-1">{image ? baseName(image) : "아직 고르지 않았습니다"}</span>
           <button type="button" className="kd-link kd-small flex-none" onClick={() => void pickFiles({ multiple: false, filters: FILTERS.image }).then((p) => p[0] && setImage(p[0]))}>
@@ -29,7 +31,7 @@ export function SealTool({ doc }: ToolProps) {
         </div>
       </Field>
       {!settings?.org.seal_image && (
-        <p className="kd-small kd-muted">자주 쓰면 <button type="button" className="kd-link" onClick={() => go("settings")}>내 기관 정보</button>에 등록해 두세요.</p>
+        <p className="kd-small kd-muted">자주 쓰면 <button type="button" className="kd-link" onClick={() => openSettings("set-org")}>내 기관 정보</button>에 등록해 두세요.</p>
       )}
       <Field label="찍을 자리 글자" hint="예: (인), 서명 또는 인, 직인">
         <input className="kd-input" value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="찍을 자리 글자" />

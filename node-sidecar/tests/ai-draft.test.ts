@@ -57,6 +57,15 @@ describe('cleanOutput — 원문 보호', () => {
     expect(cleanOutput(reply)).toBe(reply);
     expect(cleanOutput('본문입니다.\n\n수정이 더 필요하시면 말씀해 주세요.')).toBe('본문입니다.');
   });
+
+  it('공문 본문의 첫 문장과 글 속 따옴표·낫표는 지우지 않는다', () => {
+    const letter = '요청하신 자료를 붙임과 같이 제출드립니다.\n\n붙임 현황 1부. 끝.';
+    expect(cleanOutput(letter)).toBe(letter);
+    expect(cleanOutput("'청렴'과 '공정'")).toBe("'청렴'과 '공정'");
+    expect(cleanOutput('「지방자치법」 및 「지방재정법」')).toBe('「지방자치법」 및 「지방재정법」');
+    expect(cleanOutput('"회의는 오늘 열립니다."')).toBe('회의는 오늘 열립니다.');
+    expect(cleanOutput('「회의는 오늘 열립니다.」')).toBe('회의는 오늘 열립니다.');
+  });
 });
 
 describe('chunkText', () => {
@@ -262,6 +271,12 @@ describe('ai_rewrite', () => {
     reply = (b) => (lastUser(b).includes('[지적]') ? '□ 체육대회 개최\n  ㅇ 4월 10일 개최 예정' : '□ 체육대회 개최\n  ㅇ 4월 10일에 개최합니다.');
     const r = await rewriteText({ text: '체육대회를 4월 10일에 개최합니다.', mode: 'gaejosik' }, signal());
     expect(r.text).toBe('□ 체육대회 개최\n  ㅇ 4월 10일 개최 예정');
+  });
+
+  it('답이 길이 한도에서 끊기면 끊긴 글을 돌려주지 않고 알린다 (가운데가 빠진 글이 문서에 들어가지 않게)', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    reply = () => `회의는 오늘 열리며 안건은${CUT}`;
+    await expect(rewriteText({ text: '회의는 오늘 열린다고 하며 안건은 세 가지라고 합니다.', mode: 'polish' }, signal())).rejects.toThrow(/길이 한도에 걸려 중간에서 끊겼습니다/);
   });
 
   it('custom 은 지시가 있어야 하고, 모르는 방식은 안내 오류', async () => {

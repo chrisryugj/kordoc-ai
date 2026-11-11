@@ -39,6 +39,21 @@ export function editorRoot(): string | null {
   return candidates.find((d) => existsSync(join(d, 'host.html')) && existsSync(join(d, 'studio', 'index.html'))) ?? null;
 }
 
+/** 편집기 페이지는 이 서버(같은 출처)의 것만 불러온다. 편집기 묶음에는 바깥 글꼴 주소와 AI 서비스 직접 호출 코드가 들어 있고
+ *  앱 창의 보안 정책은 iframe 안 요청에 미치지 않는다 → 그 코드가 돌더라도 통신 관문(net-guard)을 거치지 않고 밖으로 나가지 못하게 막는다 */
+export const EDITOR_CSP = [
+  "default-src 'self' data: blob:",
+  "script-src 'self' 'wasm-unsafe-eval' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data: blob:",
+  "connect-src 'self' data: blob:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ');
+
 let server: Server | null = null;
 let started: Promise<{ host_url: string; studio_version: string }> | null = null;
 
@@ -84,6 +99,7 @@ export function startEditorServer(): Promise<{ host_url: string; studio_version:
         'content-length': size,
         'cache-control': 'no-cache',
         'x-content-type-options': 'nosniff',
+        'content-security-policy': EDITOR_CSP,
       });
       if (req.method === 'HEAD') {
         res.end();

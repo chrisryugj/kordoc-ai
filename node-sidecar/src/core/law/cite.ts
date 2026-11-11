@@ -47,6 +47,9 @@ const LEAD_DROP = new Set([
   '에', '의', '에서', '으로', '로', '에게', '와', '과', '은', '는', '을', '를', '이를', '이는', '이에따라',
 ]);
 
+/** 법령명 안에는 오지 않고, 그 뒤에서 법령명이 시작하는 말 */
+const HARD_BREAK = /^(?:따라|따라서|의하여|의해|의거|의거하여|근거하여|관련하여|준하여)$/;
+
 const TOKEN = /[「『]([^」』\n]{1,80})[」』]|“([^”\n]{1,80})”|제\s?(\d{1,4})\s?조(?:\s?의\s?(\d{1,3}))?(?:\s?제\s?(\d{1,3})\s?항)?(?:\s?제\s?(\d{1,3})\s?호(?:\s?의\s?(\d{1,2}))?(?:\s?([가나다라마바사아자차카타파하])\s?목)?)?/g;
 const BOUNDARY = /[.,;:!?()[\]{}<>「」『』"'“”‘’|\n…]/;
 const ANAPHORA = /(?:^|[^가-힣])(같은|동)\s?(법률|법|영|령|시행령|규칙|시행규칙|규정|조례)(?:\s?(시행령|시행규칙))?\s*$/;
@@ -77,9 +80,11 @@ function unquotedNames(text: string, from: number, to: number): { names: string[
   for (const m of tail.matchAll(/\S+/g)) words.push({ w: m[0], at: from + cut + m.index });
   let i = 0;
   while (i < words.length - 1 && isClauseWord(words[i].w, words[i + 1]?.w)) i++;
+  // 가운데에 "…에 따라"·"…에 의하여" 같은 말이 있으면 법령명은 그 뒤에서 시작한다 ("…강화 계획에 따라 지방재정법 제32조의2")
+  for (let k = words.length - 2; k > i; k--) if (HARD_BREAK.test(words[k].w)) { i = k + 1; break; }
   const names: string[] = [];
   const starts: number[] = [];
-  for (let k = i; k < words.length && names.length < 4; k++) {
+  for (let k = i; k < words.length; k++) {
     const slice = words.slice(k).map((x) => x.w);
     if (slice.every((w) => GENERIC.has(w))) break;
     if (k > i && FRAGMENT_HEAD.test(slice[0])) continue;
@@ -87,6 +92,12 @@ function unquotedNames(text: string, from: number, to: number): { names: string[
     if (!isLawName(name)) continue;
     names.push(name);
     starts.push(words[k].at);
+  }
+  // 후보는 넷까지(긴 것 셋 + 가장 짧은 것). 긴 것부터 넷에서 끊으면 앞에 어절이 많은 문장에서 법령명 단독("지방재정법")이
+  // 후보에 들지 못해, 맞게 쓴 법령이 "현행 법령에 없음"으로 나온다
+  if (names.length > 4) {
+    names.splice(3, names.length - 4);
+    starts.splice(3, starts.length - 4);
   }
   return names.length ? { names, starts } : null;
 }

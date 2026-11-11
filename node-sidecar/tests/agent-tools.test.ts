@@ -1,8 +1,9 @@
 /** 작업 에이전트 도구 (core/agent-tools) + MCP 서버 (mcp/server) — 실제 라우터·합성 예제로 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { readFileSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { call, sample, setupEnv, SAMPLES } from './doc-helpers.js';
 import { WORK_TOOLS, runWorkTool, workToolDefs, type Dispatch } from '../src/core/agent-tools/index.js';
 import { createMcpHandler } from '../src/mcp/server.js';
@@ -122,15 +123,33 @@ describe('보안·취소 (검증에서 나온 것)', () => {
     expect((await read(LETTER, { files: [], said: [`${SAMPLES} 폴더의 공문을 요약해 줘`] })).isError).toBeFalsy();
     // 다른 파일의 경로를 적은 것으로 그 폴더 전체가 열리지는 않는다
     expect((await read(LETTER, { files: [], said: [`${REPORT} 요약해 줘`] })).isError).toBe(true);
-    // 폴더 이름이 거기서 끝난 것만 폴더로 본다: 더 긴 경로의 앞부분(이름에 빈칸·점이 든 폴더)은 그 폴더를 적은 것이 아니다
-    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    // 폴더 이름이 거기서 끝난 것만 폴더로 본다: 더 긴 경로의 앞부분(이름에 점이 든 폴더)은 그 폴더를 적은 것이 아니다
     expect((await read(LETTER, { files: [], said: [`${SAMPLES}.2\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
     expect((await read(LETTER, { files: [], said: [`"${SAMPLES}" 안의 공문을 요약해 줘`] })).isError).toBeFalsy();
     expect((await read(LETTER, { files: [], said: [`공문은 ${SAMPLES}. 요약해 줘`] })).isError).toBeFalsy();
     expect((await read(LETTER, { files: [], said: [`${SAMPLES}\\ 에서 찾아 줘`] })).isError).toBeFalsy();
-    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산 최종\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
     expect((await read(LETTER, { files: [], said: [`${SAMPLES} 폴더와 D:\\다른\\파일.hwp 를 비교해 줘`] })).isError).toBeFalsy();
-    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산 계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    // 폴더 뒤에 평범한 문장이 이어지면 폴더를 맡긴 것이다 (날짜의 빗금·"한글/PDF"·".hwpx"·"요약.md"·"v1.25" 가 있어도)
+    for (const tail of ['폴더의 제출물을 11/20 기한으로 모아 줘', '폴더의 한글/PDF 문서를 요약해 줘', '폴더 문서를 요약해서 요약.md 로 정리해 줘', '안의 .hwpx 파일을 모두 읽어 줘', '폴더 자료로 v1.25 계획을 써 줘']) {
+      expect((await read(LETTER, { files: [], said: [`${SAMPLES} ${tail}`] })).isError, tail).toBeFalsy();
+    }
+    // 그 자리에 빈칸이 든 더 긴 이름의 폴더·파일이 실제로 있고 그쪽을 적었으면, 앞부분 이름의 폴더를 맡긴 것이 아니다
+    const work = mkdtempSync(join(tmpdir(), 'kordoc-scope-'));
+    try {
+      // (임시 폴더 안 이름은 영문으로: 이 PC 의 Node 는 한글 이름을 지우다 죽는 판이 있다)
+      mkdirSync(join(work, '2026'));
+      mkdirSync(join(work, '2026 budget'));
+      const inner = join(work, '2026', 'letter.hwpx');
+      copyFileSync(LETTER, inner);
+      copyFileSync(LETTER, join(work, '2026 budget', 'plan.hwpx'));
+      copyFileSync(LETTER, join(work, '2026 budget plan.hwpx'));
+      expect((await read(inner, { files: [], said: [`${join(work, '2026 budget', 'plan.hwpx')} 를 요약해 줘`] })).isError).toBe(true);
+      expect((await read(inner, { files: [], said: [`${join(work, '2026 budget plan.hwpx')} 를 요약해 줘`] })).isError).toBe(true);
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')} 폴더의 공문을 요약해 줘`] })).isError).toBeFalsy();
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')} 예산 자료를 모아 줘`] })).isError).toBeFalsy();
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
     // 적은 글이 거기서 끝나야 한다 (확장자가 더 이어지면 다른 파일이다). 뒤에 조사는 와도 된다
     expect((await read(LETTER, { files: [], said: [`${LETTER}x 요약해 줘`] })).isError).toBe(true);
     expect((await read(LETTER, { files: [], said: ['1-받은공문_도민체육대회 참가 협조 요청.hwpx2 요약해 줘'] })).isError).toBe(true);

@@ -14,15 +14,21 @@ const MAX_FILES = 2000;
 const MAX_DEPTH = 12;
 
 /** 파일·폴더 섞인 목록 → 지원 문서만 (폴더는 하위까지, 숨김·임시 파일 제외, 최대 2,000개) */
-export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; skipped: number }> {
+export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; skipped: number; truncated?: boolean }> {
   const files: FileEntry[] = [];
   const seen = new Set<string>();
   let skipped = 0;
+  /** 상한(2,000개)에 걸려 문서가 더 있는데도 담지 못했다. 말없이 빼면 찾기는 "없습니다"로, 수합은 일부만으로 끝난다 */
+  let truncated = false;
 
   const addFile = (path: string, st: { size: number; mtimeMs: number } | null) => {
     const format = formatOf(path);
-    if (format === 'unknown' || isJunkName(basename(path)) || files.length >= MAX_FILES) {
+    if (format === 'unknown' || isJunkName(basename(path))) {
       skipped++;
+      return;
+    }
+    if (files.length >= MAX_FILES) {
+      if (!seen.has(path)) truncated = true;
       return;
     }
     if (seen.has(path)) return;
@@ -31,7 +37,9 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
   };
 
   const walk = async (dir: string, depth: number): Promise<void> => {
-    if (depth > MAX_DEPTH || files.length >= MAX_FILES) return;
+    if (depth > MAX_DEPTH) return;
+    // 상한에 닿았으면 더 훑지 않는다. 남은 폴더에 무엇이 있는지는 모르므로 "더 있다"로 알린다
+    if (files.length >= MAX_FILES) { truncated = true; return; }
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
     entries.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     for (const e of entries) {
@@ -48,8 +56,11 @@ export async function scanPaths(paths: string[]): Promise<{ files: FileEntry[]; 
     else if (st.isDirectory()) await walk(p, 0);
     else if (st.isFile()) addFile(p, st);
   }
-  return { files, skipped };
+  return { files, skipped, ...(truncated ? { truncated: true } : {}) };
 }
+
+/** 상한에 걸렸을 때 화면·도구 결과에 싣는 말 */
+export const TOO_MANY_FILES = `문서가 ${MAX_FILES.toLocaleString('ko-KR')}개를 넘어 앞의 ${MAX_FILES.toLocaleString('ko-KR')}개만 다뤘습니다. 나머지는 폴더를 나눠 다시 하세요.`;
 
 /** PDF 는 다 읽으면 느려서(300쪽 12초) 고르게 흩은 6쪽만 읽어 OCR 필요 여부를 본다 */
 function samplePages(count: number): string {

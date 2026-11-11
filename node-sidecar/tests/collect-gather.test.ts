@@ -111,6 +111,29 @@ describe('부서 이름 맞추기', () => {
     expect(matchDept(roster, { path: '/x/총무과 요청자료_홍보.hwpx', values: [], text: '' })).toEqual({ dept: '홍보과', in_roster: true });
   });
 
+  it('부서 이름 뒤에 낱말이 붙거나 띄어 쓴 파일 이름도 그 부서로 맞춘다 (이름에 빈칸이 든 부서 포함)', () => {
+    const roster = ['주민자치 지원팀', '구의제1동', '총무과', '교육과'];
+    expect(matchDept(roster, { path: '/x/주민자치 지원팀 제출자료.hwpx', values: [], text: '' })).toEqual({ dept: '주민자치 지원팀', in_roster: true });
+    expect(matchDept(roster, { path: '/x/구의제1동주민센터 제출.hwpx', values: [], text: '' })).toEqual({ dept: '구의제1동', in_roster: true });
+    expect(matchDept(roster, { path: '/x/총무과제출자료.hwpx', values: [], text: '' })).toEqual({ dept: '총무과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/교육과 수요조사.hwpx', values: [], text: '' })).toEqual({ dept: '교육과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/교육과정 수요조사.hwpx', values: [], text: '' }).in_roster).toBe(false);
+  });
+
+  it('엑셀 쓰기: 소수 끝의 0("11.10")과 쉼표 소수는 글 칸으로 남긴다. 날짜·번호 열은 더하지 않는다', async () => {
+    const JSZip = (await import('jszip')).default;
+    const buf = await buildXlsx([{ name: '표', rows: [['행사일', '준공', '금액', '비율', '평점'], ['11.10', '2026.10', '1,234.5', '3.5', '1,200']], bold: [1] }]);
+    const xml = await (await JSZip.loadAsync(buf)).file('xl/worksheets/sheet1.xml')!.async('string');
+    for (const v of ['11.10', '2026.10', '1,234.5']) expect(xml, v).toContain(`<t xml:space="preserve">${v}</t>`);
+    expect(xml).toContain('<v>3.5</v>');
+    expect(xml).toContain('<v>1200</v>');
+    // 굵은 행(합계)의 소수는 천 단위 서식(반올림돼 보임)을 쓰지 않는다
+    expect(xml).toMatch(/s="6"><v>3\.5<\/v>/);
+    const cols = ['행사일', 'No.', '순위', '소요일', '금액'].map((label) => ({ key: label, label, required: false }));
+    const rows = [['11.10', '1', '2', '3', '100'], ['11.24', '2', '1', '4', '200']].map((v, i) => ({ file: `f${i}`, dept: '', cells: new Map(cols.map((c, j) => [c.key, v[j]])) }));
+    expect([...columnTotals(cols, rows).keys()]).toEqual(['소요일', '금액']);
+  });
+
   it('열 이름: 띄어쓰기·괄호 설명·흔한 다른 이름', () => {
     expect(colKey('희망 인원(명)')).toBe(colKey('희망인원'));
     expect(colKey('부서')).toBe(colKey('부서명'));

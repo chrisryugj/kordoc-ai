@@ -131,6 +131,14 @@ describe('내용 다시 짜기', () => {
     expect(d.markdown).not.toContain('- 26.(금)');
   });
 
+  it('일 뒤에 점 없이 쓴 날짜 문단의 "월"을 항목 번호로 떼지 않는다 (지역번호도)', async () => {
+    const { readMarker } = await import('../src/core/style/markers.js');
+    for (const s of ['11. 20(금) 14:00 본행사', '10. 23일까지 제출', '10. 23 ~ 10. 25 접수', '6. 26.(금) 14:00', '02) 450-7114', '2) 450-7114 로 문의']) expect(readMarker(s), s).toBeNull();
+    for (const s of ['2. 3일간 교육을 실시함', '1. 3~5명 선발', '2. 2026년 추진 계획', '3. 20(스무) 명 참석', '13. 20(금) 회의는 없음', '1) 3개 부서']) expect(readMarker(s)?.family, s).toBe('legal');
+    const d = normalizeContent('# 알림\n\n1. 행사 일정\n\n11. 20(금) 14:00 본행사\n\n2. 행정사항');
+    expect(d.markdown).toContain('11. 20(금) 14:00 본행사');
+  });
+
   it('PDF 글의 "- 가." 목록 표시는 안쪽 기호로 읽고, 줄을 끊은 짧은 꼬리는 앞 항목에 잇는다', () => {
     const r = normalizeContent('# 계획\n\n1. 개최 계획을 수립하고\n\n보고합니다.\n\n- 가. 행사명: 심포지엄\n  - 나. 일시: 11월\n- 붙임 계획 1부.');
     expect(r.markdown).toBe('# 계획\n\n- 개최 계획을 수립하고 보고합니다.\n  - 행사명: 심포지엄\n  - 일시: 11월\n\n붙임  계획 1부.\n');

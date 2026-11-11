@@ -212,9 +212,10 @@ export function createOpenAiProvider(cfg: OpenAiConfig, timeoutMs: number): LlmP
         for await (const data of sseData(res, signal)) {
           touch();
           if (data === '[DONE]') break;
-          let chunk: { choices?: Array<{ delta?: { content?: string | null } }>; error?: { message?: string } };
+          let chunk: { choices?: Array<{ delta?: { content?: string | null }; finish_reason?: string | null }>; error?: { message?: string } };
           try { chunk = JSON.parse(data); } catch { continue; }
           if (chunk.error) throw new Error(`AI 서버: ${chunk.error.message ?? '알 수 없는 오류'}`);
+          if (chunk.choices?.[0]?.finish_reason === 'length') req.onTruncated?.();
           const t = chunk.choices?.[0]?.delta?.content;
           if (t) {
             if (limit !== timeoutMs) { limit = timeoutMs; touch(); }

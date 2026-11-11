@@ -138,6 +138,10 @@ export function getSettings(): Readonly<Settings> {
 
 let tmpSeq = 0;
 
+/** 미뤄 둔 기관 정책 다시 보기 (세 번까지) */
+let policyRetries = 0;
+let policyTimer: NodeJS.Timeout | null = null;
+
 /** 읽은 설정 파일의 고친 시각 — 다른 프로세스가 그 뒤에 바꿨는지 본다 */
 let loadedAt = 0;
 const fileStamp = () => statSync(configPath(), { throwIfNoEntry: false })?.mtimeMs ?? 0;
@@ -181,6 +185,13 @@ export function reload(): Settings {
   user = isObj(loaded) ? loaded : {};
   const migrate = openSecrets(user);
   policy = loadPolicy(POLICY_SHAPE);
+  // 권한 확인을 못 해 미뤄 둔 기관 정책은 잠시 뒤 다시 본다. 느린 PC 에서 확인 도구의 첫 실행이 늦었다고
+  // 앱을 끌 때까지 기관이 고정한 폐쇄망 모드·AI 서버 주소가 풀려 있으면 안 된다
+  if (policy?.unverified && policyRetries < 3 && !policyTimer) {
+    policyRetries++;
+    policyTimer = setTimeout(() => { policyTimer = null; if (policy?.unverified) reload(); }, 60_000);
+    policyTimer.unref();
+  }
   const s = compose();
   // 예전에 평문으로 저장한 키는 한 번 다시 써서 암호화한다
   if (migrate) void persist(user).catch((e) => logger.warn(`[config] 키 암호화 저장 실패: ${e}`));

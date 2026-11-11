@@ -221,7 +221,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
         originalB64.current = res.doc_b64 ?? null;
         if (res.doc_b64) await loadPreviewDoc(res.doc_b64);
       } catch (e) {
-        if (!cancelled) setLoadError(String(e));
+        if (!cancelled) setLoadError(errorText(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -346,7 +346,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
       }
       showToast(mapped > 0 ? `명부에서 값 ${mapped}개를 가져왔습니다` : "칸 이름과 같은 열이 없습니다", mapped > 0 ? "success" : "info");
     } catch (e) {
-      showToast(`명부를 가져오지 못했습니다: ${e}`, "error");
+      showToast(`명부를 가져오지 못했습니다: ${errorText(e)}`, "error");
     }
   }, [fields, setValue, sidecarCall, showToast]);
 

@@ -6,12 +6,15 @@
  * - 내용은 문자열이거나 문자열 배열(표·줄 나눔). 개정 표시 <개정 2020.2.4>·[본조신설 …] 는 뺀다
  */
 
+import { createHash } from 'node:crypto';
+
 type Obj = Record<string, unknown>;
 
-export interface SubInfo { no: string; text: string }
-export interface ItemInfo { no: string; text: string; subs?: SubInfo[] }
+/** sig: 글이 길어 잘렸을 때 자르기 전 전체 글의 지문. 당시 조문과 현행을 견줄 때 쓴다(잘린 글끼리 견주면 뒤쪽만 바뀐 개정을 놓친다) */
+export interface SubInfo { no: string; text: string; sig?: string }
+export interface ItemInfo { no: string; text: string; sig?: string; subs?: SubInfo[] }
 /** no 0 = 번호 없는 항 (항으로 나뉘지 않은 조문의 몸) */
-export interface ParaInfo { no: number; text: string; items?: ItemInfo[] }
+export interface ParaInfo { no: number; text: string; sig?: string; items?: ItemInfo[] }
 
 export interface ArticleInfo {
   title?: string;
@@ -20,6 +23,7 @@ export interface ArticleInfo {
   deleted?: boolean;
   /** 조문내용에서 머리를 뺀 첫 문장 (항이 없는 조문은 이것이 몸) */
   lead?: string;
+  leadSig?: string;
   paras?: ParaInfo[];
 }
 
@@ -48,6 +52,13 @@ export function clean(s: string): string {
 }
 
 const cut = (s: string, n = PIECE) => (s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
+const sigOf = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 16);
+/** 한 칸 글: 잘라 담고, 잘렸으면 전체 글의 지문을 함께 */
+const piece = (s: string) => ({ text: cut(s), ...(s.length > PIECE ? { sig: sigOf(s) } : {}) });
+/** 견줄 때 쓰는 그 칸의 온전한 값 (잘렸으면 지문, 아니면 글) */
+const whole = (x: { text: string; sig?: string }) => x.sig ?? x.text;
+const wholeItem = (i: ItemInfo) => [whole(i), ...(i.subs ?? []).map(whole)];
+const wholePara = (p: ParaInfo) => [whole(p), ...(p.items ?? []).flatMap(wholeItem)];
 
 /** ① → 1 (⑳ 넘어 ㉑~㊿ 까지), 숫자 글자도 */
 export function circled(s: string): number {
@@ -79,11 +90,11 @@ export function parseArticle(u: Obj): ArticleInfo {
       const t = clean(flatten(ho['호내용']));
       const subs: SubInfo[] = list(ho['목']).map((mk) => {
         const mt = clean(flatten(mk['목내용']));
-        return { no: subNo(str(mk['목번호']) || mt), text: cut(mt) };
+        return { no: subNo(str(mk['목번호']) || mt), ...piece(mt) };
       }).filter((x) => x.no);
-      items.push({ no: itemNo(str(ho['호번호']) || t), text: cut(t), ...(subs.length ? { subs } : {}) });
+      items.push({ no: itemNo(str(ho['호번호']) || t), ...piece(t), ...(subs.length ? { subs } : {}) });
     }
-    paras.push({ no, text: cut(text), ...(items.length ? { items } : {}) });
+    paras.push({ no, ...piece(text), ...(items.length ? { items } : {}) });
   }
   const body = [lead, ...paras.flatMap((p) => [p.text, ...(p.items ?? []).flatMap((i) => [i.text, ...(i.subs ?? []).map((s) => s.text)])])].filter(Boolean).join(' ');
   const title = str(u['조문제목']);
@@ -91,7 +102,7 @@ export function parseArticle(u: Obj): ArticleInfo {
     ...(title ? { title } : {}),
     text: cut(body, PREVIEW),
     ...(/^삭제/.test(body) ? { deleted: true } : {}),
-    ...(lead ? { lead: cut(lead) } : {}),
+    ...(lead ? { lead: cut(lead), ...(lead.length > PIECE ? { leadSig: sigOf(lead) } : {}) } : {}),
     ...(paras.length ? { paras } : {}),
   };
 }
@@ -107,6 +118,8 @@ export interface Level { paragraph?: number; item?: string; subitem?: string }
 export interface LevelHit {
   /** 인용한 항·호·목의 글 (항이면 딸린 호까지, 호면 딸린 목까지). 항·호를 인용하지 않았으면 조 전체 */
   text?: string;
+  /** 그 범위 전체(자르기 전, 딸린 호·목 모두)의 지문 — 당시 조문과 현행이 같은지 볼 때 */
+  sig?: string;
   /** 없는 단계와 쉬운 설명 */
   missing?: 'paragraph' | 'item' | 'subitem';
   deleted?: boolean;
@@ -137,7 +150,8 @@ const isDeleted = (t: string) => /^(?:[①-⑳㉑-㉟㊱-㊿]|\d+(?:의\d+)?\.|[
 
 /** 조 안에서 인용한 항·호·목 찾기. art 는 "제17조" 꼴 이름 */
 export function findLevel(a: ArticleInfo, lv: Level, art: string): LevelHit {
-  if (!lv.paragraph && !lv.item) return { text: articleFull(a) };
+  const leadWhole = a.leadSig ?? a.lead ?? '';
+  if (!lv.paragraph && !lv.item) return { text: articleFull(a), sig: sigOf([leadWhole, ...(a.paras ?? []).flatMap(wholePara)].join('\n')) };
   const paras = a.paras ?? [];
   let scope: ParaInfo[] = paras;
   let where = art;
@@ -153,7 +167,7 @@ export function findLevel(a: ArticleInfo, lv: Level, art: string): LevelHit {
     scope = [p];
     where = `${art}제${lv.paragraph}항`;
     paraText = [p.no ? p.text : a.lead ?? p.text, ...(p.items ?? []).map((i) => i.text)].filter(Boolean).join('\n');
-    if (!lv.item) return { text: cut(paraText, 1200) };
+    if (!lv.item) return { text: cut(paraText, 1200), sig: sigOf([p.no ? '' : leadWhole, ...wholePara(p)].join('\n')) };
   }
   const items = scope.flatMap((p) => p.items ?? []);
   const it = items.find((i) => i.no === lv.item);
@@ -163,9 +177,9 @@ export function findLevel(a: ArticleInfo, lv: Level, art: string): LevelHit {
   }
   const itemWhere = `${where}${itemLabel(it.no)}`;
   if (isDeleted(it.text)) return { missing: 'item', deleted: true, text: it.text, reason: `${josa(itemWhere, '은', '는')} 삭제된 호입니다.` };
-  if (!lv.subitem) return { text: cut([it.text, ...(it.subs ?? []).map((s) => s.text)].join('\n'), 1200) };
+  if (!lv.subitem) return { text: cut([it.text, ...(it.subs ?? []).map((s) => s.text)].join('\n'), 1200), sig: sigOf(wholeItem(it).join('\n')) };
   const sub = it.subs?.find((s) => s.no === lv.subitem);
   if (!sub) return { missing: 'subitem', reason: it.subs?.length ? `${itemWhere}에 ${lv.subitem}목이 없습니다.` : `${itemWhere}에 ${lv.subitem}목이 없습니다. 목으로 나뉘지 않았습니다.` };
   if (isDeleted(sub.text)) return { missing: 'subitem', deleted: true, text: sub.text, reason: `${itemWhere}${lv.subitem}목은 삭제된 목입니다.` };
-  return { text: sub.text };
+  return { text: sub.text, sig: sigOf(whole(sub)) };
 }

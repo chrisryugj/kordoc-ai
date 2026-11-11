@@ -27,6 +27,8 @@ export interface Policy {
   lockedPaths: string[];
   /** 파일을 쓰지 못한 까닭 — 있으면 defaults·locked 는 비어 있다 */
   error?: string;
+  /** 소유자·권한을 확인하지 못해 미뤄 둔 것 (나쁘다고 확인된 것이 아니다) → 잠시 뒤 다시 본다 */
+  unverified?: boolean;
 }
 
 /** 합칠 때 절대 쓰지 않는 키 (프로토타입 오염) */
@@ -124,19 +126,24 @@ const SEEN_MS = 60_000;
  *  다른 사용자의 앱이 엉뚱한 실행 파일을 띄우거나(구독 프로그램 위치) 문서를 엉뚱한 서버로 보내게(AI 서버 주소) 할 수 있다.
  *  확인하지 못하면(확인 도구가 막힘) 믿지 않는다 */
 export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl, now = Date.now()): boolean {
+  return machinePolicyState(path, platform, readSddl, now) === 'ok';
+}
+
+/** ok: 믿는다 · bad: 소유자·권한이 나쁘다 · unknown: 확인하지 못했다(확인 도구가 막히거나 응답이 늦음. 믿지 않되, 나중에 다시 본다) */
+export function machinePolicyState(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl, now = Date.now()): 'ok' | 'bad' | 'unknown' {
   try {
     const st = statSync(path);
-    if (platform !== 'win32') return st.uid === 0 && (st.mode & 0o022) === 0;
+    if (platform !== 'win32') return st.uid === 0 && (st.mode & 0o022) === 0 ? 'ok' : 'bad';
     const key = `${path}|${st.mtimeMs}|${st.size}`;
     const hit = ownerSeen.get(key);
-    if (hit && now - hit.at < SEEN_MS) return hit.ok;
+    if (hit && now - hit.at < SEEN_MS) return hit.ok ? 'ok' : 'bad';
     const file = readSddl(path);
     const dir = readSddl(win32.dirname(path));
     const ok = adminOwned(file) && !writableByOthers(file) && adminOwned(dir) && !writableByOthers(dir, true);
     ownerSeen.set(key, { ok, at: now });
-    return ok;
+    return ok ? 'ok' : 'bad';
   } catch {
-    return false;
+    return 'unknown';
   }
 }
 
@@ -224,8 +231,14 @@ export function loadPolicy(shape: Obj): Policy | null {
 
 function readPolicy(source: string, shape: Obj): Policy {
   let raw: Obj;
+  let unverified = false;
   try {
-    if (isMachineSpot(source) && !machinePolicyTrusted(source)) {
+    const state = isMachineSpot(source) ? machinePolicyState(source) : 'ok';
+    if (state === 'unknown') {
+      unverified = true;
+      throw new Error('파일의 소유자·권한을 확인하지 못해 아직 적용하지 않았습니다(확인에 쓰는 PowerShell 이 막혔거나 응답이 늦습니다). 잠시 뒤 다시 확인합니다. 계속 이 문장이 보이면 배포 안내 문서대로 설치 폴더에 정책 파일을 두세요');
+    }
+    if (state === 'bad') {
       throw new Error(process.platform === 'win32'
         ? '파일이나 그 폴더의 소유자가 관리자(Administrators)·SYSTEM이 아니거나, 일반 사용자가 고칠 수 있는 권한이 있어 적용하지 않았습니다. 관리자 권한 명령 프롬프트에서 폴더를 새로 만들어 파일을 넣고 권한을 관리자·SYSTEM만 쓰도록 맞추세요(배포 안내 문서의 명령 참고)'
         : '파일 소유자가 root가 아니거나 다른 사용자가 고칠 수 있어 적용하지 않았습니다. sudo chown root 와 chmod 644 로 맞추세요');
@@ -234,7 +247,7 @@ function readPolicy(source: string, shape: Obj): Policy {
   } catch (err) {
     const error = (err as Error).message;
     logger.error(`[policy] 기관 배포 설정을 읽지 못해 무시합니다: ${source}: ${error}`);
-    return { source, defaults: {}, locked: {}, lockedPaths: [], error };
+    return { source, defaults: {}, locked: {}, lockedPaths: [], error, ...(unverified ? { unverified: true } : {}) };
   }
 
   const drop = (path: string, why: string) => logger.warn(`[policy] ${path} 무시: ${why}`);

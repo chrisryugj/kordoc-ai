@@ -36,11 +36,13 @@ interface Props {
   offHint?: string;
   /** 다른 대화에서 일하는 중이라 보낼 수 없음 (글은 써 둘 수 있다) */
   locked?: boolean;
+  /** 잠겨 있을 때 "그 대화 보기" (일하는 대화가 이 화면에 안 보이는 곳에서만 준다) */
+  onLockedOpen?: () => void;
   /** 예시·내 프롬프트 목록을 처음부터 펼침 */
   gallery?: boolean;
 }
 
-export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestions = [], placeholder, dropName, autoFocus, extra, locked = false, offHint, gallery = false }: Props) {
+export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestions = [], placeholder, dropName, autoFocus, extra, locked = false, onLockedOpen, offHint, gallery = false }: Props) {
   const { ai, registerDrop, dragTarget, toast, openSettings } = useApp();
   const problem = subscriptionProblem(ai);
   const [text, setText] = useState("");
@@ -127,9 +129,17 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
           {text.trim() && !busy && <button type="button" className="kd-icon-btn" onClick={saveText} aria-label="이 문장을 내 프롬프트에 저장"><BookmarkPlus size={16} /></button>}
           {busy
             ? <Button onClick={onStop} variant="secondary"><Square size={14} /> 멈추기</Button>
-            : <Button onClick={() => send()} disabled={!text.trim() || !aiOn || locked} data-tip={aiOn ? "Enter로도 보냅니다 (줄바꿈은 Shift+Enter)" : "AI를 켜면 보낼 수 있습니다"}><Send size={14} /> 보내기</Button>}
+            : <Button onClick={() => send()} disabled={!text.trim() || !aiOn || locked} data-tip={!aiOn ? "AI를 켜면 보낼 수 있습니다" : locked ? "하던 일이 끝나면 보낼 수 있습니다" : "Enter로도 보냅니다 (줄바꿈은 Shift+Enter)"}><Send size={14} /> 보내기</Button>}
         </div>
       </div>
+      {/* 다른 대화에서 일하는 중: 눌러도 안 보내지는 까닭을 알린다 (말없이 회색이면 고장으로 보인다) */}
+      {aiOn && locked && !busy && onLockedOpen && (
+        <div className="kd-aioff" role="status">
+          <Sparkles size={15} />
+          <span>다른 대화에서 일하는 중이라 지금은 보낼 수 없습니다. 글은 미리 써 둘 수 있습니다.</span>
+          <Button size="sm" variant="secondary" onClick={onLockedOpen}>그 대화 보기</Button>
+        </div>
+      )}
       {!aiOn && (problem ? (
         // 구독 계정을 켜 뒀는데 못 쓰는 상태: 무엇을 고칠지 알리고 설정으로
         <div className="kd-aioff" role="status">

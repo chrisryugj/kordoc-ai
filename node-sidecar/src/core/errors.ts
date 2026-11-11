@@ -19,6 +19,8 @@ const FS_HINTS: Record<string, string> = {
   ENOTDIR: '폴더 자리에 파일이 지정됐습니다. 폴더를 고르세요.',
 };
 
+const OPEN_ELSEWHERE = '파일이 다른 프로그램(한글·엑셀 등)에서 열려 있거나 읽기 전용이라 저장하지 못했습니다. 그 프로그램에서 파일을 닫고 다시 저장하세요.';
+
 /** 줄표 → 쌍점, 앞뒤 공백 정리 */
 export function cleanMessage(msg: string): string {
   return msg.replace(/\s*[—–]\s*/g, ': ').replace(/\s+\n/g, '\n').trim();
@@ -34,9 +36,14 @@ const CHROMIUM_MISSING = /Chromium 실행 파일을 찾을 수 없습니다|Coul
 
 export function toUserError(err: unknown): unknown {
   if (err instanceof DOMException && err.name === 'AbortError') return err;
-  const e = err as NodeJS.ErrnoException;
+  const e = err as NodeJS.ErrnoException & { dest?: string };
   if (e && typeof e.code === 'string' && FS_HINTS[e.code]) {
-    return new Error(e.path ? `${FS_HINTS[e.code]} (${basename(e.path)})` : FS_HINTS[e.code]);
+    // 바꿔 넣기(rename)·지우기가 막힌 것은 거의 그 파일이 다른 프로그램에서 열려 있는 것이다(Windows 는 이것을 EPERM 으로 알린다).
+    // 이름은 사용자가 아는 파일 이름으로: 바꿔 넣기의 대상(dest), 임시 파일 꼬리(.kordoc-tmp)는 뗀다
+    const locked = (e.code === 'EPERM' || e.code === 'EACCES' || e.code === 'EBUSY') && (e.syscall === 'rename' || e.syscall === 'unlink');
+    const hint = locked ? OPEN_ELSEWHERE : FS_HINTS[e.code];
+    const shown = (e.syscall === 'rename' ? e.dest : undefined) ?? e.path;
+    return new Error(shown ? `${hint} (${basename(shown).replace(/\.kordoc-tmp$|\.tmp$/, '')})` : hint);
   }
   const msg = err instanceof Error ? err.message : String(err);
   if (CHROMIUM_MISSING.test(msg)) {
@@ -73,9 +80,11 @@ export function toUserError(err: unknown): unknown {
 const AI_HINTS: Array<[RegExp, string]> = [
   [/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket hang up|other side closed/i, 'AI 서버에 연결하지 못했습니다. 설정 › AI 연결에서 주소를 확인하고, 기관 AI 서버나 Ollama가 켜져 있는지 보세요.'],
   [/TimeoutError|timed? ?out|ETIMEDOUT/i, 'AI 답이 너무 오래 걸려 멈췄습니다. 잠시 뒤 다시 시도하거나 더 짧은 문서로 해 보세요.'],
-  [/\b401\b|\b403\b|authentication_error|invalid[_ ]api[_ ]key|unauthorized|permission_denied/i, 'AI 키가 맞지 않거나 권한이 없습니다. 설정 › AI 연결에서 키를 다시 넣으세요.'],
-  [/\b429\b|rate[_ ]limit|quota/i, 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.'],
-  [/\b5\d\d\b|internal server error|bad gateway|service unavailable|overloaded/i, 'AI 서버가 오류를 냈습니다. 잠시 뒤 다시 시도하세요. 계속되면 기관 AI 서버 담당자에게 알리세요.'],
+  // 상태 번호는 한글·숫자·줄표에 붙어 있으면 치지 않는다: 파일 이름의 숫자("제429회 회의록.docx"·"제2026-512호.hwpx")가
+  // 문서 오류를 "AI 사용량 한도"·"AI 서버 오류"로 바꿔 놓는다
+  [/(?<![가-힣\d-])(?:401|403)(?![가-힣\d-])|authentication_error|invalid[_ ]api[_ ]key|unauthorized|permission_denied/i, 'AI 키가 맞지 않거나 권한이 없습니다. 설정 › AI 연결에서 키를 다시 넣으세요.'],
+  [/(?<![가-힣\d-])429(?![가-힣\d-])|rate[_ ]limit|quota/i, 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.'],
+  [/(?<![가-힣\d-])5\d\d(?![가-힣\d-])|internal server error|bad gateway|service unavailable|overloaded/i, 'AI 서버가 오류를 냈습니다. 잠시 뒤 다시 시도하세요. 계속되면 기관 AI 서버 담당자에게 알리세요.'],
   [/SyntaxError|Unexpected token|in JSON at position|JSON을 찾지 못했습니다/i, 'AI 답을 읽지 못했습니다. 다시 시도하세요. 계속되면 설정에서 다른 모델을 고르세요.'],
 ];
 

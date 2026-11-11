@@ -25,6 +25,9 @@ export function deptStem(name: string): string {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** 파일 이름에서 부서 이름 뒤에 띄우지 않고 흔히 붙여 쓰는 말 */
+const AFTER_DEPT = /^(?:주민센터|행정복지센터|제출|자료|취합|회신|작성|수정|최종|검토|확인|요청|보고|현황|결과|의견|답변|송부|명단|조사|수요)/;
+
 /** 명단 머리말·번호 줄로 쓰이는 말 */
 const ROSTER_HEADER = /^(부서|부서명|과|과명|팀|팀명|소속|기관|기관명|동|동명|연번|번호|순번|명단|부서명단|구분|비고)$/;
 
@@ -105,7 +108,6 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
       if (hit) return { dept: hit.name, in_roster: true };
     }
     // 2) 파일 이름: 온이름이 든 것 중 가장 긴 것, 없으면 줄기 (같은 길이면 뒤에 나온 것: 서식 이름_부서 꼴)
-    const file = norm(basename(h.path, extname(h.path)));
     // 줄기(총무과의 "총무")는 파일 이름의 토막 하나가 그 줄기일 때만 맞춘다. 이름 어디에든 들어 있으면 맞는 것으로 보면
     // "교육수요조사_최종"이 조사과로, "홍보계획_제출"이 홍보과로 잡혀 그 부서가 미제출 목록에서 빠진다
     const tokens = basename(h.path, extname(h.path)).normalize('NFC').split(/[\s_\-.,()[\]{}·~+]+/).filter(Boolean);
@@ -114,12 +116,18 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
       .map((k) => ({ k, at: k.stem.length >= 2 ? stemAt(k.stem) : -1 }))
       .filter((x) => x.at >= 0)
       .sort((a, b) => b.k.stem.length - a.k.stem.length || b.at - a.at)[0]?.k;
-    // 온이름도 다른 낱말의 앞부분이면 그 부서가 아니다 ("교육과정 수요조사" 의 "교육과"). 뒤 글자가 한글이 아닐 때만 맞춘다
+    // 온이름도 다른 낱말의 앞부분이면 그 부서가 아니다 ("교육과정 수요조사" 의 "교육과").
+    // 띄어쓰기를 지우기 전 이름에서 본다: 뒤가 띄어쓰기·구분 글자·끝이거나("주민자치 지원팀 제출자료"), 부서 이름 뒤에 흔히 붙여 쓰는 말이
+    // 이어질 때("총무과제출자료"·"구의제1동주민센터")만 맞춘다. 돌려주는 자리는 띄어쓰기를 지운 이름 기준(가장 뒤의 것)
+    const raw = basename(h.path, extname(h.path)).normalize('NFC');
     const fullAt = (full: string) => {
-      for (let at = file.lastIndexOf(full); at >= 0; at = at > 0 ? file.lastIndexOf(full, at - 1) : -1) {
-        if (!/[가-힣]/.test(file[at + full.length] ?? '')) return at;
+      const re = new RegExp([...full].map(escapeRe).join('[\\s·・.,:()\\[\\]「」『』<>]*'), 'g');
+      let best = -1;
+      for (const m of raw.matchAll(re)) {
+        const after = raw.slice(m.index + m[0].length);
+        if (!/^[가-힣]/.test(after) || AFTER_DEPT.test(norm(after))) best = norm(raw.slice(0, m.index)).length;
       }
-      return -1;
+      return best;
     };
     const byFull = keys
       .map((k) => ({ k, at: k.full.length >= 2 ? fullAt(k.full) : -1 }))

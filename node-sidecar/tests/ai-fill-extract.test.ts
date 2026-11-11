@@ -68,6 +68,30 @@ describe('ai_fill_suggest', () => {
     expect(r.values.본문).not.toContain('300');
   });
 
+  it('참고 문서 없이 지시만 줘도 항목 번호·회차·부수는 지어낸 숫자로 보지 않는다 (값 숫자만 대조)', async () => {
+    reply = () => JSON.stringify({ 제목: '제1회 직원 체육대회 개최 알림', 본문: '1. 직원 화합을 위하여 체육대회를 개최합니다.\n2. 많은 참여 바랍니다.\n3. 참가 인원은 300명으로 예상합니다.', 붙임: '붙임 1. 계획서 1부.' });
+    const r = await suggestFill({ fields: ['제목', '본문', '붙임'], instruction: '직원 체육대회 개최를 알리는 공문' }, signal());
+    expect(r.values.제목).toBe('제1회 직원 체육대회 개최 알림');
+    expect(r.values.붙임).toBe('붙임 1. 계획서 1부.');
+    expect(r.values.본문).toMatch(/^1\. 직원 화합을/);
+    expect(r.values.본문).toContain('\n2. 많은 참여');
+    expect(r.values.본문).toContain('\n3. 참가 인원은 ○○명');
+  });
+
+  it('외부 AI 로 보낼 때 가린 값은 답에서 원래 값으로 되돌린다 (같은 모양이 둘이면 그대로 둔다)', async () => {
+    const { restoreMasked } = await import('../src/infra/llm/index.js');
+    const { redactMarkdown } = await import('../src/core/redact/rules.js');
+    const src = '문의: 총무과 홍길동(☎ 02-450-7114, chongmu@gaon.example)';
+    const masked = redactMarkdown(src, { rules: ['phone', 'email'] }).text;
+    expect(masked).toContain('●');
+    expect(restoreMasked(src, `문의는 ${masked.slice(masked.indexOf('☎'))}`)).toBe(`문의는 ${src.slice(src.indexOf('☎'))}`);
+    expect(restoreMasked(src, '가린 값이 없는 답')).toBe('가린 값이 없는 답');
+    // 끝자리가 같아 가린 모양이 같은 전화가 둘이면 어느 것인지 알 수 없다
+    const two = '02-450-7114, 02-460-7114';
+    const m2 = redactMarkdown(two, { rules: ['phone'] }).text.split(', ');
+    if (m2[0] === m2[1]) expect(restoreMasked(two, m2[0])).toBe(m2[0]);
+  });
+
   it('받은 공문 번호를 따로 주고, 본문 칸의 관련 줄이 다른 번호(받은 공문 본문의 관련)면 바로잡는다', async () => {
     writeFileSync(join(dir, '받은공문.md'), '# 가온도\n\n1. 관련: 가온도 체육진흥과-2187(2026. 9. 30.)\n2. 참가 신청서를 제출하여 주시기 바랍니다.  끝.\n\n가온도지사\n\n시행 체육진흥과-2203 (2026. 10. 2.) 접수 ( )');
     reply = () => JSON.stringify({ 제목: '체육대회 참가 회신', 본문: '1. 관련: 가온도 체육진흥과-2187(2026. 9. 30.)\n2. 위 호와 관련하여 참가 신청서를 제출합니다.' });

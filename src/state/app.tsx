@@ -100,7 +100,11 @@ interface AppValue {
   openSettings: (section: string) => void;
   /** 화면을 떠나기 전에 묻는 문지기 (설정의 저장 안 한 변경). false 를 돌려주면 go 가 멈춘다 */
   setLeaveGuard: (guard: ((next: Screen) => boolean) | null) => void;
+  /** 폴더 지켜보기 화면이 지금 걸린 목록을 알려 둔다 (엔진이 다시 켜지면 이 목록으로 다시 건다) */
+  noteWatches: (list: WatchRef[]) => void;
 }
+
+type WatchRef = { dir: string; out_dir: string; format: string };
 
 const AppContext = createContext<AppValue | null>(null);
 
@@ -200,6 +204,51 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     })();
   }, [ready, refreshAi, toast]);
 
+  // 창마다 상태를 따로 든다(본창·우클릭 카드). 다른 창에서 AI 를 켜거나 설정을 바꿨을 수 있으니 창으로 돌아올 때 다시 읽는다.
+  // 안 읽으면 카드에서 AI 를 켠 뒤에도 본창은 앱을 끌 때까지 "AI가 꺼져 있습니다"로 남는다. 달라졌을 때만 바꿔 넣는다
+  useEffect(() => {
+    if (!ready) return;
+    let last = 0;
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    const onFocus = () => {
+      if (Date.now() - last < 3000) return;
+      last = Date.now();
+      void rpc("get_settings", {}).then((s) => setSettings((prev) => (same(prev, s) ? prev : s))).catch(() => undefined);
+      void rpc("ai_status", {}).then((a) => setAi((prev) => (same(prev, a) ? prev : a))).catch(() => undefined);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [ready]);
+
+  // 폴더 지켜보기는 엔진 메모리에만 있다. 엔진이 죽었다 다시 켜지면(화면이 스스로 다시 켠다) 목록이 비는데, 화면은
+  // "창을 닫아도 계속 지켜봅니다"라고 안내한다 → 화면이 기억한 목록으로 다시 걸고, 못 걸면 멈췄다고 알린다
+  const watches = useRef<WatchRef[]>([]);
+  const noteWatches = useCallback((list: WatchRef[]) => { watches.current = list.map((w) => ({ dir: w.dir, out_dir: w.out_dir, format: w.format })); }, []);
+  const wasReady = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    const again = wasReady.current;
+    wasReady.current = true;
+    const want = watches.current;
+    if (!again || !want.length) return;
+    void (async () => {
+      const now = await rpc("watch_list", {}).catch(() => null);
+      if (!now) return;
+      const gone = want.filter((w) => !now.some((x) => x.dir === w.dir));
+      if (!gone.length) return;
+      let failed = 0;
+      for (const w of gone) {
+        try { await rpc("watch_start", { dir: w.dir, out_dir: w.out_dir, format: w.format as "md" | "html" | "txt" }); } catch { failed++; }
+      }
+      const after = await rpc("watch_list", {}).catch(() => null);
+      if (after) noteWatches(after);
+      window.dispatchEvent(new Event("kordoc:watches"));
+      toast(failed
+        ? `문서 엔진이 다시 켜지면서 폴더 지켜보기 ${failed}곳이 멈췄습니다. 여러 파일 화면의 폴더 지켜보기에서 다시 시작하세요.`
+        : `문서 엔진이 다시 켜져 폴더 지켜보기 ${gone.length}곳을 다시 시작했습니다.`, failed ? "error" : "info");
+    })();
+  }, [ready, toast, noteWatches]);
+
   const saveSettings = useCallback(async (patch: DeepPartial<Settings>) => {
     try {
       const next = await rpc("update_settings", { settings: patch });
@@ -284,10 +333,10 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     uiMode, setUiMode: (m) => { setUiModeState(m); writePref("kordoc-ui-mode", m); },
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),
     badges, setBadge, firstRun, setFirstRun,
-    settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard,
+    settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard, noteWatches,
   }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, workIntent, createIntent, pdfIntent, recent,
-    theme, uiMode, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard]);
+    theme, uiMode, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard, noteWatches]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

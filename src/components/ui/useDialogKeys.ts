@@ -15,7 +15,8 @@ export function useDialogKeys(ref: RefObject<HTMLElement | null>, active: boolea
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const box = ref.current;
-      if (!box) return;
+      // 숨은 자리(display:none) 안에 남아 있는 상자는 키를 잡지 않는다. 잡으면 보이지 않는 상자가 Tab 을 삼켜 화면 전체에서 Tab 이 죽는다
+      if (!box || box.getClientRects().length === 0) return;
       if (e.key === "Escape" && !e.isComposing) {
         if (esc.current) { e.preventDefault(); esc.current(); }
         return;

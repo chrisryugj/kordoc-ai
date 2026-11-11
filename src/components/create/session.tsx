@@ -70,6 +70,8 @@ interface CreateValue {
   docState: EditorDocState | null;
   /** 편집기에 문서를 새로 연 횟수 — 칸 목록 등은 이 값이 바뀔 때 다시 읽는다 */
   docSeq: number;
+  /** 편집기에 문서를 열기 시작한 횟수 (다 열리기 전에 오른다). 돌던 편집기 AI 는 이때 멈춘다. 저장으로 경로만 바뀐 것과 구분한다 */
+  openSeq: number;
   /** 이 문서를 연 뒤 편집기 AI 에 보낼 요청 (보낼 때 takeAgentTask 로 꺼내면 지워진다) */
   agentTask: PendingAgentTask | null;
   takeAgentTask: (seq: number) => PendingAgentTask | null;
@@ -121,6 +123,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const [frameSrc, setFrameSrc] = useState("");
   const [busyText, setBusyText] = useState("");
   const [docSeq, setDocSeq] = useState(0);
+  const [openSeq, setOpenSeq] = useState(0);
+  /** 열기 준비(쪽 수 확인·묻기) 중 — 그사이 두 번째 열기가 끼어들지 않게 */
+  const entering = useRef(false);
   const seqRef = useRef(0);
   // 문서를 다 연 뒤 편집기 AI 에 한 번 보낼 요청 (결재 전 점검 지적 고치기). seq = 그 문서를 연 번호
   const [agentTask, setAgentTask] = useState<PendingAgentTask | null>(null);
@@ -341,33 +346,41 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const openInEditor = useCallback(async (path: string, opts?: OpenOpts) => {
     // 앞 열기가 아직 끝나지 않았다 (PDF 가져오기 창은 답을 최대 10분 기다린다): 겹쳐 열면 두 열기가 서로를 끊는다
     if (opening.current) { toast("앞 문서를 여는 중입니다. 편집기의 가져오기 창을 먼저 끝내세요.", "info"); return; }
-    // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
-    const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
-    if (pages > RHWP_MAX_PAGES && (await askUser({
-      title: "쪽이 아주 많은 문서",
-      body: <p className="kd-text">이 문서는 {pages.toLocaleString("ko-KR")}쪽입니다. 한글 편집기로 열면 오래 걸릴 수 있고, 2분 안에 열리지 않으면 멈춥니다. 내용만 보려면 문서 화면에서 여세요.</p>,
-      choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: "그래도 열기" }],
-    })) !== "open") return;
-    if (!(await settleCurrent())) return;
-    recovery.current.gen++; // 앞 문서의 사본 쓰기가 아직 돌고 있으면 버린다
-    // 이 파일에 저장하지 않고 꺼진 사본이 있으면 무엇을 열지 묻는다
+    // 열기 준비(쪽 수 확인·묻기)를 기다리는 사이 또 눌렀다: 두 열기가 함께 들어가면 서로를 끊는다
+    if (entering.current) return;
+    entering.current = true;
     let recover = !!opts?.recover;
-    if (!recover) {
-      const copy = (await rpc("recovery_list", { path }).catch(() => ({ entries: [] }))).entries[0];
-      if (copy) {
-        const a = await askUser({
-          title: "저장하지 않은 사본이 있습니다",
-          body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{baseName(path)}을 고치다 저장하지 않은 채 앱이 꺼졌습니다({new Date(copy.saved_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}). 그때 고친 내용으로 열까요? 원본으로 열면 사본은 지웁니다.</p>,
-          choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "original", label: "원본 열기", variant: "secondary" }, { id: "recover", label: "고친 내용으로 열기" }],
-        });
-        if (a === "cancel") return;
-        if (a === "original") dropRecovery(path);
-        recover = a === "recover";
+    try {
+      // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
+      const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
+      if (pages > RHWP_MAX_PAGES && (await askUser({
+        title: "쪽이 아주 많은 문서",
+        body: <p className="kd-text">이 문서는 {pages.toLocaleString("ko-KR")}쪽입니다. 한글 편집기로 열면 오래 걸릴 수 있고, 2분 안에 열리지 않으면 멈춥니다. 내용만 보려면 문서 화면에서 여세요.</p>,
+        choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: "그래도 열기" }],
+      })) !== "open") return;
+      if (!(await settleCurrent())) return;
+      recovery.current.gen++; // 앞 문서의 사본 쓰기가 아직 돌고 있으면 버린다
+      // 이 파일에 저장하지 않고 꺼진 사본이 있으면 무엇을 열지 묻는다
+      if (!recover) {
+        const copy = (await rpc("recovery_list", { path }).catch(() => ({ entries: [] }))).entries[0];
+        if (copy) {
+          const a = await askUser({
+            title: "저장하지 않은 사본이 있습니다",
+            body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{baseName(path)}을 고치다 저장하지 않은 채 앱이 꺼졌습니다({new Date(copy.saved_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}). 그때 고친 내용으로 열까요? 원본으로 열면 사본은 지웁니다.</p>,
+            choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "original", label: "원본 열기", variant: "secondary" }, { id: "recover", label: "고친 내용으로 열기" }],
+          });
+          if (a === "cancel") return;
+          if (a === "original") dropRecovery(path);
+          recover = a === "recover";
+        }
       }
+    } finally {
+      entering.current = false;
     }
     const format: "hwp" | "hwpx" = extOf(path) === "hwp" ? "hwp" : "hwpx";
     const fields = opts?.fields && Object.keys(opts.fields).length ? opts.fields : null;
     opening.current = true;
+    setOpenSeq((n) => n + 1);
     putAgentTask(null);
     recovery.current = { seq: -1, at: 0, busy: false, gen: recovery.current.gen + 1 };
     // PDF 가져오기를 취소하면 되돌아갈 곳 (편집기에는 앞 문서가 그대로 남는다)
@@ -462,9 +475,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const focusEditor = useCallback(() => frameRef.current?.focus(), []);
 
   const value = useMemo<CreateValue>(() => ({
-    step, setStep, session, editorState, editorError, docState, docSeq, agentTask, takeAgentTask, frameRef, frameSrc,
+    step, setStep, session, editorState, editorError, docState, docSeq, openSeq, agentTask, takeAgentTask, frameRef, frameSrc,
     openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText,
-  }), [step, session, editorState, editorError, docState, docSeq, agentTask, takeAgentTask, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
+  }), [step, session, editorState, editorError, docState, docSeq, openSeq, agentTask, takeAgentTask, frameSrc, openInEditor, call, focusEditor, saveTo, ensureSaved, outputFile, saveDir, syncDirty, canSave, saveBlock, saveCurrent, saving, suggestedName, busyText]);
 
   return (
     <Ctx.Provider value={value}>

@@ -33,23 +33,32 @@ mkdirSync(STAGE, { recursive: true });
 // 전이 의존도 잠금 파일(package-lock.json)의 판으로 고정한다. 고정하지 않으면 설치할 때마다 그날 나온 새 판이 깔려,
 // 시험은 잠금 판으로 돌고 설치본에는 시험한 적 없는 판이 실린다 (실측: onnxruntime-node·MCP SDK 등 18개가 어긋나 있었다)
 //  - 잠금 파일에 판이 하나뿐인 이름: 그 판으로
-//  - 판이 여럿인데 메이저가 서로 다른 이름: 메이저별로 ("이름@6": "6.4.0")
+//  - 판이 여럿인데 메이저가 서로 다른 이름: 메이저별로 ("이름@6": "6.4.0"). 메이저가 겹치면(0.x 끼리) 마이너별로 ("이름@0.7": "0.7.3")
 //  - 직접 의존(위 deps)은 이미 정확한 판이라 뺀다 (npm 은 직접 의존과 다른 override 를 거부한다)
-const locked = new Map();
+// 개발 전용 판(잠금 파일의 dev)은 세지 않는다: 설치본에는 깔리지 않는데, 세면 "판이 여럿"이 되어 고정에서 빠진다
+const locked = new Map(); // 이름 → 잠금 파일의 모든 판 (깔린 판 검사용)
+const shipped = new Map(); // 이름 → 개발 전용이 아닌 판 (고정용)
 for (const [key, v] of Object.entries(JSON.parse(readFileSync('package-lock.json', 'utf-8')).packages ?? {})) {
   const at = key.lastIndexOf('node_modules/');
   if (at < 0 || !v.version) continue;
   const name = key.slice(at + 'node_modules/'.length);
-  if (!locked.has(name)) locked.set(name, new Set());
-  locked.get(name).add(v.version);
+  for (const map of v.dev ? [locked] : [locked, shipped]) {
+    if (!map.has(name)) map.set(name, new Set());
+    map.get(name).add(v.version);
+  }
 }
 const pins = {};
-for (const [name, set] of locked) {
+for (const [name, all] of locked) {
   if (name in deps) continue;
-  const versions = [...set];
+  const versions = [...(shipped.get(name) ?? all)];
   if (versions.length === 1) { pins[name] = versions[0]; continue; }
-  const majors = versions.map((v) => v.split('.')[0]);
-  if (new Set(majors).size === versions.length && majors.every((m) => /^\d+$/.test(m))) versions.forEach((v, i) => { pins[`${name}@${majors[i]}`] = v; });
+  if (!versions.every((v) => /^\d+\.\d+\.\d+/.test(v))) continue;
+  for (const depth of [1, 2]) {
+    const heads = versions.map((v) => v.split('.').slice(0, depth).join('.'));
+    if (new Set(heads).size !== versions.length) continue;
+    versions.forEach((v, i) => { pins[`${name}@${heads[i]}`] = v; });
+    break;
+  }
 }
 // 보안 강제 판(package.json overrides)은 설치본에도 똑같이 — 레포 lockfile 만 고치면 설치본에는 취약한 판이 실린다.
 // 잠금 파일은 이 강제 판을 적용해 만든 것이라, 그 이름의 잠금 판이 하나면 그 판으로 고정하고(범위 "^4.6.7" 보다 정확하다)

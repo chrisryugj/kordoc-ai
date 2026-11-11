@@ -101,7 +101,8 @@ export interface RpcMethods {
   reveal_file: [{ path: string }, boolean];
   list_files: [{ path: string }, Array<{ name: string; is_dir: boolean; size: number }>];
   /** 파일·폴더 섞인 목록 → 지원 문서만 펼친 목록 (폴더는 하위까지, 최대 2,000개) */
-  scan_paths: [{ paths: string[] }, { files: FileEntry[]; skipped: number }];
+  /** truncated: 문서가 2,000개를 넘어 앞의 2,000개만 담았다 (나머지가 있다고 알릴 것) */
+  scan_paths: [{ paths: string[] }, { files: FileEntry[]; skipped: number; truncated?: boolean }];
   read_batch_manifest: [{ path: string }, { action: string; files: string[]; created_at?: string }];
   detect_mcp_env: [Record<string, never>, McpEnv];
   /** 동봉 Node + 동봉 kordoc/dist/mcp.js 경로로 등록 (npx 불필요). env: 폐쇄망 모드면 KORDOC_OFFLINE=1, root_dir 이면 KORDOC_ROOT, 늘 KORDOC_MODEL_CACHE(앱의 OCR 모델) */
@@ -296,7 +297,7 @@ export interface RpcMethods {
   /** root: 이 폴더 안의 파일만 견준다 (MCP 허용 폴더) */
   find_versions: [{ path: string; root?: string }, VersionsResult];
   /** 여러 문서에서 낱말 찾기 (파싱 결과 캐시) */
-  search_files: [{ paths: string[]; query: string; max_hits?: number }, { results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number }];
+  search_files: [{ paths: string[]; query: string; max_hits?: number }, { results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number; truncated?: boolean }];
   /** 취합 — 같은 서식으로 받은 문서 여러 개 → 칸 이름 후보 */
   collect_fields: [{ paths: string[] }, { fields: Array<{ label: string; count: number }> }];
   /** 취합 — 고른 칸들을 문서마다 한 줄로 엑셀 */

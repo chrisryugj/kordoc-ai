@@ -7,11 +7,16 @@
 
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ' };
 
+/** 링크 `[글](주소)` — 괄호 안이 주소 꼴일 때만 링크로 본다. "[1](전년 대비 10% 증가)"·"[붙임 1](참조)" 처럼 대괄호 뒤에
+ *  그냥 괄호 글이 붙은 것까지 링크로 풀면 근거 번호의 대괄호와 괄호 안 글이 사라진다 */
+const URL_CHARS = '[\\w\\-./?%&=#:~+@]';
+const LINK = new RegExp(`\\[([^\\]]*)\\]\\((?:<[^>]*>|(?:https?:|mailto:|tel:|file:|#|\\/|\\.{1,2}\\/|www\\.)[^)\\s]*|${URL_CHARS}*[./]${URL_CHARS}*)(?:\\s+"[^"]*")?\\)`, 'g');
+
 /** 줄 안 표시: 그림·링크·굵게·취소선·코드·태그·이스케이프 */
 function inline(s: string, br: string): string {
   return s
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(LINK, '$1')
     .replace(/<br\s*\/?>/gi, br)
     .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2')

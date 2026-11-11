@@ -69,6 +69,8 @@ export function BatchScreen({ active }: { active: boolean }) {
     try {
       const r = await rpc("scan_paths", { paths });
       setSkipped(r.skipped);
+      // 문서가 아주 많은 폴더는 앞의 2,000개만 담긴다: 말없이 빼면 수합·찾기가 일부만으로 끝난 줄 모른다
+      if (r.truncated) toast("문서가 2,000개를 넘어 앞의 2,000개만 올렸습니다. 나머지는 폴더를 나눠 다시 넣으세요.", "error");
       const base = replace ? [] : filesRef.current;
       const have = new Set(base.map((f) => f.path));
       const fresh = r.files.filter((f) => !have.has(f.path));

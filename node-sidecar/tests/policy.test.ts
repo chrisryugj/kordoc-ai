@@ -324,6 +324,18 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     expect(machinePolicyTrusted(join(root, '없는 파일.json'), 'win32', admin)).toBe(false);
   });
 
+  it('"권한이 나쁨"과 "확인하지 못함"을 가른다 (확인 못 한 것은 나중에 다시 본다)', async () => {
+    const { machinePolicyState } = await import('../src/infra/policy.js');
+    const file = join(root, `state-${++n}.json`);
+    writeFileSync(file, '{"version":1}');
+    expect(machinePolicyState(file, 'win32', () => { throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }); })).toBe('unknown');
+    // 확인 못 한 판정은 기억하지 않는다 → 다음에 다시 확인해 통과한다
+    expect(machinePolicyState(file, 'win32', () => 'O:BAG:SYD:')).toBe('ok');
+    const bad = join(root, `state-${++n}.json`);
+    writeFileSync(bad, '{"version":1}');
+    expect(machinePolicyState(bad, 'win32', () => 'O:S-1-5-21-1-2-3-1001G:BU')).toBe('bad');
+  });
+
   it('관리자 소유여도 일반 사용자가 고칠 수 있으면 믿지 않는다 (파일의 쓰기 권한, 폴더의 소유자·지우기 권한)', async () => {
     const { machinePolicyTrusted, writableByOthers } = await import('../src/infra/policy.js');
     // %ProgramData% 아래에 관리자가 만든 폴더와 파일의 흔한 권한: 관리자·SYSTEM 모든 권한, 사용자 읽기, 만든 사람 물려주기

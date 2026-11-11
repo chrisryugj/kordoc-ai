@@ -57,6 +57,20 @@ describe('인용 찾기: 항·호·목', () => {
     ]);
   });
 
+  it('따옴표 없는 법령명: 앞에 어절이 많아도 법령명 단독이 후보에 든다 ("…에 따라" 뒤에서 시작)', () => {
+    const a = findCitations('2026년 지방보조금 관리 강화 계획에 따라 지방재정법 제32조의2에 의거 교부합니다')[0];
+    expect(a.names).toContain('지방재정법');
+    expect(a.names[0]).toBe('지방재정법');
+    const b = findCitations('올해 우리 시 주요 업무 추진 방향 가운데 하나인 공공기관의 정보공개에 관한 법률 제9조')[0];
+    expect(b.names.length).toBeLessThanOrEqual(4);
+    // 가장 긴 후보(인용한 글 전체)와 가장 짧은 후보가 든다: 짧은 후보로 찾은 법령 이름이 긴 후보의 끝과 같으면 그 법령으로 본다
+    expect(b.names[0]).toMatch(/공공기관의 정보공개에 관한 법률$/);
+    expect(b.names.at(-1)).toBe('정보공개에 관한 법률');
+    expect(b.names).not.toContain('법률');
+    // "및"이 든 이름은 그대로
+    expect(findCitations('부정청탁 및 금품등 수수의 금지에 관한 법률 제8조')[0].names[0]).toBe('부정청탁 및 금품등 수수의 금지에 관한 법률');
+  });
+
   it('인용 시작 위치로 인용 문장을 찾는다 (날짜 점은 문장 끝이 아니다)', () => {
     const text = '가. 2026. 3. 2.부터 시행합니다. 「가온 개인정보 시험법」 제17조에 따라 동의를 받아 개인정보를 제3자에게 제공합니다. 다음 문장입니다.';
     const f = findCitations(text)[0];
@@ -65,6 +79,23 @@ describe('인용 찾기: 항·호·목', () => {
     const t2 = '근거: 「가온 개인정보 시험법」 제17조\n정보주체의 동의를 받아 개인정보를 제공합니다.';
     const g = findCitations(t2)[0];
     expect(citingSentence(t2, g.start, g.end, g.texts)).toBe('근거: 「가온 개인정보 시험법」 제17조 정보주체의 동의를 받아 개인정보를 제공합니다.');
+  });
+});
+
+describe('긴 조문의 당시·현행 비교', () => {
+  it('보이는 글은 잘려 같아도, 뒤쪽 호가 바뀌면 지문(sig)이 다르다', () => {
+    const unit = (last: string) => ({
+      조문내용: '제9조(수의계약)',
+      항: [{ 항번호: '①', 항내용: '① 다음 각 호의 경우 수의계약을 할 수 있다.', 호: Array.from({ length: 40 }, (_, i) => ({ 호번호: `${i + 1}.`, 호내용: `${i + 1}. ${'가온 시험 조문의 긴 호 내용입니다 '.repeat(3)}${i === 39 ? last : ''}` })) }],
+    });
+    const then = findLevel(parseArticle(unit('추정가격 2천만원 이하')), { paragraph: 1 }, '제9조');
+    const now = findLevel(parseArticle(unit('추정가격 5천만원 이하')), { paragraph: 1 }, '제9조');
+    expect(then.text).toBe(now.text);
+    expect(then.text!.endsWith('…')).toBe(true);
+    expect(then.sig).not.toBe(now.sig);
+    // 조 전체를 인용했을 때도, 바뀌지 않았으면 지문이 같다
+    expect(findLevel(parseArticle(unit('가')), {}, '제9조').sig).toBe(findLevel(parseArticle(unit('가')), {}, '제9조').sig);
+    expect(findLevel(parseArticle(unit('가')), {}, '제9조').sig).not.toBe(findLevel(parseArticle(unit('나')), {}, '제9조').sig);
   });
 });
 

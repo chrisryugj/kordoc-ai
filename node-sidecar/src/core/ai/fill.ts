@@ -5,7 +5,7 @@
  * 긴 칸은 그 숫자만 "○○" 로 바꾼다.
  */
 
-import { ask, contextCharBudget, parseJsonLoose, type JsonSchema } from '../../infra/llm/index.js';
+import { ask, contextCharBudget, parseJsonLoose, restoreMasked, type JsonSchema } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { loadDocs, selectPassages, unescapeMd } from './docs.js';
 import { GREETING_RULE } from './draft-guides.js';
@@ -32,12 +32,17 @@ const SYSTEM = [
 
 /** 값 속 숫자가 출처에 있는지 — 없는 숫자는 지어낸 것으로 본다 */
 function groundNumbers(value: string, known: Set<number>): string {
-  const runs = value.match(/\d+/g) ?? [];
-  const unknown = runs.filter((r) => !known.has(Number(r)));
+  // 항목 번호("1." "2)")·회차·부수("제1회" "1부")는 지시문이 시킨 글의 뼈대이지 지어낸 값이 아니다. 이것까지 대조하면
+  // 참고 문서 없이 지시만 준 본문이 "○○. …"가 되고 짧은 제목·붙임 칸이 통째로 비워진다. 날짜·금액·전화 같은 값 숫자만 본다
+  const spans = [...value.matchAll(FRAME_NUMBER)].map((m) => [m.index, m.index + m[0].length]);
+  const frame = (at: number) => spans.some(([a, b]) => at >= a && at < b);
+  const unknown = [...value.matchAll(/\d+/g)].filter((m) => !frame(m.index) && !known.has(Number(m[0])));
   if (!unknown.length) return value;
   if (value.length <= 30) return '';
-  return value.replace(/\d+/g, (r) => (known.has(Number(r)) ? r : '○○'));
+  return value.replace(/\d+/g, (r, at: number) => (frame(at) || known.has(Number(r)) ? r : '○○'));
 }
+
+const FRAME_NUMBER = /^[ \t]*(?:\d{1,2}[.)]|\(\d{1,2}\))(?=\s)|(?:붙임|별첨|별지)\s*\d{1,2}(?=[.\s]|$)|제\s?\d{1,3}\s?(?:회|차|기)|\d{1,2}\s?(?:부|매)(?=[\s.,)]|$)/gm;
 
 export async function suggestFill(params: FillParams, signal: AbortSignal): Promise<{ values: Record<string, string>; redacted: number }> {
   const fields = [...new Set((params.fields ?? []).map((f) => String(f).trim()).filter(Boolean))];
@@ -95,7 +100,9 @@ export async function suggestFill(params: FillParams, signal: AbortSignal): Prom
   for (const f of fields) {
     const v = raw[f];
     const s = typeof v === 'string' ? v : v == null ? '' : Array.isArray(v) ? v.join('\n') : String(v);
-    let value = groundNumbers(unescapeMd(s.replace(/\r\n/g, '\n')).trim(), known);
+    // 보내기 전에 가린 값(기관 전화·전자우편)은 답에서 원래 값으로 되돌린 뒤 본다
+    const got = r.redacted ? restoreMasked(content, s) : s;
+    let value = groundNumbers(unescapeMd(got.replace(/\r\n/g, '\n')).trim(), known);
     if (!keepGreeting) value = dropGreeting(value);
     values[f] = fixRelated ? fixRelatedLine(value, received) : value;
   }

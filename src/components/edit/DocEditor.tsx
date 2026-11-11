@@ -25,6 +25,7 @@ import { annotateBlocks, type BlockAnnotation } from "../../lib/svg-annotate";
 import type { ImportedFile } from "../../types/pipeline";
 import { joinPath } from "../../lib/format";
 import { onQuitGuard } from "../../lib/quit";
+import { errorText } from "../../lib/rpc";
 
 // ── 사이드카 응답 타입 (node-sidecar/src/core/edit과 동기) ──
 
@@ -163,7 +164,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         setSvg(annotateBlocks(res.pages[0].svg, annotations));
       }
     } catch (e) {
-      setRenderError(`미리보기를 그리지 못했습니다: ${e}`);
+      setRenderError(`미리보기를 그리지 못했습니다: ${errorText(e)}`);
     }
   }, [annotations, sidecarCall]);
 
@@ -207,7 +208,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         setSessionId(res.session_id);
         await applyState(res);
       } catch (e) {
-        if (!cancelled) setLoadError(String(e));
+        if (!cancelled) setLoadError(errorText(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -252,7 +253,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       if (!auto) showToast(`저장했습니다: ${r.output_path}`, "success");
       return r.output_path;
     } catch (e) {
-      showToast(`저장하지 못했습니다. ${e instanceof Error ? e.message : String(e)} 다른 폴더를 고르거나 파일을 연 프로그램을 닫고 다시 저장하세요.`, "error");
+      showToast(`저장하지 못했습니다. ${errorText(e)} 다른 폴더를 고르거나 파일을 연 프로그램을 닫고 다시 저장하세요.`, "error");
       return null;
     } finally {
       setBusy("");
@@ -288,7 +289,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       await applyState(res);
       setEditing(null);
     } catch (e) {
-      showToast(`고치지 못했습니다: ${e}`, "error");
+      showToast(`고치지 못했습니다: ${errorText(e)}`, "error");
     } finally {
       setBusy("");
     }
@@ -304,7 +305,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
       setDirty(true);
       await applyState(res);
     } catch (e) {
-      showToast(`${kind === "undo" ? "되돌리지" : "다시 실행하지"} 못했습니다: ${e}`, "error");
+      showToast(`${kind === "undo" ? "되돌리지" : "다시 실행하지"} 못했습니다: ${errorText(e)}`, "error");
     } finally {
       setBusy("");
     }

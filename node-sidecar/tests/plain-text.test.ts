@@ -12,6 +12,13 @@ describe('markdownToPlain', () => {
     expect(markdownToPlain(md)).toBe('추진 계획\n\n반복 업무를 줄이고자 함\n\n일시: 10:00~17:00 #1\n\n누리집\n');
   });
 
+  it('링크는 괄호 안이 주소 꼴일 때만 푼다 (근거 번호·붙임 뒤의 괄호 글은 그대로)', () => {
+    expect(markdownToPlain('예산은 5억원입니다[1](전년 대비 10% 증가).')).toBe('예산은 5억원입니다[1](전년 대비 10% 증가).\n');
+    expect(markdownToPlain('[붙임 1](참조) 계획서')).toBe('[붙임 1](참조) 계획서\n');
+    expect(markdownToPlain('[법령](https://www.law.go.kr/법령/지방자치법) [문의](mailto:a@gaon.example) [위로](#top) [자료](files/plan.pdf "계획") [누리집](gaon.example)'))
+      .toBe('법령 문의 위로 자료 누리집\n');
+  });
+
   it('GFM 표는 구분 줄을 빼고 칸을 탭으로 (칸 속 \\| 는 글자)', () => {
     const md = '| 과제 | 10월 | 11월 |\n| --- | :---: | --- |\n| 서식 등록 | 시범 부서 3곳 | A\\|B |\n| 빈칸 |  | 끝 |\n';
     expect(markdownToPlain(md)).toBe('과제\t10월\t11월\n서식 등록\t시범 부서 3곳\tA|B\n빈칸\t\t끝\n');

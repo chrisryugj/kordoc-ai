@@ -18,11 +18,13 @@ export type AgentEvent =
 /** 도구 결과 한 개를 대화에 실을 때의 글자 상한 (긴 문서 읽기 결과가 맥락을 다 먹지 않게) */
 const RESULT_CHARS = 12_000;
 
-const REPLY: JsonSchema = {
+/** args 는 도구마다 모양이 달라 자유 객체로 둔다(additionalProperties: true). 이것이 없으면 내장 AI 의 문법(node-llama-cpp)이
+ *  "properties 없는 객체 = 빈 객체 {} 만"으로 만들어, 인자가 필요한 도구를 하나도 부를 수 없다. 인자 검사는 checkArgs 가 한다 */
+export const REPLY: JsonSchema = {
   type: 'object',
   properties: {
     say: { type: 'string' },
-    calls: { type: 'array', items: { type: 'object', properties: { tool: { type: 'string' }, args: { type: 'object' } }, required: ['tool', 'args'] } },
+    calls: { type: 'array', items: { type: 'object', properties: { tool: { type: 'string' }, args: { type: 'object', additionalProperties: true } }, required: ['tool', 'args'] } },
   },
   required: ['say', 'calls'],
 };

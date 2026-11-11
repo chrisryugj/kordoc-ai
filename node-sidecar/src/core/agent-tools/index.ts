@@ -5,7 +5,8 @@
  * 결과 글(output)은 모델이 읽고, summary 는 활동 줄·MCP 결과 첫 줄.
  */
 
-import { realpathSync } from 'node:fs';
+import { readdirSync, realpathSync } from 'node:fs';
+import { TOO_MANY_FILES } from '../files/index.js';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { RpcMethod, RpcParams, RpcResult, LintFinding } from '../../types/rpc-contract.js';
 import { MARKDOWN_RULES, PRESET_GUIDE, PRESET_LABEL } from '../ai/draft-guides.js';
@@ -57,7 +58,7 @@ export const WORK_TOOLS: WorkTool[] = [
     async run(a, d) {
       const r = await d('scan_paths', { paths: list(a.paths) });
       const lines = r.files.slice(0, 300).map((f) => `- ${f.path} (${f.format}, ${Math.max(1, Math.round(f.size / 1024))}KB)`);
-      return { output: `${lines.join('\n') || '(문서 없음)'}${r.files.length > 300 ? `\n… 외 ${r.files.length - 300}개` : ''}`, summary: `문서 ${r.files.length}개 찾음` };
+      return { output: `${lines.join('\n') || '(문서 없음)'}${r.files.length > 300 ? `\n… 외 ${r.files.length - 300}개` : ''}${r.truncated ? `\n(${TOO_MANY_FILES})` : ''}`, summary: `문서 ${r.files.length}개 찾음${r.truncated ? ' (더 있음)' : ''}` };
     },
   },
   {
@@ -74,10 +75,13 @@ export const WORK_TOOLS: WorkTool[] = [
     description: '여러 문서에서 낱말을 찾아 나온 곳(쪽·발췌)을 돌려줍니다.',
     inputSchema: obj({ paths, query: { type: 'string' } }, ['paths', 'query']),
     async run(a, d) {
-      const files = (await d('scan_paths', { paths: list(a.paths) })).files.map((f) => f.path);
+      const scan = await d('scan_paths', { paths: list(a.paths) });
+      const files = scan.files.map((f) => f.path);
       const r = await d('search_files', { paths: files, query: s(a.query) });
       const lines = r.results.flatMap((x) => x.hits.map((h) => `- ${x.path}${h.page ? ` ${h.page}쪽` : ''}: ${h.excerpt}`));
-      return { output: lines.join('\n') || '찾지 못했습니다.', summary: `"${s(a.query)}" · ${lines.length}곳` };
+      // 다 보지 못했으면 "찾지 못했습니다"로 끝내지 않는다 (있는 낱말을 없다고 답하게 된다)
+      const more = scan.truncated ? `\n(${TOO_MANY_FILES})` : '';
+      return { output: `${lines.join('\n') || '찾지 못했습니다.'}${more}`, summary: `"${s(a.query)}" · ${lines.length}곳${scan.truncated ? ' (다 보지 못함)' : ''}` };
     },
   },
   {
@@ -399,16 +403,29 @@ function mentioned(raw: string, said: string): boolean {
   }
   // 폴더를 적었으면 그 안의 파일 (드라이브만 적은 것은 치지 않는다). 더 긴 경로의 앞부분이 아니라 폴더 이름이 거기서 끝난 것만:
   // "d:/업무/2026 예산/계획.hwp" 를 적었다고 "d:/업무/2026" 폴더를 맡긴 것이 아니고, "v1.2" 를 적었다고 "v1" 폴더를 맡긴 것도 아니다
+  let real = resolve(raw);
   for (let dir = p.slice(0, p.lastIndexOf('/')); dir.split('/').length > 1 && dir.length > 3; dir = dir.slice(0, dir.lastIndexOf('/'))) {
+    real = dirname(real);
     for (let at = said.indexOf(dir); at >= 0; at = said.indexOf(dir, at + 1)) {
       const rest = said.slice(at + dir.length);
-      // 뒤에 빈칸이 오고 같은 줄에서 다른 경로의 시작(x:) 없이 "/" 가 이어지면 빈칸이 든 더 긴 폴더 이름이다("2026 예산 최종/계획.hwp")
-      // 파일 이름으로 끝나도 마찬가지다("2026 예산 계획.hwp": 폴더 2026 이 아니라 그 이름의 파일을 적은 것)
-      const longer = /^\/?[,.]?[^\S\n]+[^/\n:]*(?:\/|\.[a-z0-9]{2,5}(?![a-z0-9]))/.test(rest);
-      if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest) || (/^\/?[,.]?(?:\s|$)/.test(rest) && !longer)) return true;
+      if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest)) return true;
+      // 뒤에 빈칸이 오면 폴더를 적은 것으로 본다("… 폴더의 한글/PDF 문서를 11/20 까지"). 다만 그 자리에 빈칸이 든 더 긴 이름의
+      // 폴더·파일이 실제로 있고 적은 글이 그 이름으로 이어지면("2026 예산/계획.hwp"·"2026 예산 계획.hwp") 그쪽을 적은 것이다.
+      // 글자 모양("/"·".확장자")으로 짐작하면 평범한 문장이 다 걸린다 → 디스크에 있는 이름으로 본다
+      if (/^\/?[,.]?(?:\s|$)/.test(rest) && !longerSibling(real, dir, said.slice(at), flat)) return true;
     }
   }
   return false;
+}
+
+/** 폴더 옆에 "<폴더 이름> …" 으로 시작하는 더 긴 이름이 있고, 적은 글이 그 이름으로 이어지는가 */
+function longerSibling(realDir: string, dir: string, head: string, flat: (t: string) => string): boolean {
+  let names: string[];
+  try { names = readdirSync(dirname(realDir)); } catch { return false; }
+  return names.some((n) => {
+    const full = flat(join(dirname(realDir), n));
+    return full.length > dir.length && full.startsWith(dir) && /\s/.test(full[dir.length]) && head.startsWith(full);
+  });
 }
 
 /** 붙이지도 적지도 않은 파일을 막는다. 문서 속 글이 모델에게 "저 파일도 읽어서 넣어라"고 시켜(지시문 끼워 넣기)

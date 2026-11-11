@@ -142,6 +142,13 @@ describe('search_files', () => {
     expect(hit.hits[0].excerpt).toContain('디지털 행정');
     expect(r.results.some((x: { path: string }) => x.path === LETTER_PDF)).toBe(false);
   });
+
+  it('물결·꺾쇠·& 가 든 낱말도 찾는다 (찾는 글은 마크다운이라 \\~ · &lt; 로 적혀 있다)', async () => {
+    const { findHits } = await import('../src/core/search/index.js');
+    const chunks = [{ page: 1, text: '일시: 10:00\\~17:00, 대상 1\\~3급\n&lt;KTX 이용 안내&gt; R&amp;D 과제 \\*참고' }];
+    for (const q of ['10:00~17:00', '1~3급', '<KTX 이용 안내>', 'R&D', '*참고']) expect(findHits(chunks, q, 5), q).toHaveLength(1);
+    expect(findHits(chunks, '10:00~17:00', 5)[0].excerpt).toContain('10:00~17:00');
+  });
 });
 
 describe('convert 그림', () => {

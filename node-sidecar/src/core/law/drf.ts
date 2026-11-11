@@ -116,7 +116,8 @@ export const articleKey = (jo: number, branch = 0) => (branch ? `${jo}의${branc
 /** 법령 한 판의 조문 목록 — 키는 articleKey (17, 7의2).
  *  at 이 없으면 현행(target=law, MST), 있으면 그 시행일 판(target=eflaw, MST + efYd). */
 export async function lawArticles(mst: string, o: DrfOptions, at?: { efYd: string }): Promise<Record<string, ArticleInfo>> {
-  const key = at ? `art2:ef:${mst}:${at.efYd}` : `art2:${mst}`;
+  // art3: 조문 칸에 전체 글의 지문(sig)이 든 모양 (앞 판 캐시와 섞이면 지문이 한쪽에만 있다)
+  const key = at ? `art3:ef:${mst}:${at.efYd}` : `art3:${mst}`;
   const hit = cacheGet<Record<string, ArticleInfo>>(key);
   if (hit) return hit;
   const j = await drfGet('lawService.do', at ? { target: 'eflaw', MST: mst, efYd: at.efYd } : { target: 'law', MST: mst }, o);

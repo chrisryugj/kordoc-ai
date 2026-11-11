@@ -38,7 +38,7 @@ const EXAMPLES = [
 
 export function AgentChat() {
   const { ai } = useApp();
-  const { call, editorState, docSeq, session, agentTask, takeAgentTask } = useCreate();
+  const { call, editorState, docSeq, openSeq, agentTask, takeAgentTask } = useCreate();
   const [chat, setChat] = useState<Entry[]>([]);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,7 +72,8 @@ export function AgentChat() {
   }), [bridge, org]);
 
   // 편집기에 다른 문서를 열기 시작하면 바로 멈춘다 (docSeq 는 다 연 뒤에 올라 그 사이 도구 호출이 새 문서로 갈 수 있다)
-  useEffect(() => { ctrl.current?.abort(); }, [session?.path]);
+  // 경로가 아니라 열기 횟수를 본다: 처음 저장·다른 이름으로 저장은 같은 문서인데 경로만 바뀐다 (그때 멈추면 하던 일이 끊긴다)
+  useEffect(() => { ctrl.current?.abort(); }, [openSeq]);
 
   // 편집기에 다른 문서를 열면 대화를 새로 시작한다 (앞 문서의 도구 결과·되돌리기가 새 문서로 새지 않게)
   useEffect(() => {
@@ -196,7 +197,9 @@ export function AgentChat() {
       </div>
       <ErrorLine message={error} />
       <textarea className="kd-textarea" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={onKey}
-        placeholder="무엇을 고칠까요? (Enter 보내기 · Shift+Enter 줄바꿈)" aria-label="편집기 AI에게 요청" disabled={busy} />
+        placeholder="무엇을 고칠까요? (Enter 보내기 · Shift+Enter 줄바꿈)" aria-label="편집기 AI에게 요청"
+        // 일하는 동안 못 쓰게만 한다(disabled 가 아니라 readOnly): disabled 면 초점이 빠져, 붙여 넣기가 "글을 문서로 열기"로 넘어가 화면이 바뀐다
+        readOnly={busy} aria-busy={busy} />
       <div className="flex gap-2">
         {busy
           ? <Button variant="secondary" size="sm" onClick={() => ctrl.current?.abort()}><Square size={12} /> 멈추기</Button>

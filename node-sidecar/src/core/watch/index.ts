@@ -42,6 +42,9 @@ interface Watcher {
 }
 
 const watchers = new Map<string, Watcher>();
+const GONE = '지켜보던 폴더를 더 볼 수 없어 지켜보기를 멈췄습니다. 폴더 이름을 바꿨거나 지웠다면 다시 골라 시작하세요.';
+/** 지금 거는 중인 폴더 */
+const starting = new Set<string>();
 const WATCH_FORMATS = new Set<DocFormat>(['hwp', 'hwp3', 'hwpx', 'hwpml', 'pdf', 'xls', 'xlsx', 'docx', 'pptx']);
 const MAX_WATCHERS = 8;
 const DEBOUNCE_MS = 1500;
@@ -136,6 +139,16 @@ async function listDocs(dir: string, outDir: string, out = new Map<string, numbe
 
 /** 다시 훑기 — fs.watch 가 놓친 새 문서·바뀐 문서를 디바운스에 태운다 */
 async function rescan(w: Watcher): Promise<void> {
+  // 지켜보던 폴더의 이름을 바꾸거나 지우면 감시는 아무 신호 없이 죽는다(없는 폴더는 빈 폴더로 읽힌다) → 여기서 알아채고 멈췄다고 알린다
+  const st = await stat(w.dir).catch(() => null);
+  if (!st?.isDirectory()) {
+    if (!watchers.has(w.id)) return;
+    logger.warn(`[watch] ${w.id} 감시 중단: 폴더가 없음`);
+    close(w);
+    watchers.delete(w.id);
+    sendNotification('watch_event', { id: w.id, path: w.dir, ok: false, error: GONE });
+    return;
+  }
   for (const [path, mtime] of await listDocs(w.dir, w.out_dir)) {
     if (w.seen.get(path) === mtime) continue;
     w.seen.set(path, mtime);
@@ -154,8 +167,18 @@ function scanLoop(w: Watcher, delay: number): void {
 export async function watchStart(p: { dir: string; out_dir?: string; format?: WatchFormat }): Promise<{ id: string }> {
   const st = await stat(p.dir).catch(() => null);
   if (!st?.isDirectory()) throw new Error('지켜볼 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.');
-  if ([...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 지켜보는 폴더입니다.');
-  if (watchers.size >= MAX_WATCHERS) throw new Error(`폴더 지켜보기는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 폴더는 그만 보기를 누르세요.`);
+  // 거는 중인 폴더도 센다: 아래에서 폴더를 훑는 동안(await) 같은 요청이 또 오면 한 폴더에 감시가 둘 걸려 문서마다 두 번 변환한다
+  if (starting.has(p.dir) || [...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 지켜보는 폴더입니다.');
+  if (watchers.size + starting.size >= MAX_WATCHERS) throw new Error(`폴더 지켜보기는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 폴더는 그만 보기를 누르세요.`);
+  starting.add(p.dir);
+  try {
+    return await startWatcher(p);
+  } finally {
+    starting.delete(p.dir);
+  }
+}
+
+async function startWatcher(p: { dir: string; out_dir?: string; format?: WatchFormat }): Promise<{ id: string }> {
   // 사용자가 정한 출력 폴더가 있으면 그곳, 기본값(문서/KorDoc AI 결과)이면 감시 폴더 안 '변환 결과'
   // (감시는 같은 원본의 결과를 덮어쓰므로 여러 감시가 한 기본 폴더를 함께 쓰면 같은 이름끼리 덮인다)
   const configured = getSettings().convert.output_dir?.trim();
@@ -186,7 +209,7 @@ export async function watchStart(p: { dir: string; out_dir?: string; format?: Wa
     logger.warn(`[watch] ${id} 감시 중단: ${err.message}`);
     close(w);
     watchers.delete(id);
-    sendNotification('watch_event', { id, path: p.dir, ok: false, error: '지켜보던 폴더를 더 볼 수 없어 지켜보기를 멈췄습니다. 폴더가 있는지 확인하세요.' });
+    sendNotification('watch_event', { id, path: p.dir, ok: false, error: GONE });
   });
   watchers.set(id, w);
   scanLoop(w, RESCAN_MS);

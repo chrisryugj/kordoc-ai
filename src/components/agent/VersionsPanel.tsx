@@ -4,20 +4,24 @@
  */
 
 import { AlertTriangle, ExternalLink, GitCompareArrows } from "lucide-react";
-import { rpc } from "../../lib/rpc";
+import { errorText, rpc } from "../../lib/rpc";
+import { useApp } from "../../state/app";
 import type { VersionsResult } from "../../lib/contract";
 import { Button } from "../ui/Button";
 import "./agent.css";
 
+const dayStart = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const when = (ms: number) => {
   const d = new Date(ms);
-  const days = Math.floor((Date.now() - ms) / 86_400_000);
+  // 달력 날짜로 센다 (지난 시간으로 세면 어제 저녁에 고친 판이 아침에는 "오늘"로 나온다)
+  const days = Math.round((dayStart(Date.now()) - dayStart(ms)) / 86_400_000);
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   const md = `${d.getMonth() + 1}. ${d.getDate()}.`;
   return days === 0 ? `오늘 ${hm}` : days === 1 ? `어제 ${hm}` : d.getFullYear() === new Date().getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}. ${md} ${hm}`;
 };
 
 export function VersionsPanel({ result, onCompare }: { result: VersionsResult; onCompare: (older: string, newer: string) => void }) {
+  const { toast } = useApp();
   const list = [...result.versions].reverse(); // 최근 것부터
   return (
     <div className="kd-vers">
@@ -41,7 +45,7 @@ export function VersionsPanel({ result, onCompare }: { result: VersionsResult; o
                 </span>
               </span>
               <span className="kd-vers-acts">
-                <Button size="sm" variant="ghost" onClick={() => void rpc("open_file", { path: v.path })} aria-label={`${v.name} 열기`}><ExternalLink size={13} /></Button>
+                <Button size="sm" variant="ghost" onClick={() => void rpc("open_file", { path: v.path }).catch((e) => toast(errorText(e), "error"))} aria-label={`${v.name} 열기`}><ExternalLink size={13} /></Button>
                 {prev && <Button size="sm" variant="ghost" onClick={() => onCompare(prev.path, v.path)}><GitCompareArrows size={13} /> 앞 판과 비교</Button>}
               </span>
             </div>

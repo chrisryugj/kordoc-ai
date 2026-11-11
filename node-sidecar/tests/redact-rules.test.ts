@@ -55,6 +55,9 @@ describe('글자 읽기로 얻은 글', () => {
     expect(tighten('010-1234-\n5678', true).text).toBe('010-1234-5678');
     expect(tighten('900101-\r\n1234567', true).text).toBe('900101-1234567');
     expect(tighten('총 인원 900101\n- 1234567명 참석', true).text).toBe('총 인원 900101\n- 1234567명 참석');
+    // 세는 말이 없는 "- 숫자"는 줄표 앞에서 줄이 바뀐 번호일 수 있어 잇는다
+    expect(tighten('900101\n- 1234567', true).text).toBe('900101-1234567');
+    expect(tighten('010-1234\n- 5678', true).text).toBe('010-1234-5678');
     // 줄을 넘기지 않는 쪽(기본)은 줄바꿈을 건드리지 않는다
     expect(tighten('010-1234-\n5678').text).toBe('010-1234-\n5678');
   });

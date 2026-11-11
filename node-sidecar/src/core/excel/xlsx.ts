@@ -66,7 +66,13 @@ function sheetXml(s: Sheet): string {
       if (s.header && r === 0) return `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
       const t = v.trim();
       const b = bold.has(r);
-      if (NUMBER.test(t)) return `<c r="${ref}" s="${b ? 7 : t.includes(',') ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
+      // 소수 끝이 0 인 값("11.10"·"2026.10"·"1.10": 날짜·시기·항목 번호일 수 있다)은 숫자 칸이 되면 0 이 사라져 11.1 로 보인다 → 글 칸.
+      // 쉼표와 소수가 함께 든 값("1,234.5")도 천 단위 서식(#,##0)이 반올림해 1,235 로 보이므로 글 칸으로 둔다
+      const frac = t.includes('.');
+      if (NUMBER.test(t) && !(frac && (t.endsWith('0') || t.includes(',')))) {
+        // 굵은 행(합계)의 소수는 천 단위 서식 대신 일반 서식으로 (반올림돼 보이지 않게)
+        return `<c r="${ref}" s="${b ? (frac ? 6 : 7) : t.includes(',') ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
+      }
       const st = marked.has(`${r},${c}`) ? 5 : b ? 6 : 2;
       return v ? `<c r="${ref}" t="inlineStr" s="${st}"><is><t xml:space="preserve">${esc(v)}</t></is></c>` : `<c r="${ref}" s="${st}"/>`;
     }).join('');

@@ -15,6 +15,7 @@ import { agentStep, type AgentEvent, type AgentToolDef } from '../../core/ai/age
 import { extractTable } from '../../core/ai/extract.js';
 import { fitLinesWithAi } from '../../core/ai/fit-lines.js';
 import { aiStatus, aiTest, aiWarmup, listServerModels } from '../../core/ai/status.js';
+import { primeHost } from '../../infra/llm/index.js';
 import { localServers, subscriptionModels, subscriptionStatus, subscriptionUpdate } from '../../core/ai/connect.js';
 import { CATALOG, catalog, deleteModel, downloadModel, importModel, listModels } from '../../core/ai/models.js';
 
@@ -31,7 +32,9 @@ export function registerAi(router: RpcRouter): void {
     try { return await handler(p, signal); } catch (err) { throw toAiError(err); }
   }, opts);
   // ── 연결 ──
-  reg('ai_status', () => aiStatus());
+  // 상태를 보기 전에 AI 서버 이름을 실제 주소로 풀어 둔다. 안 풀면 점이 든 내부 이름(ai.gaon.go.kr)이 폐쇄망 모드에서
+  // 앱을 켤 때마다 "외부 AI"로 판정돼 AI 기능이 잠기고, 잠겨 있어서 이름을 풀어 줄 첫 요청도 나가지 않는다
+  reg('ai_status', async () => { await primeHost().catch(() => undefined); return aiStatus(); });
   reg('ai_test', (_p, signal) => aiTest(signal), { heavy: true });
   reg('ai_list_models', (p, signal) => listServerModels({ base_url: str(p.base_url), api_key: str(p.api_key), slot: p.slot === 'local' || p.slot === 'anthropic' || p.slot === 'gemini' ? p.slot : 'openai' }, signal));
   reg('ai_local_servers', (_p, signal) => localServers(signal));

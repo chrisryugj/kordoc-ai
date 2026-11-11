@@ -16,7 +16,7 @@ type Watch = { id: string; dir: string; out_dir: string; format: string; process
 type Event = { id: string; path: string; ok: boolean; output_path?: string; error?: string; at: number };
 
 export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: number) => void }) {
-  const { ready, settings } = useApp();
+  const { ready, settings, noteWatches } = useApp();
   /** 담을 폴더를 고르지 않았을 때 엔진이 쓰는 곳: 설정의 저장 폴더, 없으면 지켜볼 폴더 안 "변환 결과" */
   const defaultOut = settings?.convert.output_dir ? `${baseName(settings.convert.output_dir)} (설정의 저장 폴더)` : "지켜볼 폴더 안 “변환 결과”";
   const [list, setList] = useState<Watch[]>([]);
@@ -26,24 +26,38 @@ export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: 
   const [format, setFormat] = useState<"md" | "html" | "txt">("md");
   const [error, setError] = useState("");
 
-  const refresh = useCallback(async () => {
-    try { setList(await rpc("watch_list", {})); } catch (e) { setError(errorText(e)); }
-  }, []);
+  /** 엔진에 걸려 있는 목록을 읽는다. remember: 앱이 이 목록을 기억해 둔다 (엔진이 다시 켜지면 그 목록으로 다시 건다) */
+  const refresh = useCallback(async (remember = true) => {
+    try {
+      const now = await rpc("watch_list", {});
+      setList(now);
+      if (remember || now.length) noteWatches(now);
+    } catch (e) { setError(errorText(e)); }
+  }, [noteWatches]);
 
-  useEffect(() => { if (ready) void refresh(); }, [ready, refresh]);
+  // 엔진이 (다시) 준비됐을 때의 첫 읽기는 기억을 덮지 않는다: 막 다시 켜진 엔진의 빈 목록이 기억한 목록을 지우면 다시 걸 것이 없어진다
+  useEffect(() => { if (ready) void refresh(false); }, [ready, refresh]);
+  useEffect(() => {
+    const on = () => void refresh();
+    window.addEventListener("kordoc:watches", on);
+    return () => window.removeEventListener("kordoc:watches", on);
+  }, [refresh]);
   useEffect(() => onCount(list.length), [list.length, onCount]);
   useEffect(() => onNotify("watch_event", (p) => {
     setEvents((prev) => [{ id: String(p.id), path: String(p.path), ok: !!p.ok, output_path: p.output_path as string | undefined, error: p.error as string | undefined, at: Date.now() }, ...prev].slice(0, 50));
     void refresh();
   }), [refresh]);
 
+  const [starting, setStarting] = useState(false);
   const start = async () => {
+    if (starting) return;
+    setStarting(true);
     setError("");
     try {
       await rpc("watch_start", { dir, format, ...(outDir ? { out_dir: outDir } : {}) });
       setDir("");
       void refresh();
-    } catch (e) { setError(errorText(e)); }
+    } catch (e) { setError(errorText(e)); } finally { setStarting(false); }
   };
   const stop = async (id: string) => {
     try { await rpc("watch_stop", { id }); void refresh(); } catch (e) { setError(errorText(e)); }
@@ -70,7 +84,7 @@ export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: 
             </div>
           </Field>
         </div>
-        <div><Button disabled={!dir} onClick={() => void start()}><Eye size={14} /> 지켜보기 시작</Button></div>
+        <div><Button disabled={!dir || starting} onClick={() => void start()}><Eye size={14} /> 지켜보기 시작</Button></div>
         <ErrorLine message={error} />
       </div>
 

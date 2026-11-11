@@ -24,6 +24,8 @@ export interface ChatRequest {
   schema?: JsonSchema;
   signal: AbortSignal;
   onToken?: (text: string) => void;
+  /** 답이 길이 한도(max_tokens)에 걸려 중간에서 끊겼을 때 공급자가 부른다 */
+  onTruncated?: () => void;
 }
 
 export interface LlmProvider {

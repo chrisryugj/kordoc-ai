@@ -14,6 +14,23 @@ describe('toAiError', () => {
     expect(text(toAiError(new SyntaxError("Expected ',' or ']' after array element in JSON at position 10")))).toMatch(/AI 답을 읽지 못했습니다/);
   });
 
+  it('파일 이름 속 숫자(제429회·제2026-512호)를 AI 서버 상태 번호로 읽지 않는다', () => {
+    expect(text(toAiError(new Error('암호가 걸린 문서입니다. 암호를 넣고 다시 시도하세요. (제429회 회의록.docx)')))).toMatch(/^암호가 걸린 문서입니다/);
+    expect(text(toAiError(new Error('문서를 읽지 못했습니다 (공고 제2026-512호.hwpx)')))).toMatch(/^문서를 읽지 못했습니다/);
+    expect(text(toAiError(new Error('AI 서버: 요청 한도를 넘었습니다 (429). retry later')))).toMatch(/사용량 한도/);
+  });
+
+  it('열려 있는 파일에 바꿔 넣기가 막히면 닫으라고 알리고, 임시 파일 이름이 아니라 그 파일 이름을 보인다', async () => {
+    const { toUserError } = await import('../src/core/errors.js');
+    const err = Object.assign(new Error("EPERM: operation not permitted, rename 'D:\\a\\문서.hwpx.kordoc-tmp' -> 'D:\\a\\문서.hwpx'"), { code: 'EPERM', syscall: 'rename', path: 'D:\\a\\문서.hwpx.kordoc-tmp', dest: 'D:\\a\\문서.hwpx' });
+    const m = text(toUserError(err));
+    expect(m).toMatch(/다른 프로그램.*열려 있거나 읽기 전용.*닫고 다시 저장/);
+    expect(m).toMatch(/\(문서\.hwpx\)$/);
+    expect(m).not.toContain('kordoc-tmp');
+    // 그 밖의 권한 오류는 그대로
+    expect(text(toUserError(Object.assign(new Error('EPERM'), { code: 'EPERM', syscall: 'open', path: 'C:\\x\\a.txt' })))).toMatch(/접근할 권한이 없습니다/);
+  });
+
   it('이미 한국어로 다듬은 안내와 취소는 그대로', () => {
     expect(text(toAiError(new Error('AI가 아직 연결되지 않았습니다. 설정에서 연결하세요.')))).toBe('AI가 아직 연결되지 않았습니다. 설정에서 연결하세요.');
     const abort = new DOMException('취소', 'AbortError');

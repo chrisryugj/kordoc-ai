@@ -26,7 +26,8 @@ export function useTask<T>() {
       if (ctrl.current === ac) setResult(r);
       return r;
     } catch (e) {
-      if (ctrl.current === ac) setError(isAbort(e) ? "멈췄습니다" : errorText(e));
+      // 앞서 성공한 결과는 지운다. 남겨 두면 다시 해서 실패·멈춘 화면에 "저장했습니다"와 오류가 함께 보인다
+      if (ctrl.current === ac) { setResult(null); setError(isAbort(e) ? "멈췄습니다" : errorText(e)); }
       return null;
     } finally {
       if (ctrl.current === ac) {

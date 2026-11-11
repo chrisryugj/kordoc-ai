@@ -61,9 +61,10 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
         let out = '';
         for await (const data of sseData(res, signal)) {
           touch();
-          let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>; error?: { message?: string } };
+          let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> }; finishReason?: string }>; error?: { message?: string } };
           try { chunk = JSON.parse(data); } catch { continue; }
           if (chunk.error) throw new Error(`Gemini: ${chunk.error.message ?? '오류'}`);
+          if (chunk.candidates?.[0]?.finishReason === 'MAX_TOKENS') req.onTruncated?.();
           for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
             if (part.thought || !part.text) continue;
             out += part.text;

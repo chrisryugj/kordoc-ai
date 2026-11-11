@@ -34,6 +34,7 @@ export function HomeAgent() {
         onStop={chat.stop}
         busy={false}
         locked={chat.busy}
+        onLockedOpen={() => { if (chat.runningId) chat.openChat(chat.runningId); go("chat"); }}
         dropName="home"
         offHint="AI 없이 쓰는 기능은 아래 빠른 작업에서."
         extra={<Button size="sm" variant="ghost" onClick={() => openDocs(paths)}><BookOpenText size={14} /> 문서 화면에서 보기</Button>}

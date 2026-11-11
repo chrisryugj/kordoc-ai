@@ -6,7 +6,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BookOpen, ClipboardCheck, EyeOff, ExternalLink, FilePen, FileSearch, FileStack, FolderOpen, GitCompareArrows, History, Loader2, Table2, Wrench } from "lucide-react";
 import { useApp } from "../../state/app";
-import { invokeCmd, rpc } from "../../lib/rpc";
+import { errorText, invokeCmd, rpc } from "../../lib/rpc";
 import { baseName, dirName, formatOf } from "../../lib/format";
 import type { AgentTurn } from "../../hooks/useWorkAgent";
 import { Button } from "../ui/Button";
@@ -54,7 +54,7 @@ function Thumb({ path }: { path: string }) {
 export function ResultCard({ path }: { path: string }) {
   const { startCreate, toast } = useApp();
   const fmt = formatOf(path);
-  const fail = (e: unknown) => toast(e instanceof Error ? e.message : String(e), "error");
+  const fail = (e: unknown) => toast(errorText(e), "error");
   const menu = useFileMenu();
   return (
     <div className="kd-result" onContextMenu={(e) => menu.open(e, path)}>

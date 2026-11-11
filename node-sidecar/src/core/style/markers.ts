@@ -40,6 +40,14 @@ const RULES: Array<{ re: RegExp; key: (m: RegExpExecArray) => string; family: Ma
   { re: new RegExp(`^([㉮-㉻])${SPACE}*`), key: () => '㉮', family: 'legal' },
 ];
 
+/** "11. 20(금) 14:00" · "10. 23일까지" · "10. 23 ~ 10. 25" 처럼 일 뒤에 점 없이 쓴 날짜인가 (앞의 "11." 은 월이지 항목 번호가 아니다).
+ *  "2. 3일간 교육" · "1. 3~5명 선발" · "2. 2026년 추진 계획" 은 항목이다 */
+function dateTail(glyph: string, rest: string): boolean {
+  const month = Number(glyph.replace('.', ''));
+  const m = /^\s*(\d{1,2})\s*(\(\s*[월화수목금토일]\s*\)|일\s*(?:까지|부터|자\b|에\b|\(|,|[~∼～])|[~∼～]\s*\d{1,2}\s*\.)/.exec(rest);
+  return !!m && month >= 1 && month <= 12 && Number(m[1]) >= 1 && Number(m[1]) <= 31;
+}
+
 /** 문단 글 앞의 항목 기호. 없으면 null */
 export function readMarker(text: string): Marker | null {
   const t = text.replace(/^[\s　 ]+/, '');
@@ -49,7 +57,9 @@ export function readMarker(text: string): Marker | null {
     const rest = t.slice(m[0].length);
     // "1." 뒤에 글이 없거나 날짜("6. 26.(금)" · "10. 23.까지")처럼 숫자와 점이 이어지면 항목이 아니다.
     // 숫자로 시작한다고 다 빼면 "2. 2026년 추진 계획" · "가. 1분기: 준비" · "1) 3개 부서" 가 항목이 아니게 되어 앞 항목에 한 줄로 붙는다
-    if (r.family === 'legal' && (!rest.trim() || (/^\d{1,2}\.$/.test(m[1].trim()) && /^\s*\d{1,4}\s*\.(?!\d)/.test(rest)))) continue;
+    if (r.family === 'legal' && (!rest.trim() || (/^\d{1,2}\.$/.test(m[1].trim()) && (/^\s*\d{1,4}\s*\.(?!\d)/.test(rest) || dateTail(m[1], rest))))) continue;
+    // 지역번호("02) 450-7114")는 항목 번호가 아니다
+    if (/^0\d\)$/.test(m[1]) || (/^\d{1,2}\)$/.test(m[1]) && /^\d{3,4}\s*-\s*\d{4}/.test(rest))) continue;
     if (r.family !== 'ref' && !rest.trim()) continue;
     // "□ 예  ■ 아니오" 같은 고르는 칸은 항목이 아니다
     if (m[1].match(/[□■❏❑◻▢▣◼☐☑]/) && /[□■☐☑▣◼]/.test(rest)) return null;

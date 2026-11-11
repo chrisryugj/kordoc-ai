@@ -118,6 +118,9 @@ describe('값 뽑기 규칙', () => {
     for (const total of ['합계 11,000', '2026-10-23 합계 11,000', '승인번호 1234-5678', '합계 ------ 11,000', '합계: 3개 - 12,000원']) expect(looksRefund(['가온문구'], total), total).toBe(false);
     for (const line of ['신용카드 매출전표(취소)', '카드매출전표 (취소)', '환불 영수증']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(true);
     expect(looksRefund(['가온문구', '결제취소 요청 기한 7일'], '합계 11,000')).toBe(false);
+    for (const line of ['환불완료', '카드취소 가맹점용', '신용취소 할부기간: 일시불', '승인취소 유효기간 **/**']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(true);
+    expect(looksRefund(['가온문구'], '합계 1 -11,000')).toBe(true);
+    expect(looksRefund(['가온문구', '환불 가능 기간 7일'], '합계 11,000')).toBe(false);
     const normal = parseReceipt(L('가온문구', '합계 11,000', '공급가액 10,000', '부가세 1,000', '교환·환불은 7일 이내 영수증 지참'));
     expect(normal.fields.total!.confidence).toBeGreaterThanOrEqual(0.8);
   });

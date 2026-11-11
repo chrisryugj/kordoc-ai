@@ -18,6 +18,8 @@ const RELAY = process.argv[3] ?? 'http://127.0.0.1:7722';
 mkdirSync(OUT, { recursive: true });
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`); };
+// 채우기 창만 집는다. 창이 문서 자리 밖(body)에 그려져, 그냥 [role=dialog] 는 먼저 떠 있는 다른 창(첫 실행 안내)을 집는다
+const DLG = '[role=dialog]:has([data-kd-field])';
 
 const ui = await openUi({ relay: RELAY, width: 1280, height: 860 });
 const { page } = ui;
@@ -34,23 +36,23 @@ try {
   await page.waitForSelector('[data-kd-field="담당자"]', { timeout: 60000 });
   await page.waitForFunction(() => !!document.querySelector('.kd-preview svg'), { timeout: 60000 });
 
-  const head = await page.evaluate(() => document.querySelector('[role=dialog] h2')?.parentElement?.innerText ?? '');
+  const head = await page.evaluate((d) => document.querySelector(`${d} h2`)?.parentElement?.innerText ?? '', DLG);
   check('머리 문구: 원본 모양은 그대로 두고 값만 넣습니다', head.includes('원본 모양은 그대로 두고 값만 넣습니다') && !head.includes('1바이트'), head.replace(/\n/g, ' / '));
   const fields = await page.evaluate(() => [...document.querySelectorAll('[data-kd-field]')].map((e) => e.getAttribute('data-kd-field')));
   check('표 머리 행 "항목" 은 칸 목록에 없음', !fields.includes('항목') && fields.includes('담당자'), fields.join(', '));
-  const noButton = await page.evaluate(() => ![...document.querySelectorAll('[role=dialog] button')].some((b) => b.textContent.includes('미리보기 반영')));
+  const noButton = await page.evaluate((d) => ![...document.querySelectorAll(`${d} button`)].some((b) => b.textContent.includes('미리보기 반영')), DLG);
   check('미리보기 반영 단추 없음 (저절로 반영)', noButton);
 
   // 값 고치기 → 0.7초 뒤 저절로 미리보기
   await page.click('[data-kd-field="담당자"]', { clickCount: 3 });
   await page.type('[data-kd-field="담당자"]', '홍길순');
-  await page.waitForFunction(() => document.querySelector('[role=dialog]')?.innerText.includes('넣은 곳'), { timeout: 20000 });
-  const place = await page.evaluate(() => [...document.querySelectorAll('[role=dialog] button')].find((b) => b.textContent.includes('넣은 곳'))?.textContent ?? '');
+  await page.waitForFunction((d) => document.querySelector(d)?.innerText.includes('넣은 곳'), { timeout: 20000 }, DLG);
+  const place = await page.evaluate((d) => [...document.querySelectorAll(`${d} button`)].find((b) => b.textContent.includes('넣은 곳'))?.textContent ?? '', DLG);
   check('넣은 곳 표시 (표 칸 좌표)', place.includes('1번 표 3행 2열 칸'), place);
   await page.waitForFunction(() => [...document.querySelectorAll('.kd-preview text')].some((t) => t.textContent === '순'), { timeout: 20000 });
   check('미리보기에 고친 값이 저절로 보임', true);
 
-  await ui.click('넣은 곳', { within: '[role=dialog]' });
+  await ui.click('넣은 곳', { within: DLG });
   await sleep(600);
   const hl = await page.evaluate(() => { const r = document.querySelector('.kd-preview [data-kd-hl]'); return r ? { w: +r.getAttribute('width'), h: +r.getAttribute('height') } : null; });
   check('넣은 곳을 누르면 미리보기에 상자로 짚음', !!hl && hl.w > 10 && hl.h > 5, JSON.stringify(hl));
@@ -59,14 +61,14 @@ try {
   // 저장은 저장 창으로
   const target = join(OUT, `교육수요조사서_채움_${Date.now()}.hwpx`);
   await ui.dialog([target]);
-  await ui.click('HWPX 저장', { within: '[role=dialog]' });
-  await page.waitForFunction(() => document.querySelector('[role=dialog]')?.innerText.includes('저장 위치 열기'), { timeout: 30000 });
+  await ui.click('HWPX 저장', { within: DLG });
+  await page.waitForFunction((d) => document.querySelector(d)?.innerText.includes('저장 위치 열기'), { timeout: 30000 }, DLG);
   check('HWPX 저장: 저장 창에서 고른 곳에', existsSync(target), target);
   await ui.shot(join(OUT, '12-fill-saved.png'));
   for (const w of [1280, 1024]) {
     await page.setViewport({ width: w, height: 860 });
     await sleep(300);
-    const o = await ui.orphans('[role=dialog] p');
+    const o = await ui.orphans(`${DLG} p`);
     check(`도우미 외톨이 줄 0 @${w}`, o.length === 0, JSON.stringify(o));
   }
 } catch (e) {

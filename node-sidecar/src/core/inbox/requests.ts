@@ -144,11 +144,13 @@ function tableDeadlines(lines: string[], ref: string, items: number[]): Deadline
       const cells = lines[i].replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
       if (!cells.every((c) => c === '' || /^:?-{2,}:?$/.test(c))) rows.push(cells);
     }
-    const add = (label: string, cell?: string) => {
+    const add = (label: string, cell?: string, name = '') => {
       const due = cell ? dateAtStart(cell, ref) : undefined;
-      if (due) out.push({ label: label.replace(/\s+/g, ''), due, line: start, item: items[start] ?? 0 });
+      if (due) out.push({ label: `${name} ${label.replace(/\s+/g, '')}`.trim(), due, line: start, item: items[start] ?? 0 });
     };
-    rows[0]?.forEach((h, j) => { if (LABEL.test(h)) rows.slice(1).forEach((r) => add(h, r[j])); });
+    // 기한 열 아래 행마다 기한이 다르면(서류별 제출기한) 그 행의 이름 칸을 이름표에 붙인다: "사업계획서 제출기한"
+    const nameOf = (r: string[], j: number) => r.find((c, k) => k !== j && c && c.length <= 30 && !/^\d+$/.test(c) && !dateAtStart(c, ref)) ?? '';
+    rows[0]?.forEach((h, j) => { if (LABEL.test(h)) rows.slice(1).forEach((r) => add(h, r[j], nameOf(r, j))); });
     rows.forEach((r) => r.forEach((c, j) => { if (LABEL.test(c)) add(c, r[j + 1]); }));
   }
   return out;
@@ -182,9 +184,11 @@ export function mergeDeadlines(found: Found[], deadlines: Deadline[]): Array<{ t
     if (target) target.due = d.due;
     else reqs.push({ text: d.label, due: d.due, line: d.line, item: d.item });
   }
+  // 같은 글·같은 기한만 겹친 것으로 본다. 글만 보면 "제출기한" 줄이 여럿일 때 먼저 나온 하나만 남아 가장 이른 기한이 사라진다
   const seen = new Set<string>();
+  const keyOf = (r: Found) => `${r.text}\n${r.due ?? ''}`;
   return reqs
-    .filter((r) => !seen.has(r.text) && Boolean(seen.add(r.text)))
+    .filter((r) => !seen.has(keyOf(r)) && Boolean(seen.add(keyOf(r))))
     .sort((a, b) => (a.due && b.due ? a.due.localeCompare(b.due) || a.line - b.line : a.due ? -1 : b.due ? 1 : a.line - b.line))
     .map((r) => (r.due ? { text: r.text, due: r.due } : { text: r.text }));
 }

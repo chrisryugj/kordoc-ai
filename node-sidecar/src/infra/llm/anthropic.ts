@@ -54,6 +54,7 @@ export function createAnthropicProvider(cfg: { api_key: string; model: string },
       }
       const final = await stream.finalMessage();
       if (final.stop_reason === 'refusal') throw new Error('Claude가 이 요청을 거절했습니다. 내용을 바꿔 다시 시도하세요.');
+      if (final.stop_reason === 'max_tokens') req.onTruncated?.();
       return out;
     },
     /** 이 키로 쓸 수 있는 모델 (공식 Models API, 새것부터) */

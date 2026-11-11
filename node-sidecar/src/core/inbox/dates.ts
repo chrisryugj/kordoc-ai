@@ -62,6 +62,10 @@ function guessYear(month: number, day: number, ref: string, wday?: string): numb
     return dt.getUTCMonth() === month - 1 && WEEKDAYS[dt.getUTCDay()] === wday;
   };
   if (fits(year)) return year;
+  // 기본 해의 날짜가 기준일 뒤(앞으로 올 날)면 요일이 달라도 그 해를 둔다. 날짜만 하루 당기고 요일을 안 고친 공문이 흔하다
+  // ("11. 19.(금)", 실제는 목요일): 요일에 맞추면 기한이 다음 해로 가서 접수함에서 한 해 뒤 일로 밀린다.
+  // 요일로 해를 고르는 것은 기본 해의 날짜가 이미 지났을 때만 한다
+  if (at(year) >= refT) return year;
   // 기준일(시행일)보다 한 달 넘게 앞선 해는 고르지 않는다. 요일을 하루 틀리게 적은 공문("11. 20.(목)", 실제는 금요일)의
   // 기한이 지난해로 잡히면 안 된다. 요일이 맞는 해가 없으면 기본 해를 둔다
   const near = [refYear - 1, refYear, refYear + 1]

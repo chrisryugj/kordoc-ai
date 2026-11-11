@@ -1,6 +1,7 @@
 /** 채우기·편집 — 한글 편집기(rhwp)로 열기 + 기존 양식 채우기(FillWizard)·클릭 편집(DocEditor) */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ClipboardList, FilePen, ShieldCheck, SquarePen } from "lucide-react";
 import type { ToolProps } from "../ToolPanel";
 import { useApp } from "../../../state/app";
@@ -57,14 +58,14 @@ export function EditTool({ doc, info }: ToolProps) {
         </div>
       )}
 
-      {open === "fill" && (
+      {/* 창 전체를 덮는 화면이라 문서 자리 밖(body)에 그린다. 문서 자리 안에 두면, 창이 열린 채 다른 문서가 열릴 때
+          (파일 끌어다 놓기·Ctrl+O·탐색기 우클릭) 이 문서 자리가 숨으면서 채우던 창도 같이 사라진다 */}
+      {open === "fill" && createPortal(
         <FillWizard file={file} sidecarCall={callRaw} outputDir={settings?.convert.output_dir ?? ""} showToast={toast}
-          onClose={() => setOpen("")} onOpenFolder={reveal} />
-      )}
-      {open === "edit" && (
+          onClose={() => setOpen("")} onOpenFolder={reveal} />, document.body)}
+      {open === "edit" && createPortal(
         <DocEditor file={file} sidecarCall={callRaw} outputDir={settings?.convert.output_dir ?? ""} showToast={toast}
-          onClose={() => setOpen("")} onOpenFolder={reveal} />
-      )}
+          onClose={() => setOpen("")} onOpenFolder={reveal} />, document.body)}
     </div>
   );
 }

@@ -18,7 +18,9 @@ export function cleanOutput(text: string, source = ''): string {
     // 머리말: 작업을 가리키는 낱말이 있는 첫 줄, 또는 "다음은/아래는 …:" 첫 줄만 (# 제목 줄·원문 문장은 남김)
     const m = t.match(/^(?!#)(?:네[,.!]?\s*)?[^\n]{0,30}(?:요청하신|다듬은|고친|수정한|바꾼|작성한|정리한|변환한|옮긴|초안)[^\n]{0,30}(?:입니다|드립니다|같습니다)[.!:：]?[ \t]*\n+/)
       ?? t.match(/^(?!#)(?:네[,.!]?\s*)?(?:다음은|아래는)[^\n]{0,40}[:：][ \t]*\n+/);
-    return m && !fromSource(m[0]) ? t.slice(m[0].length) : t;
+    // 공문 본문의 첫 문장("요청하신 자료를 붙임과 같이 제출드립니다.")은 머리말이 아니다: 일을 알리는 말이 든 줄은 남긴다
+    const body = m && /붙임|(?:제출|송부|회신|통보|보고|안내|협조|참석|납부|신청)\s?(?:드립니다|합니다|하오니|바랍니다)/.test(m[0]);
+    return m && !body && !fromSource(m[0]) ? t.slice(m[0].length) : t;
   };
   let t = stripHead(text.replace(/\r\n/g, '\n').trim());
   const fence = t.match(/^```[\w-]*\n([\s\S]*?)\n?```$/);
@@ -26,8 +28,14 @@ export function cleanOutput(text: string, source = ''): string {
   // 꼬리말: 빈 줄 뒤 "수정이 필요하면 말씀해 주세요" 같은 작업 안내만 (공문의 "…알려 주시기 바랍니다"는 남김)
   const tail = t.match(/\n\s*\n(?:-{3,}\n+)?([^\n]{0,40}(?:수정|추가|다듬|고쳐|바꿔)[^\n]{0,30}(?:말씀해|알려)\s?주세요[.!]?)\s*$/);
   if (tail && !fromSource(tail[1])) t = t.slice(0, tail.index);
-  const q = t.match(/^["“'‘「]([\s\S]*)["”'’」]$/);
-  if (q && !/["“”]/.test(q[1])) t = q[1].trim();
+  // 전체를 감싼 따옴표만 벗긴다. 안에 같은 짝의 따옴표가 또 있으면 감싼 것이 아니라 글의 따옴표다
+  // ('청렴'과 '공정' · 「지방자치법」 및 「지방재정법」 의 양 끝을 벗기면 글이 깨진다)
+  for (const [open, close] of [['"', '"'], ['“', '”'], ["'", "'"], ['‘', '’'], ['「', '」']]) {
+    if (t.length < 2 || !t.startsWith(open) || !t.endsWith(close)) continue;
+    const inner = t.slice(open.length, -close.length);
+    if (!inner.includes(open) && !inner.includes(close) && !/["“”]/.test(inner)) t = inner.trim();
+    break;
+  }
   return t.trim();
 }
 

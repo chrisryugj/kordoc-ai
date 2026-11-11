@@ -56,7 +56,8 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
     if (big) throw new Error(`문서가 너무 커서(약 ${big.toLocaleString('ko-KR')}쪽) PDF로 한 번에 만들 수 없습니다. 한글에서 쪽을 나눠 저장한 뒤 다시 시도하세요.`);
     // rhwp 쪽 SVG → Chromium 인쇄, 쪽 묶음마다 찍어 잇는다 (kordoc 렌더는 칸 안 줄바꿈을 아직 무시). rhwp 가 못 읽으면 kordoc 렌더로
     try {
-      return await pagesToPdf(rhwpPages(bytes, undefined, signal), (n) => { if (n % 20 === 0) sendProgress({ current: n, total: 0, message: `PDF 만드는 중 (${n}쪽)` }); });
+      // 쪽마다 취소를 본다: 안 보면 수백 쪽 문서는 취소한 뒤에도 끝까지 만들어 파일까지 쓴다
+      return await pagesToPdf(rhwpPages(bytes, undefined, signal), (n) => { signal?.throwIfAborted(); if (n % 20 === 0) sendProgress({ current: n, total: 0, message: `PDF 만드는 중 (${n}쪽)` }); });
     } catch (err) {
       if (signal?.aborted || (err instanceof Error && err.message === NO_BROWSER)) throw err;
       logger.warn(`[pdf] rhwp 경로 실패 → kordoc 렌더: ${err instanceof Error ? err.message : err}`);
@@ -96,6 +97,8 @@ export async function exportPdf(p: { path: string; output_path?: string; overwri
   if (formatOf(p.path) === 'pdf') throw new Error('이미 PDF 문서입니다.');
   sendProgress({ current: 0, total: 1, message: 'PDF 만드는 중' });
   const bytes = await docToPdf(p.path, signal);
+  // 취소했으면 결과 파일을 남기지 않는다
+  signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}.pdf`, overwrite: p.overwrite });
   await writeFile(outPath, bytes);
   return { output_path: outPath };
@@ -120,6 +123,7 @@ export async function bundlePdf(
   }
   if (!merged.getPageCount()) throw new Error(`합칠 수 있는 문서가 없습니다. ${failed[0]?.error ?? ''}`.trim());
   if (p.watermark?.trim() || p.page_numbers) await stampPdf(merged, p);
+  signal.throwIfAborted();
   // overwrite: 화면이 덮어쓰기를 확인한 경로. 합칠 원본 자리면 덮어쓰지 않는다
   const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => resolve(x).toLowerCase() === resolve(p.output_path!).toLowerCase());
   const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}${p.paths.length > 1 ? `_외${p.paths.length - 1}건` : ''}_합본.pdf`, overwrite });
@@ -131,6 +135,7 @@ export async function pdfStamp(p: { path: string; watermark?: string; page_numbe
   if (!p.watermark?.trim() && !p.page_numbers) throw new Error('워터마크 글자나 쪽번호 중 하나를 고르세요.');
   const doc = await loadPdf(await docToPdf(p.path, signal));
   await stampPdf(doc, p);
+  signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_${p.watermark?.trim() ? '워터마크' : '쪽번호'}.pdf` });
   await writeFile(outPath, await doc.save());
   return { output_path: outPath };
