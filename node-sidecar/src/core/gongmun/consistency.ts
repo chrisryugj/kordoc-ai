@@ -25,11 +25,18 @@ function soleYear(text: string): number | undefined {
   return years.size === 1 ? [...years][0] : undefined;
 }
 
+/** 문서에 처음 나온 연도 붙은 날짜의 달 (연도 없는 날짜가 해를 넘긴 것인지 볼 때의 기준) */
+function firstMonth(text: string): number | undefined {
+  const m = /(?<!\d)(?:19|20)\d{2}(?:\.\s*|년\s*)(\d{1,2})(?:\.|월)/.exec(text);
+  return m ? Number(m[1]) : undefined;
+}
+
 /** 날짜와 요일 — 년·월·일 꼴과 연도 없는 꼴 (점 날짜에 연도가 붙은 꼴은 kordoc 이 본다) */
 export function weekdayFindings(text: string): LintFinding[] {
   const out: LintFinding[] = [];
   const lines = text.split('\n');
   const year = soleYear(text);
+  const refMonth = firstMonth(text);
   const full = /(?<!\d)((?:19|20)\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일\s*\(\s*([일월화수목금토])(?:요일)?\s*\)/g;
   // 연도 없는 날짜: "11. 5.(목)"·"11월 5일(목)". 앞에 연도가 붙은 점 날짜("2026. 11. 5.")·년월일은 빼고
   const short = /(?<![\d.'’]\s?)(?<![\d.'’])(?<!년\s?)(\d{1,2})(?:\.\s*|월\s*)(\d{1,2})(?:\.|일)?\s*\(\s*([일월화수목금토])(?:요일)?\s*\)/g;
@@ -53,12 +60,15 @@ export function weekdayFindings(text: string): LintFinding[] {
       if (mo < 1 || mo > 12) continue;
       const real = weekdayOf(year, mo, d);
       if (!real || real === m[3]) continue;
-      const dotted = !m[0].includes('월');
+      // 연도는 짐작이다. 해를 넘긴 날짜일 수 있으면(문서 날짜보다 반년 넘게 앞·뒤의 달) 그 해의 요일과도 견준다:
+      // 12월에 나가는 공문의 "1. 15.(금)"은 다음 해 날짜다 (문서의 연도로만 보면 맞게 쓴 요일을 틀렸다고 하게 된다)
+      if (refMonth !== undefined && mo < refMonth - 5 && weekdayOf(year + 1, mo, d) === m[3]) continue;
+      if (refMonth !== undefined && mo > refMonth + 5 && weekdayOf(year - 1, mo, d) === m[3]) continue;
+      // 고칠 값은 싣지 않는다: 짐작한 연도로 요일을 바꿔 쓰면 "모두 고치기"가 맞는 요일을 틀리게 만든다
       out.push({
         rule: 'WEEKDAY_MISMATCH', severity: 'warning', category: '날짜와 요일',
-        message: `문서의 연도(${year}년)로 보면 ${mo}월 ${d}일은 ${real}요일입니다.`,
+        message: `문서의 연도(${year}년)로 보면 ${mo}월 ${d}일은 ${real}요일입니다. 날짜와 요일을 확인하세요.`,
         line: i + 1, excerpt: m[0], context: contextOf(line, m.index!, m.index! + m[0].length),
-        fix: { from: m[0], to: dotted ? m[0].replace(/\(\s*[일월화수목금토](요일)?\s*\)/, `(${real})`) : `${mo}. ${d}.(${real})` },
       });
     }
   });
@@ -152,7 +162,7 @@ function tablesOf(blocks: IRBlock[]): IRTable[] {
 const label = (s: string | null | undefined) => plainText(s ?? '').replace(/\s+/g, '');
 
 /** 한 줄(행 또는 열)의 합계 대조 — values 는 위에서부터 칸 글. ok = 맞음, 틀리면 [기대값, 지금 값], null = 견줄 수 없음(더할 칸이 하나뿐·숫자 아닌 칸) */
-function sumCheck(parts: Array<string | null>, total: string): { ok: true } | { ok: false; expected: string; got: string } | null {
+function sumCheck(parts: Array<string | null>, total: string, subLike?: boolean[]): { ok: true } | { ok: false; expected: string; got: string } | null {
   const t = cellNumber(total);
   if (!t || !plainText(total).trim()) return null;
   const nums = parts.map((p) => (p === null ? undefined : cellNumber(p)));
@@ -164,24 +174,30 @@ function sumCheck(parts: Array<string | null>, total: string): { ok: true } | { 
   if (Math.abs(sum - t.value) <= tol + 1e-9) return { ok: true };
   // 계층 표: 큰 항목(인건비 1,000) 아래에 세부 항목(기본급 600·수당 400)이 이어지면 모두 더한 값은 합계보다 크다.
   // 큰 항목만 더해 맞으면 맞는 합계다 (틀렸다고 하고 "고칠 값"까지 주면 맞는 합계를 틀린 값으로 바꾸게 된다)
-  if (Math.abs(topLevelSum(nums.map((n) => n?.value ?? 0)) - t.value) <= tol + 1e-9) return { ok: true };
+  if (Math.abs(topLevelSum(nums.map((n) => n?.value ?? 0), subLike) - t.value) <= tol + 1e-9) return { ok: true };
   return { ok: false, expected: showNum(sum, decimals, total), got: plainText(total) };
 }
 
-/** 큰 항목만 더한 값 — 바로 아래 줄 둘 이상의 합과 같은 줄을 큰 항목으로 보고 그 아래 줄들은 건너뛴다 */
-export function topLevelSum(values: number[]): number {
+/** 큰 항목만 더한 값 — 바로 아래 줄 둘 이상의 합과 같은 줄을 큰 항목으로 보고 그 아래 줄들은 건너뛴다.
+ *  subLike: 그 줄 이름이 세부 항목 꼴("- 사무관리비"·"ㆍ수당")인가. 세부 항목이 하나뿐인 큰 항목("운영비 430" / "- 사무관리비 430")도
+ *  이름으로 알아본다 (값만으로는 같은 값의 두 항목과 가를 수 없다) */
+export function topLevelSum(values: number[], subLike?: boolean[]): number {
   let sum = 0;
   for (let i = 0; i < values.length; i++) {
     sum += values[i];
     let acc = 0;
     for (let j = i + 1; j < values.length; j++) {
       acc += values[j];
-      if (j - i >= 2 && Math.abs(acc - values[i]) < 1e-9) { i = j; break; }
+      const named = !!subLike && !subLike[i] && subLike.slice(i + 1, j + 1).every(Boolean) && !subLike[j + 1];
+      if ((j - i >= 2 || named) && Math.abs(acc - values[i]) < 1e-9) { i = j; break; }
       if (acc > values[i] + 1e-9) break;
     }
   }
   return sum;
 }
+
+/** 세부 항목 꼴 이름 (앞에 줄표·가운뎃점·작은 동그라미, 또는 들여 쓴 이름) */
+const SUB_ITEM = /^(?:\s{2,}|[　 ]+)?(?:[-–―·ㆍ∙•▪◦○ㅇ]|\(\d+\)|\d+\))\s*\S|^(?:\s{2,}|[　 ]+)\S/;
 
 function compareSum(parts: Array<string | null>, total: string): { expected: string; got: string } | undefined {
   const r = sumCheck(parts, total);
@@ -234,14 +250,16 @@ export function sumFindings(blocks: IRBlock[], markdown: string): Array<LintFind
         const total = g[r][c];
         if (total === null || total === undefined) continue;
         // 견줄 수 있는 쪽만 본다 (더할 칸이 하나뿐인 쪽을 통과로 세면 다른 쪽의 틀린 값이 가려진다)
-        const tried = dirs.map((d) => ({ word: d.word, res: sumCheck(d.rows.map((k) => g[k][c]), total) })).filter((t) => t.res !== null);
+        const subLike = (k: number) => SUB_ITEM.test(g[k][lc] ?? g[k][0] ?? '');
+        const tried = dirs.map((d) => ({ word: d.word, res: sumCheck(d.rows.map((k) => g[k][c]), total, d.rows.map(subLike)) })).filter((t) => t.res !== null);
         if (!tried.length || tried.some((t) => t.res!.ok)) continue;
         const { res, word } = tried[0] as { res: { ok: false; expected: string; got: string }; word: string };
+        // 고칠 값은 싣지 않는다(살필 것으로만): 표의 짜임(큰 항목과 세부 항목, 더하지 않는 열)을 다 알 수 없어, 맞는 합계를
+        // 틀렸다고 볼 수 있다. 그때 "모두 고치기"가 맞는 합계를 틀린 값으로 바꾸면 안 된다
         out.push({
-          rule: 'SUM_MISMATCH', severity: 'error', category: '표 합계', table: ti + 1,
-          message: `표 ${ti + 1}의 ${plainText(g[r][lc] ?? '합계')} 행${head[c] ? `(${plainText(g[0][c] ?? '')})` : ''}이 ${res.got}인데, ${word} 칸을 더하면 ${res.expected}입니다.`,
+          rule: 'SUM_MISMATCH', severity: 'warning', category: '표 합계', table: ti + 1,
+          message: `표 ${ti + 1}의 ${plainText(g[r][lc] ?? '합계')} 행${head[c] ? `(${plainText(g[0][c] ?? '')})` : ''}이 ${res.got}인데, ${word} 칸을 더하면 ${res.expected}입니다. 합계를 확인하세요.`,
           excerpt: res.got, context: [plainText(g[r][lc] ?? ''), res.got].join(' '),
-          fix: { from: res.got, to: res.expected },
         });
       }
       if (sub) prevSub = r;
@@ -254,13 +272,19 @@ export function sumFindings(blocks: IRBlock[], markdown: string): Array<LintFind
       for (let r = 1; r < g.length; r++) {
         const total = g[r][c];
         if (total === null || total === undefined) continue;
-        const bad = compareSum(partsCols.map((k) => g[r][k]), total);
+        // 합계 열 바로 왼쪽의 이어진 칸들만 더한 것일 수 있다("사업량 | 국비 | 도비 | 시비 | 계": 사업량은 단위가 달라 더하지 않는다)
+        // → 왼쪽 칸을 앞에서부터 하나씩 빼 가며, 어느 묶음이든 맞으면 맞는 합계로 본다
+        let bad: { expected: string; got: string } | undefined;
+        for (let from = 0; from <= partsCols.length - 2; from++) {
+          const one = compareSum(partsCols.slice(from).map((k) => g[r][k]), total);
+          if (!one) { bad = undefined; break; }
+          bad ??= one;
+        }
         if (!bad) continue;
         out.push({
-          rule: 'SUM_MISMATCH', severity: 'error', category: '표 합계', table: ti + 1,
-          message: `표 ${ti + 1}의 ${plainText(g[r][0] ?? '')} 줄 ${plainText(g[0][c] ?? '합계')} 칸이 ${bad.got}인데, 왼쪽 칸을 더하면 ${bad.expected}입니다.`,
+          rule: 'SUM_MISMATCH', severity: 'warning', category: '표 합계', table: ti + 1,
+          message: `표 ${ti + 1}의 ${plainText(g[r][0] ?? '')} 줄 ${plainText(g[0][c] ?? '합계')} 칸이 ${bad.got}인데, 왼쪽 칸을 더하면 ${bad.expected}입니다. 합계를 확인하세요.`,
           excerpt: bad.got, context: [plainText(g[r][0] ?? ''), bad.got].join(' '),
-          fix: { from: bad.got, to: bad.expected },
         });
       }
     });

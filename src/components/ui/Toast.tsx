@@ -29,7 +29,8 @@ export function Toast({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: 
       <span className="grid place-items-center w-4 h-4 shrink-0" style={{ color: iconColor }} aria-hidden="true">
         {toast.type === "success" ? <CheckCircle2 size={16} /> : toast.type === "error" ? <XCircle size={16} /> : toast.type === "loading" ? <Loader2 size={16} className="kd-spin" /> : <Info size={16} />}
       </span>
-      <span className={toast.type === "error" ? "flex-1" : "flex-1 line-clamp-3"}>{toast.message}</span>
+      {/* 띄어쓰기 없는 긴 낱말(밑줄로 이은 파일 이름·경로)도 상자 안에서 끊는다: 안 끊으면 글과 닫기 단추가 상자 밖으로 나간다 */}
+      <span className={toast.type === "error" ? "flex-1 min-w-0" : "flex-1 min-w-0 line-clamp-3"} style={{ overflowWrap: "anywhere" }}>{toast.message}</span>
       {toast.type !== "loading" && (
         <button type="button" onClick={handleDismiss} className="grid place-items-center w-8 h-8 -my-1.5 -mr-2 rounded-md hover:bg-white/10" aria-label="닫기">
           <X size={14} />

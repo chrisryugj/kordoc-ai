@@ -178,8 +178,11 @@ export async function mailMerge(
     signal.throwIfAborted();
     sendProgress({ current: i + 1, total: rows.length, message: `${i + 1}/${rows.length}번째 문서 만드는 중` });
     try {
-      const fromRoster = nonEmpty(Object.fromEntries(header.map((h, c) => [h, formatCell(h, r.cells[c] ?? '')]).filter(([h]) => used.includes(h))));
-      if (!Object.keys(fromRoster).length) throw new Error(`양식에 넣을 값이 비어 있습니다. 명부의 ${used.slice(0, 4).map((u) => `'${u}'`).join(', ')} 열에 값을 넣으세요.`);
+      const cells = Object.fromEntries(header.map((h, c) => [h, formatCell(h, r.cells[c] ?? '')]).filter(([h]) => used.includes(h))) as Record<string, string>;
+      if (!Object.keys(nonEmpty(cells)).length) throw new Error(`양식에 넣을 값이 비어 있습니다. 명부의 ${used.slice(0, 4).map((u) => `'${u}'`).join(', ')} 열에 값을 넣으세요.`);
+      // 명부에서 비어 있는 칸은 빈칸으로 채운다(공백 한 칸). 값이 적힌 문서를 양식으로 쓰면, 건너뛴 칸에 양식에 있던 앞 사람 값이
+      // 그대로 남아 다른 사람의 연락처·비고가 든 문서가 나간다
+      const fromRoster = Object.fromEntries(Object.entries(cells).map(([h, v]) => [h, v.trim() === '' ? ' ' : v]));
       const res = await fillWithUniqueGuard({ ...org, ...fromRoster }, (v, blocked) => fillHwpx(t.buf, v, blocked));
       res.rejected.forEach((x) => rejected.add(x));
       if (!res.filled.length) {

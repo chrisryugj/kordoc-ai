@@ -50,8 +50,9 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md", c
 
   return (
     <div
-      className="fixed inset-0 flex items-start justify-center z-50 pt-[10vh]"
-      style={{ backgroundColor: "var(--color-backdrop)" }}
+      className="fixed inset-0 flex items-start justify-center pt-[10vh]"
+      // 온 화면을 덮는 작업 창(양식 채우기·눌러 고치기: z-modal, body 에 그림)보다 위에 뜬다. 같은 높이면 뒤에 그린 그 창이 확인 상자를 가린다
+      style={{ backgroundColor: "var(--color-backdrop)", zIndex: "calc(var(--z-modal) + 5)" }}
       onClick={(e) => e.target === e.currentTarget && closable && handleClose()}
     >
       {/* 대화상자 역할은 상자 자체에 (배경 판이 아니라) */}

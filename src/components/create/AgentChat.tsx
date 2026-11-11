@@ -199,7 +199,7 @@ export function AgentChat() {
       <textarea className="kd-textarea" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={onKey}
         placeholder="무엇을 고칠까요? (Enter 보내기 · Shift+Enter 줄바꿈)" aria-label="편집기 AI에게 요청"
         // 일하는 동안 못 쓰게만 한다(disabled 가 아니라 readOnly): disabled 면 초점이 빠져, 붙여 넣기가 "글을 문서로 열기"로 넘어가 화면이 바뀐다
-        readOnly={busy} aria-busy={busy} />
+        readOnly={busy} aria-busy={busy} style={busy ? { opacity: 0.55 } : undefined} title={busy ? "일이 끝나면 쓸 수 있습니다" : undefined} />
       <div className="flex gap-2">
         {busy
           ? <Button variant="secondary" size="sm" onClick={() => ctrl.current?.abort()}><Square size={12} /> 멈추기</Button>

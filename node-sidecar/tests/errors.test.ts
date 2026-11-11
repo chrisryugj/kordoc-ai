@@ -18,6 +18,9 @@ describe('toAiError', () => {
     expect(text(toAiError(new Error('암호가 걸린 문서입니다. 암호를 넣고 다시 시도하세요. (제429회 회의록.docx)')))).toMatch(/^암호가 걸린 문서입니다/);
     expect(text(toAiError(new Error('문서를 읽지 못했습니다 (공고 제2026-512호.hwpx)')))).toMatch(/^문서를 읽지 못했습니다/);
     expect(text(toAiError(new Error('AI 서버: 요청 한도를 넘었습니다 (429). retry later')))).toMatch(/사용량 한도/);
+    // 영문에 붙은 수도 상태 번호가 아니다
+    expect(text(toAiError(new Error('PDF가 512MB를 넘어 줄일 수 없습니다 (limit exceeded)')))).toMatch(/^PDF가 512MB/);
+    expect(text(toAiError(new Error('render failed at 0x401 offset')))).not.toMatch(/AI 키/);
   });
 
   it('열려 있는 파일에 바꿔 넣기가 막히면 닫으라고 알리고, 임시 파일 이름이 아니라 그 파일 이름을 보인다', async () => {

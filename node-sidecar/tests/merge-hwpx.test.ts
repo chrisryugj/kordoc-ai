@@ -66,6 +66,47 @@ describe('HWPX 서식 유지 수합 (순수 XML)', () => {
     }
   });
 
+  it('합친 문서에 또 합쳐도 앞서 합친 문서의 그림이 덮이지 않는다 (그림 이름 머리가 겹치지 않게)', async () => {
+    // 세 문서 모두 그림 id 가 image1 (내용은 서로 다름)
+    const withPicture = async (name: string, mark: string) => {
+      const zip = await JSZip.loadAsync(readFileSync(received));
+      zip.file('BinData/image1.png', Buffer.from(`picture-${mark}`));
+      const hpf = await zip.file('Contents/content.hpf')!.async('string');
+      zip.file('Contents/content.hpf', hpf.replace('</opf:manifest>', '<opf:item id="image1" href="BinData/image1.png" media-type="image/png" isEmbeded="1"/></opf:manifest>'));
+      const path = join(dir, name);
+      writeFileSync(path, await zip.generateAsync({ type: 'nodebuffer' }));
+      return path;
+    };
+    const [a, b, c] = [await withPicture('pic-a.hwpx', 'A'), await withPicture('pic-b.hwpx', 'B'), await withPicture('pic-c.hwpx', 'C')];
+    const ab = join(dir, 'pic-ab.hwpx');
+    await mergeFiles({ files: [a, b], output_path: ab, mode: 'native' }, signal);
+    const abc = join(dir, 'pic-abc.hwpx');
+    await mergeFiles({ files: [ab, c], output_path: abc, mode: 'native' }, signal);
+    const zip = await JSZip.loadAsync(readFileSync(abc));
+    const pics = Object.keys(zip.files).filter((n) => /^BinData\/.*image1\.png$/.test(n));
+    const contents = await Promise.all(pics.map((n) => zip.file(n)!.async('string')));
+    expect(contents.sort()).toEqual(['picture-A', 'picture-B', 'picture-C']);
+    const hpf = await zip.file('Contents/content.hpf')!.async('string');
+    const ids = [...hpf.matchAll(/<opf:item [^>]*\bid="([^"]*image1)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).toHaveLength(3);
+  });
+
+  it('암호 걸린 HWPX 가 섞이면 그 파일만 빼고 합치고, 까닭을 한국어로 알린다', async () => {
+    const zip = await JSZip.loadAsync(readFileSync(pii));
+    zip.file('Contents/header.xml', Buffer.from([0x8f, 0x12, 0xa0, 0x3c, 0x77, 0x01, 0xfe, 0x55]));
+    zip.file('META-INF/manifest.xml', '<?xml version="1.0"?><odf:manifest xmlns:odf="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><odf:file-entry odf:full-path="Contents/header.xml"><odf:encryption-data/></odf:file-entry></odf:manifest>');
+    const locked = join(dir, 'locked.hwpx');
+    writeFileSync(locked, await zip.generateAsync({ type: 'nodebuffer' }));
+    const out = join(dir, 'with-locked.hwpx');
+    const r = await mergeFiles({ files: [received, locked, report], output_path: out, mode: 'native' }, signal);
+    expect(r.failed.map((f) => f.path)).toEqual([locked]);
+    expect(r.failed[0].error).toMatch(/암호가 걸린 문서/);
+    expect(r.failed[0].error).not.toMatch(/[A-Za-z]{6,}/);
+    expect(r.file_count).toBe(2);
+    await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
+  });
+
   it.skipIf(!press || !existsSync(hwp5))('실문서: 그림 든 보도자료 + HWP 5.x 섞어 합치기 (그림 옮김)', async () => {
     const out = join(dir, 'real.hwpx');
     const r = await mergeFiles({ files: [received, press!, hwp5], output_path: out, mode: 'native' }, signal);

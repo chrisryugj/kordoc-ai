@@ -188,19 +188,24 @@ export async function lawCheck(p: Params, signal?: AbortSignal, opts: Options = 
     try {
       const seen: LawRow[] = [];
       let hit: { name: string; row: LawRow } | undefined;
-      for (const name of names) {
-        const rows = await searchLaws('law', name, o);
-        const row = exactRow(rows, name);
-        if (row) { hit = { name, row }; break; }
+      if (names.length === 1) {
+        const rows = await searchLaws('law', first, o);
+        const row = exactRow(rows, first);
+        if (row) hit = { name: first, row };
         seen.push(...rows);
-      }
-      // 따옴표 없이 쓴 법령명은 어디서 시작하는지 몰라 후보 몇 개만 묻는다. 후보가 정확히 맞지 않아도, 찾아진 법령 가운데
-      // 인용한 글의 끝 어절들이 그 이름과 같으면 그 법령이다 ("…하나인 공공기관의 정보공개에 관한 법률" → 공공기관의 정보공개에 관한 법률)
-      if (!hit && names.length > 1) {
+      } else {
+        // 따옴표 없이 쓴 법령명은 어디서 시작하는지 모른다(후보 = 인용한 글의 끝 어절들). 짧은 후보부터 묻고, 찾아진 법령 가운데
+        // 이름(또는 약칭)이 인용한 글의 끝 어절들과 같은 것이 있으면 그 법령이다. 여럿이면 가장 긴 이름
+        // ("…하나인 공공기관의 정보공개에 관한 법률" → 공공기관의 정보공개에 관한 법률). 대개 첫 물음에서 끝난다
         const words = first.split(/\s+/);
         const tails = new Set(words.map((_, k) => normName(words.slice(k).join(' '))));
-        const row = seen.filter((r) => r.current && tails.has(normName(r.name))).sort((a, b) => normName(b.name).length - normName(a.name).length)[0];
-        if (row) hit = { name: row.name, row };
+        const nameOf = (r: LawRow) => (tails.has(normName(r.name)) ? r.name : r.abbr !== '' && tails.has(normName(r.abbr)) ? r.abbr : '');
+        for (const name of [...names].reverse()) {
+          const rows = await searchLaws('law', name, o);
+          const row = rows.filter((r) => r.current && nameOf(r)).sort((a, b) => normName(nameOf(b)).length - normName(nameOf(a)).length)[0];
+          if (row) { hit = { name: row.name, row }; break; }
+          seen.push(...rows);
+        }
       }
       netFails = 0;
       if (hit) {

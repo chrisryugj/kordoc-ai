@@ -82,9 +82,10 @@ const AI_HINTS: Array<[RegExp, string]> = [
   [/TimeoutError|timed? ?out|ETIMEDOUT/i, 'AI 답이 너무 오래 걸려 멈췄습니다. 잠시 뒤 다시 시도하거나 더 짧은 문서로 해 보세요.'],
   // 상태 번호는 한글·숫자·줄표에 붙어 있으면 치지 않는다: 파일 이름의 숫자("제429회 회의록.docx"·"제2026-512호.hwpx")가
   // 문서 오류를 "AI 사용량 한도"·"AI 서버 오류"로 바꿔 놓는다
-  [/(?<![가-힣\d-])(?:401|403)(?![가-힣\d-])|authentication_error|invalid[_ ]api[_ ]key|unauthorized|permission_denied/i, 'AI 키가 맞지 않거나 권한이 없습니다. 설정 › AI 연결에서 키를 다시 넣으세요.'],
-  [/(?<![가-힣\d-])429(?![가-힣\d-])|rate[_ ]limit|quota/i, 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.'],
-  [/(?<![가-힣\d-])5\d\d(?![가-힣\d-])|internal server error|bad gateway|service unavailable|overloaded/i, 'AI 서버가 오류를 냈습니다. 잠시 뒤 다시 시도하세요. 계속되면 기관 AI 서버 담당자에게 알리세요.'],
+  // (영문에 붙은 수 "512MB"·"0x401" 도 상태 번호가 아니다)
+  [/(?<![가-힣\dA-Za-z-])(?:401|403)(?![가-힣\dA-Za-z-])|authentication_error|invalid[_ ]api[_ ]key|unauthorized|permission_denied/i, 'AI 키가 맞지 않거나 권한이 없습니다. 설정 › AI 연결에서 키를 다시 넣으세요.'],
+  [/(?<![가-힣\dA-Za-z-])429(?![가-힣\dA-Za-z-])|rate[_ ]limit|quota/i, 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.'],
+  [/(?<![가-힣\dA-Za-z-])5\d\d(?![가-힣\dA-Za-z-])|internal server error|bad gateway|service unavailable|overloaded/i, 'AI 서버가 오류를 냈습니다. 잠시 뒤 다시 시도하세요. 계속되면 기관 AI 서버 담당자에게 알리세요.'],
   [/SyntaxError|Unexpected token|in JSON at position|JSON을 찾지 못했습니다/i, 'AI 답을 읽지 못했습니다. 다시 시도하세요. 계속되면 설정에서 다른 모델을 고르세요.'],
 ];
 

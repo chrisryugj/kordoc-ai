@@ -29,7 +29,8 @@ export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLa
     return (
       <div className="flex flex-col gap-3">
         <Note tone={outcome.result.receipts.some((r) => r.ok) ? "ok" : "warn"}>{outcome.message}</Note>
-        <ReceiptEditor key={outcome.result.receipts.map((r) => r.path).join("|")} receipts={outcome.result.receipts} aiUsed={outcome.result.ai_used} warnings={outcome.result.warnings} outputDir={outcome.outDir} />
+        {/* 다시 읽은 결과는 새로 그린다 (경로가 같다고 옛 표를 두면, 다시 읽어 살아난 영수증이 표에도 실패 목록에도 없다) */}
+        <ReceiptEditor key={idOf(outcome)} receipts={outcome.result.receipts} aiUsed={outcome.result.ai_used} warnings={outcome.result.warnings} outputDir={outcome.outDir} />
       </div>
     );
   }

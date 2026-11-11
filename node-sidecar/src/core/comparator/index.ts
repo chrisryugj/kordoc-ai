@@ -92,6 +92,9 @@ function markSegs(segs: Seg[], esc: (s: string) => string, open: string, close: 
   }).join('');
 }
 
+/** 여러 줄 글(표·여러 문단)을 줄마다 굵게. 통째로 감싸면 줄바꿈(<br>)을 넘는 굵게가 풀려 별표가 글자로 찍힌다 */
+const boldLines = (text: string) => text.split(/\r?\n/).map((l) => markSegs([{ text: l, changed: true }], (s) => s.replace(/[\\`*_|<>$[\]#~]/g, (ch) => `\\${ch}`), '**', '**')).join('<br>');
+
 const TYPE_LABEL: Record<Row['type'], string> = { added: '신설', removed: '삭제', modified: '변경', unchanged: '같음' };
 const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** GFM 표 칸 안 — 마크다운 기호·수식 표지($)·꺾쇠는 글자로, 줄바꿈은 <br> */
@@ -148,6 +151,14 @@ export async function diffFiles(oldPath: string, newPath: string, signal?: Abort
   signal?.throwIfAborted();
   const diff = await compare(toAB(a), toAB(b)).catch((err) => { throw compareError(err); });
   signal?.throwIfAborted();
+  // 엔진은 99% 넘게 닮은 문단·표를 "같음"으로 낸다. 긴 조문에서 금액 한 글자("1,000만원" → "9,000만원")나
+  // "할 수 있으며" → "할 수 없으며" 만 바뀐 것이 "바뀐 곳 없음"으로 나가면 안 된다 → 글이 한 글자라도 다르면 "변경"
+  for (const d of diff.diffs) {
+    if (d.type !== 'unchanged' || blockText(d.before) === blockText(d.after)) continue;
+    d.type = 'modified';
+    diff.stats.unchanged--;
+    diff.stats.modified++;
+  }
   sendProgress({ current: 1, total: 2, message: '비교 결과 정리 중' });
   return diff;
 }
@@ -192,8 +203,8 @@ export async function compareHwpx(
   if (!rows.some((r) => r.type !== 'unchanged')) throw new Error('두 문서 내용이 같습니다. 바뀐 곳이 없어 대조표를 만들지 않았습니다. 고친 문서를 새 문서 자리에 넣었는지 확인하세요.');
   const lines = rows.map((r) => {
     if (r.type === 'unchanged') return `| ${escCell(r.old)} | (현행과 같음) |`;
-    if (r.type === 'added') return `| ${escCell('<신 설>')} | ${markSegs([{ text: r.new, changed: true }], escCell, '**', '**')} |`;
-    if (r.type === 'removed') return `| ${markSegs([{ text: r.old, changed: true }], escCell, '**', '**')} | ${escCell('<삭 제>')} |`;
+    if (r.type === 'added') return `| ${escCell('<신 설>')} | ${boldLines(r.new)} |`;
+    if (r.type === 'removed') return `| ${boldLines(r.old)} | ${escCell('<삭 제>')} |`;
     const [o, n] = cells(r, escCell, '**', '**');
     return `| ${o} | ${n} |`;
   });

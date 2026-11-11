@@ -79,7 +79,8 @@ function correctedOf(f: { rule: string; match: string; suggest?: string }, after
   switch (f.rule) {
     case 'DATE_NO_SPACE': return /^\d{2,4}\.\d{1,2}\.(\d{1,2}\.)?$/.test(m) ? m.replace(/\.(?=\d)/g, '. ') : undefined;
     case 'DATE_ZERO_PAD': return m.replace(/\.\s*0(\d)/g, '. $1');
-    case 'DATE_NO_END_DOT': return `${m}.`;
+    // "2026. 11. 5일까지" 는 점만 붙이면 "5.일까지" 가 된다 → 고칠 값을 정하지 않는다 (사람이 "5.까지" 로)
+    case 'DATE_NO_END_DOT': return /^\s*일/.test(after) ? undefined : `${m}.`;
     case 'DATE_2DIGIT_YR': return /^['’]\d{2}\./.test(m) ? m.replace(/^['’](\d{2})/, '20$1') : undefined;
     case 'TIME_COLON_SP': return m.replace(/\s+/g, '');
     case 'TILDE_SPACE': return m.replace(/[ \t]+/g, '');
@@ -88,6 +89,9 @@ function correctedOf(f: { rule: string; match: string; suggest?: string }, after
     case 'TIME_AMPM': {
       const t = /^(오전|오후)\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?/.exec(m + after);
       if (!t) return undefined;
+      // 뒤에 "반"이나 오전·오후 없는 다른 시각이 이어지면 앞 시각만 바꿔서는 글이 망가진다
+      // ("오후 2시부터 4시까지" → "14:00부터 4시까지", "오전 10시 반에" → "10:00 반에") → 고칠 값을 정하지 않는다
+      if (/^\s*(?:반(?![가-힣])|반에|(?:부터|에서)?\s*[~∼～-]?\s*\d{1,2}\s*시)/.test((m + after).slice(t[0].length))) return undefined;
       let h = Number(t[2]);
       if (h > 12) return undefined;
       if (t[1] === '오후' && h < 12) h += 12;

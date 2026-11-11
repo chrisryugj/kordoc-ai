@@ -38,6 +38,8 @@ export function useInboxReminder(): void {
     };
     void check();
     const timer = window.setInterval(() => void check(), CHECK_EVERY);
-    return () => { alive = false; window.clearInterval(timer); };
+    const onAdded = () => void check();
+    window.addEventListener("kordoc:inbox", onAdded);
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener("kordoc:inbox", onAdded); };
   }, [ready, setBadge]);
 }

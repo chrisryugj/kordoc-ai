@@ -119,7 +119,7 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
         <textarea ref={box} className="kd-ask-input" rows={2} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
           placeholder={placeholder ?? "AI에게 맡길 일 입력 · 문서는 끌어다 놓기"} aria-label="AI에게 맡길 일"
           // 일하는 동안 못 쓰게만 한다(disabled 가 아니라 readOnly): disabled 면 초점이 빠져, 붙여 넣기가 "글을 문서로 열기"로 넘어가 화면이 바뀐다
-          readOnly={busy} aria-busy={busy} />
+          readOnly={busy} aria-busy={busy} style={busy ? { opacity: 0.55 } : undefined} title={busy ? "일이 끝나면 쓸 수 있습니다" : undefined} />
         <div className="kd-ask-bar">
           <Button size="sm" variant="ghost" onClick={() => void pickFiles().then((p) => p.length && add(p))} data-tip="한글·PDF·워드·엑셀·그림 파일을 고릅니다. 끌어다 놓아도 됩니다"><FileUp size={14} /> 파일 첨부</Button>
           <Button size="sm" variant="ghost" onClick={() => void pickFolder().then((d) => d && add([d]))} data-tip="폴더 안 문서를 모두 넘깁니다 (제출물 취합 등)"><FolderUp size={14} /> 폴더 첨부</Button>

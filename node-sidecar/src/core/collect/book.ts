@@ -26,7 +26,10 @@ export interface GatherRow {
 const UNIT = '명|원|천원|만원|백만원|억원|건|개|개소|곳|회|대|권|부|가구|세대|kg|㎏|㎡|m²|톤|시간';
 const NUMERIC = new RegExp(`^([-+]?(?:\\d{1,3}(?:,\\d{3})+|0|[1-9]\\d*)(?:\\.\\d+)?)\\s*(${UNIT})?$`);
 // "행사일"·"마감일"처럼 "일"로 끝나는 이름은 날짜다("11.10" 을 더하면 뜻 없는 합계가 나온다). 세는 날 수(소요일·근무일)는 더한다
-const NOT_SUMMED = /번호|전화|연락처|내선|휴대|우편|연도|년도|일자|날짜|기간|시기|일시|생년|주민|코드|순번|연번|차수|회차|순위|등급|분기|학년|학번|사번|나이|연령|^no\.?$|^월$|(?<!소요|근무|작업|출장)일$/i;
+// 이름이 그 말로 "끝날" 때만 뺀다. 어디든 들어 있으면 빼던 때는 금액·수량 열이 이름 때문에 합계에서 빠졌다
+// ("1분기 집행액"·"전년도 집행액"·"전화 상담 건수"·"연령별 인원"·"1학년 학생수"). 끝의 괄호 설명("(명)"·"(내선)")은 떼고 본다
+const NOT_SUMMED = /(?:번호|전화|연락처|내선|휴대폰|우편|연도|년도|일자|날짜|기간|시기|일시|생년|주민|코드|순번|연번|차수|회차|순위|등급|학년|학번|사번|나이|연령)$|^분기$|^no\.?$|^월$|(?<!소요|근무|작업|출장|사용|휴가|연가)일$/i;
+const labelCore = (label: string) => label.replace(/\s/g, '').replace(/[(（[][^)）\]]*[)）\]]$/, '');
 
 export function numberOf(v: string): number | null {
   const m = NUMERIC.exec(v.trim());
@@ -37,7 +40,7 @@ export function numberOf(v: string): number | null {
 export function columnTotals(columns: Column[], rows: GatherRow[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const col of columns) {
-    if (NOT_SUMMED.test(col.label.replace(/\s/g, ''))) continue;
+    if (NOT_SUMMED.test(labelCore(col.label))) continue;
     const vals = rows.filter((r) => !r.skip).map((r) => (r.cells.get(col.key) ?? '').trim()).filter(Boolean);
     if (!vals.length) continue;
     const nums = vals.map(numberOf);

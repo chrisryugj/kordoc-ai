@@ -53,7 +53,8 @@ export function BatchScreen({ active }: { active: boolean }) {
   const [late, setLate] = useState(0);
   const lateRef = useRef({ task, gatherPrev });
   lateRef.current = { task, gatherPrev };
-  const run = useTask<Outcome | null>();
+  // 한 번 더 하기를 멈추거나 실패해도 앞 결과는 남긴다: 사람이 고친 영수증 표, 수합 결과 카드, 만든 묶음의 합치기·인쇄 단추가 여기 달려 있다
+  const run = useTask<Outcome | null>({ keepOnFail: true });
   const filesRef = useRef(files);
   filesRef.current = files;
   const busyRef = useRef(false);
@@ -81,8 +82,8 @@ export function BatchScreen({ active }: { active: boolean }) {
       const { task: t, gatherPrev: prev } = lateRef.current;
       if (!replace && t === "collect" && prev && added) setLate((n) => n + added);
       if (replace) { setGatherPrev(""); setLate(0); }
-      run.reset();
-      setRows({});
+      // 목록이 실제로 바뀌었을 때만 앞 결과를 지운다 (이미 있는 파일을 다시 놓았다고 고치던 영수증 표가 사라지면 안 된다)
+      if (replace || added) { run.reset(); setRows({}); }
       return replace ? r.files : merged;
     } catch (e) {
       toast(`파일 목록을 만들지 못했습니다: ${errorText(e)}`, "error");
@@ -92,6 +93,8 @@ export function BatchScreen({ active }: { active: boolean }) {
 
   useEffect(() => registerDrop("batch", (p) => {
     if (busyRef.current) { toast("작업 중에는 파일을 넣을 수 없습니다. 끝나거나 멈춘 뒤 넣으세요.", "info"); return; }
+    // 파일 목록을 쓰지 않는 일(명부로 여러 장 만들기)에서는 받지 않는다: 받으면 보이지 않는 목록에 쌓이고 결과만 지워진다
+    if (TASKS.find((t) => t.id === lateRef.current.task)?.min === 0) { toast("이 일은 명부와 양식을 아래 칸에서 고릅니다. 놓은 파일은 넣지 않았습니다.", "info"); return; }
     void add(p);
   }), [registerDrop, add, toast]);
   // 늦게 온 파일을 넣으면 다시 만들기 묻는 곳이 보이게 (결과 아래쪽에서 눌러도)
@@ -136,8 +139,9 @@ export function BatchScreen({ active }: { active: boolean }) {
     const dir = outDir || opts.outDir || settings?.convert.output_dir || dirName(ordered[0].path);
     const ext = mode === "native" ? (ordered[0].type === "hwp" ? "hwpx" : ordered[0].type) : "md";
     const out = joinPath(dir, `${stem(ordered[0].name)}${ordered.length > 1 ? `_외${ordered.length - 1}건` : ""}_합본.${ext}`);
-    // PDF 끼리 합치기는 합본 PDF 와 같은 길 하나로 (쪽 번호·워터마크 선택도 같다)
-    if (ext === "pdf") { void bundle(ordered.map((f) => f.path), outDir); return; }
+    // PDF 끼리 합치기는 합본 PDF 와 같은 길 하나로. 다만 "그대로" 합친다: 이 일의 옵션 칸에는 쪽 번호·워터마크가 없으니
+    // 합본 PDF 에서 골라 둔 값(쪽 번호 기본 켬)이 몰래 찍히면 안 된다
+    if (ext === "pdf") { void bundle(ordered.map((f) => f.path), outDir, true); return; }
     void run.run(async ({ signal }) => {
       const r = (await rpc("merge_files", { files: ordered.map((f) => f.path), output_path: out, mode }, { signal })) as { output_path?: string } | null;
       const bad = mergeFailed(r);
@@ -146,9 +150,9 @@ export function BatchScreen({ active }: { active: boolean }) {
     });
   };
 
-  const bundle = (paths: string[], outDir?: string) => {
+  const bundle = (paths: string[], outDir?: string, plain = false) => {
     const list = paths.map((p) => files.find((f) => f.path === p)!).filter(Boolean);
-    return run.run((ctx) => runTask("bundle", { ...ctx, files: list, opts: { ...opts, outDir: outDir || opts.outDir }, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
+    return run.run((ctx) => runTask("bundle", { ...ctx, files: list, opts: { ...opts, outDir: outDir || opts.outDir, ...(plain ? { pageNumbers: false, watermark: "" } : {}) }, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
   };
 
   const needAi = !!def.ai && !ai?.configured;

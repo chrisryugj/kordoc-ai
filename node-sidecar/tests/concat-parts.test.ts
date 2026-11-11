@@ -232,6 +232,33 @@ describe('엑셀 서식 유지 합치기 — 시트 상태와 칸', () => {
     expect(await zip.file('xl/charts/chart1.xml')!.async('text')).toContain("<c:f>'총무과'!$A$1:$A$3</c:f>");
   });
 
+  it('파이썬이 만든 파일(r 이름공간이 시트 줄에만 있음)이 첫 파일이어도 합본이 깨지지 않는다', async () => {
+    const a = await xlsx(join(dir, 'py.xlsx'), [{ name: 'Sheet1', xml: data(cell('A1', 1)) }]);
+    const zip = await JSZip.loadAsync(await readFile(a));
+    zip.file('xl/workbook.xml', `${HEAD}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet xmlns:r="${REL}" name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>`);
+    await writeFile(a, Buffer.from(await zip.generateAsync({ type: 'arraybuffer' })));
+    const b = await xlsx(join(dir, 'b.xlsx'), [{ name: 'Sheet1', xml: data(cell('A1', 2)) }]);
+    const out = join(dir, 'out.xlsx');
+    await concatXlsx({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    const wb = await (await JSZip.loadAsync(await readFile(out))).file('xl/workbook.xml')!.async('text');
+    expect(wellFormed(wb)).toBe(true);
+    expect(wb).toMatch(/<workbook\b[^>]*\bxmlns:r="/);
+    expect([...wb.matchAll(/<sheet name=/g)]).toHaveLength(2);
+  });
+
+  it('첫 파일의 조건부 서식 묶음이 빈 꼴(<dxfs count="0"/>)이어도 뒤 파일의 것이 들어가고, 표시 형식의 $ 가 줄지 않는다', async () => {
+    const styles = (dxfs: string, numFmts = '') => `${HEAD}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${numFmts}<fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="1"><xf/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>${dxfs}</styleSheet>`;
+    const a = await xlsx(join(dir, 'a.xlsx'), [{ name: 'Sheet1', xml: data(cell('A1', 1)) }], { files: { 'xl/styles.xml': styles('<dxfs count="0"/>', '<numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$$&quot;#,##0"/></numFmts>') } });
+    const b = await xlsx(join(dir, 'b.xlsx'), [{ name: 'Sheet1', xml: `${data(cell('A1', 2))}<conditionalFormatting sqref="A1"><cfRule type="cellIs" dxfId="0" priority="1" operator="greaterThan"><formula>1</formula></cfRule></conditionalFormatting>` }], { files: { 'xl/styles.xml': styles('<dxfs count="1"><dxf><font><b/></font></dxf></dxfs>') } });
+    const out = join(dir, 'out.xlsx');
+    await concatXlsx({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    const st = await (await JSZip.loadAsync(await readFile(out))).file('xl/styles.xml')!.async('text');
+    expect(wellFormed(st)).toBe(true);
+    expect(st).toMatch(/<dxfs count="1"><dxf><font><b\/><\/font><\/dxf><\/dxfs>/);
+    expect(st).not.toContain('<dxfs count="0"/>');
+    expect(st).toContain('&quot;$$&quot;#,##0');
+  });
+
   it('시트 목록을 못 읽는 통합 문서는 넣지 않고 까닭을 알린다 (말없이 빠지거나 깨진 합본이 나오지 않게)', async () => {
     const good = await xlsx(join(dir, 'a.xlsx'), [{ name: '자료', xml: data(cell('A1', 1)) }]);
     const odd = await xlsx(join(dir, 'b.xlsx'), [{ name: '자료', xml: data(cell('A1', 2)) }]);

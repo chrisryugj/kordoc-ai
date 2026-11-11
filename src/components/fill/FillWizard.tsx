@@ -524,13 +524,27 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
                         체크 표시
                       </label>
                     ) : f.type === "date" ? (
-                      <input
-                        type="date"
-                        data-kd-field={f.label}
-                        className="kd-input w-full"
-                        onFocus={() => setFocusedLabel(f.label)}
-                        onChange={(e) => setValue(f.label, e.target.value ? isoToKoreanDate(e.target.value) : "")}
-                      />
+                      // 들어갈 값을 글자 칸에 그대로 보인다(명부에서 온 날짜·양식에 있던 날짜가 안 보이고 지울 수도 없던 것).
+                      // 달력은 고르는 보조 수단: 고르면 글자 칸에 "2026. 11. 20." 꼴로 들어간다. 시각·기간은 글자 칸에 직접 적는다
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          data-kd-field={f.label}
+                          placeholder={f.value.trim() || "예: 2026. 11. 20."}
+                          value={values[f.label] ?? ""}
+                          className="kd-input flex-1 min-w-0"
+                          onFocus={() => setFocusedLabel(f.label)}
+                          onChange={(e) => setValue(f.label, e.target.value)}
+                        />
+                        <input
+                          type="date"
+                          className="kd-input flex-none"
+                          style={{ width: 132 }}
+                          aria-label={`${f.label} 달력에서 고르기`}
+                          onFocus={() => setFocusedLabel(f.label)}
+                          onChange={(e) => { if (e.target.value) setValue(f.label, isoToKoreanDate(e.target.value)); }}
+                        />
+                      </div>
                     ) : (
                       <input
                         type="text"

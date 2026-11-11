@@ -190,6 +190,9 @@ function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; 
     `<sheet name="${xmlAttr(s.name)}" sheetId="${s.sheetId}"${s.state ? ` state="${xmlAttr(s.state)}"` : ''} r:id="${s.rId}"/>`,
   ).join('');
   let xml = originalXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/, () => `<sheets>${sheetsContent}</sheets>`);
+  // 시트 줄이 쓰는 r:id 의 이름공간을 뿌리에 둔다. 파이썬(openpyxl·pandas)이 만든 파일은 이 선언이 뿌리가 아니라 <sheet> 줄마다 있어,
+  // 시트 줄을 새로 쓰면 선언이 사라지고 합본이 열리지 않는다
+  xml = xml.replace(/<workbook\b[^>]*>/, (tag) => (/\bxmlns:r=/.test(tag) ? tag : tag.replace(/>$/, ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">')));
   // 열어 둘 시트(activeTab)는 숨기지 않은 첫 시트로 (숨긴 시트가 열려 있다고 적혀 있으면 안 된다)
   const firstShown = Math.max(0, sheetEntries.findIndex((s) => !s.state));
   xml = xml.replace(/(<workbookView\b[^>]*?)\s+activeTab="\d+"/g, '$1').replace(/<workbookView\b/, `<workbookView activeTab="${firstShown}"`);
@@ -470,49 +473,29 @@ function remapCellStyles(sheetXml: string, remap: Map<number, number>): string {
 /** 병합된 스타일을 원본 styles.xml에 패치 */
 function patchStylesXml(originalXml: string, merged: ParsedStyles): string {
   let xml = originalXml;
+  // 바꿔 넣을 글은 함수로 준다: 글로 주면 표시 형식의 "$" 가 바꾸기 표지로 읽혀 "$$" 가 "$" 로 줄거나 "$1" 이 사라진다.
+  // 묶음 태그는 빈 꼴(<dxfs count="0"/>)도 본다: 엑셀 기본값이 그 꼴이라, 닫는 태그만 찾으면 뒤 파일의 것이 하나도 안 들어간다
+  const block = (tag: string, items: string[]) => `<${tag} count="${items.length}">${items.join('')}</${tag}>`;
+  const whole = (tag: string) => new RegExp(`<${tag}\\b[^>]*/>|<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`);
+  const put = (tag: string, items: string[]) => { xml = xml.replace(whole(tag), () => block(tag, items)); };
 
   // numFmts
   if (merged.numFmts.length > 0) {
-    const numFmtsContent = merged.numFmts.map(n => n.xml).join('');
-    if (xml.includes('<numFmts')) {
-      xml = xml.replace(/<numFmts[^>]*>[\s\S]*?<\/numFmts>/, `<numFmts count="${merged.numFmts.length}">${numFmtsContent}</numFmts>`);
-    } else {
-      // numFmts가 없으면 fonts 앞에 삽입
-      xml = xml.replace(/<fonts\b/, `<numFmts count="${merged.numFmts.length}">${numFmtsContent}</numFmts><fonts`);
-    }
+    const items = merged.numFmts.map((n) => n.xml);
+    if (whole('numFmts').test(xml)) put('numFmts', items);
+    else xml = xml.replace(/<fonts\b/, () => `${block('numFmts', items)}<fonts`); // 없으면 fonts 앞에
   }
+  put('fonts', merged.fonts);
+  put('fills', merged.fills);
+  put('borders', merged.borders);
+  if (merged.cellStyleXfs.length > 0) put('cellStyleXfs', merged.cellStyleXfs);
+  put('cellXfs', merged.cellXfs);
 
-  // fonts
-  const fontsContent = merged.fonts.join('');
-  xml = xml.replace(/<fonts[^>]*>[\s\S]*?<\/fonts>/, `<fonts count="${merged.fonts.length}">${fontsContent}</fonts>`);
-
-  // fills
-  const fillsContent = merged.fills.join('');
-  xml = xml.replace(/<fills[^>]*>[\s\S]*?<\/fills>/, `<fills count="${merged.fills.length}">${fillsContent}</fills>`);
-
-  // borders
-  const bordersContent = merged.borders.join('');
-  xml = xml.replace(/<borders[^>]*>[\s\S]*?<\/borders>/, `<borders count="${merged.borders.length}">${bordersContent}</borders>`);
-
-  // cellStyleXfs
-  if (merged.cellStyleXfs.length > 0) {
-    const csxContent = merged.cellStyleXfs.join('');
-    xml = xml.replace(/<cellStyleXfs[^>]*>[\s\S]*?<\/cellStyleXfs>/, `<cellStyleXfs count="${merged.cellStyleXfs.length}">${csxContent}</cellStyleXfs>`);
-  }
-
-  // cellXfs
-  const cxContent = merged.cellXfs.join('');
-  xml = xml.replace(/<cellXfs[^>]*>[\s\S]*?<\/cellXfs>/, `<cellXfs count="${merged.cellXfs.length}">${cxContent}</cellXfs>`);
-
-  // dxfs (조건부 서식)
+  // dxfs (조건부 서식). 없으면 규격 자리에: cellStyles 뒤, 그것도 없으면 cellXfs 뒤
   if (merged.dxfs.length > 0) {
-    const dxfContent = merged.dxfs.join('');
-    if (xml.includes('<dxfs')) {
-      xml = xml.replace(/<dxfs[^>]*>[\s\S]*?<\/dxfs>/, `<dxfs count="${merged.dxfs.length}">${dxfContent}</dxfs>`);
-    } else {
-      // dxfs 블록이 없으면 cellXfs 뒤에 삽입
-      xml = xml.replace(/<\/cellXfs>/, `</cellXfs><dxfs count="${merged.dxfs.length}">${dxfContent}</dxfs>`);
-    }
+    if (whole('dxfs').test(xml)) put('dxfs', merged.dxfs);
+    else if (whole('cellStyles').test(xml)) xml = xml.replace(whole('cellStyles'), (m) => `${m}${block('dxfs', merged.dxfs)}`);
+    else xml = xml.replace(/<\/cellXfs>/, () => `</cellXfs>${block('dxfs', merged.dxfs)}`);
   }
 
   return xml;

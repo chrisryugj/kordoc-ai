@@ -66,12 +66,14 @@ function sheetXml(s: Sheet): string {
       if (s.header && r === 0) return `<c r="${ref}" t="inlineStr" s="1"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
       const t = v.trim();
       const b = bold.has(r);
-      // 소수 끝이 0 인 값("11.10"·"2026.10"·"1.10": 날짜·시기·항목 번호일 수 있다)은 숫자 칸이 되면 0 이 사라져 11.1 로 보인다 → 글 칸.
-      // 쉼표와 소수가 함께 든 값("1,234.5")도 천 단위 서식(#,##0)이 반올림해 1,235 로 보이므로 글 칸으로 둔다
-      const frac = t.includes('.');
-      if (NUMBER.test(t) && !(frac && (t.endsWith('0') || t.includes(',')))) {
-        // 굵은 행(합계)의 소수는 천 단위 서식 대신 일반 서식으로 (반올림돼 보이지 않게)
-        return `<c r="${ref}" s="${b ? (frac ? 6 : 7) : t.includes(',') ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
+      // 소수는 적힌 자릿수 그대로 보이는 표시 형식을 준다. 일반 숫자 칸으로 쓰면 "11.10"·"2026.10"·"84.90" 의 끝 0 이 사라져
+      // 11.1 로 보이고(11월 10일이 11월 1일로 읽힌다), 천 단위 서식(#,##0)은 "1,234.5" 를 1,235 로 보인다.
+      // 글 칸으로 두면 보이기는 맞지만 엑셀의 합계(SUM)에서 조용히 빠진다 → 숫자 칸 + 표시 형식
+      if (NUMBER.test(t)) {
+        const digits = t.includes('.') ? t.length - t.indexOf('.') - 1 : 0;
+        const comma = t.includes(',');
+        if (digits === 0) return `<c r="${ref}" s="${b ? 7 : comma ? 3 : 4}"><v>${t.replace(/,/g, '')}</v></c>`;
+        if (digits <= MAX_DECIMALS) return `<c r="${ref}" s="${decimalStyle(digits, comma, b)}"><v>${t.replace(/,/g, '')}</v></c>`;
       }
       const st = marked.has(`${r},${c}`) ? 5 : b ? 6 : 2;
       return v ? `<c r="${ref}" t="inlineStr" s="${st}"><is><t xml:space="preserve">${esc(v)}</t></is></c>` : `<c r="${ref}" s="${st}"/>`;
@@ -94,13 +96,23 @@ function sheetXml(s: Sheet): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${view}${colsXml}<sheetData>${rowsXml}</sheetData>${mergeXml}</worksheet>`;
 }
 
+/** 소수 자릿수별 표시 형식 (1~6자리 × 쉼표 유무 × 굵게). 칸 서식 번호는 기본 8개 뒤에 차례로 붙는다 */
+const MAX_DECIMALS = 6;
+const BASE_XFS = 8;
+const decimalStyle = (digits: number, comma: boolean, bold: boolean) => BASE_XFS + (digits - 1) * 4 + (comma ? 2 : 0) + (bold ? 1 : 0);
+const decimalFmtId = (digits: number, comma: boolean) => 164 + (digits - 1) * 2 + (comma ? 1 : 0);
+const DECIMAL_FMTS = Array.from({ length: MAX_DECIMALS }, (_, i) => i + 1).flatMap((d) => [false, true].map((comma) => `<numFmt numFmtId="${decimalFmtId(d, comma)}" formatCode="${comma ? '#,##0' : '0'}.${'0'.repeat(d)}"/>`));
+const DECIMAL_XFS = Array.from({ length: MAX_DECIMALS }, (_, i) => i + 1).flatMap((d) => [false, true].flatMap((comma) => [false, true].map((bold) =>
+  `<xf numFmtId="${decimalFmtId(d, comma)}" fontId="${bold ? 1 : 0}" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"${bold ? ' applyFont="1"' : ''}/>`)));
+
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="${DECIMAL_FMTS.length}">${DECIMAL_FMTS.join('')}</numFmts>
 <fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font></fonts>
 <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFEB9C"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyNumberFormat="1" applyBorder="1"/></cellXfs>
+<cellXfs count="${BASE_XFS + DECIMAL_XFS.length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="3" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyNumberFormat="1" applyBorder="1"/>${DECIMAL_XFS.join('')}</cellXfs>
 <cellStyles count="1"><cellStyle name="표준" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 

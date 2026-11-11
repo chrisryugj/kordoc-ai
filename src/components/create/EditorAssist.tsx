@@ -34,6 +34,9 @@ function FieldsTab() {
   const put = useTask<{ applied: string[]; missing: string[] }>();
 
   const reload = () => void load.run(async () => {
+    // 다른 문서를 열었으면 앞 문서의 칸·결과부터 지운다 (새 문서의 칸 읽기가 실패했을 때 앞 문서의 값이 새 문서에 들어가지 않게)
+    setFields(null);
+    put.reset();
     const names = (await call("fields", {})).names.filter(visibleField);
     const vals = names.length ? (await call("get_fields", { names })).values : {};
     setFields(names.map((n) => ({ name: n })));
@@ -57,14 +60,18 @@ function FieldsTab() {
         <TemplateForm key={nonce} compact fields={fields} initial={initial} finishLabel="편집기에 넣기" busy={put.busy}
           onFinish={(values) => void put.run(async () => {
             // 이 탭에서 바꾼 칸만 넣는다. 손대지 않은 칸까지 보내면, 그사이 편집기에서 직접 쓴 글이 문서를 열 때 읽어 둔 값(빈 값)으로 덮인다
-            const edited = Object.entries(values).filter(([k, v]) => (v ?? "") !== (initial[k] ?? ""));
+            // 기준은 이 탭이 그 칸에 마지막으로 넣은 값(없으면 문서를 열 때 값): 넣은 뒤 지우거나 처음 값으로 되돌린 것도 "바꾼 칸"이다
+            const all = Object.entries(values).map(([k, v]) => [k, v ?? ""] as const);
+            const base = (k: string) => (k in sent.current ? sent.current[k] : initial[k] ?? "");
             // 앞서 넣은 그 값 그대로인 칸은 다시 보내지 않는다(그사이 편집기에서 그 칸을 직접 고쳤으면 덮인다).
             // 다만 편집기에서 실행 취소해 문서를 열 때 값으로 돌아간 칸은 다시 넣는다
-            const again = edited.filter(([k, v]) => sent.current[k] === (v ?? "")).map(([k]) => k);
+            const again = all.filter(([k, v]) => k in sent.current && sent.current[k] === v && v !== (initial[k] ?? "")).map(([k]) => k);
             const now = again.length ? (await call("get_fields", { names: again })).values : {};
-            const changed = Object.fromEntries(edited.filter(([k, v]) => sent.current[k] !== (v ?? "") || (now[k] ?? "") === (initial[k] ?? "")));
+            const undone = new Set(again.filter((k) => (now[k] ?? "") === (initial[k] ?? "")));
+            const changed = Object.fromEntries(all.filter(([k, v]) => v !== base(k) || undone.has(k)));
             if (!Object.keys(changed).length) return { applied: [], missing: [] };
-            const r = await call("put_fields", { values: changed });
+            // 비운 칸은 공백 한 칸으로 넣는다 (빈 값은 편집기가 칸의 안내 글자를 되살린다)
+            const r = await call("put_fields", { values: Object.fromEntries(Object.entries(changed).map(([k, v]) => [k, v || " "])) });
             for (const k of r.applied) sent.current[k] = changed[k] ?? "";
             return r;
           })} />
@@ -83,8 +90,10 @@ function FieldsTab() {
 
 function LintTab() {
   const { toast } = useApp();
-  const { call, editorState } = useCreate();
+  const { call, editorState, docSeq } = useCreate();
   const lint = useTask<{ findings: LintFinding[]; counts: { error: number; warning: number; info: number } }>();
+  // 편집기에 다른 문서를 열면 앞 문서의 결과는 지운다 (남으면 새 문서의 지적처럼 보이고, 눌러도 "찾지 못했습니다"만 뜬다)
+  useEffect(() => lint.reset(), [docSeq, lint.reset]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (f: LintFinding) => {
     if (!f.excerpt) return;
     void call("find", { text: f.excerpt }).then((r) => { if (!r.found) toast("편집기에서 그 글자를 찾지 못했습니다", "info"); }).catch((e) => toast(errorText(e), "error"));
@@ -108,8 +117,9 @@ function LintTab() {
 
 function LawTab() {
   const { toast } = useApp();
-  const { call, editorState } = useCreate();
+  const { call, editorState, docSeq } = useCreate();
   const law = useTask<RpcResult<"law_check">>();
+  useEffect(() => law.reset(), [docSeq, law.reset]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (c: { text: string }) => {
     void call("find", { text: c.text }).then((r) => { if (!r.found) toast("편집기에서 그 인용을 찾지 못했습니다", "info"); }).catch((e) => toast(errorText(e), "error"));
   };
@@ -200,8 +210,9 @@ function RewriteTab() {
 
 function ReviewTab() {
   const { ai } = useApp();
-  const { outputFile, call } = useCreate();
+  const { outputFile, call, docSeq } = useCreate();
   const review = useTask<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }>();
+  useEffect(() => review.reset(), [docSeq, review.reset]); // eslint-disable-line react-hooks/exhaustive-deps
   // 지금 편집기 내용으로 검토한다 (저장 창 없이, 고친 게 있으면 작업 사본으로)
   const run = () => void review.run(async ({ signal }) => rpc("ai_review", { path: await outputFile() }, { signal }));
   return (

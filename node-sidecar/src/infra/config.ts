@@ -187,9 +187,17 @@ export function reload(): Settings {
   policy = loadPolicy(POLICY_SHAPE);
   // 권한 확인을 못 해 미뤄 둔 기관 정책은 잠시 뒤 다시 본다. 느린 PC 에서 확인 도구의 첫 실행이 늦었다고
   // 앱을 끌 때까지 기관이 고정한 폐쇄망 모드·AI 서버 주소가 풀려 있으면 안 된다
-  if (policy?.unverified && policyRetries < 3 && !policyTimer) {
+  // (그동안에도 폐쇄망 모드 같은 조이는 고정값은 적용돼 있다: policy.ts tightenOnly). 간격을 늘려 가며 계속 본다(1분 → 최대 15분)
+  if (policy?.unverified && !policyTimer) {
+    const wait = Math.min(60_000 * 2 ** policyRetries, 15 * 60_000);
     policyRetries++;
-    policyTimer = setTimeout(() => { policyTimer = null; if (policy?.unverified) reload(); }, 60_000);
+    policyTimer = setTimeout(() => {
+      policyTimer = null;
+      if (!policy?.unverified) return;
+      reload();
+      // 정책이 되살아났으면 폐쇄망 환경 표지도 다시 맞춘다 (엔진 시작 때 한 번만 맞추므로)
+      if (!policy?.unverified) void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
+    }, wait);
     policyTimer.unref();
   }
   const s = compose();

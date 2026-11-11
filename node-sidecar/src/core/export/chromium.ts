@@ -51,15 +51,18 @@ export function sandboxWanted(env: NodeJS.ProcessEnv = process.env, rootLinux = 
 
 /** 이 브라우저가 쪽을 그릴 수 있는가 (샌드박스 렌더러가 막힌 PC 는 빈 쪽도 못 그린다) */
 async function canRender(browser: import('puppeteer-core').Browser): Promise<boolean> {
-  try {
+  const probe = (async () => {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><p>.</p>', { waitUntil: 'load', timeout: 20_000 });
     await page.close();
     return true;
-  } catch {
-    return false;
-  }
+  })().catch(() => false);
+  // 렌더러가 죽지 않고 매달리는 PC 도 있다(새 쪽 만들기에는 제한 시간이 없다) → 통틀어 20초
+  return Promise.race([probe, new Promise<boolean>((done) => { setTimeout(() => done(false), 20_000).unref(); })]);
 }
+
+/** 샌드박스를 켠 채로는 이 PC 에서 쪽을 못 그렸다 (이 실행 동안 기억) */
+let sandboxBlocked = false;
 
 export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: number; height: number }>, onPage?: (n: number) => void): Promise<Uint8Array> {
   const executablePath = findBrowser();
@@ -73,8 +76,12 @@ export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: numb
     // 샌드박스를 켠 채 띄운다. 받은 문서의 그림·글꼴을 이 브라우저가 그리는데, 업무 PC 의 Edge·Chrome 은 오래된 판일 수 있다:
     // 샌드박스가 없으면 렌더러 결함 하나가 곧바로 사용자 권한 코드 실행이 된다.
     // 문서보안·백신이 샌드박스 렌더러를 막는 PC 에서는 빈 쪽도 못 그린다 → 그때만 끄고 다시 띄운다
-    const browser = await (sandboxWanted() ? launch(true).then(async (b) => ((await canRender(b)) ? b : (await b.close().catch(() => undefined), null)), () => null) : null)
-      ?? await launch(false);
+    // 한 번 막힌 PC 는 이 실행 동안 계속 막힌다: 기억해 두고 다음부터는 바로 끄고 띄운다 (안 그러면 여러 파일을 바꿀 때 파일마다 실패를 되풀이한다)
+    const sandboxed = sandboxWanted() && !sandboxBlocked
+      ? await launch(true).then(async (b) => ((await canRender(b)) ? b : (await b.close().catch(() => undefined), null)), () => null)
+      : null;
+    if (!sandboxed && sandboxWanted() && !sandboxBlocked) sandboxBlocked = true;
+    const browser = sandboxed ?? await launch(false);
     try {
       return await printPages(browser, pages, onPage);
     } finally {

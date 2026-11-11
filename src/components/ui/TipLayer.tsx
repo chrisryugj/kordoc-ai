@@ -67,7 +67,8 @@ export function TipLayer() {
       const el = (target as HTMLElement | null)?.closest?.(SEL) as HTMLElement | null;
       if (el === cur.current) return;
       hide();
-      if (!el || el.closest("[data-no-tip], .kd-tooltip-host")) return;
+      // iframe(한글 편집기)은 건너뛴다: title 이 말풍선으로 뜨는데, 그 안의 마우스·키는 이쪽에 오지 않아 말풍선이 편집기 위에 남는다
+      if (!el || el.tagName === "IFRAME" || el.closest("[data-no-tip], .kd-tooltip-host")) return;
       const text = tipOf(el);
       if (!text) return;
       cur.current = el;

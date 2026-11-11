@@ -15,6 +15,7 @@ describe('markdownToPlain', () => {
   it('링크는 괄호 안이 주소 꼴일 때만 푼다 (근거 번호·붙임 뒤의 괄호 글은 그대로)', () => {
     expect(markdownToPlain('예산은 5억원입니다[1](전년 대비 10% 증가).')).toBe('예산은 5억원입니다[1](전년 대비 10% 증가).\n');
     expect(markdownToPlain('[붙임 1](참조) 계획서')).toBe('[붙임 1](참조) 계획서\n');
+    expect(markdownToPlain('증가율[1](3.5%) 기준일[2](2024.12.31.) 비율[1, 2](1/2)')).toBe('증가율[1](3.5%) 기준일[2](2024.12.31.) 비율[1, 2](1/2)\n');
     expect(markdownToPlain('[법령](https://www.law.go.kr/법령/지방자치법) [문의](mailto:a@gaon.example) [위로](#top) [자료](files/plan.pdf "계획") [누리집](gaon.example)'))
       .toBe('법령 문의 위로 자료 누리집\n');
   });

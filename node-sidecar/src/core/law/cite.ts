@@ -93,11 +93,11 @@ function unquotedNames(text: string, from: number, to: number): { names: string[
     names.push(name);
     starts.push(words[k].at);
   }
-  // 후보는 넷까지(긴 것 셋 + 가장 짧은 것). 긴 것부터 넷에서 끊으면 앞에 어절이 많은 문장에서 법령명 단독("지방재정법")이
-  // 후보에 들지 못해, 맞게 쓴 법령이 "현행 법령에 없음"으로 나온다
-  if (names.length > 4) {
-    names.splice(3, names.length - 4);
-    starts.splice(3, starts.length - 4);
+  // 후보는 여덟까지: 가장 긴 것(인용한 글 전체, 화면에 보이는 이름) + 짧은 쪽 일곱.
+  // 진짜 법령명은 짧은 쪽에 있다(앞의 어절은 문장이다). 긴 쪽에서 끊으면 앞에 어절이 많은 문장에서 맞는 이름이 후보에 들지 못한다
+  if (names.length > 8) {
+    names.splice(1, names.length - 8);
+    starts.splice(1, starts.length - 8);
   }
   return names.length ? { names, starts } : null;
 }

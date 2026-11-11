@@ -61,6 +61,12 @@ export function useSavedStyles() {
     }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  // 다른 화면에서 서식을 저장·삭제하면 여기 목록도 다시 읽는다 (화면은 숨긴 채 살아 있어 처음 한 번만 읽으면 안내가 그대로 남는다)
+  useEffect(() => {
+    const on = () => void reload();
+    window.addEventListener("kordoc:styles", on);
+    return () => window.removeEventListener("kordoc:styles", on);
+  }, [reload]);
   return { styles, error, reload };
 }
 

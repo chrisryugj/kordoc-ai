@@ -42,7 +42,8 @@ function groundNumbers(value: string, known: Set<number>): string {
   return value.replace(/\d+/g, (r, at: number) => (frame(at) || known.has(Number(r)) ? r : '○○'));
 }
 
-const FRAME_NUMBER = /^[ \t]*(?:\d{1,2}[.)]|\(\d{1,2}\))(?=\s)|(?:붙임|별첨|별지)\s*\d{1,2}(?=[.\s]|$)|제\s?\d{1,3}\s?(?:회|차|기)|\d{1,2}\s?(?:부|매)(?=[\s.,)]|$)/gm;
+// 줄 머리 번호 뒤에 날짜가 이어지면("3. 14.(토)") 그 번호는 월이다 → 값 숫자로 본다. 회차는 "제1회"만 뼈대로 본다("제15회"는 값)
+const FRAME_NUMBER = /^[ \t]*(?:\d{1,2}[.)]|\(\d{1,2}\))(?=\s)(?!\s*\d{1,2}\s*(?:\.|\(|일))|(?:붙임|별첨|별지)\s*\d{1,2}(?=[.\s]|$)|제\s?1\s?(?:회|차|기)|\d{1,2}\s?(?:부|매)(?=[\s.,)]|$)/gm;
 
 export async function suggestFill(params: FillParams, signal: AbortSignal): Promise<{ values: Record<string, string>; redacted: number }> {
   const fields = [...new Set((params.fields ?? []).map((f) => String(f).trim()).filter(Boolean))];

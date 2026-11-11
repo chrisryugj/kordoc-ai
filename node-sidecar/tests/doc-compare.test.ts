@@ -49,6 +49,22 @@ describe('compare', () => {
     expect(r.output_path).toBeUndefined();
   });
 
+  it('긴 문단에서 한두 글자만 바뀌어도 "변경"으로 잡는다 (금액·기간·있다/없다)', async () => {
+    const body = (amount: string, days: string, can: string) => `# 가온시 보조금 관리 조례\n\n제9조(교부) 시장은 보조사업자가 사업계획서와 그 밖에 규칙으로 정하는 서류를 갖추어 신청한 경우 예산의 범위에서 ${amount} 이내의 보조금을 교부할 수 있고, 보조사업자는 교부 결정을 통지받은 날부터 ${days} 이내에 사업에 착수하여야 하며, 정당한 사유가 있으면 시장의 승인을 받아 사업 내용을 변경${can}.\n\n제10조(위임) 시행에 필요한 사항은 규칙으로 정한다.`;
+    const a = join(env.work, '보조금_현행.hwpx');
+    const b = join(env.work, '보조금_개정안.hwpx');
+    // 한 글자만 다르다 (엔진의 닮음 문턱 99% 를 넘는 꼴)
+    writeFileSync(a, Buffer.from(await markdownToHwpx(body('1,000만원', '30일', '할 수 있다'))));
+    writeFileSync(b, Buffer.from(await markdownToHwpx(body('9,000만원', '30일', '할 수 있다'))));
+    const r = await call('compare', { old_path: a, new_path: b });
+    expect(r.stats.modified).toBeGreaterThanOrEqual(1);
+    const mod = r.rows.find((x: { type: string; old: string }) => x.type === 'modified' && x.old.includes('제9조'));
+    expect(mod.old).toContain('1,000만원');
+    expect(mod.new).toContain('9,000만원');
+    // 대비표도 "두 문서 내용이 같습니다"로 거절하지 않는다
+    expect((await call('compare_hwpx', { old_path: a, new_path: b })).output_path).toMatch(/신구조문대비표\.hwpx$/);
+  });
+
   it('못 읽는 쪽을 한국어로 짚는다 ("문서B 파싱 실패" 대신 새 문서)', async () => {
     const broken = join(env.work, '깨진_개정안.hwpx');
     writeFileSync(broken, 'not a zip');

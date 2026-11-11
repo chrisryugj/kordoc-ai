@@ -28,7 +28,7 @@ writeFileSync(bad, '﻿이름,연락처\n김가온,01012345678\n');
 
 // 기관 정보가 있어야 '내 기관 정보로 채우는 칸' 묶음이 나온다 (어떤 데이터 폴더에서 돌려도 같게)
 await fetch(`${RELAY}/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: 'sidecar_call', args: { method: 'update_settings', params: { settings: { org: { name: '가온시', dept: '행정지원과', person: '홍길동', phone: '031-000-0000' } } } } }) });
-const ui = await openUi({ relay: RELAY, width: 1280, height: 900 });
+const ui = await openUi({ relay: RELAY, width: 1280, height: 900, prefs: { 'kordoc-first-run-done': true } });
 const { page } = ui;
 const mainText = () => page.evaluate(() => document.querySelector('.kd-batch-main')?.innerText ?? '');
 try {

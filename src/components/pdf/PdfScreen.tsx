@@ -82,7 +82,10 @@ export function PdfScreen({ active }: { active: boolean }) {
   const [opts, setOpts] = useState<SaveOpts>(DEFAULT_SAVE);
   const thumbs = useThumbs(ZOOM[zoom]);
   const save = useTask<SaveResult>();
+  const resetSave = save.reset;
   const queue = useRef(Promise.resolve());
+  /** 파일 여는 차례 번호: 멈추기를 누르면 올려, 돌던 넣기가 다음 파일에서 그만둔다 */
+  const openRound = useRef(0);
   const handled = useRef(0);
   const selRef = useRef(sel);
   selRef.current = sel;
@@ -129,6 +132,7 @@ export function PdfScreen({ active }: { active: boolean }) {
         const r = await rpc("scan_paths", { paths });
         list = r.files.filter((f) => f.format !== "unknown");
         if (r.skipped) toast(`PDF 작업에 넣을 수 없는 파일 ${num(r.skipped)}개는 뺐습니다.`, "info");
+        if (r.truncated) toast("문서가 2,000개를 넘어 앞의 2,000개만 넣습니다. 나머지는 폴더를 나눠 다시 넣으세요.", "error");
       } catch (e) {
         toast(`파일 목록을 만들지 못했습니다: ${errorText(e)}`, "error");
         return;
@@ -136,7 +140,12 @@ export function PdfScreen({ active }: { active: boolean }) {
       if (list.length > 1) list.sort((a, b) => a.name.localeCompare(b.name, "ko", { numeric: true }));
       const failed: string[] = [];
       let first = true;
+      // 새 책상에 놓는 것이면 앞 책상의 저장 결과("저장했습니다"·열기)는 지운다
+      if (replace) resetSave();
+      const round = ++openRound.current;
       for (const [i, f] of list.entries()) {
+        // 여는 중에 멈추기를 눌렀다 (문서가 많은 폴더를 잘못 놓았을 때: 안 멈추면 책상을 비워도 다음 파일이 계속 쌓인다)
+        if (openRound.current !== round) break;
         setOpening({ done: i, total: list.length, name: f.name });
         try {
           const s = await rpc("pdf_open", { path: f.path });
@@ -150,7 +159,8 @@ export function PdfScreen({ active }: { active: boolean }) {
       setOpening(null);
       if (failed.length) toast(failed.length === 1 ? `넣지 못했습니다. ${failed[0]}` : `${num(failed.length)}개를 넣지 못했습니다. ${failed[0]}`, "error");
     });
-  }, [commit, toast]);
+  }, [commit, toast, resetSave]);
+  const stopOpening = useCallback(() => { openRound.current++; }, []);
 
   useEffect(() => registerDrop("pdf", (p) => add(p)), [registerDrop, add]);
   // 다른 화면·우클릭에서 넘어온 파일: 책상을 비우고 그 파일만 (앞 책상은 되돌리기로)
@@ -257,11 +267,14 @@ export function PdfScreen({ active }: { active: boolean }) {
       if (mod && !e.altKey && e.code === "KeyS") { e.preventDefault(); doSave("all"); return; }
       if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable='true']")) return;
       if (mod && e.code === "KeyZ") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-      if (mod && e.code === "KeyY") { e.preventDefault(); redo(); }
+      if (mod && e.code === "KeyY") { e.preventDefault(); redo(); return; }
+      // 고른 쪽 지우기: 초점이 쪽 격자 밖(메뉴를 닫은 뒤의 단추 등)에 있어도 받는다. "빈 쪽을 골랐습니다. Delete를 누르세요" 안내대로 되게.
+      // 격자 안에서 누른 것은 격자가 이미 처리했다(defaultPrevented)
+      if (e.key === "Delete" && !mod && !e.defaultPrevented && selRef.current.keys.size) { e.preventDefault(); doRemove(selRef.current.keys); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, preview, menu, doSave, undo, redo]);
+  }, [active, preview, menu, doSave, undo, redo, doRemove]);
 
   const onGridKey = (e: KeyboardEvent<HTMLDivElement>, key: string | null) => {
     const mod = e.ctrlKey || e.metaKey;
@@ -381,7 +394,7 @@ export function PdfScreen({ active }: { active: boolean }) {
         { label: "자른 곳 모두 풀기", icon: <Scissors size={14} />, disabled: !boardRef.current.cuts.length, onClick: () => commit({ ...boardRef.current, cuts: [] }) },
         // 다른 일과 떼어 놓는다 (잘못 눌러도 되돌릴 수 있음을 밝힌다)
         SEP,
-        { label: "책상 비우기", icon: <X size={14} />, danger: true, hint: "되돌리기(Ctrl+Z)로 다시 놓을 수 있습니다", onClick: () => { commit(EMPTY); setSel(NO_SELECTION); setFocus(null); } },
+        { label: "책상 비우기", icon: <X size={14} />, danger: true, hint: "되돌리기(Ctrl+Z)로 다시 놓을 수 있습니다", onClick: () => { stopOpening(); commit(EMPTY); setSel(NO_SELECTION); setFocus(null); save.reset(); } },
       ],
     });
   };
@@ -434,7 +447,7 @@ export function PdfScreen({ active }: { active: boolean }) {
                   </div>
                 );
               })}
-              {opening && <Opening {...opening} />}
+              {opening && <Opening {...opening} onStop={stopOpening} />}
             </div>
             <div className="kd-seg" role="group" aria-label="쪽 크기">
               {(["s", "m", "l"] as const).map((z) => <button key={z} type="button" aria-pressed={zoom === z} onClick={() => setZoom(z)}>{z === "s" ? "작게" : z === "m" ? "보통" : "크게"}</button>)}
@@ -471,7 +484,7 @@ export function PdfScreen({ active }: { active: boolean }) {
               onCut={(key) => commit(toggleCut(boardRef.current, key))} onMenu={cardMenu} onDeskMenu={deskMenu} onOpen={setPreview} onKey={onGridKey} />
           ) : (
             <div className="kd-pdf-desk" data-drop="pdf" data-over={dragTarget === "pdf"}>
-              <EmptyDesk onPick={pick} opening={opening} />
+              <EmptyDesk onPick={pick} opening={opening} onStop={stopOpening} />
             </div>
           )}
           {items.length > 0 && (
@@ -516,7 +529,7 @@ export function PdfScreen({ active }: { active: boolean }) {
 }
 
 /** 여는 중: "2개 중 1개 여는 중" + 진행 막대 (파일 하나면 움직이는 막대) */
-function Opening({ done, total, name, big }: { done: number; total: number; name: string; big?: boolean }) {
+function Opening({ done, total, name, big, onStop }: { done: number; total: number; name: string; big?: boolean; onStop?: () => void }) {
   const pct = total > 1 ? Math.round((done / total) * 100) : null;
   return (
     <div className="kd-pdf-opening" data-big={big} role="status" aria-live="polite">
@@ -525,11 +538,13 @@ function Opening({ done, total, name, big }: { done: number; total: number; name
       <div className="kd-progress" data-indeterminate={pct == null} role="progressbar" aria-valuenow={pct ?? undefined} aria-valuemin={0} aria-valuemax={100}>
         <div style={pct != null ? { width: `${pct}%` } : undefined} />
       </div>
+      {/* 여러 개를 여는 중이면 멈출 수 있게 (지금 여는 파일까지만 넣고 그만둔다) */}
+      {onStop && total > 1 && <Button size="sm" variant="secondary" onClick={onStop}>멈추기</Button>}
     </div>
   );
 }
 
-function EmptyDesk({ onPick, opening }: { onPick: () => void; opening: { done: number; total: number; name: string } | null }) {
+function EmptyDesk({ onPick, opening, onStop }: { onPick: () => void; opening: { done: number; total: number; name: string } | null; onStop: () => void }) {
   const can: Array<[React.ReactNode, string, string]> = [
     [<Combine size={15} />, "합치기", "파일을 여러 개 넣고 PDF 하나로 저장"],
     [<Split size={15} />, "나누기", "쪽 사이 가위로 자르거나 쪽마다·몇 쪽씩"],
@@ -541,7 +556,7 @@ function EmptyDesk({ onPick, opening }: { onPick: () => void; opening: { done: n
   return (
     <div className="kd-pdf-empty">
       <div className="kd-pdf-empty-sheets" aria-hidden="true"><span /><span /><span /></div>
-      {opening ? <Opening {...opening} big /> : (
+      {opening ? <Opening {...opening} big onStop={onStop} /> : (
         <>
           <div>
             <h2>PDF·그림·한글 문서를 끌어다 놓기</h2>

@@ -62,11 +62,15 @@ describe('인용 찾기: 항·호·목', () => {
     expect(a.names).toContain('지방재정법');
     expect(a.names[0]).toBe('지방재정법');
     const b = findCitations('올해 우리 시 주요 업무 추진 방향 가운데 하나인 공공기관의 정보공개에 관한 법률 제9조')[0];
-    expect(b.names.length).toBeLessThanOrEqual(4);
-    // 가장 긴 후보(인용한 글 전체)와 가장 짧은 후보가 든다: 짧은 후보로 찾은 법령 이름이 긴 후보의 끝과 같으면 그 법령으로 본다
+    expect(b.names.length).toBeLessThanOrEqual(8);
+    // 가장 긴 후보(인용한 글 전체)와 짧은 쪽 후보들이 든다: 맞는 이름은 짧은 쪽에 있다
     expect(b.names[0]).toMatch(/공공기관의 정보공개에 관한 법률$/);
     expect(b.names.at(-1)).toBe('정보공개에 관한 법률');
+    expect(b.names).toContain('공공기관의 정보공개에 관한 법률');
     expect(b.names).not.toContain('법률');
+    // 여러 어절 법령명 앞에 문장이 붙어도 맞는 이름이 후보에 남는다
+    expect(findCitations('업무 추진 시 지방자치단체 출자ㆍ출연 기관의 운영에 관한 법률 제4조에 따라')[0].names).toContain('지방자치단체 출자ㆍ출연 기관의 운영에 관한 법률');
+    expect(findCitations('민원 처리 시 개인정보 보호법 제15조에 따라')[0].names).toContain('개인정보 보호법');
     // "및"이 든 이름은 그대로
     expect(findCitations('부정청탁 및 금품등 수수의 금지에 관한 법률 제8조')[0].names[0]).toBe('부정청탁 및 금품등 수수의 금지에 관한 법률');
   });

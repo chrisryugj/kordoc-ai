@@ -54,6 +54,9 @@ export const EDITOR_CSP = [
   "form-action 'none'",
 ].join('; ');
 
+/** 편집기 서버가 먼저 써 보는 포트 (동적 포트 범위 아래). 다른 프로그램이 쓰고 있으면 빈 포트로 넘어간다 */
+const EDITOR_PORT = 47613;
+
 let server: Server | null = null;
 let started: Promise<{ host_url: string; studio_version: string }> | null = null;
 
@@ -108,17 +111,26 @@ export function startEditorServer(): Promise<{ host_url: string; studio_version:
       // 읽기 오류(권한·잠금)가 처리 안 된 예외로 엔진 전체를 끝내지 않게
       pipeline(createReadStream(file), res, (err) => { if (err) logger.warn(`[editor-server] ${basename(file)} 보내기 실패: ${err.message}`); });
     });
+    // 늘 같은 포트를 먼저 쓴다(못 쓰면 빈 포트). 브라우저 저장소는 출처(포트 포함)별이라, 포트가 켤 때마다 다르면
+    // 지난 실행의 편집기가 남긴 저장소(고치던 문서)를 다음 실행이 보지도 지우지도 못한다. 같은 출처여야 host.js 가 띄우기 전에 지운다
+    let fallback = false;
     srv.on('error', (err) => {
+      if (!fallback && (err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        fallback = true;
+        srv.listen(0, '127.0.0.1');
+        return;
+      }
       started = null;
       reject(err);
     });
-    srv.listen(0, '127.0.0.1', () => {
+    srv.on('listening', () => {
       server = srv;
       const addr = srv.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       logger.info(`[editor] 한글 편집기 서버 127.0.0.1:${port} (${root})`);
       resolve({ host_url: `http://127.0.0.1:${port}/host.html`, studio_version: version });
     });
+    srv.listen(EDITOR_PORT, '127.0.0.1');
   });
   return started;
 }

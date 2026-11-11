@@ -46,6 +46,12 @@ export function InboxScreen({ active }: { active: boolean }) {
 
   // 화면에 들어올 때마다 다시 읽기 (작업대에서 "받은 공문에 넣기"로 넣은 것도 보이게)
   useEffect(() => { if (ready && active) void load(); }, [ready, active, load]);
+  // 이 화면을 보는 동안 밖(탐색기 우클릭 "받은 공문 접수하기")에서 넣은 공문도 바로 보이게
+  useEffect(() => {
+    const on = () => { if (ready) void load(); };
+    window.addEventListener("kordoc:inbox", on);
+    return () => window.removeEventListener("kordoc:inbox", on);
+  }, [ready, load]);
   useEffect(() => {
     if (!items) return;
     const n = urgentCount(items, today);

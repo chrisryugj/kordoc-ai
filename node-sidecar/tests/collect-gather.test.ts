@@ -120,18 +120,34 @@ describe('부서 이름 맞추기', () => {
     expect(matchDept(roster, { path: '/x/교육과정 수요조사.hwpx', values: [], text: '' }).in_roster).toBe(false);
   });
 
-  it('엑셀 쓰기: 소수 끝의 0("11.10")과 쉼표 소수는 글 칸으로 남긴다. 날짜·번호 열은 더하지 않는다', async () => {
+  it('엑셀 쓰기: 소수는 숫자 칸으로 두고 적힌 자릿수 그대로 보이는 표시 형식을 준다. 날짜·번호 열은 더하지 않는다', async () => {
     const JSZip = (await import('jszip')).default;
-    const buf = await buildXlsx([{ name: '표', rows: [['행사일', '준공', '금액', '비율', '평점'], ['11.10', '2026.10', '1,234.5', '3.5', '1,200']], bold: [1] }]);
-    const xml = await (await JSZip.loadAsync(buf)).file('xl/worksheets/sheet1.xml')!.async('string');
-    for (const v of ['11.10', '2026.10', '1,234.5']) expect(xml, v).toContain(`<t xml:space="preserve">${v}</t>`);
-    expect(xml).toContain('<v>3.5</v>');
+    const buf = await buildXlsx([{ name: '표', rows: [['행사일', '준공', '금액', '비율', '수량'], ['11.10', '2026.10', '1,234.5', '3.5', '1,200'], ['84.90', '12.50', '100.00', '3.0', '7']], bold: [2] }]);
+    const zip = await JSZip.loadAsync(buf);
+    const xml = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+    const styles = await zip.file('xl/styles.xml')!.async('string');
+    // 글 칸이 아니라 숫자 칸 (엑셀의 SUM 에서 빠지지 않는다)
+    for (const v of ['11.10', '2026.10', '1234.5', '84.90', '12.50', '100.00', '3.0']) expect(xml, v).toContain(`<v>${v}</v>`);
+    expect(xml).not.toContain('<t xml:space="preserve">11.10</t>');
+    // 그 칸의 서식이 가리키는 표시 형식이 적힌 자릿수와 같다
+    const xfs = [...styles.match(/<cellXfs[\s\S]*<\/cellXfs>/)![0].matchAll(/<xf [^>]*numFmtId="(\d+)"[^>]*>/g)].map((m) => m[1]);
+    expect(Number(styles.match(/<cellXfs count="(\d+)"/)![1])).toBe(xfs.length);
+    const fmtOf = (value: string) => {
+      const s = Number(new RegExp(`s="(\\d+)"><v>${value.replace('.', '\\.')}</v>`).exec(xml)![1]);
+      return new RegExp(`numFmtId="${xfs[s]}" formatCode="([^"]+)"`).exec(styles)?.[1];
+    };
+    expect(fmtOf('11.10')).toBe('0.00');
+    expect(fmtOf('1234.5')).toBe('#,##0.0');
+    expect(fmtOf('3.5')).toBe('0.0');
+    expect(fmtOf('100.00')).toBe('0.00');
     expect(xml).toContain('<v>1200</v>');
-    // 굵은 행(합계)의 소수는 천 단위 서식(반올림돼 보임)을 쓰지 않는다
-    expect(xml).toMatch(/s="6"><v>3\.5<\/v>/);
     const cols = ['행사일', 'No.', '순위', '소요일', '금액'].map((label) => ({ key: label, label, required: false }));
     const rows = [['11.10', '1', '2', '3', '100'], ['11.24', '2', '1', '4', '200']].map((v, i) => ({ file: `f${i}`, dept: '', cells: new Map(cols.map((c, j) => [c.key, v[j]])) }));
     expect([...columnTotals(cols, rows).keys()]).toEqual(['소요일', '금액']);
+    // 이름에 번호·전화·분기·연도 같은 말이 "들어 있기만" 한 금액·수량 열은 더한다. 그 말로 끝나는 열은 안 더한다
+    const summed = (label: string) => columnTotals([{ key: 'k', label, required: false }], [{ file: 'f', dept: '', cells: new Map([['k', '3']]) }, { file: 'g', dept: '', cells: new Map([['k', '4']]) }]).has('k');
+    for (const l of ['1분기 집행액', '2분기', '분기별 실적', '1등급 인원', '2회차 참석자', '연가 사용일', '휴가일', '전년도 집행액', '2026년도 예산액', '기간별 집행액', '주민참여 예산', '전화 상담 건수', '우편 발송 건수', '번호판 교체 대수', '1학년 학생수', '연령별 인원', '희망 인원(명)', '1일 이용자', '근무일수']) expect(summed(l), l).toBe(true);
+    for (const l of ['내선 번호', '전화번호(내선)', '우편번호', '분기', '등급', '회차', '차수', '학년', '연령', '사업 연도', '교육 기간', '희망 시기', '접수일', '생년월일', '순번', 'No']) expect(summed(l), l).toBe(false);
   });
 
   it('열 이름: 띄어쓰기·괄호 설명·흔한 다른 이름', () => {

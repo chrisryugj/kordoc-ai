@@ -100,8 +100,12 @@ export function restoreMasked(source: string, answer: string): string {
     byMask.get(h.masked)!.add(source.slice(h.index, h.index + h.length));
   }
   let out = answer;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const [masked, originals] of [...byMask].sort((a, b) => b[0].length - a[0].length)) {
-    if (originals.size === 1) out = out.split(masked).join([...originals][0]);
+    // 같은 모양이 서로 다른 값에서 나왔거나, 원문에 그 모양이 글자 그대로 있었으면(사용자가 이미 가려 둔 자리) 어느 값인지 알 수 없다
+    if (originals.size !== 1 || source.includes(masked)) continue;
+    // 더 긴 가림 모양의 일부로 든 것은 바꾸지 않는다("●●● ●●●" 안의 "●●● ●●"): 앞뒤가 가림 글자가 아닌 자리만
+    out = out.replace(new RegExp(`(?<!●)${esc(masked)}(?!●)`, 'g'), () => [...originals][0]);
   }
   return out;
 }

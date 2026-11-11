@@ -90,6 +90,14 @@ describe('ai_fill_suggest', () => {
     const two = '02-450-7114, 02-460-7114';
     const m2 = redactMarkdown(two, { rules: ['phone'] }).text.split(', ');
     if (m2[0] === m2[1]) expect(restoreMasked(two, m2[0])).toBe(m2[0]);
+    // 더 긴 가림 모양 안에 든 짧은 모양을 바꾸지 않는다 (다른 주소의 일부가 엉뚱한 주소로 바뀌던 것)
+    const addr = '가온시 한빛로 123\n가온시 시청로 456\n가온시 중앙로 78';
+    const masked3 = redactMarkdown(addr, { rules: ['address'] }).text;
+    const back = restoreMasked(addr, masked3);
+    expect(back.split('\n')[2]).toBe('가온시 중앙로 78');
+    for (const line of back.split('\n').slice(0, 2)) expect(line).not.toContain('중앙로');
+    // 원문에 이미 가려 둔 자리는 채우지 않는다
+    expect(restoreMasked('010-●●●●-5678 과 010-1234-5678', '010-●●●●-5678')).toBe('010-●●●●-5678');
   });
 
   it('받은 공문 번호를 따로 주고, 본문 칸의 관련 줄이 다른 번호(받은 공문 본문의 관련)면 바로잡는다', async () => {

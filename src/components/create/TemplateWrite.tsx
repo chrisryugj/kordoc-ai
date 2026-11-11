@@ -28,7 +28,8 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
   const { openInEditor } = useCreate();
   const [instruction, setInstruction] = useState("");
   const [refs, setRefs] = useState<string[]>([]);
-  const write = useTask<RpcResult<"ai_template_write">>();
+  // 다시 쓰기를 멈추거나 실패해도 앞서 쓴 문서와 "편집기에서 열기"는 남긴다 (그 문서는 작업 폴더에 있어 달리 찾을 길이 없다)
+  const write = useTask<RpcResult<"ai_template_write">>({ keepOnFail: true });
   const open = useTask<void>();
 
   if (!ai?.configured) return (

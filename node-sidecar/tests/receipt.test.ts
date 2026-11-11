@@ -121,6 +121,7 @@ describe('값 뽑기 규칙', () => {
     for (const line of ['환불완료', '카드취소 가맹점용', '신용취소 할부기간: 일시불', '승인취소 유효기간 **/**']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(true);
     expect(looksRefund(['가온문구'], '합계 1 -11,000')).toBe(true);
     expect(looksRefund(['가온문구', '환불 가능 기간 7일'], '합계 11,000')).toBe(false);
+    expect(looksRefund(['가온문구', '교환/환불완료까지 3~5일 소요'], '합계 11,000')).toBe(false);
     const normal = parseReceipt(L('가온문구', '합계 11,000', '공급가액 10,000', '부가세 1,000', '교환·환불은 7일 이내 영수증 지참'));
     expect(normal.fields.total!.confidence).toBeGreaterThanOrEqual(0.8);
   });

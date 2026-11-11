@@ -37,7 +37,9 @@ export function parseDeepLink(raw: string): DeepLinkPayload | null {
     return null;
   }
   if (url.protocol !== "kordoc:") return null;
-  const action = url.host || url.pathname.replace(/^\/+/, "").split("/")[0];
+  // 동작 이름은 host 자리만 본다 (Rust 가 넘기는 꼴: kordoc://<동작>?path=…). 경로 첫 토막까지 읽으면 "kordoc:convert?path=…" 처럼
+  // Rust 가 동작으로 보지 않은 주소를 여기서 동작으로 읽게 된다
+  const action = url.host;
   if (action === "batch") {
     const manifestPath = url.searchParams.get("manifest");
     return manifestPath ? { type: "batch", manifestPath } : null;

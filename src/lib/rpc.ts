@@ -79,6 +79,8 @@ async function sidecarInvoke(method: string, params: Record<string, unknown>): P
     if (!DEAD.test(String(e)) || !retrySafe(method, params)) throw e;
     await invoke("sidecar_start");
     await new Promise((r) => setTimeout(r, 1200));
+    // 엔진 메모리에만 있던 것(폴더 지켜보기)을 다시 걸 곳에 알린다 (받는 쪽은 그 자리에서 기억한 목록을 집는다: 다시 보내기 전에 알려야 빈 목록이 기억을 덮기 전이다)
+    window.dispatchEvent(new Event("kordoc:engine-restarted"));
     return invoke("sidecar_call", { method, params });
   }
 }

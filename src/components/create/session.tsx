@@ -347,7 +347,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     // 앞 열기가 아직 끝나지 않았다 (PDF 가져오기 창은 답을 최대 10분 기다린다): 겹쳐 열면 두 열기가 서로를 끊는다
     if (opening.current) { toast("앞 문서를 여는 중입니다. 편집기의 가져오기 창을 먼저 끝내세요.", "info"); return; }
     // 열기 준비(쪽 수 확인·묻기)를 기다리는 사이 또 눌렀다: 두 열기가 함께 들어가면 서로를 끊는다
-    if (entering.current) return;
+    if (entering.current) { toast("앞 문서를 여는 중입니다. 잠시 뒤 다시 누르세요.", "info"); return; }
     entering.current = true;
     let recover = !!opts?.recover;
     try {

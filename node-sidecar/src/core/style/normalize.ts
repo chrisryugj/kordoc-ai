@@ -192,8 +192,13 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
   let legalShift = 0;
   const sourceMarkers: string[] = [];
   const out: Block[] = [];
-  for (const b of blocks) {
+  // "N." 번호의 차례: "2. 15일까지 제출" 이 2번 항목인지 2월 15일인지는 앞 번호를 잇는지로 가른다 (markers.ts readMarker 의 inList)
+  const numberOf = (b: Block) => (b.kind === 'para' ? Number(/^\s*(?:[-*+]\s+)?(\d{1,2})\\?\.(?=\s)/.exec(b.text)?.[1] ?? NaN) : NaN);
+  const numbers = blocks.map(numberOf);
+  let lastNo = 0;
+  for (const [bi, b] of blocks.entries()) {
     if (b.kind === 'heading') {
+      lastNo = 0;
       if (b.level <= 2 && !opts.headingsAsItems) { stack.reset(); out.push({ kind: 'heading', level: 2, text: b.text }); continue; }
       out.push({ kind: 'item', depth: stack.depthOf(`#${b.level}`), text: b.text });
       continue;
@@ -211,7 +216,11 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
       const prevNo = Number(/^(\d{1,2})\.\s/.exec(last.lines[last.lines.length - 1])?.[1] ?? NaN);
       if (no && Number(no[1]) === prevNo + 1) { last.lines.push(lead.trim()); continue; }
     }
-    const m = readMarker(lead);
+    const no = numbers[bi];
+    // 앞 번호를 잇거나(… 1. → 2.), 첫 번호인데 뒤에 2. 가 이어지면 번호 목록의 한 줄이다
+    const inList = Number.isFinite(no) && (no === lastNo + 1 && (no > 1 || numbers.slice(bi + 1).includes(2)));
+    const m = readMarker(lead, { inList });
+    if (m?.key === '1.' && Number.isFinite(no)) lastNo = no;
     if (!m) {
       // 글 파일·마크다운의 목록(- * + 와 들여쓰기)
       const li = /^(\s*)[-*+]\s+(.*)$/.exec(b.text);

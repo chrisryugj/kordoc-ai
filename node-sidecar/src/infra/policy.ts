@@ -229,6 +229,20 @@ export function loadPolicy(shape: Obj): Policy | null {
   return failed;
 }
 
+/** 믿지 못하는 정책 파일에서 조이는 쪽 고정값만 고른다 (값이 꼭 그 조이는 값일 때만). 못 읽으면 빈 것 */
+const TIGHTEN: ReadonlyArray<[string, string, boolean]> = [['privacy', 'offline', true], ['ai', 'allow_subscription', false], ['ai', 'redact_before_cloud', true]];
+function tightenOnly(source: string): Obj {
+  let raw: Obj;
+  try { raw = readPolicyFile(source); } catch { return {}; }
+  const locked = isObj(raw.locked) ? raw.locked : {};
+  const out: Obj = {};
+  for (const [section, key, value] of TIGHTEN) {
+    const sec = locked[section];
+    if (isObj(sec) && sec[key] === value) out[section] = { ...(isObj(out[section]) ? (out[section] as Obj) : {}), [key]: value };
+  }
+  return out;
+}
+
 function readPolicy(source: string, shape: Obj): Policy {
   let raw: Obj;
   let unverified = false;
@@ -245,9 +259,13 @@ function readPolicy(source: string, shape: Obj): Policy {
     }
     raw = readPolicyFile(source);
   } catch (err) {
-    const error = (err as Error).message;
+    // 소유자·권한을 믿지 못해도(확인 못 함·나쁨) "더 조이는" 고정값은 적용한다: 폐쇄망 모드 켬, 구독 프로그램 금지, 보내기 전 가리기.
+    // 누가 심은 파일이어도 조이는 값은 해가 없고, 안 그러면 확인 도구가 늦은 PC 에서 기관이 고정한 폐쇄망 모드가 풀린 채 문서가 밖으로 나갈 수 있다
+    const locked = isMachineSpot(source) ? tightenOnly(source) : {};
+    const lockedPaths = leafPaths(locked);
+    const error = `${(err as Error).message}${lockedPaths.length ? '. 다만 더 조이는 고정값(폐쇄망 모드·구독 프로그램 금지·보내기 전 가리기)은 적용했습니다' : ''}`;
     logger.error(`[policy] 기관 배포 설정을 읽지 못해 무시합니다: ${source}: ${error}`);
-    return { source, defaults: {}, locked: {}, lockedPaths: [], error, ...(unverified ? { unverified: true } : {}) };
+    return { source, defaults: {}, locked, lockedPaths, error, ...(unverified ? { unverified: true } : {}) };
   }
 
   const drop = (path: string, why: string) => logger.warn(`[policy] ${path} 무시: ${why}`);

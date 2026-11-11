@@ -232,17 +232,18 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
       </div>
       <ErrorLine message={pre.error} />
 
-      {done && (
+      {/* 고친 사본은 다시 점검이 끝나지 않았어도(멈춤·실패) 알린다: 안 보이면 사본이 생긴 줄 모른다 */}
+      {fixedCopy && fix.result && !pre.busy && (
         <div className="flex flex-col gap-3" aria-live="polite">
-          {fixedCopy && fix.result && (
-            <>
-              <SavedFile path={fix.result.output_path} label={`${fix.result.replaced}곳을 고친 사본을 저장하고 다시 점검했습니다`} />
-              <div><Button variant="secondary" size="sm" onClick={() => openDocs([fix.result!.output_path])}><Eye size={13} /> 고친 사본을 문서 화면에서 보기</Button></div>
-            </>
-          )}
-          {fixedCopy && fix.result && fix.result.skipped.length > 0 && (
+          <SavedFile path={fix.result.output_path} label={`${fix.result.replaced}곳을 고친 사본을 저장${done ? "하고 다시 점검했습니다" : "했습니다"}`} />
+          <div><Button variant="secondary" size="sm" onClick={() => openDocs([fix.result!.output_path])}><Eye size={13} /> 고친 사본을 문서 화면에서 보기</Button></div>
+          {fix.result.skipped.length > 0 && (
             <p className="kd-small kd-muted kd-num">서식을 지키려고 {fix.result.skipped.length}곳은 고치지 않았습니다. 그 부분은 한글 편집기에서 고치세요.</p>
           )}
+        </div>
+      )}
+      {done && (
+        <div className="flex flex-col gap-3" aria-live="polite">
           {counts.error === 0 && more ? (
             <p className="kd-text font-semibold kd-num" role="status">빠른 검사: 고칠 것 0 · 살필 것 {counts.warning}. AI·법령 확인이 끝나면 결과를 더합니다</p>
           ) : counts.error === 0 ? (

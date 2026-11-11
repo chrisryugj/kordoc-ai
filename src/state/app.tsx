@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { AiStatus, DeepPartial, DocFormat, DocInfo, Settings, SystemInfo } from "../lib/contract";
 import { rpc, errorText } from "../lib/rpc";
 import { baseName, formatOf } from "../lib/format";
+import { notifySystem } from "../lib/native";
 import { loadRecent, pushRecent, readPref, saveRecent, writePref, type RecentDoc } from "../lib/recent";
 import { useSidecar, type SidecarStatus } from "../hooks/useSidecar";
 import type { ToastType } from "../components/ui/Toast";
@@ -225,13 +226,12 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const watches = useRef<WatchRef[]>([]);
   const noteWatches = useCallback((list: WatchRef[]) => { watches.current = list.map((w) => ({ dir: w.dir, out_dir: w.out_dir, format: w.format })); }, []);
   const wasReady = useRef(false);
-  useEffect(() => {
-    if (!ready) return;
-    const again = wasReady.current;
-    wasReady.current = true;
+  const rearming = useRef(false);
+  const rearm = useCallback(async () => {
     const want = watches.current;
-    if (!again || !want.length) return;
-    void (async () => {
+    if (rearming.current || !want.length) return;
+    rearming.current = true;
+    try {
       const now = await rpc("watch_list", {}).catch(() => null);
       if (!now) return;
       const gone = want.filter((w) => !now.some((x) => x.dir === w.dir));
@@ -243,11 +243,28 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
       const after = await rpc("watch_list", {}).catch(() => null);
       if (after) noteWatches(after);
       window.dispatchEvent(new Event("kordoc:watches"));
-      toast(failed
+      const msg = failed
         ? `문서 엔진이 다시 켜지면서 폴더 지켜보기 ${failed}곳이 멈췄습니다. 여러 파일 화면의 폴더 지켜보기에서 다시 시작하세요.`
-        : `문서 엔진이 다시 켜져 폴더 지켜보기 ${gone.length}곳을 다시 시작했습니다.`, failed ? "error" : "info");
-    })();
-  }, [ready, toast, noteWatches]);
+        : `문서 엔진이 다시 켜져 폴더 지켜보기 ${gone.length}곳을 다시 시작했습니다.`;
+      toast(msg, failed ? "error" : "info");
+      // 창을 닫고 알림 영역에서 돌리는 기능이다: 멈췄다는 것은 창 안 알림만으로는 못 본다
+      if (failed) void notifySystem("KorDoc AI: 폴더 지켜보기가 멈췄습니다", msg);
+    } finally {
+      rearming.current = false;
+    }
+  }, [toast, noteWatches]);
+  useEffect(() => {
+    if (!ready) return;
+    const again = wasReady.current;
+    wasReady.current = true;
+    if (again) void rearm();
+  }, [ready, rearm]);
+  // 읽기 호출이 죽은 엔진을 그 자리에서 다시 켠 경우(lib/rpc): 상태 확인 주기가 "켜는 중"을 못 보고 지나가 위 효과가 돌지 않는다
+  useEffect(() => {
+    const on = () => void rearm();
+    window.addEventListener("kordoc:engine-restarted", on);
+    return () => window.removeEventListener("kordoc:engine-restarted", on);
+  }, [rearm]);
 
   const saveSettings = useCallback(async (patch: DeepPartial<Settings>) => {
     try {

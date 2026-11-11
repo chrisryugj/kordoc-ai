@@ -74,6 +74,8 @@ function ensureList(doc: Document, name: string): El {
   return el;
 }
 
+/** id 가 1부터인 목록의 항목 (0 은 "쓰지 않음") */
+const ONE_BASED = new Set(['numbering', 'bullet', 'borderFill']);
 const maxId = (items: El[]) => items.reduce((m, it) => Math.max(m, Number(it.getAttribute('id') ?? -1)), -1);
 
 function setAttrIf(el: El, attr: string, map: IdMap): void {
@@ -134,7 +136,8 @@ function mergeHeader(base: Document, add: Document, bin: IdMap): Maps {
     if (!addList) continue;
     const baseList = ensureList(base, listName);
     const baseItems = kids(baseList, item);
-    let next = maxId(baseItems) + 1;
+    // 번호·글머리표·테두리의 id 는 1부터다(0 은 "없음"). 바탕에 그 목록이 비어 있을 때 0 을 주면 뒤 문서의 문단 번호·글머리표가 사라진다
+    let next = Math.max(maxId(baseItems) + 1, ONE_BASED.has(item) ? 1 : 0);
     const pendingStyles: El[] = [];
     for (const it of kids(addList, item)) {
       const id = it.getAttribute('id') ?? '';
@@ -258,11 +261,16 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
     // 그림: 이름 바꿔 옮기고 대응표
     const bin: IdMap = new Map();
     const newItems: string[] = [];
+    // 새 이름의 머리(m1_ m2_ …)는 바탕에 아직 없는 번호로 잡는다. 바탕이 앞서 합친 문서면 m1_image1 이 이미 있다:
+    // 같은 번호를 또 쓰면 앞서 합친 문서의 그림이 새 문서 그림으로 덮이고(경고도 없이) 같은 id 가 둘이 된다
+    const taken = (tag: string) => manifest.items.some((i) => i.id.startsWith(`${tag}_`)) || Object.keys(zip.files).some((n) => new RegExp(`^BinData/${tag}_`, 'i').test(n));
+    let tagNo = k;
+    while (taken(`m${tagNo}`)) tagNo++;
     for (const it of addManifest.items.filter((i) => /^BinData\//i.test(i.href))) {
       const file = add.file(it.href);
       if (!file) continue;
-      const newId = `m${k}_${it.id}`;
-      const newHref = it.href.replace(/^BinData\//i, `BinData/m${k}_`);
+      const newId = `m${tagNo}_${it.id}`;
+      const newHref = it.href.replace(/^BinData\//i, `BinData/m${tagNo}_`);
       zip.file(newHref, await file.async('uint8array'));
       bin.set(it.id, newId);
       newItems.push(`<opf:item ${it.attrs.replace(/\bid="[^"]*"/, `id="${newId}"`).replace(/\bhref="[^"]*"/, `href="${newHref}"`)}/>`);

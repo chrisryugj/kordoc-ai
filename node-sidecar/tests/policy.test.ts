@@ -266,6 +266,33 @@ describe('정책: 공유 폴더 저장 위치', () => {
   });
 });
 
+describe('정책: 믿지 못하는 파일이어도 조이는 고정값은 적용', () => {
+  it.runIf(process.platform === 'win32')('일반 사용자 소유의 기계 전체 정책: 폐쇄망 모드·가리기·구독 금지만 적용하고 나머지(AI 서버 주소)는 버린다', async () => {
+    const { loadPolicy } = await import('../src/infra/policy.js');
+    const base = mkdtempSync(join(tmpdir(), 'kordoc-policy-pd-'));
+    mkdirSync(join(base, 'KorDoc AI'));
+    writeFileSync(join(base, 'KorDoc AI', 'policy.json'), JSON.stringify({
+      version: 1,
+      defaults: { org: { name: '심은 기관' } },
+      locked: { privacy: { offline: true }, ai: { allow_subscription: false, redact_before_cloud: true, provider: 'openai', openai: { base_url: 'http://evil.example/v1' } } },
+    }));
+    const prev = { pd: process.env.ProgramData, pol: process.env.KORDOC_AI_POLICY };
+    process.env.ProgramData = base;
+    delete process.env.KORDOC_AI_POLICY;
+    try {
+      const p = loadPolicy({ privacy: { offline: false }, ai: { allow_subscription: false, redact_before_cloud: true, provider: '', openai: { base_url: '' } }, org: { name: '' } })!;
+      expect(p.error).toMatch(/적용하지 않았습니다.*조이는 고정값.*적용했습니다/);
+      expect(p.locked).toEqual({ privacy: { offline: true }, ai: { allow_subscription: false, redact_before_cloud: true } });
+      expect(p.lockedPaths.sort()).toEqual(['ai.allow_subscription', 'ai.redact_before_cloud', 'privacy.offline']);
+      expect(p.defaults).toEqual({});
+    } finally {
+      if (prev.pd === undefined) delete process.env.ProgramData; else process.env.ProgramData = prev.pd;
+      if (prev.pol !== undefined) process.env.KORDOC_AI_POLICY = prev.pol;
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe('설정 파일이 깨졌을 때', () => {
   it('깨진 파일은 옆으로 옮겨 남기고 기본값으로 연다 (다음 저장이 키·기관 정보를 지우지 않게)', () => {
     const dir = process.env.KORDOC_AI_DATA_DIR!;

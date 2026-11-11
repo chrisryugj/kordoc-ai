@@ -21,7 +21,7 @@ const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); c
 // 채우기 창만 집는다. 창이 문서 자리 밖(body)에 그려져, 그냥 [role=dialog] 는 먼저 떠 있는 다른 창(첫 실행 안내)을 집는다
 const DLG = '[role=dialog]:has([data-kd-field])';
 
-const ui = await openUi({ relay: RELAY, width: 1280, height: 860 });
+const ui = await openUi({ relay: RELAY, width: 1280, height: 860, prefs: { 'kordoc-first-run-done': true } });
 const { page } = ui;
 try {
   // 작업대에서 예제 양식(표 칸 서식)을 열고 고치기 › 양식 칸 채우기

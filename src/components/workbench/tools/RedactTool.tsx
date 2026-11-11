@@ -109,8 +109,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
     } else if (left) toast(`가린 사본을 저장했습니다(${baseName(r.output_path)}). ${left}`, "error");
     else toast(`가린 사본을 저장했습니다: ${baseName(r.output_path)}`, "success");
   });
-  // 찾는 중에 가릴 것을 바꾸면 도는 찾기도 끊는다. 결과만 비우면 옛 규칙의 표가 떠서, 표에 보인 것과 저장되는 것이 어긋난다
-  const changed = () => { preview.cancel(); preview.reset(); };
+  // 찾는 중에 가릴 것을 바꾸면 도는 찾기도 끊는다(reset 이 끊는다). 결과만 비우면 옛 규칙의 표가 떠서, 표에 보인 것과 저장되는 것이 어긋난다
+  const changed = () => preview.reset();
 
   useEffect(() => {
     if (autoPreview && autoPreview !== lastAuto.current) { lastAuto.current = autoPreview; runPreview(); }

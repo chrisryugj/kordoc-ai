@@ -85,6 +85,8 @@ export function StyleCopy({ active }: { active: boolean }) {
     if (chosen?.kind !== "sample") return;
     const entry = await rpc("style_save", { name: name.trim(), format: chosen.format });
     await saved.reload();
+    // 저장한 서식 목록을 쓰는 다른 화면(여러 파일 › 우리 서식으로 맞추기)도 다시 읽게
+    window.dispatchEvent(new Event("kordoc:styles"));
     setChosen({ kind: "saved", id: entry.id });
     toast(`"${entry.name}" 서식을 저장했습니다`, "success");
   });
@@ -92,8 +94,10 @@ export function StyleCopy({ active }: { active: boolean }) {
   const remove = async (id: string) => {
     try {
       await rpc("style_delete", { id });
-      if (chosen?.kind === "saved" && chosen.id === id) setChosen(null);
+      // 목록을 먼저 다시 읽고 고른 것을 푼다: 먼저 풀면 옛 목록의 맨 위(방금 지운 서식)가 다시 골라진다
       await saved.reload();
+      if (chosen?.kind === "saved" && chosen.id === id) setChosen(null);
+      window.dispatchEvent(new Event("kordoc:styles"));
     } catch (e) {
       toast(`서식을 지우지 못했습니다: ${errorText(e)}`, "error");
     }

@@ -65,6 +65,9 @@ export default function App() {
 /** 메뉴 접힘은 넓은 창과 좁은 창을 따로 기억한다 (큰 모니터에서 펼친 것이 노트북에서도 펼쳐져 문서 칸이 좁아지지 않게) */
 const NAV_KEY = { narrow: "kordoc-nav-collapsed", wide: "kordoc-nav-collapsed-wide" } as const;
 
+/** 지금 화면을 덮는 창(양식 채우기·눌러 고치기·확인 상자·첫 실행 안내)이 떠 있는가 */
+const dialogOpen = () => [...document.querySelectorAll('[role="dialog"]')].some((el) => el.getClientRects().length > 0);
+
 function useNavCollapsed() {
   // 1366 노트북에서도 문서 칸이 넓게 (접으면 아이콘 + 짧은 이름)
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1440);
@@ -101,19 +104,28 @@ function Shell() {
 
   // 창 전체 끌어다 놓기 — 손가락 아래 [data-drop] 이 받고, 없으면 지금 화면이 받는다
   useEffect(() => {
-    const targetAt = (x: number, y: number) =>
-      document.elementFromPoint(x, y)?.closest("[data-drop]")?.getAttribute("data-drop") ?? screenRef.current;
+    const spot = (x: number, y: number) => document.elementFromPoint(x, y)?.closest("[data-drop]")?.getAttribute("data-drop");
+    const targetAt = (x: number, y: number) => spot(x, y) ?? screenRef.current;
     return watchFileDrop({
-      onHover: (x, y) => setDragTarget(targetAt(x, y)),
+      onHover: (x, y) => setDragTarget(dialogOpen() ? spot(x, y) ?? null : targetAt(x, y)),
       onLeave: () => setDragTarget(null),
       onDrop: (paths, x, y) => {
         setDragTarget(null);
+        // 창(양식 채우기·눌러 고치기·확인 상자)이 떠 있으면 그 창 안의 받는 자리만 받는다. 뒤 화면이 받으면
+        // 보이지 않는 곳에서 다른 문서가 열리고, 창을 닫았을 때 엉뚱한 문서가 나온다
+        if (dialogOpen()) {
+          const inside = spot(x, y);
+          const h = inside ? dropHandler(inside) : undefined;
+          if (h) h(paths);
+          else toast("열려 있는 창을 닫은 뒤 파일을 놓으세요.", "info");
+          return;
+        }
         const handler = dropHandler(targetAt(x, y)) ?? dropHandler(screenRef.current);
         if (handler) handler(paths);
         else openDocs(paths);
       },
     });
-  }, [setDragTarget, dropHandler, openDocs]);
+  }, [setDragTarget, dropHandler, openDocs, toast]);
 
   // 우클릭 메뉴·파일 연결로 들어온 동작. 빠른 동작은 창 없이 돌리고 알림만(useQuickActions), 그 밖은 맞는 화면으로.
   // kordoc:// 주소는 웹·메일 링크로도 올 수 있어서, 문서를 밖으로 보내는 일(인터넷 AI 요약)은
@@ -182,6 +194,8 @@ function Shell() {
     const onPaste = async (e: ClipboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, [contenteditable='true'], iframe")) return;
+      // 창이 떠 있으면 뒤 화면에서 문서를 열지 않는다
+      if (dialogOpen()) return;
       const img = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
       try {
         if (img) {
@@ -215,6 +229,7 @@ function Shell() {
       const k = e.key.toLowerCase();
       if (k === "o") {
         e.preventDefault();
+        if (dialogOpen()) return;
         // PDF 작업 화면에서는 그 책상에 놓는다
         const put = screenRef.current === "pdf" ? dropHandler("pdf") : undefined;
         void pickFiles().then((paths) => paths.length && (put ? put(paths) : openDocs(paths)));

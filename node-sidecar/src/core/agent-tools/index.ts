@@ -464,7 +464,8 @@ export async function runWorkTool(name: string, input: Record<string, unknown>, 
       if (m !== 'scan_paths') return r;
       const s = r as RpcResult<'scan_paths'>;
       const files = s.files.filter((f) => !outsideRoot({ path: f.path }, root));
-      return { files, skipped: s.skipped + s.files.length - files.length } as never;
+      // 상한(2,000개)에 걸렸다는 표시는 그대로 넘긴다 (빼면 다 보지 못하고도 "찾지 못했습니다"로 답한다)
+      return { files, skipped: s.skipped + s.files.length - files.length, ...(s.truncated ? { truncated: true } : {}) } as never;
     }) as Dispatch
     : d;
   try {

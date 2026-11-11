@@ -219,6 +219,20 @@ describe('mail_merge', () => {
     expect(r.failed[0].error).toMatch(/'제목' 열에 값을 넣으세요/);
   });
 
+  it('값이 적힌 문서를 양식으로 써도, 명부에서 빈 칸에 양식의 앞 사람 값이 남지 않는다', async () => {
+    const form = sample('취합/교육수요조사서_총무과.hwpx');
+    const before = await parse(readFileSync(form));
+    expect(before.success && before.markdown).toContain('이가람');
+    const csv = join(env.work, '빈칸명부.csv');
+    writeFileSync(csv, '부서명,담당자,내선번호\n세무과,,\n');
+    const r = await call('mail_merge', { template_path: form, data_path: csv, org: false });
+    expect(r.failed).toEqual([]);
+    const back = await parse(readFileSync(r.outputs[0]));
+    expect(back.success && back.markdown).toContain('세무과');
+    expect(back.success && back.markdown).not.toContain('이가람');
+    expect(back.success && back.markdown).not.toContain('1201');
+  });
+
   it('파일 이름 열이 없으면 명부 열 이름을 알려 준다', async () => {
     const csv = join(env.work, '이름열.csv');
     writeFileSync(csv, '제목\n공문\n');

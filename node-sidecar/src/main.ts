@@ -71,14 +71,16 @@ async function main(): Promise<void> {
   void sweepStaleTempDirs().then((n) => { if (n) logger.info(`[main] 남은 구독 프로그램 임시 폴더 ${n}개를 지웠습니다`); });
   // 지난 실행이 꺼지며 못 지운 Antigravity CLI 대화 기록(보낸 문서 전문)
   void sweepAgyLeftovers().catch(() => {});
-  // PDF 작업용으로 바꿔 둔 임시 PDF(문서 사본) 가운데 하루 지난 것
-  sweepWorkDir();
 
   const router = new RpcRouter();
   registerAllMethods(router);
 
   // 바깥 AI 에이전트용 MCP 서버로 뜬 경우 (install_mcp_config 가 등록한 명령: 동봉 Node + 이 번들 + --mcp)
   if (process.argv.includes('--mcp')) { runMcpServer(router, APP_VERSION); return; }
+
+  // PDF 작업용으로 바꿔 둔 임시 PDF(문서 사본) 가운데 하루 지난 것. 앱의 엔진만 치운다:
+  // MCP 서버로 뜬 프로세스가 치우면, 앱이 PDF 작업 화면에 올려 둔 원본이 그 사이에 지워진다
+  sweepWorkDir();
 
   logger.info(`[main] KorDoc sidecar started (methods: ${router.listMethods().join(', ')})`);
 

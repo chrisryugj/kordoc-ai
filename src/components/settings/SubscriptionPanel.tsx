@@ -89,7 +89,8 @@ export function SubscriptionPanel({ provider, draft, onChange }: {
   const lp = (label: string, path: string) => lockProps(label, lk(path));
   const key = subSlot(provider);
   const cfg = draft[key];
-  const check = useTask<SubscriptionStatus>();
+  // 다시 확인이 오류로 끝나도 앞서 본 상태(업데이트 단추·프로그램 위치·자동 재확인)는 남긴다
+  const check = useTask<SubscriptionStatus>({ keepOnFail: true });
   const list = useTask<Array<{ id: string; label: string }>>();
   const upd = useTask<{ ok: boolean; message: string }>();
   // 프로그램의 공식 업데이트 명령(claude update · codex update · agy update)을 앱이 대신 실행한다. 끝나면 상태를 다시 묻는다

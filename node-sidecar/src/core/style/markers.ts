@@ -44,12 +44,14 @@ const RULES: Array<{ re: RegExp; key: (m: RegExpExecArray) => string; family: Ma
  *  "2. 3일간 교육" · "1. 3~5명 선발" · "2. 2026년 추진 계획" 은 항목이다 */
 function dateTail(glyph: string, rest: string): boolean {
   const month = Number(glyph.replace('.', ''));
-  const m = /^\s*(\d{1,2})\s*(\(\s*[월화수목금토일]\s*\)|일\s*(?:까지|부터|자\b|에\b|\(|,|[~∼～])|[~∼～]\s*\d{1,2}\s*\.)/.exec(rest);
+  const m = /^\s*(\d{1,2})\s*(\(\s*[월화수목금토일]\s*\)|일\s*(?:까지|부터|자(?![가-힣])|에(?![가-힣])|\(|,|[~∼～]|\d{1,2}\s*[:시])|[~∼～]\s*\d{1,2}\s*\.)/.exec(rest);
   return !!m && month >= 1 && month <= 12 && Number(m[1]) >= 1 && Number(m[1]) <= 31;
 }
 
-/** 문단 글 앞의 항목 기호. 없으면 null */
-export function readMarker(text: string): Marker | null {
+/** 문단 글 앞의 항목 기호. 없으면 null.
+ *  inList: 이 문단의 번호가 앞 항목 번호를 잇는다(1. 2. 3. 의 차례). "2. 15일까지 제출" 은 글만으로는 2월 15일인지 2번 항목인지 알 수 없어,
+ *  차례를 이으면 항목으로, 아니면 날짜로 본다 (부르는 쪽이 문서 흐름을 알 때만 준다) */
+export function readMarker(text: string, opts: { inList?: boolean } = {}): Marker | null {
   const t = text.replace(/^[\s　 ]+/, '');
   for (const r of RULES) {
     const m = r.re.exec(t);
@@ -57,9 +59,9 @@ export function readMarker(text: string): Marker | null {
     const rest = t.slice(m[0].length);
     // "1." 뒤에 글이 없거나 날짜("6. 26.(금)" · "10. 23.까지")처럼 숫자와 점이 이어지면 항목이 아니다.
     // 숫자로 시작한다고 다 빼면 "2. 2026년 추진 계획" · "가. 1분기: 준비" · "1) 3개 부서" 가 항목이 아니게 되어 앞 항목에 한 줄로 붙는다
-    if (r.family === 'legal' && (!rest.trim() || (/^\d{1,2}\.$/.test(m[1].trim()) && (/^\s*\d{1,4}\s*\.(?!\d)/.test(rest) || dateTail(m[1], rest))))) continue;
-    // 지역번호("02) 450-7114")는 항목 번호가 아니다
-    if (/^0\d\)$/.test(m[1]) || (/^\d{1,2}\)$/.test(m[1]) && /^\d{3,4}\s*-\s*\d{4}/.test(rest))) continue;
+    if (r.family === 'legal' && (!rest.trim() || (/^\d{1,2}\.$/.test(m[1].trim()) && (/^\s*\d{1,4}\s*\.(?!\d)/.test(rest) || (!opts.inList && dateTail(m[1], rest)))))) continue;
+    // 지역번호("02) 450-7114")는 항목 번호가 아니다. 연도 범위("1) 2025-2026 겨울철 대책")는 전화번호가 아니다
+    if (/^\d{1,2}\)$/.test(m[1]) && /^\d{3,4}\s*-\s*\d{4}(?!\d)/.test(rest) && !/^(?:19|20)\d{2}\s*-\s*(?:19|20)\d{2}(?!\d)/.test(rest)) continue;
     if (r.family !== 'ref' && !rest.trim()) continue;
     // "□ 예  ■ 아니오" 같은 고르는 칸은 항목이 아니다
     if (m[1].match(/[□■❏❑◻▢▣◼☐☑]/) && /[□■☐☑▣◼]/.test(rest)) return null;

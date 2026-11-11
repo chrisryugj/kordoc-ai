@@ -181,7 +181,10 @@ export async function listPrinters(): Promise<Printer[]> {
   }
 
   // Get-CimInstance Win32_Printer 가 default/share/status 정보 모두 제공
+  // 출력은 UTF-8 로 받는다. 안 맞추면 PowerShell 이 시스템 코드 페이지(949)로 내보내 한글 프린터 이름이 깨지고,
+  // 깨진 이름으로 인쇄를 보내 "없는 프린터"가 된다
   const ps =
+    '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' +
     'Get-CimInstance Win32_Printer | ' +
     'Select-Object Name, Default, PrinterStatus, DriverName | ConvertTo-Json -Compress';
 

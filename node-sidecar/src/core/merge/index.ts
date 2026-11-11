@@ -31,6 +31,12 @@ async function checkHwpx(bytes: Uint8Array): Promise<void> {
   if (!zip.file('Contents/header.xml') || !Object.keys(zip.files).some((n) => /content\.hpf$/i.test(n))) {
     throw new Error('HWPX 문서 구조가 아닙니다. 한글에서 열어 HWPX로 다시 저장한 뒤 넣으세요.');
   }
+  // 암호 걸린 문서는 안의 XML 이 암호문이다. 그대로 넘기면 합치기·나누기 전체가 XML 오류(영어)로 죽고 어느 파일 때문인지도 모른다
+  const manifest = await zip.file('META-INF/manifest.xml')?.async('string').catch(() => '') ?? '';
+  const head = (await zip.file('Contents/header.xml')!.async('string').catch(() => '')).trimStart();
+  if (/encryption-data/i.test(manifest) || !head.startsWith('<')) {
+    throw new Error('암호가 걸린 문서라 쓸 수 없습니다. 한글에서 암호를 풀어 다시 저장한 뒤 넣으세요.');
+  }
 }
 
 /** HWPX·HWP 서식 유지 수합 — 한컴오피스 없이 XML 수준으로 이어 붙인다 (HWP 는 rhwp 로 HWPX 로 바꿔서) */
@@ -84,6 +90,7 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
   sendProgress({ current: 0, total: 2, message: `${basename(p.path)} 읽는 중` });
   let bytes: Uint8Array = new Uint8Array(await readFile(p.path));
   if (ext === '.hwp') bytes = await rhwpConvert(bytes, 'hwpx', signal);
+  else await checkHwpx(bytes);
   signal.throwIfAborted();
   sendProgress({ current: 1, total: 2, message: '서식 그대로 나누는 중' });
   const r = await splitHwpx(bytes, p.mode ?? 'auto');

@@ -36,7 +36,11 @@ fn route_url(app: &tauri::AppHandle, url: &str) {
     match shell::routed_action(url) {
         Some((action, path)) => app.state::<ShellCollector>().push(app, &action, vec![path]),
         None => {
-            shell::deliver(app, "deep-link", url.into());
+            // 동작으로 읽지 못한 주소는 묶음 주소만 화면에 넘긴다. 그 밖의 것을 그대로 넘기면 화면이 다시 풀어 동작으로 읽을 수 있다
+            // (Rust 와 화면의 풀이가 어긋나는 꼴이 곧 확인 없이 도는 길이 된다)
+            if shell::is_batch_url(url) {
+                shell::deliver(app, "deep-link", url.into());
+            }
             show_main(app);
         }
     }

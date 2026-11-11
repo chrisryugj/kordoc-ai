@@ -111,6 +111,8 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
   // 받은 공문을 접수함에: 보낸 곳·문서번호·요청 기한을 뽑아 둔다
   if (action === "inbox") {
     const r = await rpc("inbox_add", { paths: files.map((f) => f.path) }, { signal: env.signal });
+    // 접수함 화면과 기한 배지가 바로 다시 읽게 (화면을 보고 있어도 밖에서 넣은 공문이 나타나게)
+    window.dispatchEvent(new Event("kordoc:inbox"));
     const one = r.items.length === 1 ? r.items[0] : undefined;
     const due = r.items.map((x) => x.due).filter((x): x is string => !!x).sort()[0];
     const head = one ? (one.title || one.name) : `공문 ${r.items.length}건을 접수함에 넣었습니다`;

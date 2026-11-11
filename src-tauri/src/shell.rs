@@ -623,6 +623,17 @@ fn unquote_root(arg: &str) -> String {
     }
 }
 
+/// 네트워크 경로인가 — 앞 두 글자가 빗금·역빗금(`\\서버\…` · `//서버/…` · `/\서버\…`). `\\?\C:\…` 는 긴 경로 표기의 로컬 파일이다
+fn is_network_path(a: &str) -> bool {
+    let b = a.as_bytes();
+    let slash = |c: u8| c == b'/' || c == b'\\';
+    if b.len() < 2 || !slash(b[0]) || !slash(b[1]) {
+        return false;
+    }
+    let local = b.len() >= 6 && b[2] == b'?' && slash(b[3]) && b[4].is_ascii_alphabetic() && b[5] == b':';
+    !local
+}
+
 /// 실행 인자 → (동작, 파일들). `--shell <동작> <파일…>` 또는 파일만(= open)
 pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     let rest: Vec<&String> = args.iter().skip(1).collect();
@@ -634,15 +645,16 @@ pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     }
     // 주소(kordoc://…)로 켜진 실행은 그 주소 하나만 다룬다. 주소 속 `|` 나 따옴표로 갈라져 나온 나머지 토큰을 파일로 보면
     // 링크 하나로 임의 파일이 "앱에서 열기"로 뜬다 (single-instance 플러그인은 인자를 `|` 로 이어 보내고 다시 `|` 로 자른다)
-    if rest.iter().any(|a| a.starts_with("kordoc:")) {
+    // (스킴은 대소문자를 가리지 않는다: "KORDOC://…" 도 같은 주소다)
+    if rest.iter().any(|a| a.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("kordoc:"))) {
         return None;
     }
-    // 네트워크 경로(\\서버\공유)는 있는지 찔러 보지도 않는다: is_file() 만으로 그 서버에 접속이 나가고(계정 인증이 따라간다),
-    // 응답 없는 서버면 이 호출이 도는 화면 스레드가 접속 시간 초과까지 멈춘다. 엔진도 이런 경로는 열지 않는다
-    let unc = |a: &str| a.starts_with("\\\\") || a.starts_with("//");
+    // 네트워크 경로(\\서버\공유)는 있는지 찔러 보지 않는다: is_file() 만으로 그 서버에 접속이 나가고(계정 인증이 따라간다),
+    // 응답 없는 서버면 이 호출이 도는 화면 스레드가 접속 시간 초과까지 멈춘다.
+    // 찔러 보지 않고 그대로 넘긴다: 엔진이 열지 않고 "네트워크 경로는 쓸 수 없습니다"로 알린다 (말없이 버리면 빈 창만 뜬다)
     let files: Vec<String> = rest
         .iter()
-        .filter(|a| !a.starts_with("-") && !unc(a) && std::path::Path::new(a.as_str()).is_file())
+        .filter(|a| !a.starts_with("-") && (is_network_path(a) || std::path::Path::new(a.as_str()).is_file()))
         .map(|s| s.to_string())
         .collect();
     (!files.is_empty()).then(|| ("open".to_string(), files))
@@ -654,12 +666,27 @@ pub fn parse_action_url(url: &str) -> Option<(String, String)> {
     if u.scheme() != "kordoc" {
         return None;
     }
-    let action = u.host_str().unwrap_or_default().to_string();
+    let action = url_action(&u);
     if !is_action(&action) {
         return None;
     }
     let path = u.query_pairs().find(|(k, _)| k == "path").map(|(_, v)| v.into_owned())?;
     Some((action, path))
+}
+
+/// 주소의 동작 이름. host 자리("kordoc://convert?…")에 오고, "//" 없이 쓴 주소("kordoc:convert?…" · "kordoc:/convert?…")는
+/// host 가 비고 경로 첫 토막에 온다. 둘 다 같은 동작으로 읽는다: 여기서 못 읽은 주소를 화면이 따로 풀면
+/// 주소로 온 빠른 동작이 "여러 파일 화면에 올리기"를 건너뛰고 확인 없이 바로 돈다
+fn url_action(u: &tauri::Url) -> String {
+    match u.host_str() {
+        Some(h) if !h.is_empty() => h.to_ascii_lowercase(),
+        _ => u.path().trim_start_matches('/').split('/').next().unwrap_or_default().to_ascii_lowercase(),
+    }
+}
+
+/// 묶음 주소(kordoc://batch?manifest=…)인가 — 동작 주소가 아닌 것 가운데 화면으로 넘기는 것은 이것뿐이다
+pub fn is_batch_url(url: &str) -> bool {
+    tauri::Url::parse(url).map(|u| u.scheme() == "kordoc" && url_action(&u) == "batch").unwrap_or(false)
 }
 
 /// 주소(kordoc://…)로 온 동작을 어떻게 돌릴지. 윈도에서는 빠른 동작(창 없이 바로 처리)을 그대로 돌리지 않고
@@ -1014,9 +1041,17 @@ mod tests {
         assert_eq!(parse_args(&["app".into(), me.clone()]), Some(("open".into(), vec![me.clone()])));
         assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), me.clone()]), None);
         assert_eq!(parse_args(&["app".into(), me.clone(), "kordoc://open?path=a".into()]), None);
-        // 네트워크 경로는 찔러 보지 않고 버린다
-        assert_eq!(parse_args(&["app".into(), "\\\\192.0.2.1\\share\\a.hwp".into()]), None);
-        assert_eq!(parse_args(&["app".into(), "//192.0.2.1/share/a.hwp".into()]), None);
+        assert_eq!(parse_args(&["app".into(), "KORDOC://x?".into(), me.clone()]), None);
+        // 네트워크 경로는 있는지 찔러 보지 않고 그대로 넘긴다 (엔진이 열지 않고 까닭을 알린다). 주소가 섞였으면 그것도 버린다
+        for unc in ["\\\\192.0.2.1\\share\\a.hwp", "//192.0.2.1/share/a.hwp", "/\\192.0.2.1\\share\\a.hwp", "\\\\?\\UNC\\192.0.2.1\\share\\a.hwp"] {
+            assert!(is_network_path(unc), "{unc}");
+            assert_eq!(parse_args(&["app".into(), unc.into()]), Some(("open".into(), vec![unc.to_string()])));
+            assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), unc.into()]), None);
+        }
+        // 긴 경로 표기의 로컬 파일·보통 경로는 네트워크 경로가 아니다
+        for local in ["\\\\?\\C:\\a\\b.hwp", "C:\\a\\b.hwp", "/Users/a/b.hwp", "Z:\\share\\a.hwp"] {
+            assert!(!is_network_path(local), "{local}");
+        }
     }
 
     #[test]
@@ -1024,6 +1059,24 @@ mod tests {
         let u = "kordoc://convert?path=%2FUsers%2F%ED%99%8D%2Fa.hwpx";
         assert_eq!(parse_action_url(u), Some(("convert".into(), "/Users/홍/a.hwpx".into())));
         assert_eq!(parse_action_url("kordoc://batch?manifest=x"), None);
+    }
+
+    #[test]
+    fn slashless_action_urls_are_actions_too() {
+        // "//" 없이 쓴 주소도 같은 동작으로 읽는다. 못 읽으면 화면이 따로 풀어, 주소로 온 빠른 동작이 확인 없이 바로 돈다
+        for u in ["kordoc:convert?path=D%3A%5C", "kordoc:/convert?path=D%3A%5C", "kordoc:///convert?path=D%3A%5C", "kordoc://CONVERT?path=D%3A%5C"] {
+            assert_eq!(parse_action_url(u), Some(("convert".into(), "D:\\".into())), "{u}");
+            // 윈도·리눅스에서는 빠른 동작을 바로 돌리지 않고 여러 파일 화면에 올린다
+            if cfg!(not(target_os = "macos")) {
+                assert_eq!(routed_action(u), Some(("tools".into(), "D:\\".into())), "{u}");
+            }
+        }
+        // 동작으로 읽지 못한 주소 가운데 화면으로 넘기는 것은 묶음 주소뿐
+        assert!(is_batch_url("kordoc://batch?manifest=x"));
+        assert!(is_batch_url("kordoc:batch?manifest=x"));
+        for u in ["kordoc://nope?path=x", "kordoc:redactx?path=x", "https://batch/?manifest=x", "kordoc://convert"] {
+            assert!(!is_batch_url(u), "{u}");
+        }
     }
 
     #[test]
