@@ -115,7 +115,9 @@ describe('값 뽑기 규칙', () => {
     for (const line of ['거래종류 신용취소', '[취소]', '취소금액 11,000', '카드취소', '반품', '현금영수증 취소']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(true);
     for (const total of ['합계 -11000', '합계 -11.000', '합계 -500', '합계금액-11,000', '합계 -11,000원']) expect(looksRefund(['가온문구'], total), total).toBe(true);
     for (const line of ['결제취소 시 영수증 지참', '거래취소는 14일 이내', '카드취소 문의 02-123-4567']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(false);
-    for (const total of ['합계 11,000', '2026-10-23 합계 11,000', '승인번호 1234-5678']) expect(looksRefund(['가온문구'], total), total).toBe(false);
+    for (const total of ['합계 11,000', '2026-10-23 합계 11,000', '승인번호 1234-5678', '합계 ------ 11,000', '합계: 3개 - 12,000원']) expect(looksRefund(['가온문구'], total), total).toBe(false);
+    for (const line of ['신용카드 매출전표(취소)', '카드매출전표 (취소)', '환불 영수증']) expect(looksRefund(['가온문구', line], '합계 11,000'), line).toBe(true);
+    expect(looksRefund(['가온문구', '결제취소 요청 기한 7일'], '합계 11,000')).toBe(false);
     const normal = parseReceipt(L('가온문구', '합계 11,000', '공급가액 10,000', '부가세 1,000', '교환·환불은 7일 이내 영수증 지참'));
     expect(normal.fields.total!.confidence).toBeGreaterThanOrEqual(0.8);
   });

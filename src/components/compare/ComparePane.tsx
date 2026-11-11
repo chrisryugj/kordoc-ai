@@ -36,6 +36,8 @@ export function ComparePane({ id, label, path, side, active, onPick, scrollTo, f
   const [error, setError] = useState("");
   /** 엔진 그림으로 바꿔 그릴 때 엔진이 센 쪽 수 (rhwp 조판과 다를 수 있다) */
   const [drawn, setDrawn] = useState<number | null>(null);
+  /** 쪽 번호로만 옮기는 요청 — 요청이 바뀔 때만 새 객체로 (그릴 때마다 새로 만들면 쪽 그림이 올 때마다 처음 누른 쪽으로 끌려간다) */
+  const pageOnly = useMemo(() => scrollTo && { page: scrollTo.page, nonce: scrollTo.nonce }, [scrollTo]);
   const inflight = useRef(new Set<number>());
   const fmt = formatOf(path);
   const pageCount = side.pages.length;
@@ -123,7 +125,7 @@ export function ComparePane({ id, label, path, side, active, onPick, scrollTo, f
           ? <PageStack label={`${label} 쪽 미리보기`} pageCount={rh.pageCount} sizes={rh.sizes} pages={rh.pages} onNeed={rh.need} zoom={zoom} scrollTo={scrollTo} follow={follow} onView={onView} overlay={overlay} maxFit={1200} />
           : fallback
             // 상자·쪽 안 자리는 rhwp 조판 기준이라 쓰지 않고 쪽 번호로만 옮긴다
-            ? <PageStack label={`${label} 쪽 미리보기`} pageCount={drawn ?? pageCount} pages={pages} onNeed={need} zoom={zoom} scrollTo={scrollTo && { page: scrollTo.page, nonce: scrollTo.nonce }} maxFit={1200} />
+            ? <PageStack label={`${label} 쪽 미리보기`} pageCount={drawn ?? pageCount} pages={pages} onNeed={need} zoom={zoom} scrollTo={pageOnly} maxFit={1200} />
             : <PageStack label={`${label} 쪽 미리보기`} pageCount={pageCount} sizes={sizes} pages={pages} onNeed={engine === "kordoc" ? need : undefined} zoom={zoom} scrollTo={scrollTo} follow={follow} onView={onView} overlay={overlay} maxFit={1200} />
       )}
     </section>

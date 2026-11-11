@@ -3,7 +3,9 @@
  * JSON-RPC 2.0 server over stdin/stdout
  */
 
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { isMainThread } from 'node:worker_threads';
 import { RpcRouter } from './rpc/router.js';
 import { RPC_ERRORS, type JsonRpcRequest, type JsonRpcResponse } from './rpc/protocol.js';
@@ -45,6 +47,11 @@ process.on('uncaughtException', (err) => {
 
 /** 메인 서버 루프 */
 async function main(): Promise<void> {
+  // MCP 서버로 뜨면 현재 폴더는 AI 프로그램이 정한 작업 폴더다(받은 압축 파일을 푼 폴더일 수 있다). 이름만으로 프로그램·DLL 을
+  // 찾는 길이 그 폴더를 먼저 보지 않게, 앱이 엔진을 띄울 때처럼 엔진 폴더로 옮긴다. 도구는 절대 경로만 받으므로 뜻이 달라지지 않는다
+  if (process.argv.includes('--mcp')) {
+    try { process.chdir(dirname(fileURLToPath(import.meta.url))); } catch { /* 옮기지 못해도 계속 */ }
+  }
   // 앱이 넘긴 설정 암호화 키를 먼저 꺼내 환경에서 지운다. API 키를 한 번도 저장하지 않은 PC 에서는 이 키를 읽을 일이 없어
   // 환경에 그대로 남았고, 엔진이 띄우는 다른 프로그램(문서 변환 도구·인쇄용 브라우저)이 물려받았다
   hasSecretKey();

@@ -3,11 +3,12 @@
  * 저장: 앱 데이터 폴더 styles/index.json (서식 JSON 만, 견본 파일은 복사하지 않는다 — 견본에 든 이름·연락처가 앱 폴더에 남지 않게).
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { BatchItemResult, StyleEntry, StyleFormat } from '../../types/rpc-contract.js';
 import { dataDir } from '../../infra/config.js';
+import { readListFile } from '../../infra/list-file.js';
 import { applyStyle, generateStyled } from './apply.js';
 import { extractStyle, styleSummary } from './extract.js';
 
@@ -16,13 +17,10 @@ export { extractStyle, styleSummary } from './extract.js';
 const dir = () => join(dataDir(), 'styles');
 const indexPath = () => join(dir(), 'index.json');
 
-async function readIndex(): Promise<StyleEntry[]> {
-  try {
-    const j = JSON.parse(await readFile(indexPath(), 'utf-8')) as { styles?: StyleEntry[] };
-    return Array.isArray(j.styles) ? j.styles.filter((s) => s && typeof s.id === 'string' && s.format?.version === 1) : [];
-  } catch {
-    return [];
-  }
+/** forWrite: 고쳐서 다시 쓸 목록. 잠깐 못 읽은 것을 빈 목록으로 받아 저장하면 저장해 둔 서식이 다 지워진다 → 그때는 던진다 */
+async function readIndex(forWrite = false): Promise<StyleEntry[]> {
+  const j = await readListFile(indexPath(), '저장한 서식', forWrite) as { styles?: StyleEntry[] } | null;
+  return Array.isArray(j?.styles) ? j.styles.filter((s) => s && typeof s.id === 'string' && s.format?.version === 1) : [];
 }
 
 async function writeIndex(styles: StyleEntry[]): Promise<void> {
@@ -55,7 +53,7 @@ export async function styleSave(p: { name: string; format: unknown }): Promise<S
   if (!name) throw new Error('서식 이름을 적으세요.');
   if (name.length > 40) throw new Error('서식 이름은 40자까지 됩니다.');
   const format = checkFormat(p.format);
-  const list = await readIndex();
+  const list = await readIndex(true);
   // 같은 이름이면 새 서식으로 바꾼다 (같은 서식을 다시 읽어 저장하는 일이 흔하다)
   const entry: StyleEntry = { id: randomUUID().slice(0, 8), name, summary: styleSummary(format), created_at: new Date().toISOString(), format };
   await writeIndex([...list.filter((s) => s.name !== name), entry]);
@@ -63,7 +61,7 @@ export async function styleSave(p: { name: string; format: unknown }): Promise<S
 }
 
 export async function styleDelete(id: string): Promise<boolean> {
-  const list = await readIndex();
+  const list = await readIndex(true);
   if (!list.some((s) => s.id === id)) return false;
   await writeIndex(list.filter((s) => s.id !== id));
   return true;

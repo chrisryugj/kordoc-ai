@@ -174,6 +174,8 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
     scrolledTo.current = scrollTo;
     const p = Math.min(Math.max(1, scrollTo.page), pageCount);
     const inPage = scrollTo.frac != null ? scrollTo.frac * slotH(sizeOf(p)) - view / 3 : -16;
+    // 가는 도중 쪽 배치가 바뀌어도(쪽 그림 도착) 목표 쪽에 머물게, 보던 자리도 목표로 잡아 둔다
+    anchor.current = { page: p, frac: 0 };
     rootRef.current?.scrollTo({ top: offset() + layout.tops[p - 1] + inPage, behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTo, box.width, pageCount]);

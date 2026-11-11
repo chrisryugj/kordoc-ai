@@ -8,14 +8,12 @@
 /** 날짜 하나 — 캡처하면 (4자리 연도)('26 꼴 연도)(월)(일).
  *  월과 일 사이 줄표는 연도가 앞에 있을 때만 받는다(2026-10-23). 연도 없는 "2-3"은 날짜보다 번호일 때가 많다
  *  ("서식 2-1부터 2-3까지"를 2월 3일 기한으로 읽으면 안 된다).
- *  두 자리 연도는 작은따옴표가 있거나('26.6.18.), 없으면 점으로 붙여 쓴 세 마디(25.10.23.)일 때만 연도로 읽는다.
- *  연도·요일·"일"·끝 점이 없는 한 자리 두 마디(4.5)는 날짜보다 소수일 때가 많아 날짜로 읽지 않는다("평점 4.5까지 인정") */
+ *  두 자리 연도는 작은따옴표가 있거나('26.6.18.), 없으면 점으로 붙여 쓴 세 마디(25.10.23.)일 때만 연도로 읽는다 */
 function datePattern(capture: boolean): string {
   const g = capture ? '(' : '(?:';
   const year = String.raw`(?:\d{4}|['‘’]?\d{2})\s*[.년/-]\s*`;
   const bareYear = String.raw`(?=\d{2}\.(?:0?[1-9]|1[0-2])\.(?:0?[1-9]|[12]\d|3[01])(?!\d))`;
-  const notDecimal = String.raw`(?:(?<=[.년/-]\s*)|(?!\d\.\d(?![\d.]|\s*일|\s*\(\s*[월화수목금토일]|\s*[월화수목금토일]요일)))`;
-  return String.raw`(?<![\d.])(?:${g}\d{4})\s*[.년/-]\s*|(?:['‘’]|${bareYear})${g}\d{2})\s*[.년/-]\s*)?${notDecimal}${g}\d{1,2})\s*(?:[.월/]|-(?<=${year}\d{1,2}\s*-))\s*${g}\d{1,2})(?:\s*일|\.(?!\d))?`;
+  return String.raw`(?<![\d.])(?:${g}\d{4})\s*[.년/-]\s*|(?:['‘’]|${bareYear})${g}\d{2})\s*[.년/-]\s*)?${g}\d{1,2})\s*(?:[.월/]|-(?<=${year}\d{1,2}\s*-))\s*${g}\d{1,2})(?:\s*일|\.(?!\d))?`;
 }
 
 const DATE = datePattern(true);
@@ -30,7 +28,12 @@ const TIME = String.raw`(?:\s*(?:오전|오후)?\s*\d{1,2}\s*(?::\s*\d{2}|시(?:
 const RANGE_HEAD = String.raw`(?:${DATE_NC}${WDAY}\s*(?:부터|[~∼～-])\s*)?`;
 
 /** "~까지" 기한: 범위 앞 날짜 + 날짜 + 요일 + 시각 + 까지(PDF 글은 "까 지"로 갈라지기도 한다). 마지막 네 묶음이 기한 날짜 */
-export const UNTIL_SRC = `${RANGE_HEAD}${DATE}${WDAY_C}${TIME}\\s*까\\s?지`;
+/** 요청하는 말 — "…까지" 뒤에 이런 말이 이어지면 기한이다 */
+const REQUEST = '제출|회신|통보|신청|접수|등록|송부|보내|알려|납부|참석|입력|작성|완료|마감|회보|보고|요청|주시기|바랍니다|바람';
+/** "…까지" 앞의 한 자리 두 마디(4.5)는 소수일 때가 많다("평점 4.5까지 인정"). 끝 점·"일"·요일이 없고 앞에 기간 표시(~·부터)도 없으면,
+ *  뒤에 요청하는 말이 이어질 때만 날짜로 읽는다("5.9까지 제출하여 주시기 바랍니다"). 기한 이름표·물결 뒤의 날짜에는 이 판정을 쓰지 않는다 */
+const NOT_DECIMAL = String.raw`(?:(?<=(?:부터|[~∼～-])\s*)|(?!\d\.\d(?![\d.]|\s*일|\s*\(\s*[월화수목금토일]|\s*[월화수목금토일]요일)(?!${TIME}\s*까\s?지[^\n]{0,40}?(?:${REQUEST}))))`;
+export const UNTIL_SRC = `${RANGE_HEAD}${NOT_DECIMAL}${DATE}${WDAY_C}${TIME}\\s*까\\s?지`;
 /** 물결 기한 "~10.16." · "~ 2026. 10. 16." — 앞에 날짜·요일 괄호가 없는 물결만 (있으면 "10. 1.(목) ~ 10. 5." 같은 기간).
  *  괄호 속 물결("확정통보(~10월 28일)" · "과제공고(~5월4주)")은 보내는 쪽 일정이 많아 기한으로 보지 않는다 */
 const TILDE_SRC = `(?<![\\d.)(]\\s*)[~∼～]\\s*${DATE}${WDAY_C}${TIME}(?![\\d.가-힣]|\\s*까\\s?지)`;
@@ -59,7 +62,11 @@ function guessYear(month: number, day: number, ref: string, wday?: string): numb
     return dt.getUTCMonth() === month - 1 && WEEKDAYS[dt.getUTCDay()] === wday;
   };
   if (fits(year)) return year;
-  const near = [refYear - 1, refYear, refYear + 1].filter((y) => y !== year && fits(y)).sort((a, b) => Math.abs(at(a) - refT) - Math.abs(at(b) - refT));
+  // 기준일(시행일)보다 한 달 넘게 앞선 해는 고르지 않는다. 요일을 하루 틀리게 적은 공문("11. 20.(목)", 실제는 금요일)의
+  // 기한이 지난해로 잡히면 안 된다. 요일이 맞는 해가 없으면 기본 해를 둔다
+  const near = [refYear - 1, refYear, refYear + 1]
+    .filter((y) => y !== year && fits(y) && at(y) >= refT - 31 * DAY_MS)
+    .sort((a, b) => Math.abs(at(a) - refT) - Math.abs(at(b) - refT));
   return near[0] ?? year;
 }
 

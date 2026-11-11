@@ -71,7 +71,10 @@ export function useQuickActions() {
           if (r.open === "pdf") { await openInApp(""); continue; }
           if (r.failed.length) {
             const first = r.failed[0];
-            await openInApp(`${label}: ${r.ok ? `${r.ok}개는 했고 ` : ""}${r.failed.length}개는 못 했습니다. ${baseName(first.path)}: ${first.error}`);
+            // 된 것의 결과(합본 이름·엔진 안내)와 "확인 필요"도 함께 알린다. 실패만 알리면 덜 가려진 사본에 대한 경고가 어디에도 없다
+            const done = r.ok && r.message ? ` 된 것: ${r.message}.` : "";
+            if (r.review) void notifyQuick(`KorDoc AI: ${label} 확인 필요`, r.review);
+            await openInApp(`${label}: ${r.ok ? `${r.ok}개는 했고 ` : ""}${r.failed.length}개는 못 했습니다. ${baseName(first.path)}: ${first.error}.${done}${r.review ? ` ${r.review}` : ""}`);
             continue;
           }
           if (r.review) {

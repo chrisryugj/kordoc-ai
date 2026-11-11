@@ -128,6 +128,15 @@ describe('보안·취소 (검증에서 나온 것)', () => {
     expect((await read(LETTER, { files: [], said: [`"${SAMPLES}" 안의 공문을 요약해 줘`] })).isError).toBeFalsy();
     expect((await read(LETTER, { files: [], said: [`공문은 ${SAMPLES}. 요약해 줘`] })).isError).toBeFalsy();
     expect((await read(LETTER, { files: [], said: [`${SAMPLES}\\ 에서 찾아 줘`] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산 최종\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 폴더와 D:\\다른\\파일.hwp 를 비교해 줘`] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산 계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    // 적은 글이 거기서 끝나야 한다 (확장자가 더 이어지면 다른 파일이다). 뒤에 조사는 와도 된다
+    expect((await read(LETTER, { files: [], said: [`${LETTER}x 요약해 줘`] })).isError).toBe(true);
+    expect((await read(LETTER, { files: [], said: ['1-받은공문_도민체육대회 참가 협조 요청.hwpx2 요약해 줘'] })).isError).toBe(true);
+    expect((await read(LETTER, { files: [], said: [`${LETTER}를 요약해 줘`] })).isError).toBeFalsy();
+    // 다른 폴더의 같은 이름 파일을 경로로 적은 것은 이 파일을 맡긴 것이 아니다
+    expect((await read(LETTER, { files: [], said: ['D:\\비밀\\1-받은공문_도민체육대회 참가 협조 요청.hwpx 요약해 줘'] })).isError).toBe(true);
     // 파일 이름도 낱말로 적혔을 때만 (다른 이름의 뒷부분으로 들어 있는 것은 아니다)
     expect((await read(LETTER, { files: [], said: ['최종1-받은공문_도민체육대회 참가 협조 요청.hwpx 를 요약해 줘'] })).isError).toBe(true);
     // 여러 파일을 받는 도구도 하나라도 밖이면 막는다. 경로가 없는 도구는 그대로

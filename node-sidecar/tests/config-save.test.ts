@@ -43,6 +43,25 @@ describe('updateSettings 동시 호출', () => {
   });
 });
 
+describe('설정 파일을 못 읽는 동안', () => {
+  it('저장하지 않는다 (앞서 읽은 값·기본값으로 파일을 덮지 않는다). 다시 읽히면 저장되고 앞의 값도 남는다', async () => {
+    const { renameSync } = await import('node:fs');
+    const file = join(dir, 'settings.json');
+    const aside = join(dir, 'settings.aside');
+    await updateSettings({ org: { name: '가온시' } });
+    renameSync(file, aside);
+    mkdirSync(file); // 파일 자리에 폴더: 읽기가 실패한다 (다른 프로그램이 쥔 것과 같은 길)
+    reload();
+    await expect(updateSettings({ law: { oc: 'lost' } })).rejects.toThrow('읽을 수 없어');
+    rmSync(file, { recursive: true, force: true });
+    renameSync(aside, file);
+    await updateSettings({ law: { oc: 'gaon3' } });
+    const saved = JSON.parse(readFileSync(file, 'utf-8'));
+    expect(saved.org.name).toBe('가온시');
+    expect(saved.law.oc).toBe('gaon3');
+  });
+});
+
 describe('설정 파일 바꿔 넣기: Windows 잠깐 잠김(EPERM·EBUSY)은 다시 해 본다', () => {
   it('두 번 EPERM 뒤 성공하면 성공, 다른 오류는 바로 던진다', async () => {
     const { renameRetry } = await import('../src/infra/config.js');

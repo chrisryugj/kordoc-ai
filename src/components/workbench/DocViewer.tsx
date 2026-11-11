@@ -167,7 +167,8 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
         renderError ? <div className="p-6"><Note tone="err">쪽 그림을 그리지 못했습니다: {renderError}</Note></div> : (
           engine === "rhwp"
             ? <PageStack pageCount={rh.pageCount} sizes={rh.sizes} pages={rh.pages} onNeed={rh.need} zoom={zoom} scrollTo={scrollTo} onCurrent={setCurrent} />
-            : <PageStack pageCount={pageCount} pages={pages} onNeed={engine === "kordoc" ? need : undefined} zoom={zoom} scrollTo={scrollTo} onCurrent={setCurrent} />
+            // 쪽 이동 요청은 그릴 엔진이 정해진 뒤에 넘긴다 (정해지기 전의 임시 쪽 배치에서 써 버리면 목표 쪽에 못 간다)
+            : <PageStack pageCount={pageCount} pages={pages} onNeed={engine === "kordoc" ? need : undefined} zoom={zoom} scrollTo={engine === "kordoc" ? scrollTo : null} onCurrent={setCurrent} />
         )
       ) : (
         <div className="kd-textview">

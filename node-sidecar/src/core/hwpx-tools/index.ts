@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import { patchHwp, patchHwpx, placeSealHwpx, scanSectionXml, validateHwpx, type ScanTable } from 'kordoc';
 import { formatOf } from '../files/format.js';
 import { outputFile, stemOf } from '../output/index.js';
+import { withVersionXml } from '../merge/hwpx-merge.js';
 
 const toAB = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 const SEAL_EXT = new Set(['png', 'jpg', 'jpeg', 'bmp', 'gif']);
@@ -103,7 +104,7 @@ export async function seal(p: { path: string; image_path: string; anchor: string
     throw err;
   }
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_날인.hwpx` });
-  await writeFile(outPath, Buffer.from(r.buffer));
+  await writeFile(outPath, await withVersionXml(new Uint8Array(r.buffer)));
   return { output_path: outPath, placed: r.placed.length, anchor: pick.anchor };
 }
 
@@ -115,7 +116,8 @@ export async function patchDocument(p: { path: string; markdown: string; output_
   const r = fmt === 'hwpx' ? await patchHwpx(original, p.markdown) : await patchHwp(original, p.markdown);
   if (!r.success || !r.data) throw new Error(r.error || '고친 글을 반영하지 못했습니다.');
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_수정.${fmt}` });
-  await writeFile(outPath, r.data);
+  // 예전 판으로 만든 문서에는 version.xml 이 없다 → 고친 사본에는 넣어 둔다 (엄격한 판독기가 거부하지 않게)
+  await writeFile(outPath, fmt === 'hwpx' ? await withVersionXml(new Uint8Array(r.data)) : r.data);
   return {
     output_path: outPath,
     applied: r.applied,

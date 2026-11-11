@@ -147,6 +147,25 @@ describe('PDF 쪽 그림 색', () => {
       doc.destroy();
     }
   });
+
+  it('입력 칸(양식 필드)에 적어 넣은 값도 그린다 (안 그리면 용량 줄이기·쪽 그림에서 칸의 값이 빠진다)', async () => {
+    const sharp = (await import('sharp')).default;
+    const { rasterPdfPage } = await import('../src/core/render/pdfium.js');
+    const d = await PDFDocument.create();
+    const page = d.addPage([300, 100]);
+    const field = d.getForm().createTextField('name');
+    field.setText('HONG 1234');
+    field.addToPage(page, { x: 10, y: 20, width: 280, height: 60, borderWidth: 0 });
+    const doc = await openPdf(await d.save());
+    try {
+      const { data, info } = await sharp((await rasterPdfPage(doc, 1, 300, 'png')).data).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      let dark = 0;
+      for (let i = 0; i < data.length; i += info.channels) if (data[i + 3] > 200 && data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100) dark++;
+      expect(dark).toBeGreaterThan(50);
+    } finally {
+      doc.destroy();
+    }
+  });
 });
 
 describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {

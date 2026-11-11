@@ -51,6 +51,14 @@ describe('글자 읽기로 얻은 글', () => {
     for (const s of ['- 3 건 접수', '가 - 나 구간', '접수 3건 - 처리 2건']) expect(tighten(s).text, s).toBe(s);
   });
 
+  it('줄표 자리에서 줄이 바뀐 번호는 붙이고, 다음 줄의 목록 표지("- ")는 붙이지 않는다', () => {
+    expect(tighten('010-1234-\n5678', true).text).toBe('010-1234-5678');
+    expect(tighten('900101-\r\n1234567', true).text).toBe('900101-1234567');
+    expect(tighten('총 인원 900101\n- 1234567명 참석', true).text).toBe('총 인원 900101\n- 1234567명 참석');
+    // 줄을 넘기지 않는 쪽(기본)은 줄바꿈을 건드리지 않는다
+    expect(tighten('010-1234-\n5678').text).toBe('010-1234-\n5678');
+  });
+
   it('띄어 읽힌 전자우편·전화번호도 센다', () => {
     const keep = () => false;
     expect(countRead('hong @ gaon.example', ['email'], keep)).toBe(1);

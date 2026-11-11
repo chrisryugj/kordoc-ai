@@ -47,8 +47,9 @@ export function readMarker(text: string): Marker | null {
     const m = r.re.exec(t);
     if (!m) continue;
     const rest = t.slice(m[0].length);
-    // "1." 뒤에 글이 없거나 날짜·금액("2026. 6.")처럼 숫자가 이어지면 항목이 아니다
-    if (r.family === 'legal' && (!rest.trim() || /^\d/.test(rest))) continue;
+    // "1." 뒤에 글이 없거나 날짜("6. 26.(금)" · "10. 23.까지")처럼 숫자와 점이 이어지면 항목이 아니다.
+    // 숫자로 시작한다고 다 빼면 "2. 2026년 추진 계획" · "가. 1분기: 준비" · "1) 3개 부서" 가 항목이 아니게 되어 앞 항목에 한 줄로 붙는다
+    if (r.family === 'legal' && (!rest.trim() || (/^\d{1,2}\.$/.test(m[1].trim()) && /^\s*\d{1,4}\s*\.(?!\d)/.test(rest)))) continue;
     if (r.family !== 'ref' && !rest.trim()) continue;
     // "□ 예  ■ 아니오" 같은 고르는 칸은 항목이 아니다
     if (m[1].match(/[□■❏❑◻▢▣◼☐☑]/) && /[□■☐☑▣◼]/.test(rest)) return null;

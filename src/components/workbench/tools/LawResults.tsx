@@ -86,7 +86,7 @@ function Source({ c }: { c: LawCitation }) {
 
 /** 법령 근거 확인 결과. compact 는 접수함처럼 좁은 자리 (인용 문장 줄은 나란히 보기에서만) */
 export function LawResults({ result, onPick, compact }: { result: LawResult; onPick?: (c: LawCitation) => void; compact?: boolean }) {
-  const { go, settings, toast } = useApp();
+  const { openSettings, settings, toast } = useApp();
   const counts = new Map<string, number>();
   for (const c of result.citations) { const l = lawVerdict(c).label; counts.set(l, (counts.get(l) ?? 0) + 1); }
   const changed = result.citations.filter((c) => c.changed_since).length;
@@ -100,7 +100,7 @@ export function LawResults({ result, onPick, compact }: { result: LawResult; onP
       {result.note && (
         <Note tone={result.checked ? "info" : "warn"}>
           {result.note}
-          {needOc && <> <button type="button" className="kd-link" onClick={() => go("settings")}>설정 열기</button></>}
+          {needOc && <> <button type="button" className="kd-link" onClick={() => openSettings("set-law")}>설정 열기</button></>}
         </Note>
       )}
       {result.checks && (

@@ -58,7 +58,9 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
   const onCite = (c: Citation) => (c.path === doc.path ? c.page && onGoPage(c.page) : openDocs([c.path], { page: c.page }));
   // 다시 요약하는 동안에는 새로 오는 글을 보인다 (앞 결과가 남아 있어 새 요약이 안 도는 것처럼 보이지 않게)
   // AI 는 마크다운으로 답한다(## 제목·| 표 |·날짜 앞 역슬래시) → 화면과 복사에는 꾸밈 표시를 걷은 글로 (표는 칸을 탭으로 이은 줄)
-  const text = markdownToPlain(summary.busy ? stream : summary.result?.summary ?? stream);
+  // 다시 돌리다 실패했거나 멈췄으면 앞 요약을 새 것처럼 보이지 않는다. 빈 글은 그대로 빈 글(변환기는 빈 글에도 줄바꿈을 돌려준다)
+  const raw = summary.busy || summary.error ? stream : summary.result?.summary ?? stream;
+  const text = raw.trim() ? markdownToPlain(raw).trim() : "";
 
   return (
     <AiGate>

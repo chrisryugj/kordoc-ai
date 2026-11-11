@@ -22,7 +22,8 @@ export function StatusLine({ tone, children }: { tone: Tone; children: ReactNode
 
 export function Note({ tone = "info", children }: { tone?: "info" | "warn" | "err" | "ok"; children: ReactNode }) {
   const icon = tone === "warn" ? <AlertTriangle size={15} /> : tone === "err" ? <CircleAlert size={15} /> : tone === "ok" ? <CheckCircle2 size={15} /> : <Info size={15} />;
-  return <div className="kd-note" data-tone={tone} role={tone === "err" ? "alert" : undefined}>{icon}<div className="min-w-0 flex-1">{children}</div></div>;
+  // 경고도 화면 읽기 프로그램에 알린다 (결과 옆에 늦게 뜨는 경고가 읽히지 않으면 눈으로만 알 수 있다)
+  return <div className="kd-note" data-tone={tone} role={tone === "err" ? "alert" : tone === "warn" ? "status" : undefined}>{icon}<div className="min-w-0 flex-1">{children}</div></div>;
 }
 
 export function Empty({ icon, title, children, action }: { icon?: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {

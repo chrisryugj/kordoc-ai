@@ -196,7 +196,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
       if (seed.kind) pickKind(seed.kind);
       if (seed.preset) { setKind("general"); setPreset(seed.preset); setOrgOn(true); }
       if (seed.references) setRefs(seed.references);
-      if (seed.markdown) { setMarkdown(seed.markdown); setFit(null); }
+      // 다른 화면이 보낸 글로 바꾸면 앞 초안에 딸린 안내("일부만 읽었습니다"·"우리 기관 … 따라 썼습니다")는 지운다
+      if (seed.markdown) { setMarkdown(seed.markdown); setFit(null); setDraftNote(""); setDraftOrg(null); }
       // 직접 고른 견본이 우리 기관 견본 서식보다 앞선다 (구성·표현은 그대로 따른다)
       if (seed.levelsFrom) { setOpts((o) => ({ ...o, levelsFrom: seed.levelsFrom! })); setOptsOpen(true); }
       if (autoDraft) runDraft("", seed.kind, seed.references);

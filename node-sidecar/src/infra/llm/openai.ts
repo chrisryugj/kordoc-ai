@@ -10,7 +10,7 @@
 
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { assertAllowed, isPrivateAddress } from '../net-guard.js';
+import { assertAllowed, isFakeLoopback, isPrivateAddress } from '../net-guard.js';
 import { createThinkFilter, httpError, sendRetrying, sseData, type ChatRequest, type LlmProvider } from './types.js';
 
 export interface OpenAiConfig {
@@ -49,8 +49,7 @@ export async function resolveOpenAiHost(baseUrl: string): Promise<void> {
   ]);
   // 이름이 127.0.0.1 이 아닌 루프백(127.x.y.z)으로 풀리면 가짜 주소를 돌려주는 프록시(DNS)를 거친 것이다: 그 통신은 프록시를 타고 밖으로 나간다.
   // 내부로 보면 외부 AI 서버가 "이 PC"로 판정돼 가리기가 꺼지고 폐쇄망 모드에서도 문서가 나간다 → 내부로 보지 않는다
-  const fakeLoopback = (a: string) => /^127\./.test(a) && a !== '127.0.0.1';
-  if (addrs.length) hostPrivacy.set(host, addrs.every((a) => isPrivateAddress(a.address) && !fakeLoopback(a.address)));
+  if (addrs.length) hostPrivacy.set(host, addrs.every((a) => isPrivateAddress(a.address) && !isFakeLoopback(a.address)));
 }
 
 /** 넘겨주기 응답이면 따라가지 않고 고칠 방법을 알린다 */

@@ -12,6 +12,7 @@ import { BUILTIN_TEMPLATES, extractClickHereFields, extractFormSchema, markdownT
 import { rhwpCompat } from '../gongmun/rhwp-compat.js';
 import type { TemplateAnalysis, TemplateEntry } from '../../types/rpc-contract.js';
 import { dataDir, getSettings } from '../../infra/config.js';
+import { readListFile } from '../../infra/list-file.js';
 import { cleanMessage } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
 import { formatOf } from '../files/format.js';
@@ -24,13 +25,10 @@ const indexPath = () => join(libDir(), 'index.json');
 
 type StoredEntry = TemplateEntry & { analysis?: TemplateAnalysis };
 
-async function readIndex(): Promise<StoredEntry[]> {
-  try {
-    const j = JSON.parse(await readFile(indexPath(), 'utf-8')) as { templates?: StoredEntry[] };
-    return Array.isArray(j.templates) ? j.templates.filter((t) => t && typeof t.id === 'string' && typeof t.path === 'string') : [];
-  } catch {
-    return [];
-  }
+/** forWrite: 고쳐서 다시 쓸 목록. 잠깐 못 읽은 것을 빈 목록으로 받아 저장하면 등록해 둔 서식이 다 지워진다 → 그때는 던진다 */
+async function readIndex(forWrite = false): Promise<StoredEntry[]> {
+  const j = await readListFile(indexPath(), '서식함', forWrite) as { templates?: StoredEntry[] } | null;
+  return Array.isArray(j?.templates) ? j.templates.filter((t) => t && typeof t.id === 'string' && typeof t.path === 'string') : [];
 }
 
 async function writeIndex(templates: StoredEntry[]): Promise<void> {
@@ -105,6 +103,7 @@ export async function templateAnalyze(path: string, signal?: AbortSignal): Promi
 
 export async function templateAdd(p: { path: string; name?: string; category?: string }, signal?: AbortSignal): Promise<TemplateEntry> {
   const analysis = await templateAnalyze(p.path, signal);
+  const list = await readIndex(true);
   const id = randomUUID().slice(0, 8);
   await mkdir(libDir(), { recursive: true });
   const dest = join(libDir(), `${id}${extname(p.path).toLowerCase()}`);
@@ -115,13 +114,13 @@ export async function templateAdd(p: { path: string; name?: string; category?: s
     has_fields: analysis.fields.length > 0, field_count: analysis.fields.length || analysis.label_fields.length,
     description: STRATEGY_TEXT[analysis.strategy], added_at: new Date().toISOString(), analysis,
   };
-  await writeIndex([...(await readIndex()), entry]);
+  await writeIndex([...list, entry]);
   return entry;
 }
 
 export async function templateRemove(id: string): Promise<boolean> {
   if (!id.startsWith('user:')) throw new Error('내장 서식은 지울 수 없습니다.');
-  const list = await readIndex();
+  const list = await readIndex(true);
   const hit = list.find((t) => t.id === id);
   if (!hit) return false;
   await unlink(hit.path!).catch(() => undefined);

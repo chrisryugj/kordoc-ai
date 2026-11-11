@@ -110,15 +110,17 @@ function Card({ input }: { input: CardInput }) {
   const agent = useWorkAgent({ from: "card" });
   const { paths, setPaths } = agent;
   // 카드 창은 우클릭한 문서를 붙인 새 대화로 시작한다 (대화는 본창 AI 대화 목록에도 남는다)
-  useEffect(() => { agent.newChat(input.paths); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [started, setStarted] = useState(false);
+  useEffect(() => { agent.newChat(input.paths); setStarted(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const first = input.paths[0];
   const fmt = formatOf(first);
   const single = input.paths.length === 1 && fmt !== "unknown";
   const multi = input.paths.length > 1;
-  const docs = paths.length ? paths : input.paths;
-  const suggestions = useMemo(() => suggestionsFor(input.paths), [input.paths]);
-  // 바로 하기·앱에서 이어서도 지금 남긴 문서로 (카드에서 뺀 문서가 딸려 가면 머리의 "문서 N개"와 실제 처리한 수가 다르다)
-  const direct = useMemo(() => directFor(docs), [docs]);
+  // 지금 남긴 문서 (카드에서 빼면 줄어든다. 다 빼면 0개: 처음 문서로 되돌리지 않는다. 대화에는 붙은 문서가 없는데 머리만 "문서 N개"면 안 된다)
+  const docs = started ? paths : input.paths;
+  // 예시·바로 하기·앱에서 이어서도 남긴 문서로 (뺀 문서가 딸려 가면 머리의 "문서 N개"와 실제 처리한 수가 다르다)
+  const suggestions = useMemo(() => (docs.length ? suggestionsFor(docs) : []), [docs]);
+  const direct = useMemo(() => (docs.length ? directFor(docs) : []), [docs]);
   // AI 상태를 아직 모르면(null) 어느 쪽도 그리지 않는다 (깜빡임 없게)
   const aiOn = !!ai?.configured;
   const aiOff = !!ai && !ai.configured;
@@ -144,7 +146,7 @@ function Card({ input }: { input: CardInput }) {
   const latestName = vers ? baseName(vers.latest) : "";
   // 폴더 하나를 우클릭한 경우 (안의 문서는 본창의 여러 파일 한꺼번에가 펼친다)
   const folder = input.paths.length === 1 && fmt === "unknown";
-  const title = single || folder ? baseName(first) : `${baseName(first)} 외 ${input.paths.length - 1}개`;
+  const title = single || folder ? baseName(first) : !docs.length ? "붙인 문서 없음" : docs.length === 1 ? baseName(docs[0]) : `${baseName(docs[0])} 외 ${docs.length - 1}개`;
   // 고른 문서보다 나중 판이 있다는 짚음은 하나로 (이름의 "최종"보다 나중 판 · 고른 문서보다 나중 판은 같은 말)
   const isNewer = (n: string) => n.startsWith('이름에 "최종"') || n.startsWith("고른 문서보다");
   const newer = vers && vers.latest !== first ? (vers.notes.find((n) => n.startsWith('이름에 "최종"')) ?? vers.notes.find((n) => n.startsWith("고른 문서보다"))) : undefined;
@@ -235,7 +237,7 @@ function Card({ input }: { input: CardInput }) {
             />
             <AgentRun turns={agent.turns} onSend={(t) => void agent.send(t)} busy={agent.busy} />
             {agent.turns.length > 0 && !agent.busy && (
-              <div><Button size="sm" variant="ghost" onClick={() => agent.newChat(input.paths)}><MessageSquarePlus size={13} /> 새로 시키기</Button></div>
+              <div><Button size="sm" variant="ghost" onClick={() => agent.newChat(docs.length ? docs : input.paths)}><MessageSquarePlus size={13} /> 새로 시키기</Button></div>
             )}
             {direct.length > 0 && (
               // AI 가 켜져 있어도 AI 없이 바로 되는 일은 접어서 둔다
@@ -257,7 +259,7 @@ function Card({ input }: { input: CardInput }) {
 
       <footer className="kd-card-foot">
         {/* 폴더는 문서 화면이 열지 못한다 → 여러 파일 한꺼번에 화면으로 */}
-        <Button size="sm" variant="secondary" onClick={() => void handoff(folder ? "tools" : "open", docs)} data-tip={folder ? "본창의 여러 파일 한꺼번에 화면에 이 폴더의 문서를 놓습니다" : "본창을 열어 이 문서로 이어서 합니다"}><LayoutGrid size={13} /> 앱에서 이어서</Button>
+        <Button size="sm" variant="secondary" disabled={!docs.length} onClick={() => void handoff(folder ? "tools" : "open", docs)} data-tip={folder ? "본창의 여러 파일 한꺼번에 화면에 이 폴더의 문서를 놓습니다" : "본창을 열어 이 문서로 이어서 합니다"}><LayoutGrid size={13} /> 앱에서 이어서</Button>
         {single && HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => void handoff("edit", [first])} data-tip="본창의 한글 편집기로 엽니다"><FilePen size={13} /> 편집기에서 고치기</Button>}
         {docs.length === 2 && <Button size="sm" variant="ghost" onClick={() => void handoff("compare", docs)} data-tip="본창에서 두 문서의 바뀐 곳을 나란히 봅니다"><GitCompareArrows size={13} /> 두 문서 비교 화면</Button>}
       </footer>

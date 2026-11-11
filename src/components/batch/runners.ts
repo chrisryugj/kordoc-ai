@@ -69,6 +69,7 @@ function applyBatch(env: RunEnv, results: BatchItemResult[]) {
 async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: string; note?: string; empty?: boolean; warn?: boolean }>) {
   let ok = 0;
   let empty = 0;
+  let check = 0;
   let first = "";
   for (const f of env.files) {
     if (env.signal.aborted) break;
@@ -77,6 +78,7 @@ async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: 
       const r = await work(f);
       if (r.empty) { env.setRow(f.path, { status: "wait", note: r.note }); empty++; continue; }
       env.setRow(f.path, { status: "ok", output: r.output, note: r.note, ...(r.warn ? { warn: true } : {}) });
+      if (r.warn) check++;
       if (!first && r.output) first = r.output;
       ok++;
     } catch (e) {
@@ -85,7 +87,7 @@ async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: 
     }
   }
   const fail = env.files.length - ok - empty;
-  const message = `${ok}개 완료${empty ? `, ${empty}개는 뽑을 것 없음` : ""}${fail ? `, ${fail}개 실패 또는 멈춤` : ""}`;
+  const message = `${ok}개 완료${empty ? `, ${empty}개는 뽑을 것 없음` : ""}${fail ? `, ${fail}개 실패 또는 멈춤` : ""}${check ? `. ${check}개는 확인할 것이 있습니다(목록의 경고 줄)` : ""}`;
   const dir = ok ? env.opts.outDir || dirName(first) : "";
   return { message, ...(dir ? { dir } : {}) };
 }
@@ -156,7 +158,10 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
         const r = await rpc("pdf_shrink", { path: f.path, ...shrinkParams(opts.shrink), ...outDirOf(opts) }, { signal });
         if (!r.output_path) return { note: r.note };
         const signed = /전자서명/.test(r.note ?? "");
-        return { output: r.output_path, note: `${shrinkSummary(r)}${r.under_target === false ? ". 한도를 아직 넘습니다" : ""}${signed ? ". 전자서명이 풀린 사본입니다" : ""}`, ...(signed ? { warn: true } : {}) };
+        // 확인할 것(한도를 못 맞춤·서명이 풀림)은 앞에 적는다: 줄의 상태 칸은 좁아 뒤쪽 글이 잘린다
+        const over = r.under_target === false;
+        const heads = [over ? "한도를 아직 넘습니다" : "", signed ? "전자서명이 풀린 사본입니다" : ""].filter(Boolean);
+        return { output: r.output_path, note: [...heads, shrinkSummary(r)].join(". "), ...(heads.length ? { warn: true } : {}) };
       })) };
     case "join": {
       // 모두 한글이면 서식 그대로 HWPX 한 파일, 아니면 PDF 한 권 (쪽 번호·워터마크 없이)

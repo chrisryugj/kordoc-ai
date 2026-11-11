@@ -173,9 +173,12 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
   // 파일 하나면 그 줄의 안내(줄인 크기·줄일 것 없음·표 수)를 그대로. 한글로 바꾸기의 안내(쓴 꾸밈)는 알림에 뜻이 없어 뺀다
   const note = files.length === 1 && (action === "shrink" || action === "tables" || !outputs.length) ? rows[files[0].path]?.note?.replace(/[.\s]+$/, "") : "";
   // 가리기: 덜 가려졌을 수 있는 사본이 있으면 "끝"으로 알리지 않는다 (창 없이 도는 길이라 이 알림이 유일한 경고다)
-  const unsure = action === "redact" ? files.filter((f) => rows[f.path]?.warn) : [];
-  const review = unsure.length
-    ? `${unsure.length === 1 ? `${baseName(rows[unsure[0].path]?.output ?? unsure[0].path)}: ${rows[unsure[0].path]?.note ?? ""}` : `${unsure.length}개 사본에 남은 의심 곳이 있습니다`}. 다 가려지지 않았을 수 있으니 내보내기 전에 사본을 열어 확인하세요${where && unsure.length > 1 ? ` (${where})` : ""}`
-    : undefined;
+  // 용량 줄이기: 한도를 못 맞췄거나 전자서명이 풀린 사본도 같은 길로 알린다
+  const unsure = files.filter((f) => rows[f.path]?.warn);
+  const one = unsure.length === 1 ? `${baseName(rows[unsure[0].path]?.output ?? unsure[0].path)}: ${rows[unsure[0].path]?.note ?? ""}` : "";
+  const review = !unsure.length ? undefined
+    : action === "redact"
+      ? `${one || `${unsure.length}개 사본에 남은 의심 곳이 있습니다`}. 다 가려지지 않았을 수 있으니 내보내기 전에 사본을 열어 확인하세요${where && unsure.length > 1 ? ` (${where})` : ""}`
+      : `${one || `${unsure.length}개 사본에 확인할 것이 있습니다: ${[...new Set(unsure.map((f) => (rows[f.path]?.note ?? "").split(". ")[0]))].join(", ")}`}${where && unsure.length > 1 ? ` (${where})` : ""}`;
   return { ok: files.length - failed.length, failed, message: [note || outcome?.message || "", where].filter(Boolean).join(". "), ...(review ? { review } : {}) };
 }

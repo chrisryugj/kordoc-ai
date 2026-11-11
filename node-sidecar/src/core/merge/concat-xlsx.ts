@@ -56,7 +56,8 @@ function parseWorkbook(xml: string): SheetInfo[] {
       name: el.getAttribute('name') ?? `Sheet${sheets.length + 1}`,
       sheetId: el.getAttribute('sheetId') ?? '',
       rId: el.getAttribute('r:id') ?? '',
-      ...(el.getAttribute('state') ? { state: el.getAttribute('state') } : {}),
+      // visible 은 숨긴 것이 아니다 (그렇게 적는 프로그램이 있다)
+      ...(/^(?:hidden|veryHidden)$/.test(el.getAttribute('state') ?? '') ? { state: el.getAttribute('state') } : {}),
     });
   }
   return sheets;
@@ -113,7 +114,13 @@ function uniqueSheetName(name: string, existing: Set<string>): string {
  *  합치면서 시트 이름이 바뀌는데 수식을 그대로 두면 다시 계산할 때 다른 파일의 같은 이름 시트 값을 가져온다 */
 export function renameSheetRefs(formula: string, renames: Map<string, string>): string {
   if (!renames.size) return formula;
-  // 여러 시트에 걸친 참조('1월:12월'!C5 · Sheet1:Sheet3!A1)는 양 끝 이름을 함께 바꿔 한 따옴표 안에 적는다
+  // 큰따옴표 안의 글("주의:필독!")은 시트 참조가 아니다 → 글 밖에서만 바꾼다
+  return formula.replace(/"[^"]*"|&quot;[\s\S]*?&quot;|(?:[^"&]|&(?!quot;))+/g, (part) => (part[0] === '"' || part.startsWith('&quot;') ? part : renameRefsOutside(part, renames)));
+}
+
+function renameRefsOutside(formula: string, renames: Map<string, string>): string {
+  // 여러 시트에 걸친 참조('1월:12월'!C5 · Sheet1:Sheet3!A1)는 양 끝 이름을 함께 바꿔 한 따옴표 안에 적는다.
+  // 맨 이름 꼴은 앞이 "!" 면 칸 범위다 (Sheet1!A1:Sheet1!B1 의 "A1:Sheet1!")
   const span = (a: string, b: string, whole: string) => {
     if (!renames.has(a) && !renames.has(b)) return whole;
     return xmlText(`'${(renames.get(a) ?? a).replace(/'/g, "''")}:${(renames.get(b) ?? b).replace(/'/g, "''")}'!`);
@@ -121,7 +128,7 @@ export function renameSheetRefs(formula: string, renames: Map<string, string>): 
   const plain = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/''/g, "'");
   formula = formula
     .replace(/(?<![\p{L}\p{N}_.'\]])'((?:[^':]|'')+):((?:[^':]|'')+)'!/gu, (whole, a: string, b: string) => span(plain(a), plain(b), whole))
-    .replace(/(?<![\p{L}\p{N}_.'\]])([\p{L}_][\p{L}\p{N}_.]*):([\p{L}_][\p{L}\p{N}_.]*)!/gu, (whole, a: string, b: string) => span(a, b, whole));
+    .replace(/(?<![\p{L}\p{N}_.'\]!$])([\p{L}_][\p{L}\p{N}_.]*):([\p{L}_][\p{L}\p{N}_.]*)!/gu, (whole, a: string, b: string) => span(a, b, whole));
   const table = new Map<string, string>();
   for (const [from, to] of renames) {
     const next = xmlText(`'${to.replace(/'/g, "''")}'!`);
@@ -136,9 +143,10 @@ export function renameSheetRefs(formula: string, renames: Map<string, string>): 
  *  같은 서식의 파일은 같은 이름을 쓴다 → 뒤 파일의 이름을 그대로 두면 그 수식이 앞 파일의 범위를 읽는다 */
 export function renameDefinedNames(formula: string, names: Map<string, string>): string {
   if (!names.size) return formula;
-  return formula.replace(/"[^"]*"|'[^']*'|\[[^\]]*\]|[^"'[]+/g, (part) => (part[0] === '"' || part[0] === "'" || part[0] === '['
+  // 칸·열 범위의 글자(A:B · A1:B2)는 이름이 아니다 → 콜론에 붙은 낱말은 건드리지 않는다
+  return formula.replace(/"[^"]*"|&quot;[\s\S]*?&quot;|'[^']*'|\[[^\]]*\]|(?:[^"'[&]|&(?!quot;))+/g, (part) => (part[0] === '"' || part[0] === "'" || part[0] === '[' || part.startsWith('&quot;')
     ? part
-    : part.replace(/(?<![\p{L}\p{N}_.\\!$&])[\p{L}_\\][\p{L}\p{N}_.\\]*(?![\p{L}\p{N}_.\\(![])/gu, (id) => names.get(id.toLowerCase()) ?? id)));
+    : part.replace(/(?<![\p{L}\p{N}_.\\!$&:])[\p{L}_\\][\p{L}\p{N}_.\\]*(?![\p{L}\p{N}_.\\(![:])/gu, (id) => names.get(id.toLowerCase()) ?? id)));
 }
 
 /** 시트 안의 수식(셀·조건부 서식·유효성 검사)과 문서 안 링크에서 시트 이름·이름 정의 바꾸기 */

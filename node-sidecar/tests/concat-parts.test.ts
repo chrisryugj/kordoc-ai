@@ -182,6 +182,12 @@ describe('엑셀 서식 유지 합치기 — 시트 상태와 칸', () => {
     expect(renameSheetRefs('SUM(Sheet1:Sheet3!A1)', renames)).toBe("SUM('Sheet1 (2):Sheet3 (2)'!A1)");
     expect(renameSheetRefs("SUM('1월:12월'!C5)+Sheet1!A1", renames)).toBe("SUM('1월 (2):12월 (2)'!C5)+'Sheet1 (2)'!A1");
     expect(renameSheetRefs('SUM(A:B!A1)+SUM(A1:B2)', renames)).toBe('SUM(A:B!A1)+SUM(A1:B2)');
+    // 칸 범위의 양 끝에 시트 이름을 적은 꼴은 여러 시트 참조가 아니다. 큰따옴표 안의 글은 건드리지 않는다
+    expect(renameSheetRefs('SUM(Sheet1!A1:Sheet1!B1)', renames)).toBe("SUM('Sheet1 (2)'!A1:'Sheet1 (2)'!B1)");
+    expect(renameSheetRefs('IF(A1="Sheet1:Sheet3!","1월!",Sheet1!A1)', renames)).toBe(`IF(A1="Sheet1:Sheet3!","1월!",'Sheet1 (2)'!A1)`);
+    expect(renameSheetRefs("'R&amp;D'!A1", new Map([['R&D', 'R&D (2)']]))).toBe("'R&amp;D (2)'!A1");
+    // 열 범위의 글자는 이름 정의가 아니다
+    expect(renameDefinedNames('SUM(A:B)+a+&quot;a&quot;', new Map([['a', 'a_2']]))).toBe('SUM(A:B)+a_2+&quot;a&quot;');
   });
 
   it('숨긴 시트는 숨긴 채로, 선택된 시트는 하나만 (여러 시트가 묶여 선택된 채 열리지 않게)', async () => {
@@ -400,6 +406,10 @@ describe('워드 서식 유지 합치기 — 서식과 번호', () => {
     // 기대는 서식이 없는 서식에만, 문단 속성은 규격 차례로(keepNext → spacing → jc), 글자 속성은 문단 속성 뒤에
     expect(filled).toContain('<w:name w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:after="400"/><w:jc w:val="both"/></w:pPr><w:rPr><w:sz w:val="32"/></w:rPr></w:style>');
     expect(filled).toContain(child);
+    // 뒤 문서 기본값에 없는 속성은 규격 기본값을 적는다 (안 적으면 첫 문서의 크기·간격이 먹는다)
+    const bare = withDocDefaults(styles('<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Batang"/></w:rPr></w:rPrDefault></w:docDefaults>' + plain), base);
+    expect(bare).toContain('<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>');
+    expect(bare).toContain('<w:rPr><w:rFonts w:ascii="Batang"/><w:sz w:val="20"/></w:rPr>');
 
     const a = await docx(join(dir, 'a.docx'), para('가 본문'), { files: { 'word/styles.xml': base } });
     const b = await docx(join(dir, 'b.docx'), para('나 본문'), { files: { 'word/styles.xml': donor } });

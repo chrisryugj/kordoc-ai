@@ -293,7 +293,8 @@ export interface RpcMethods {
   /** allow_empty: 그림이 없으면 오류 대신 { count: 0, output_dir: '' } */
   extract_images: [{ path: string; output_dir?: string; allow_empty?: boolean }, { output_dir: string; count: number }];
   /** 버전 찾기·최종본 찾기 — 같은 폴더·하위·바로 위 폴더에서 같은 문서의 판들을 고친 차례로 (core/versions) */
-  find_versions: [{ path: string }, VersionsResult];
+  /** root: 이 폴더 안의 파일만 견준다 (MCP 허용 폴더) */
+  find_versions: [{ path: string; root?: string }, VersionsResult];
   /** 여러 문서에서 낱말 찾기 (파싱 결과 캐시) */
   search_files: [{ paths: string[]; query: string; max_hits?: number }, { results: Array<{ path: string; hits: Array<{ page?: number; excerpt: string }> }>; searched: number; failed: number }];
   /** 취합 — 같은 서식으로 받은 문서 여러 개 → 칸 이름 후보 */

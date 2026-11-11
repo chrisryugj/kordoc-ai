@@ -137,7 +137,10 @@ export function PageGrid(p: Props) {
       const { y } = pointer.current;
       const v = y < r.top + 48 ? -Math.ceil((r.top + 48 - y) / 4) : y > r.bottom - 48 ? Math.ceil((y - r.bottom + 48) / 4) : 0;
       if (v) {
+        const before = desk.scrollTop;
         desk.scrollTop += v;
+        // 끌어 고르기의 시작점은 창 좌표다 → 화면이 넘어간 만큼 따라 옮긴다 (안 옮기면 화면 밖으로 넘어간 쪽이 고른 것에서 빠진다)
+        if (d.mode === "marquee") d.y -= desk.scrollTop - before;
         moveTo(pointer.current.x, pointer.current.y);
       }
       scrollRaf.current = requestAnimationFrame(step);

@@ -106,10 +106,6 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
     }
     // 2) 파일 이름: 온이름이 든 것 중 가장 긴 것, 없으면 줄기 (같은 길이면 뒤에 나온 것: 서식 이름_부서 꼴)
     const file = norm(basename(h.path, extname(h.path)));
-    const best = (pick: (k: (typeof keys)[number]) => string) => keys
-      .map((k) => ({ k, at: file.lastIndexOf(pick(k)), len: pick(k).length }))
-      .filter((x) => x.at >= 0 && x.len >= 2)
-      .sort((a, b) => b.len - a.len || b.at - a.at)[0]?.k;
     // 줄기(총무과의 "총무")는 파일 이름의 토막 하나가 그 줄기일 때만 맞춘다. 이름 어디에든 들어 있으면 맞는 것으로 보면
     // "교육수요조사_최종"이 조사과로, "홍보계획_제출"이 홍보과로 잡혀 그 부서가 미제출 목록에서 빠진다
     const tokens = basename(h.path, extname(h.path)).normalize('NFC').split(/[\s_\-.,()[\]{}·~+]+/).filter(Boolean);
@@ -118,7 +114,20 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
       .map((k) => ({ k, at: k.stem.length >= 2 ? stemAt(k.stem) : -1 }))
       .filter((x) => x.at >= 0)
       .sort((a, b) => b.k.stem.length - a.k.stem.length || b.at - a.at)[0]?.k;
-    const byFile = best((k) => k.full) ?? byStem;
+    // 온이름도 다른 낱말의 앞부분이면 그 부서가 아니다 ("교육과정 수요조사" 의 "교육과"). 뒤 글자가 한글이 아닐 때만 맞춘다
+    const fullAt = (full: string) => {
+      for (let at = file.lastIndexOf(full); at >= 0; at = at > 0 ? file.lastIndexOf(full, at - 1) : -1) {
+        if (!/[가-힣]/.test(file[at + full.length] ?? '')) return at;
+      }
+      return -1;
+    };
+    const byFull = keys
+      .map((k) => ({ k, at: k.full.length >= 2 ? fullAt(k.full) : -1 }))
+      .filter((x) => x.at >= 0)
+      .sort((a, b) => b.k.full.length - a.k.full.length || b.at - a.at)[0];
+    // 온이름과 줄기 토막이 서로 다른 부서를 가리키면 뒤에 나온 쪽 (서식 이름_부서 꼴: "총무과 요청자료_기획예산")
+    const stemPos = byStem ? norm(tokens.slice(0, stemAt(byStem.stem)).join('')).length : -1;
+    const byFile = byFull && byStem && byFull.k !== byStem ? (stemPos > byFull.at ? byStem : byFull.k) : byFull?.k ?? byStem;
     if (byFile) return { dept: byFile.name, in_roster: true };
     // 3) 본문: 온이름 또는 "줄기+과·팀·동·실" 이 가장 먼저 나오는 부서
     const text = norm(h.text.slice(0, 4000));

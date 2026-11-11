@@ -30,7 +30,7 @@ const toImported = (f: FileEntry): ImportedFile => ({ path: f.path, name: f.name
 function RowStatus({ s }: { s?: RowState }) {
   if (!s || (s.status === "wait" && !s.note)) return <span className="kd-status"><Circle size={13} /> 대기</span>;
   if (s.status === "run") return <span className="kd-status" data-tone="busy"><Loader2 size={13} className="kd-spin" /> 하는 중</span>;
-  if (s.status === "ok" && s.warn) return <span className="kd-status" data-tone="warn" title={s.note}><AlertTriangle size={13} /> <span className="kd-status-note">{s.note ?? "확인 필요"}</span></span>;
+  if (s.status === "ok" && s.warn) return <span className="kd-status" data-tone="warn" title={s.note}><AlertTriangle size={13} /> <span className="kd-status-note" style={{ whiteSpace: "normal" }}>{s.note ?? "확인 필요"}</span></span>;
   if (s.status === "ok") return <span className="kd-status" data-tone="ok" title={s.note}><CheckCircle2 size={13} /> <span className="kd-status-note">{s.note ?? "완료"}</span></span>;
   if (s.status === "fail") return <span className="kd-status" data-tone="err"><XCircle size={13} /> 실패</span>;
   return <span className="kd-status" title={s.note}><Circle size={13} /> <span className="kd-status-note">{s.note}</span></span>;

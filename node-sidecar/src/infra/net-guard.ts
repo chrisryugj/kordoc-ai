@@ -61,12 +61,15 @@ export function netLogSnapshot(): { entries: NetLogEntry[]; external_sent: numbe
   return { entries: [...netLog].reverse(), external_sent: externalTotal };
 }
 
+/** 이름을 풀었더니 127.0.0.1 이 아닌 루프백(127.x.y.z)이 나왔다 — 가짜 주소를 돌려주는 프록시(DNS)를 거친 것이라 그 통신은 밖으로 나간다 */
+export const isFakeLoopback = (addr: string): boolean => /^127\./.test(addr) && addr !== '127.0.0.1';
+
 async function isExternalHost(host: string): Promise<boolean> {
   if (host === 'localhost') return false;
   const bare = host.replace(/^\[|\]$/g, '');
   if (isIP(bare)) return !isPrivateAddress(bare);
   const addrs = await lookup(host, { all: true }).catch(() => []);
-  return addrs.length === 0 || addrs.some((x) => !isPrivateAddress(x.address));
+  return addrs.length === 0 || addrs.some((x) => !isPrivateAddress(x.address) || isFakeLoopback(x.address));
 }
 
 /** 이 앱이 띄운 구독 프로그램(Claude Code·Codex)이 인터넷으로 나가기 전에 호출 — 기록을 남기고, 폐쇄망 모드면 throw.

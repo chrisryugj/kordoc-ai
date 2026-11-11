@@ -11,7 +11,7 @@
 
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
-import { readManifest, sectionHrefs } from './hwpx-merge.js';
+import { ensureVersionXml, readManifest, sectionHrefs } from './hwpx-merge.js';
 import { blankPng } from '../redact/preview.js';
 
 type El = Element;
@@ -137,6 +137,7 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
     const header = parser.parseFromString(await zip.file('Contents/header.xml')!.async('string'), 'text/xml');
     header.documentElement?.setAttribute('secCnt', '1');
     zip.file('Contents/header.xml', new XMLSerializer().serializeToString(header));
+    ensureVersionXml(zip);
     const mimetype = await zip.file('mimetype')?.async('uint8array');
     if (mimetype) zip.file('mimetype', mimetype, { compression: 'STORE' });
     parts.push(await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } }));

@@ -1,7 +1,7 @@
 /** 버전 찾기·최종본 찾기 (core/versions) — 실제 HWPX 판들을 만들어 고친 차례·최종 판정·짚을 것 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { copyFileSync, mkdirSync, utimesSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync, utimesSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { call, setupEnv } from './doc-helpers.js';
 import { splitName } from '../src/core/versions/index.js';
@@ -62,6 +62,24 @@ describe('find_versions', () => {
     expect(r.versions).toHaveLength(1);
     expect(r.notes).toContain('같은 문서의 다른 판을 찾지 못했습니다.');
     await expect(call('find_versions', { path: join(dir, 'a.png') })).rejects.toThrow(/한글·워드·PDF/);
+  }, 60_000);
+});
+
+describe('find_versions 범위(root)', () => {
+  it('root 를 주면 그 폴더 밖(위 폴더)의 판은 견주지도 알리지도 않는다', async () => {
+    const outside = join(dir, '..', '교육계획_진짜최종.hwpx');
+    copyFileSync(join(dir, '교육계획_최종 (2).hwpx'), outside);
+    utimesSync(outside, at(16), at(16));
+    try {
+      const open: VersionsResult = await call('find_versions', { path: join(dir, '교육계획_최종.hwpx') });
+      expect(open.versions.map((v) => basename(v.path))).toContain('교육계획_진짜최종.hwpx');
+      const fenced: VersionsResult = await call('find_versions', { path: join(dir, '교육계획_최종.hwpx'), root: dir });
+      expect(fenced.versions.map((v) => basename(v.path))).toEqual(['교육계획_초안.hwpx', '교육계획_수정.hwpx', '교육계획_최종.hwpx', '교육계획_최종 (2).hwpx']);
+      expect(basename(fenced.latest)).toBe('교육계획_최종 (2).hwpx');
+      expect(JSON.stringify(fenced)).not.toContain('진짜최종');
+    } finally {
+      rmSync(outside, { force: true });
+    }
   }, 60_000);
 });
 

@@ -17,6 +17,7 @@ import { formatOf } from '../files/format.js';
 import { parseCliJson, runKordocCli } from '../kordoc-cli.js';
 import { outputDir, outputFile, stemOf } from '../output/index.js';
 import { patchDocument } from '../hwpx-tools/index.js';
+import { withVersionXml } from '../merge/hwpx-merge.js';
 import { exportPdf } from '../export/index.js';
 import { imageToPdf, redactPdf } from './pdf.js';
 import { pictureNotes, scanPictures } from './pictures.js';
@@ -207,6 +208,12 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
         }
       }
     }
+  }
+  // 예전 판으로 만든 문서에는 version.xml 이 없다 → 가린 사본에는 넣어 둔다 (엄격한 판독기가 거부하지 않게)
+  if (report.output && !p.dry_run && format === 'hwpx') {
+    const bytes = new Uint8Array(await readFile(report.output));
+    const fixed = await withVersionXml(bytes);
+    if (fixed !== bytes) await writeFile(report.output, fixed);
   }
   } catch (err) {
     // 사본을 만든 뒤의 손질(남길 글 되살리기·주소 마저 가리기)이 실패하면 반쯤 가린 사본이나, 원본을 복사만 한 사본이

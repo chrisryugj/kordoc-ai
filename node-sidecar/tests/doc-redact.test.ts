@@ -339,6 +339,39 @@ describe('seal·patch_document·validate_hwpx', () => {
     expect(back.success && back.markdown).toContain('박가온');
   });
 
+  it('예전 판 HWPX(version.xml 없음)로 낸 사본에도 version.xml 을 넣는다 — 가리기·도장·고친 글 반영 결과가 구조 검사를 통과', async () => {
+    const JSZip = (await import('jszip')).default;
+    const old = async (from: string, name: string) => {
+      const zip = await JSZip.loadAsync(readFileSync(from));
+      zip.remove('version.xml');
+      const to = join(env.work, name);
+      writeFileSync(to, await zip.generateAsync({ type: 'nodebuffer' }));
+      return to;
+    };
+    const has = async (p: string) => !!(await JSZip.loadAsync(readFileSync(p))).file('version.xml');
+    const claim = await old(CLAIM, '옛청구서.hwpx');
+    expect(await has(claim)).toBe(false);
+    expect((await call('validate_hwpx', { path: claim })).ok).toBe(false);
+
+    const red = await call('redact', { path: claim });
+    expect(await has(red.output_path)).toBe(true);
+    expect((await call('validate_hwpx', { path: red.output_path })).ok).toBe(true);
+
+    const letter = await old(sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx'), '옛공문.hwpx');
+    const img = join(env.work, '도장.png');
+    writeFileSync(img, await makePng(200, 200, '印'));
+    const sealed = await call('seal', { path: letter, image_path: img, anchor: '(인)' });
+    expect(sealed.placed).toBe(1);
+    expect(await has(sealed.output_path)).toBe(true);
+
+    const form = await old(sample('취합/교육수요조사서_총무과.hwpx'), '옛조사서.hwpx');
+    const md = (await call('convert', { path: form, keep_layout: true, save: false })).content as string;
+    const patched = await call('patch_document', { path: form, markdown: md.replace('이가람', '박가온') });
+    expect(patched.applied).toBe(1);
+    expect(await has(patched.output_path)).toBe(true);
+    expect((await call('validate_hwpx', { path: patched.output_path })).ok).toBe(true);
+  }, 60_000);
+
   it('구조 검사 — 깨진 HWPX', async () => {
     const bad = join(env.work, '깨짐.hwpx');
     writeFileSync(bad, 'PK not really');

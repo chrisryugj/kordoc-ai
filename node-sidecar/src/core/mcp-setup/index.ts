@@ -191,6 +191,8 @@ export async function detectMcpEnv(): Promise<McpEnv> {
 
 export async function installMcpConfig(ids: string[], rootDir?: string): Promise<{ installed: string[]; failed: Array<{ client: string; error: string }> }> {
   const env: Record<string, string> = { KORDOC_MODEL_CACHE: modelCacheDir() };
+  // AI 프로그램은 자식에게 정해진 환경 변수만 넘긴다. 기관 정책 파일 자리(%ProgramData%)를 엔진이 찾을 수 있게 함께 적는다
+  if (process.platform === 'win32' && process.env.ProgramData) env.ProgramData = process.env.ProgramData;
   if (getSettings().privacy.offline) env.KORDOC_OFFLINE = '1';
   if (rootDir) env.KORDOC_ROOT = rootDir;
   if (!existsSync(engineEntryPath())) throw new Error('엔진 번들(dist/bundle.mjs)이 없어 등록할 수 없습니다. 개발 중이면 node scripts/build-sidecar.mjs 로 먼저 만드세요.');

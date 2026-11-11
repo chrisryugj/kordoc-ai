@@ -15,6 +15,7 @@ import {
   type FormFieldSchema, type BlockEdit, type DiffResult,
 } from 'kordoc';
 import { outputFile, stemOf } from '../output/index.js';
+import { withVersionXml } from '../merge/hwpx-merge.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 
@@ -145,7 +146,8 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   // 같은 이름이 여러 곳에 있는 칸은 넣지 않고 알린다 (대표자 칸에 다른 사람 값이 들어가는 일을 막는다)
   const src = toArrayBuffer(buffer);
   const fill = await fillWithUniqueGuard(values, (v, blocked) => fillHwpx(src, v, blocked));
-  const filledBuf = Buffer.from(fill.buffer);
+  // 예전 판으로 만든 양식에는 version.xml 이 없다 → 채운 문서에는 넣어 둔다
+  const filledBuf = Buffer.from(await withVersionXml(new Uint8Array(fill.buffer)));
 
   // 재파싱 검증 — 채움 결과가 파싱 가능하고 변경이 채움 범위 안인지 기계 증명
   sendProgress({ current: 2, total: 3, message: '다시 읽어 확인하는 중' });

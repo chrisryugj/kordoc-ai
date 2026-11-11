@@ -285,5 +285,22 @@ describe('기한 날짜 읽기', () => {
     expect(untilDates('2025.4.5까지 제출', '2025-03-01')).toEqual(['2025-04-05']);
     expect(untilDates('10.23까지 제출', '2025-10-01')).toEqual(['2025-10-23']);
     expect(untilDates('10. 23. 14시까지 제출', '2025-10-01')).toEqual(['2025-10-23']);
+    // 한 자리 월·일을 끝 점 없이 써도, 요청하는 말이 이어지거나 기간·이름표가 있으면 기한이다
+    expect(untilDates('5.9까지 제출하여 주시기 바랍니다', '2025-03-01')).toEqual(['2025-05-09']);
+    expect(untilDates('5.1~5.9까지', '2025-03-01')).toEqual(['2025-05-09']);
+    expect(untilDates('설문조사는 ~5.9 진행', '2025-03-01')).toEqual(['2025-05-09']);
+    expect(labeledDue('제출기한: 3.5', '2025-03-01')?.due).toBe('2025-03-05');
+    expect(labeledDue('제출기한: 5.9까지', '2025-03-01')?.due).toBe('2025-05-09');
+    expect(labeledDue('신청기간: 5.1~5.9', '2025-03-01')?.due).toBe('2025-05-09');
+  });
+
+  it('요일을 틀리게 적은 날짜의 기한을 지난해로 잡지 않는다', async () => {
+    const { untilDates } = await import('../src/core/inbox/dates.js');
+    // 2026-11-20 은 금요일이다
+    expect(untilDates('11. 20.(목)까지 제출', '2026-11-02')).toEqual(['2026-11-20']);
+    expect(untilDates('12. 1.(월)까지 제출', '2026-11-02')).toEqual(['2026-12-01']);
+    expect(untilDates('11. 20.(금)까지 제출', '2026-11-02')).toEqual(['2026-11-20']);
+    // 해를 넘기는 기한은 요일이 맞는 다음 해로
+    expect(untilDates('1. 5.(화)까지 제출', '2026-12-20')).toEqual(['2027-01-05']);
   });
 });

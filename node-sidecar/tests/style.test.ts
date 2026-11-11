@@ -123,6 +123,14 @@ describe('내용 다시 짜기', () => {
     expect(real.markdown).toBe('# 알림\n\n- 알립니다.\n');
   });
 
+  it('숫자로 시작하는 항목(연도·수량·분기)도 항목이다: 앞 항목에 한 줄로 붙지 않는다. 날짜 줄은 항목이 아니다', () => {
+    const r = normalizeContent('# 계획\n\n1. 추진 배경\n\n2. 2026년 추진 계획\n\n가. 1분기: 준비\n\n나. 2분기: 시행\n\n3. 3개 부서 합동 점검을 실시함\n\n4. 행정사항');
+    expect(r.markdown).toBe('# 계획\n\n- 추진 배경\n- 2026년 추진 계획\n  - 1분기: 준비\n  - 2분기: 시행\n- 3개 부서 합동 점검을 실시함\n- 행정사항\n');
+    const d = normalizeContent('# 알림\n\n1. 행사 일시는 아래와 같습니다.\n\n6. 26.(금) 14:00 대회의실에서 진행합니다.');
+    expect(d.markdown).toContain('6. 26.(금) 14:00');
+    expect(d.markdown).not.toContain('- 26.(금)');
+  });
+
   it('PDF 글의 "- 가." 목록 표시는 안쪽 기호로 읽고, 줄을 끊은 짧은 꼬리는 앞 항목에 잇는다', () => {
     const r = normalizeContent('# 계획\n\n1. 개최 계획을 수립하고\n\n보고합니다.\n\n- 가. 행사명: 심포지엄\n  - 나. 일시: 11월\n- 붙임 계획 1부.');
     expect(r.markdown).toBe('# 계획\n\n- 개최 계획을 수립하고 보고합니다.\n  - 행사명: 심포지엄\n  - 일시: 11월\n\n붙임  계획 1부.\n');

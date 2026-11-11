@@ -104,7 +104,11 @@ describe('부서 이름 맞추기', () => {
     // 토막이 줄기 그대로이거나 끝말만 다르면 그 부서
     expect(matchDept(roster, { path: '/x/수요조사_총무.hwpx', values: [], text: '' })).toEqual({ dept: '총무과', in_roster: true });
     expect(matchDept(roster, { path: '/x/수요조사 (홍보팀).hwpx', values: [], text: '' })).toEqual({ dept: '홍보과', in_roster: true });
-    expect(matchDept(roster, { path: '/x/교육과수요조사.hwpx', values: [], text: '' })).toEqual({ dept: '교육과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/교육과_수요조사.hwpx', values: [], text: '' })).toEqual({ dept: '교육과', in_roster: true });
+    // 온이름도 다른 낱말의 앞부분이면 아니다("교육과정"). 온이름과 줄기 토막이 다른 부서를 가리키면 뒤에 나온 쪽
+    expect(matchDept(roster, { path: '/x/2027 교육과정 수요조사_1.hwpx', values: [], text: '' }).in_roster).toBe(false);
+    expect(matchDept(roster, { path: '/x/교육과정 운영계획_총무.hwpx', values: [], text: '' })).toEqual({ dept: '총무과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/총무과 요청자료_홍보.hwpx', values: [], text: '' })).toEqual({ dept: '홍보과', in_roster: true });
   });
 
   it('열 이름: 띄어쓰기·괄호 설명·흔한 다른 이름', () => {

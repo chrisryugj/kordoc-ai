@@ -42,7 +42,9 @@ export async function rasterPdfPage(
   const { originalWidth, originalHeight } = page.getOriginalSize();
   // @hyzyla/pdfium 은 원본 폭을 내림한 뒤 배율을 곱하고 다시 내림한다 → 내림한 폭 기준 + 아주 조금 키워 정확히 maxWidth
   const scale = Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), Math.max(4, maxScale));
-  const r = await page.render({ scale, render: async ({ data }) => data });
+  // 입력 칸(양식 필드)에 적어 넣은 값도 그린다. 안 그리면 쪽을 그림으로 만드는 길(용량 줄이기·보안 PDF 합치기·쪽 그림 내보내기)에서
+  // 칸의 값이 통째로 빠진 결과가 정상처럼 나온다
+  const r = await page.render({ scale, renderFormFields: true, render: async ({ data }) => data });
   // @hyzyla/pdfium 의 bitmap 은 이미 RGBA 다 (BGRA 로 보고 바꾸면 빨강이 파랑이 됨: 실측)
   const img = sharp(Buffer.from(r.data), { raw: { width: r.width, height: r.height, channels: 4 } });
   const data = as === 'png' ? await img.png({ compressionLevel: 6 }).toBuffer() : await img.flatten({ background: '#ffffff' }).jpeg({ quality }).toBuffer();

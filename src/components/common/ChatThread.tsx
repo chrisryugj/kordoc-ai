@@ -9,22 +9,26 @@ import type { Citation } from "../../lib/contract";
 import type { ChatItem } from "../../hooks/useChat";
 import { baseName } from "../../lib/format";
 import { Note } from "./Status";
+import { markdownToPlain } from "../../../node-sidecar/src/core/converter/plain";
 
-/** 엔진이 줄 앞 날짜에 붙인 역슬래시("2026\. 5. 20.")와 굵게 표시를 걷는다 (이 화면은 글 그대로 보인다) */
-const unescapeMd = (s: string) => s.replace(/\\([.\-~*_#|>+()[\]])/g, "$1").replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, "$1");
+/** AI 답은 마크다운이다(## 제목·| 표 |·굵게·날짜 앞 역슬래시). 이 화면은 글 그대로 보이므로 꾸밈 표시를 걷는다 (표는 칸을 탭으로 이은 줄) */
+const unescapeMd = (s: string) => (s.trim() ? markdownToPlain(s).replace(/\n+$/, "") : s);
 
 function withCites(text: string, cites: Citation[] | undefined, onCite: (c: Citation) => void) {
-  return text.split(/(\[\d+\])/g).map((part, i) => {
-    const m = /^\[(\d+)\]$/.exec(part);
-    if (!m) return <Fragment key={i}>{part}</Fragment>;
-    const c = cites?.find((x) => x.n === Number(m[1]));
-    if (!c || !c.path) return <sup key={i} className="kd-cite-ref" data-bad="true" title="근거 조각이 없는 번호입니다">{m[1]}</sup>;
+  const ref = (n: string, key: string) => {
+    const c = cites?.find((x) => x.n === Number(n));
+    if (!c || !c.path) return <sup key={key} className="kd-cite-ref" data-bad="true" title="근거 조각이 없는 번호입니다">{n}</sup>;
     return (
-      <button key={i} type="button" className="kd-cite-ref" data-bad={!c.verified || undefined} onClick={() => onCite(c)}
+      <button key={key} type="button" className="kd-cite-ref" data-bad={!c.verified || undefined} onClick={() => onCite(c)}
         title={`${baseName(c.path)}${c.page ? ` ${c.page}쪽` : ""} 열기${c.verified ? "" : " (숫자 확인 필요)"}`}>
-        {m[1]}
+        {n}
       </button>
     );
+  };
+  // 엔진은 여러 근거를 [1, 2] 로 묶어 준다 → 번호마다 단추
+  return text.split(/(\[\d+(?:\s*,\s*\d+)*\])/g).map((part, i) => {
+    if (!/^\[\d+(?:\s*,\s*\d+)*\]$/.test(part)) return <Fragment key={i}>{part}</Fragment>;
+    return <Fragment key={i}>{part.slice(1, -1).split(",").map((n, k) => ref(n.trim(), `${i}-${k}`))}</Fragment>;
   });
 }
 

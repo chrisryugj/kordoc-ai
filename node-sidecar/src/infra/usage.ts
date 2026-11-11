@@ -66,22 +66,47 @@ interface UsageFile {
 const file = () => join(dataDir(), 'usage.json');
 let data: UsageFile | null = null;
 let saveTimer: NodeJS.Timeout | null = null;
+/** 기록 파일을 잠깐 못 읽은 채(다른 프로세스가 쥠) 빈 기록으로 시작했다 — 그대로 저장하면 지난 기록이 지워지니 저장 전에 다시 읽어 합친다 */
+let unread = false;
 
 function load(): UsageFile {
   if (data) return data;
   try {
     if (existsSync(file())) data = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
   } catch (err) {
+    unread = !(err instanceof SyntaxError);
     logger.warn(`[usage] 기록 파일을 못 읽어 새로 시작: ${err}`);
   }
   if (!data || data.version !== 1) data = { version: 1, since: new Date().toISOString(), months: {} };
   return data;
 }
 
+/** 못 읽고 시작한 기록을 파일의 기록과 합친다. 아직도 못 읽으면 false (이번 저장은 건너뛴다) */
+function mergeUnread(): boolean {
+  if (!unread || !data) return true;
+  try {
+    if (existsSync(file())) {
+      const old = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
+      if (old?.version === 1) {
+        for (const [mon, counts] of Object.entries(old.months ?? {})) {
+          const m = (data.months[mon] ??= {});
+          for (const [k, v] of Object.entries(counts)) m[k] = (m[k] ?? 0) + v;
+        }
+        if (old.since < data.since) data.since = old.since;
+      }
+    }
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) return false;
+  }
+  unread = false;
+  return true;
+}
+
 function scheduleSave(): void {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
+    if (!mergeUnread()) return;
     try {
       mkdirSync(dataDir(), { recursive: true });
       const tmp = `${file()}.tmp`;
@@ -99,6 +124,7 @@ export function flushUsage(): void {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = null;
+  if (!mergeUnread()) return;
   try {
     mkdirSync(dataDir(), { recursive: true });
     writeFileSync(file(), JSON.stringify(data), 'utf-8');
@@ -170,5 +196,6 @@ export function usageReport(range: 'month' | 'all' = 'month'): { range: string; 
 
 export async function usageReset(): Promise<void> {
   data = { version: 1, since: new Date().toISOString(), months: {} };
+  unread = false;
   scheduleSave();
 }

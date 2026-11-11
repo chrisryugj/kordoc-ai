@@ -30,9 +30,36 @@ for (const name of STAGED_EXTERNALS) {
 rmSync(STAGE, { recursive: true, force: true });
 rmSync(TARGET, { recursive: true, force: true });
 mkdirSync(STAGE, { recursive: true });
-// 보안 강제 판(overrides)은 설치본에도 똑같이 — 레포 lockfile 만 고치면 설치본에는 취약한 판이 실린다
-const { overrides } = JSON.parse(readFileSync('package.json', 'utf-8'));
-writeFileSync(join(STAGE, 'package.json'), JSON.stringify({ name: 'kordoc-sidecar-natives', private: true, dependencies: deps, ...(overrides ? { overrides } : {}) }, null, 2));
+// 전이 의존도 잠금 파일(package-lock.json)의 판으로 고정한다. 고정하지 않으면 설치할 때마다 그날 나온 새 판이 깔려,
+// 시험은 잠금 판으로 돌고 설치본에는 시험한 적 없는 판이 실린다 (실측: onnxruntime-node·MCP SDK 등 18개가 어긋나 있었다)
+//  - 잠금 파일에 판이 하나뿐인 이름: 그 판으로
+//  - 판이 여럿인데 메이저가 서로 다른 이름: 메이저별로 ("이름@6": "6.4.0")
+//  - 직접 의존(위 deps)은 이미 정확한 판이라 뺀다 (npm 은 직접 의존과 다른 override 를 거부한다)
+const locked = new Map();
+for (const [key, v] of Object.entries(JSON.parse(readFileSync('package-lock.json', 'utf-8')).packages ?? {})) {
+  const at = key.lastIndexOf('node_modules/');
+  if (at < 0 || !v.version) continue;
+  const name = key.slice(at + 'node_modules/'.length);
+  if (!locked.has(name)) locked.set(name, new Set());
+  locked.get(name).add(v.version);
+}
+const pins = {};
+for (const [name, set] of locked) {
+  if (name in deps) continue;
+  const versions = [...set];
+  if (versions.length === 1) { pins[name] = versions[0]; continue; }
+  const majors = versions.map((v) => v.split('.')[0]);
+  if (new Set(majors).size === versions.length && majors.every((m) => /^\d+$/.test(m))) versions.forEach((v, i) => { pins[`${name}@${majors[i]}`] = v; });
+}
+// 보안 강제 판(package.json overrides)은 설치본에도 똑같이 — 레포 lockfile 만 고치면 설치본에는 취약한 판이 실린다.
+// 잠금 파일은 이 강제 판을 적용해 만든 것이라, 그 이름의 잠금 판이 하나면 그 판으로 고정하고(범위 "^4.6.7" 보다 정확하다)
+// 아니면 강제 판 범위를 그대로 둔다
+const overrides = { ...JSON.parse(readFileSync('package.json', 'utf-8')).overrides };
+for (const name of Object.keys(overrides)) {
+  if (name in pins) delete overrides[name];
+  else for (const k of Object.keys(pins)) if (k.startsWith(`${name}@`)) delete pins[k];
+}
+writeFileSync(join(STAGE, 'package.json'), JSON.stringify({ name: 'kordoc-sidecar-natives', private: true, dependencies: deps, overrides: { ...pins, ...overrides } }, null, 2));
 console.log('[stage] 설치:', Object.entries(deps).map(([k, v]) => `${k}@${v}`).join(' '));
 
 const npm = process.env.npm_execpath && process.env.npm_execpath.endsWith('.js')
@@ -54,6 +81,29 @@ for (let i = 0; ; i++) {
   }
 }
 rmSync(STAGE, { recursive: true, force: true });
+
+// 깔린 판이 잠금 파일에 있는 판인지 본다 (고정이 먹지 않은 이름을 조용히 넘기지 않는다)
+const drift = [];
+(function check(nm) {
+  for (const e of readdirSync(nm, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const names = e.name.startsWith('@') ? readdirSync(join(nm, e.name)).map((d) => `${e.name}/${d}`) : [e.name];
+    for (const name of names) {
+      const pj = join(nm, name, 'package.json');
+      if (!existsSync(pj)) continue;
+      const { version } = JSON.parse(readFileSync(pj, 'utf-8'));
+      if (!locked.get(name)?.has(version)) drift.push(`${name}@${version} (잠금: ${[...(locked.get(name) ?? ['없음'])].join(', ')})`);
+      if (existsSync(join(nm, name, 'node_modules'))) check(join(nm, name, 'node_modules'));
+    }
+  }
+})(TARGET);
+if (drift.length) {
+  const msg = `[stage] 잠금 파일과 다른 판이 깔렸다 — 시험하지 않은 판이 설치본에 실린다:\n  ${drift.join('\n  ')}`;
+  if (process.env.CI) throw new Error(msg);
+  console.warn(`${msg}\n  (개발 PC 라 계속)`);
+} else {
+  console.log('[stage] 깔린 판이 모두 잠금 파일과 같다');
+}
 
 // ── 가지치기 ──
 const plat = process.platform; // darwin | win32 | linux

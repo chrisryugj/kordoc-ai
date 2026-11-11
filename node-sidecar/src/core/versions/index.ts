@@ -96,11 +96,19 @@ async function listCandidates(target: string): Promise<string[]> {
 const day = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}. ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const isFinal = (m: string[]) => m.some((x) => /최종|final/i.test(x));
 
-export async function findVersions(path: string, signal?: AbortSignal): Promise<VersionsResult> {
+export async function findVersions(path: string, signal?: AbortSignal, within?: string): Promise<VersionsResult> {
   const target = resolve(path);
   const family = FAMILY[formatOf(target)];
   if (!family) throw new Error('버전을 찾을 수 있는 문서가 아닙니다. 한글·워드·PDF·엑셀·파워포인트 파일을 고르세요.');
-  const all = await listCandidates(target);
+  // within: 이 폴더 안의 파일만 본다 (MCP 허용 폴더). 위 폴더까지 훑은 뒤에 결과만 거르면 "짚을 것"·"까닭"에 밖의 파일 이름이 실리고
+  // 최종본 판단도 밖의 판 기준으로 어긋난다 → 견주기 전에 거른다
+  const inside = (p: string) => {
+    if (!within) return true;
+    const root = resolve(within).toLowerCase().replace(/[\\/]+$/, '');
+    const full = resolve(p).toLowerCase();
+    return full === root || full.startsWith(`${root}\\`) || full.startsWith(`${root}/`);
+  };
+  const all = (await listCandidates(target)).filter(inside);
   const me = splitName(target);
   const myBody = await bodyOf(target, signal);
 

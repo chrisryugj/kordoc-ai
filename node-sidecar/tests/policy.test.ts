@@ -338,6 +338,12 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     // 물려주기 전용 항목은 그 파일에는 적용되지 않지만, 폴더에서는 새 파일에 물려준다
     expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;OICIIO;FA;;;BU)')).toBe(false);
     expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;OICIIO;FA;;;BU)', true)).toBe(true);
+    // 조건식 글자 안의 "S:" 를 감사 목록의 시작으로 보고 그 뒤 허용 항목을 놓치지 않는다
+    expect(writableByOthers('O:BAG:SYD:(XA;;0x1;;;WD;(@User.x=="S:"))(A;OICI;FA;;;WD)')).toBe(true);
+    expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)S:(AU;SA;FA;;;WD)')).toBe(false);
+    // 권한 목록이 없는 꼴(누구나 모든 권한)과 소문자로 적힌 항목
+    expect(writableByOthers('O:BAG:SYD:NO_ACCESS_CONTROL')).toBe(true);
+    expect(writableByOthers('O:BAG:SYD:(a;;fa;;;wd)')).toBe(true);
     // 거부 항목·관리자 항목은 위험이 아니다. 권한 목록을 못 읽으면 믿지 않는다
     expect(writableByOthers('O:BAG:SYD:(D;;FA;;;BU)(A;;FA;;;SY)S:(AU;SA;FA;;;WD)')).toBe(false);
     expect(writableByOthers('O:BAG:SY')).toBe(true);

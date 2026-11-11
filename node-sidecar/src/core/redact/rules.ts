@@ -71,7 +71,9 @@ export function tighten(text: string, lines = false): { text: string; at: number
       while (gap(text[j])) j++;
       const prev = out.at(-1) ?? '';
       const next = text[j] ?? '';
-      const joins = prev === '@' || next === '@'
+      // 줄을 넘어 붙일 때, 다음 줄이 "- " 로 시작하면 목록 표지다 ("총 인원 900101" / "- 1234567명 참석" 을 주민번호로 잇지 않는다)
+      const listItem = lines && next === '-' && /[\n\r]/.test(text.slice(i, j)) && /\s/.test(text[j + 1] ?? '');
+      const joins = listItem ? false : prev === '@' || next === '@'
         || (next === '-' && /\d/.test(prev))
         || (prev === '-' && /\d/.test(next) && /\d/.test(out.at(-2) ?? ''));
       if (joins) { i = j - 1; continue; }

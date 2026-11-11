@@ -34,13 +34,17 @@ export const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
 export const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
 
+/** 윈도의 기계 전체 자료 폴더. MCP 서버로 뜬 엔진은 AI 프로그램이 넘기는 좁은 환경만 받아 ProgramData 변수가 없을 수 있다.
+ *  그때 이 자리를 후보에서 빼면 기관이 고정한 폐쇄망 모드·AI 서버 주소가 MCP 쪽에서만 풀린다 → 다른 변수와 기본 자리로 찾는다 */
+const programData = (env: NodeJS.ProcessEnv): string => env.ProgramData || env.PROGRAMDATA || env.ALLUSERSPROFILE || `${env.SystemDrive || 'C:'}\\ProgramData`;
+
 /** 찾을 자리, 앞에서부터 */
 export function policyCandidates(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, execPath = process.execPath): string[] {
   const path = platform === 'win32' ? win32 : posix;
   const out: string[] = [];
   const fromEnv = env.KORDOC_AI_POLICY?.trim();
   if (fromEnv) out.push(fromEnv);
-  if (platform === 'win32' && env.ProgramData) out.push(path.join(env.ProgramData, 'KorDoc AI', 'policy.json'));
+  if (platform === 'win32') out.push(path.join(programData(env), 'KorDoc AI', 'policy.json'));
   if (platform === 'darwin') out.push('/Library/Application Support/KorDoc AI/policy.json');
   // 설치본은 동봉 Node(<resources>/node/node[.exe])로 돈다 → <resources>/policy.json (Windows 는 설치 폴더)
   const nodeDir = path.dirname(execPath);
@@ -75,11 +79,19 @@ const DIR_WRITE = 0x40 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000;
 export function writableByOthers(sddl: string, folder = false): boolean {
   const from = sddl.indexOf('D:');
   if (from < 0) return true; // 권한 목록이 없으면(읽지 못했으면) 믿지 않는다
-  const sacl = sddl.indexOf('S:', from);
+  // 감사 목록(S:)의 시작은 괄호 밖에서만 찾는다. 조건식 글자 안의 "S:" 에서 자르면 그 뒤의 허용 항목을 못 본다
+  let sacl = -1;
+  for (let i = from + 2, depth = 0; i < sddl.length - 1; i++) {
+    if (sddl[i] === '(') depth++;
+    else if (sddl[i] === ')') depth = Math.max(0, depth - 1);
+    else if (!depth && sddl[i] === 'S' && sddl[i + 1] === ':') { sacl = i; break; }
+  }
   const dacl = sddl.slice(from, sacl < 0 ? undefined : sacl);
+  // 권한 목록이 아예 없는 꼴(널 DACL)은 누구나 모든 권한이다
+  if (/NO_ACCESS_CONTROL/i.test(dacl)) return true;
   const danger = folder ? DIR_WRITE : FILE_WRITE;
   for (const m of dacl.matchAll(/\(([^)]*)\)/g)) {
-    const [type = '', flags = '', rights = '', , , sid = ''] = m[1].split(';');
+    const [type = '', flags = '', rights = '', , , sid = ''] = m[1].split(';').map((x, i) => (i === 2 && /^0x/i.test(x) ? x : x.toUpperCase()));
     if (type !== 'A' && type !== 'XA') continue;
     // 파일에서는 "물려주기 전용" 항목이 그 파일에 적용되지 않는다. 폴더에서는 물려줄 권한도 본다
     if (!folder && flags.includes('IO')) continue;
@@ -131,7 +143,7 @@ export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = p
 /** 이 자리는 기계 전체 정책 자리인가 (환경 변수로 준 자리·설치 폴더는 아니다: 그 사용자 자신만 바꿀 수 있다) */
 function isMachineSpot(source: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
   if (env.KORDOC_AI_POLICY?.trim() === source) return false;
-  if (platform === 'win32') return !!env.ProgramData && win32.normalize(source).toLowerCase() === win32.join(env.ProgramData, 'KorDoc AI', 'policy.json').toLowerCase();
+  if (platform === 'win32') return win32.normalize(source).toLowerCase() === win32.join(programData(env), 'KorDoc AI', 'policy.json').toLowerCase();
   return platform === 'darwin' && source === '/Library/Application Support/KorDoc AI/policy.json';
 }
 

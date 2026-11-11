@@ -258,6 +258,12 @@ export function updateSettings(patch: Record<string, unknown>): Promise<Settings
 }
 
 async function applyUpdate(patch: Record<string, unknown>): Promise<Settings> {
+  // 설정 파일을 읽지 못해(다른 프로그램이 쥠) 기본값으로 열려 있는 채로 저장하면 파일의 AI 키·기관 정보·결재선이 통째로 덮인다
+  // → 다시 읽어 보고, 그래도 못 읽으면 저장하지 않는다
+  if (loadedAt === -1) {
+    reload();
+    if (loadedAt === -1) throw new Error('설정 파일을 지금 읽을 수 없어 저장하지 않았습니다. 잠시 뒤 다시 저장하세요. 계속되면 앱을 끝냈다 다시 켜세요.');
+  }
   const shown = getSettings() as unknown as Obj;
   const sanitized: Record<string, unknown> = {};
   for (const key of Object.keys(patch)) {

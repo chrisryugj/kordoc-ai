@@ -386,12 +386,15 @@ export interface WorkScope {
 function mentioned(raw: string, said: string): boolean {
   const flat = (t: string) => t.normalize('NFC').replace(/\\/g, '/').toLowerCase();
   const p = flat(resolve(raw));
-  if (said.includes(p)) return true;
+  // 적은 글이 거기서 끝나야 한다: "계획서.hwpx" 를 적었다고 "계획서.hwp" 를 맡긴 것이 아니다 (뒤에 조사·빈칸·문장부호는 온다)
+  const ends = (at: number, len: number) => !/[a-z0-9]/.test(said[at + len] ?? '');
+  for (let at = said.indexOf(p); at >= 0; at = said.indexOf(p, at + 1)) if (ends(at, p.length)) return true;
   const name = p.slice(p.lastIndexOf('/') + 1);
   // 파일 이름은 낱말로 적혔을 때만 ("최종보고서.hwp" 를 적었다고 "보고서.hwp" 를 맡긴 것은 아니다)
   if (name.length >= 5 && /\.[a-z0-9]{2,5}$/.test(name)) {
     for (let at = said.indexOf(name); at >= 0; at = said.indexOf(name, at + 1)) {
-      if (at === 0 || /[\s"'‘“`(\[<,/]/.test(said[at - 1])) return true;
+      // 경로의 끝 이름으로 적힌 것("d:/가/계획.hwp")은 그 경로 하나를 적은 것이다 → 같은 이름의 다른 폴더 파일까지 맡긴 것으로 보지 않는다
+      if ((at === 0 || /[\s"'‘“`(\[<,]/.test(said[at - 1])) && ends(at, name.length)) return true;
     }
   }
   // 폴더를 적었으면 그 안의 파일 (드라이브만 적은 것은 치지 않는다). 더 긴 경로의 앞부분이 아니라 폴더 이름이 거기서 끝난 것만:
@@ -399,7 +402,10 @@ function mentioned(raw: string, said: string): boolean {
   for (let dir = p.slice(0, p.lastIndexOf('/')); dir.split('/').length > 1 && dir.length > 3; dir = dir.slice(0, dir.lastIndexOf('/'))) {
     for (let at = said.indexOf(dir); at >= 0; at = said.indexOf(dir, at + 1)) {
       const rest = said.slice(at + dir.length);
-      if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest) || /^\/?[,.]?(?:\s|$)/.test(rest) && !/^\/?[,.]?\s+[^\s/]*\//.test(rest)) return true;
+      // 뒤에 빈칸이 오고 같은 줄에서 다른 경로의 시작(x:) 없이 "/" 가 이어지면 빈칸이 든 더 긴 폴더 이름이다("2026 예산 최종/계획.hwp")
+      // 파일 이름으로 끝나도 마찬가지다("2026 예산 계획.hwp": 폴더 2026 이 아니라 그 이름의 파일을 적은 것)
+      const longer = /^\/?[,.]?[^\S\n]+[^/\n:]*(?:\/|\.[a-z0-9]{2,5}(?![a-z0-9]))/.test(rest);
+      if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest) || (/^\/?[,.]?(?:\s|$)/.test(rest) && !longer)) return true;
     }
   }
   return false;
@@ -435,14 +441,9 @@ export async function runWorkTool(name: string, input: Record<string, unknown>, 
   // 폴더를 펼친 목록도 허용 폴더 안만 (폴더 안의 정션·링크가 밖을 가리킬 수 있다)
   const run: Dispatch = root
     ? (async (m, p) => {
-      const r = await d(m, p);
-      // 판 찾기는 대상의 위 폴더도 훑는다 → 허용 폴더 밖 파일의 이름·경로가 결과에 실리지 않게 거른다
-      if (m === 'find_versions') {
-        const v = r as RpcResult<'find_versions'>;
-        const versions = v.versions.filter((x) => !outsideRoot({ path: x.path }, root));
-        const latest = versions.some((x) => x.path === v.latest) ? v.latest : versions[versions.length - 1]?.path ?? v.latest;
-        return { ...v, versions, latest } as never;
-      }
+      // 판 찾기는 대상의 위 폴더도 훑는다 → 허용 폴더 안의 파일만 견주게 한다
+      // (결과만 거르면 "짚을 것"·"까닭"에 밖의 파일 이름이 남고 최종본 판단도 밖의 판 기준이 된다)
+      const r = await d(m, (m === 'find_versions' ? { ...(p as object), root } : p) as never);
       if (m !== 'scan_paths') return r;
       const s = r as RpcResult<'scan_paths'>;
       const files = s.files.filter((f) => !outsideRoot({ path: f.path }, root));

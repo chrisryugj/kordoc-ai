@@ -24,6 +24,9 @@ export function FirstRunWizard() {
   const startSample = useStartSample();
   const meta = useGongmunMeta();
   const [step, setStep] = useState(0);
+  /** 늦게 끝난 일이 지금 단계를 볼 때 쓴다 */
+  const stepRef = useRef(0);
+  stepRef.current = step;
   const [org, setOrg] = useState<Settings["org"]>(settings!.org);
   // 기관 배포 설정 등으로 이미 정해진 AI 갈래가 있으면 그것부터 (기본 "이 PC 안"으로 덮어쓰지 않게)
   const saved = settings!.ai.provider;
@@ -102,8 +105,9 @@ export function FirstRunWizard() {
       if (!sv) return;
       const f = { base_url: sv.base_url, model: sv.models.includes(localModel) ? localModel : firstChatModel(sv.models) };
       setFound(f);
-      // 아직 고르지 않았고 AI 없이가 기본이면, 찾은 AI 를 추천 기본값으로
-      if (!picked.current && startRoute === "none" && !pinned && !lk("ai.local.base_url")) usesFound(f);
+      // 아직 고르지 않았고 AI 없이가 기본이면, 찾은 AI 를 추천 기본값으로.
+      // 찾기가 늦게 끝나 이미 다음 단계로 넘어갔으면 바꾸지 않는다 (사용자가 본 갈래와 저장되는 갈래가 달라진다)
+      if (stepRef.current === 1 && !picked.current && startRoute === "none" && !pinned && !lk("ai.local.base_url")) usesFound(f);
     }, () => undefined);
   }, [step, found, ready, localModel]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickPc = () => {

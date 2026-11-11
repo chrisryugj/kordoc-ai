@@ -264,6 +264,15 @@ export function withDocDefaults(donorStylesXml: string, baseStylesXml: string): 
   const base = docDefaults(baseStylesXml);
   const flat = (s: string) => topLevel(s).map((k) => k.xml.replace(/\s+/g, ' ')).sort().join('');
   if (flat(own.rPr) === flat(base.rPr) && flat(own.pPr) === flat(base.pPr)) return donorStylesXml;
+  // 첫 문서 기본값에만 있는 속성은 규격의 기본값을 적는다. 뒤 문서에 그 속성이 없다는 것은 규격 기본값(10pt·문단 간격 0)을 쓴다는 뜻인데,
+  // 합본에서는 그 자리에 첫 문서 기본값(11pt·문단 뒤 8pt)이 먹는다
+  const SPEC: Record<string, string> = {
+    sz: '<w:sz w:val="20"/>', szCs: '<w:szCs w:val="20"/>',
+    spacing: '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>',
+  };
+  const withSpec = (mine: string, theirs: string) => mine + topLevel(theirs).filter((b) => SPEC[b.tag] && !topLevel(mine).some((o) => o.tag === b.tag)).map((b) => SPEC[b.tag]).join('');
+  own.rPr = withSpec(own.rPr, base.rPr);
+  own.pPr = withSpec(own.pPr, base.pPr);
   const fill = (have: string, defaults: string, order?: string[]) => {
     const kids = topLevel(have);
     const merged = [...topLevel(defaults).filter((d) => !kids.some((k) => k.tag === d.tag)), ...kids];

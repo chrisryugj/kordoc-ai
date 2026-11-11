@@ -11,6 +11,26 @@
 
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
+import { VERSION } from 'kordoc';
+
+/** OWPML 필수 항목 version.xml 이 없으면 넣는다. 예전 판으로 만든 문서에는 이 항목이 없어, 그런 문서를 합치거나 나눈 결과를
+ *  엄격한 판독기가 거부한다. 내용은 엔진이 새 문서에 쓰는 것과 같다 */
+/** HWPX 바이트에 version.xml 이 없으면 넣은 바이트를, 있으면(또는 HWPX 묶음이 아니면) 받은 그대로 돌려준다.
+ *  엔진이 낸 사본(고친 글 반영·도장·양식 채우기·가리기)의 끝에서 부른다 */
+export async function withVersionXml<T extends Uint8Array>(bytes: T): Promise<T | Uint8Array> {
+  let zip: JSZip;
+  try { zip = await JSZip.loadAsync(bytes); } catch { return bytes; }
+  if (zip.file('version.xml') || !zip.file('mimetype') || !zip.file('Contents/header.xml')) return bytes;
+  ensureVersionXml(zip);
+  // HWPX 규칙: mimetype 은 맨 앞·압축 없음
+  zip.file('mimetype', await zip.file('mimetype')!.async('uint8array'), { compression: 'STORE' });
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+}
+
+export function ensureVersionXml(zip: JSZip): void {
+  if (zip.file('version.xml')) return;
+  zip.file('version.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.4" application="kordoc" appVersion="${VERSION}"/>`);
+}
 
 type El = Element;
 type IdMap = Map<string, string>;
@@ -269,6 +289,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
   header.documentElement?.setAttribute('secCnt', String(sectionNo));
   zip.file(headerPath, new XMLSerializer().serializeToString(header));
   zip.file(hpfPath, hpf);
+  ensureVersionXml(zip);
   // HWPX 규칙: mimetype 은 맨 앞·압축 없음
   const mimetype = await zip.file('mimetype')?.async('uint8array');
   if (mimetype) zip.file('mimetype', mimetype, { compression: 'STORE' });
