@@ -48,7 +48,7 @@ export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLa
             <thead><tr><th>문서</th>{outcome.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
             <tbody>
               {outcome.rows.map((r, i) => (
-                <tr key={i}><td className="kd-small">{r["문서"] ?? ""}</td>{outcome.columns.map((c) => <td key={c}>{r[c] ?? ""}</td>)}</tr>
+                <tr key={i}><td className="kd-small">{r["파일"] ?? r["문서"] ?? ""}</td>{outcome.columns.map((c) => <td key={c}>{r[c] ?? ""}</td>)}</tr>
               ))}
             </tbody>
           </table>

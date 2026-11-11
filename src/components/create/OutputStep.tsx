@@ -11,7 +11,7 @@ import { useApp } from "../../state/app";
 import { useCreate, visibleField } from "./session";
 import { rpc } from "../../lib/rpc";
 import { pickFiles, pickSavePath } from "../../lib/native";
-import { formatOf, joinPath, stem } from "../../lib/format";
+import { baseName, formatOf, joinPath, stem } from "../../lib/format";
 import { firstPage, previewOf, RhwpPreview } from "../../lib/rhwp-preview";
 import { useTask } from "../../hooks/useTask";
 import type { PagePreview, RedactResult } from "../../lib/contract";
@@ -21,6 +21,7 @@ import { Check, SelectField } from "../common/Field";
 import { ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { OrderList } from "../common/OrderList";
 import { RULES } from "../workbench/tools/RedactTool";
+import { keepFromSettings } from "../workbench/tools/ReviewTool";
 
 /** 돌던 작업을 결과 없는 빈 작업으로 밀어낸다 (결과·오류를 지우고, 늦게 끝난 앞 작업의 결과는 버려진다) */
 const supersede = <T,>(t: { run: (fn: () => Promise<T>) => Promise<T | null> }) => void t.run(async () => null as unknown as T);
@@ -56,7 +57,7 @@ export function OutputStep({ active }: { active: boolean }) {
   const print = useTask<string>();
   const seal = useTask<{ output_path: string; placed: number }>();
   const redact = useTask<RedactResult>();
-  const bundle = useTask<{ output_path: string; page_count: number }>();
+  const bundle = useTask<{ output_path: string; page_count: number; failed?: Array<{ path: string; error?: string }> }>();
   const lastSession = useRef("");
   /** 안내 글자 질문의 답 — 편집기에 같은 문서가 열려 있는 동안(docSeq) 다시 묻지 않는다 */
   const guideAnswer = useRef<{ seq: number; answer: "clear" | "keep" } | null>(null);
@@ -235,7 +236,8 @@ export function OutputStep({ active }: { active: boolean }) {
     if (!near && !target) return;
     void redact.run(async () => {
       const path = await latest(p);
-      return rpc("redact", { path, rules: RULES.filter((r) => r.on).map((r) => r.id), ...(target ? { output_path: target } : { output_dir: near }) });
+      // 기관 대표번호·팩스·담당자는 남긴다 (가리기 도구·서무 도구와 같게. 안 넘기면 공개용 사본의 문의처까지 가려진다)
+      return rpc("redact", { path, rules: RULES.filter((r) => r.on).map((r) => r.id), keep: keepFromSettings(settings?.org), ...(target ? { output_path: target } : { output_dir: near }) });
     });
   })();
 
@@ -330,8 +332,12 @@ export function OutputStep({ active }: { active: boolean }) {
                 <>
                   <SavedFile path={redact.result.output_path} label={`개인정보 ${redact.result.total}건을 가린 사본을 저장했습니다`} />
                   {redact.result.residual > 0 && <Note tone="warn">다시 검사했더니 의심 {redact.result.residual}곳이 남았습니다. 사본을 열어 확인하세요.</Note>}
+                  {redact.result.notes?.map((n) => <Note key={n} tone="warn">{n}</Note>)}
+                  {!!redact.result.unchecked_rules?.length && <Note tone="info">여기서는 고른 항목(번호·전자우편)만 가립니다. 이름·주소까지 가리려면 문서 화면의 개인정보 가리기 도구를 쓰세요.</Note>}
                 </>
               )}
+              {/* 가릴 것이 없으면 엔진이 사본을 만들지 않는다 → 아무 반응 없이 끝나지 않게 알린다 */}
+              {redact.result && !redact.result.output_path && <Note tone="info">고른 항목에서 개인정보를 찾지 못해 사본을 만들지 않았습니다. 지금 문서를 그대로 내보내도 됩니다.{redact.result.notes?.length ? ` ${redact.result.notes.join(" ")}` : ""}</Note>}
             </Row>
 
             <Row mark="바." title="붙임 합본 PDF" desc="본문과 붙임을 PDF 한 권으로">
@@ -348,6 +354,13 @@ export function OutputStep({ active }: { active: boolean }) {
               )}
               <ErrorLine message={bundle.error} />
               {bundle.result && <SavedFile path={bundle.result.output_path} label={`${bundle.result.page_count}쪽짜리 합본을 저장했습니다`} />}
+              {/* 빠진 붙임을 알린다 (말없이 빠진 합본을 그대로 결재·발송하지 않게) */}
+              {!!bundle.result?.failed?.length && (
+                <Note tone="warn">
+                  붙임 {bundle.result.failed.length}건은 합본에 넣지 못했습니다. 그 파일을 확인한 뒤 다시 만드세요.
+                  <ul className="mt-1">{bundle.result.failed.map((f) => <li key={f.path} className="kd-small">{baseName(f.path)}: {f.error ?? "읽지 못했습니다"}</li>)}</ul>
+                </Note>
+              )}
             </Row>
           </>
         )}

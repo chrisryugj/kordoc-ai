@@ -6,7 +6,9 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { extractClickHereFields, redactMarkdown } from 'kordoc';
+import { extractClickHereFields } from 'kordoc';
+// 가리기 도구와 같은 규칙으로 본다 (보충 주소 규칙 포함. 점검은 0건인데 가리기에서는 걸리면 안 된다)
+import { redactMarkdown } from '../redact/rules.js';
 import type { LintFinding, PrecheckResult, RedactRule } from '../../types/rpc-contract.js';
 import { parseDoc } from '../converter/index.js';
 import { formatOf, TEXT_FORMATS } from '../files/format.js';

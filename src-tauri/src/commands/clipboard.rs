@@ -2,10 +2,12 @@ use crate::error::AppError;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 파일 이름에 붙일 확장자 — 영문·숫자 1~5자만 (그 밖은 png). 화면이 넘긴 값을 그대로 이름에 넣으면 `x\..\..` 꼴로 임시 폴더 밖에 쓸 수 있다
+/// 파일 이름에 붙일 확장자 — 그림 형식만 (그 밖은 png). 화면이 넘긴 값을 그대로 이름에 넣으면 `x\..\..` 꼴로 임시 폴더 밖에 쓰거나
+/// 실행 파일 확장자(exe·bat)로 임시 폴더에 파일을 만들 수 있다
 fn safe_ext(ext: Option<&str>) -> String {
-    match ext {
-        Some(e) if (1..=5).contains(&e.len()) && e.chars().all(|c| c.is_ascii_alphanumeric()) => e.to_ascii_lowercase(),
+    const IMAGES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"];
+    match ext.map(|e| e.to_ascii_lowercase()) {
+        Some(e) if IMAGES.contains(&e.as_str()) => e,
         _ => "png".to_string(),
     }
 }
@@ -15,8 +17,21 @@ fn safe_ext(ext: Option<&str>) -> String {
 fn clipboard_dir() -> Result<PathBuf, AppError> {
     let dir = std::env::temp_dir().join("kordoc-ai");
     std::fs::create_dir_all(&dir)?;
+    sweep(&dir);
+    Ok(dir)
+}
+
+/// 앱을 켤 때도 치운다 (한 번 붙여 넣고 다시 붙여 넣지 않으면 그 파일이 계속 남는다)
+pub fn sweep_old() {
+    let dir = std::env::temp_dir().join("kordoc-ai");
+    if dir.is_dir() {
+        sweep(&dir);
+    }
+}
+
+fn sweep(dir: &std::path::Path) {
     let old = SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 3600);
-    if let Ok(entries) = std::fs::read_dir(&dir) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             let stale = e.metadata().and_then(|m| m.modified()).map(|t| t < old).unwrap_or(false);
@@ -25,7 +40,6 @@ fn clipboard_dir() -> Result<PathBuf, AppError> {
             }
         }
     }
-    Ok(dir)
 }
 
 /// 클립보드 이미지(base64)를 임시 파일로 저장하고 경로를 반환

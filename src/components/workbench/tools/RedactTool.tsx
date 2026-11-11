@@ -69,6 +69,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   // 검토 탭의 가리기는 정보공개 공개본이 기본 (이름·주소까지). 번호만 가릴 때는 아래에서 고른다
   const [rules, setRules] = useState<Set<RedactRule>>(() => new Set(DISCLOSURE_RULES));
   const [mask, setMask] = useState("●");
+  /** 가린 사본을 문서 화면에 열었는가 (다른 화면에 가 있었으면 열지 않았다 → 열었다고 적지 않는다) */
+  const [opened, setOpened] = useState(true);
   const [keepText, setKeepText] = useState<string | null>(null);
   const [alsoPdf, setAlsoPdf] = useState(false);
   const preview = useTask<RedactResult>();
@@ -95,7 +97,9 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
     // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다).
     // 오래 걸리는 사이 다른 화면으로 갔거나 이 문서를 닫았으면 끌고 오지 않고 알리기만 한다 (하던 일·저장 안 한 설정을 밀어내지 않게)
     const { screen: now, docs: open } = where.current;
-    if (now === "workbench" && open.some((d) => d.path === doc.path)) openDocs([r.output_path]);
+    const here = now === "workbench" && open.some((d) => d.path === doc.path);
+    setOpened(here);
+    if (here) openDocs([r.output_path]);
     else toast(`가린 사본을 저장했습니다: ${baseName(r.output_path)}`, "success");
   });
 
@@ -174,6 +178,14 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
         </div>
       )}
       <ErrorLine message={save.error} />
+      {/* 사본이 만들어지지 않았으면 그렇다고 알린다 (눌렀는데 아무 일도 없는 것처럼 보이지 않게) */}
+      {s && !s.output_path && !save.busy && (
+        <Note tone="warn">
+          가릴 곳을 찾지 못해 사본을 만들지 않았습니다.
+          {s.notes?.map((n) => <span key={n} className="block mt-0.5">{n}</span>)}
+          <span className="block mt-0.5">개인정보가 있는데 걸리지 않았다면 원본을 그대로 내보내지 말고 눈으로 확인하세요.</span>
+        </Note>
+      )}
       {s?.output_path && (
         <div ref={savedRef} className="flex flex-col gap-3 kd-redact-saved" role="status">
           {s.residual > 0 && (
@@ -184,13 +196,15 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
                 {s.unscanned && !s.notes?.length ? `글자를 읽지 못한 곳이 ${num(s.unscanned)}곳${s.unscanned_pages?.length ? `(${s.unscanned_pages.join("·")}쪽)` : ""} 있습니다. ` : ""}
                 {s.unscanned_pages?.length && s.notes?.length ? `${s.unscanned_pages.join("·")}쪽은 글자를 읽지 못했습니다. ` : ""}
                 {s.residual > (s.unscanned ?? 0) && !s.notes?.length ? "가린 뒤 다시 검사했더니 개인정보로 보이는 곳이 남았습니다. " : ""}
-                문서 화면에 연 사본을 직접 확인한 뒤 내보내세요.
+                {opened ? "문서 화면에 연 사본을" : "저장한 사본을 열어"} 직접 확인한 뒤 내보내세요.
               </span>
             </Note>
           )}
-          <SavedFile path={s.output_path} label={`${num(s.total)}건을 가린 사본을 저장하고 문서 화면에 열었습니다`} />
+          <SavedFile path={s.output_path} label={`${num(s.total)}건을 가린 사본을 저장${opened ? "하고 문서 화면에 열었습니다" : "했습니다"}`} />
           {s.pdf_path && <SavedFile path={s.pdf_path} label="PDF로도 저장했습니다" />}
           {s.residual === 0 && <Note tone="ok">가린 뒤 다시 검사했더니 고른 항목에서 남은 곳이 없습니다.{uncheckedLine(s)}</Note>}
+          {/* 남은 곳이 없어도 엔진이 알릴 것이 있으면 보인다 ("PDF로도 저장"이 안 됐을 때 등) */}
+          {s.residual === 0 && s.notes?.map((n) => <Note key={n} tone="warn">{n}</Note>)}
           {s.kept ? <p className="kd-small kd-muted kd-num">남길 것 {num(s.kept)}곳은 가리지 않았습니다.</p> : null}
           {!s.preserved && !asPdf && <Note tone="info">이 형식은 서식을 지킬 수 없어 글 파일(.md)로 저장했습니다.</Note>}
         </div>

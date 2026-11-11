@@ -96,7 +96,7 @@ export async function fixLines(md: string, errors: Array<{ line: number; text: s
 }
 
 /** 참고 문서를 예산 안의 글로 — 전체를 봐야 하는 종류(한 장 보고·회의록·회신의 받은 공문)는 줄이고, 나머지는 지시와 가까운 부분만 */
-export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefined, instruction: string, room: number, signal: AbortSignal): Promise<{ text: string; redacted: number }> {
+export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefined, instruction: string, room: number, signal: AbortSignal): Promise<{ text: string; redacted: number; partial?: { read: number; total: number } }> {
   if (!docs.length) return { text: '', redacted: 0 };
   const whole = (d: LoadedDoc, label: string) => `=== ${label}: ${d.name} ===\n${d.text.trim()}`;
   if (kind === 'onepage' || kind === 'minutes' || kind === 'memo') {
@@ -105,15 +105,17 @@ export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefin
   }
   let redacted = 0;
   let head = '';
+  let partial: { read: number; total: number } | undefined;
   let rest = docs;
   if (kind === 'reply') {
     const share = docs.length > 1 ? Math.floor(room * 0.7) : room;
     const c = await condense(whole(docs[0], '받은 공문'), share, signal, '보낸 기관·문서번호·시행일·제목·요청 사항·제출 기한·제출 양식');
     head = c.text;
+    partial = c.partial;
     redacted += c.redacted;
     rest = docs.slice(1);
   }
-  if (!rest.length) return { text: head, redacted };
+  if (!rest.length) return { text: head, redacted, ...(partial ? { partial } : {}) };
   const { selected } = selectPassages(rest.flatMap((d) => d.passages), instruction, Math.max(800, room - head.length));
   let body = '';
   let lastName = '';
@@ -121,7 +123,7 @@ export async function referenceText(docs: LoadedDoc[], kind: DraftKind | undefin
     if (p.name !== lastName) { body += `\n\n=== 참고 문서: ${p.name} ===`; lastName = p.name; }
     body += `\n${p.text}`;
   }
-  return { text: `${head}${body}`.trim(), redacted };
+  return { text: `${head}${body}`.trim(), redacted, ...(partial ? { partial } : {}) };
 }
 
 export async function draftDocument(params: DraftParams, signal: AbortSignal): Promise<{ markdown: string; redacted: number; org?: { kind: string; label: string; title: string; count: number } }> {
@@ -186,6 +188,8 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
   sendProgress({ current: 3, total: 3, message: '초안 완료' });
   return {
     markdown: escapeLineDates(markdown), redacted,
+    // 참고 문서가 길어 일부만 읽었으면 알린다 (전체를 읽고 쓴 초안처럼 보이면 빠진 내용을 모른 채 쓴다)
+    ...(refs.partial ? { note: `참고 문서가 길어 ${refs.partial.total}부분으로 나눈 뒤 처음부터 끝까지 고르게 ${refs.partial.read}부분만 읽고 썼습니다. 빠진 내용이 없는지 원문과 견주세요.` } : {}),
     ...(orgRef ? { org: { kind: orgRef.kind, label: orgRef.label, title: orgRef.exemplar.title, count: orgRef.count } } : {}),
   };
 }

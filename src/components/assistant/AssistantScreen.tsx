@@ -129,7 +129,8 @@ function Rewrite() {
     setOut("");
     void task.run(({ signal }) => rpc("ai_rewrite", { text, mode, ...(mode === "custom" ? { instruction } : {}) }, { signal, onToken: (t) => setOut((o) => o + t) }));
   };
-  const result = task.result?.text ?? out;
+  // 다시 돌리는 동안·실패한 뒤에는 앞 실행의 결과를 새 결과처럼 보이지 않는다
+  const result = task.busy || task.error ? out : task.result?.text ?? out;
 
   return (
     <div className="kd-rewrite">
@@ -177,7 +178,7 @@ export function AssistantScreen({ active }: { active: boolean }) {
         </div>
       </ScreenHeader>
       <div className="kd-body kd-body-fixed">
-        <AiGate>
+        <AiGate keep>
           <div hidden={tab !== "ask"} className="h-full"><Ask /></div>
           <div hidden={tab !== "rewrite"} className="h-full"><Rewrite /></div>
         </AiGate>

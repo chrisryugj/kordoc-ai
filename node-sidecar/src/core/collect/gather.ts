@@ -42,6 +42,24 @@ export function colKey(label: string): string {
   return SYNONYM.find(([re]) => re.test(k))?.[1] ?? k;
 }
 
+/** 한 파일 안의 열 열쇠와 이름. 비슷한 이름 묶기(부서 = 팀명)는 파일 사이에서만 한다:
+ *  한 파일에 "부서 | 팀명"·"전화번호 | 내선번호"가 함께 있으면 뒤 열은 제 이름으로 따로 둔다 (묶으면 뒤 열 값이 말없이 사라진다).
+ *  splitSame 이면 완전히 같은 이름도 가른다("금액 | 금액" → 금액, 금액 (2). 엑셀의 열은 저마다 다른 값이다) */
+export function fileKeys(labels: string[], splitSame: boolean): Array<{ key: string; label: string } | null> {
+  const used = new Set<string>();
+  return labels.map((label) => {
+    const key = colKey(label);
+    if (!used.has(key)) { used.add(key); return { key, label }; }
+    const own = norm(label.replace(/\(.*?\)|（.*?）/g, ''));
+    if (!used.has(own)) { used.add(own); return { key: own, label }; }
+    if (!splitSame) return null;
+    for (let n = 2; ; n++) {
+      const numbered = `${own} (${n})`;
+      if (!used.has(numbered)) { used.add(numbered); return { key: numbered, label: `${label} (${n})` }; }
+    }
+  });
+}
+
 interface DocSub { kind: 'doc'; path: string; fields: Array<{ label: string; value: string }>; text: string; title: string }
 interface ExcelSub { kind: 'excel'; path: string; header: string[]; rows: string[][] }
 
@@ -115,14 +133,13 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   const count = new Map<string, number>();
   const labelOf = new Map<string, string>();
   const order: string[] = [];
+  /** 문서의 칸 열쇠 (같은 이름이 또 나오는 칸은 null: 되풀이되는 줄의 칸이라 첫 값만 쓴다) */
+  const docKeys = (d: DocSub) => fileKeys(d.fields.map((f) => f.label), false);
   for (const d of docs) {
-    const seen = new Set<string>();
-    for (const f of d.fields) {
-      const k = colKey(f.label);
-      if (!k || seen.has(k)) continue;
-      seen.add(k);
-      count.set(k, (count.get(k) ?? 0) + 1);
-      if (!labelOf.has(k)) { labelOf.set(k, f.label); order.push(k); }
+    for (const k of docKeys(d)) {
+      if (!k?.key) continue;
+      count.set(k.key, (count.get(k.key) ?? 0) + 1);
+      if (!labelOf.has(k.key)) { labelOf.set(k.key, k.label); order.push(k.key); }
     }
   }
   let base: string[];
@@ -136,7 +153,7 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
     if (base.length < 2) base = [];
   }
   const minHit = Math.min(base.length, Math.max(2, Math.ceil(base.length * 0.6)));
-  const hits = (d: DocSub) => new Set(d.fields.map((f) => colKey(f.label)).filter((k) => base.includes(k))).size;
+  const hits = (d: DocSub) => new Set(docKeys(d).map((k) => k?.key ?? '').filter((k) => base.includes(k))).size;
   const same = base.length ? docs.filter((d) => hits(d) >= minHit) : [];
   const diff = docs.filter((d) => !same.includes(d));
 
@@ -144,14 +161,15 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   const columns: Column[] = base.map((k) => ({ key: k, label: labelOf.get(k) ?? k, required: true }));
   const colOf = new Map(columns.map((c) => [c.key, c]));
   const excelCount = new Map<string, number>();
+  const excelKeys = new Map(excels.map((x) => [x, fileKeys(x.header, true).map((k) => k!)]));
   for (const x of excels) {
-    for (const k of new Set(x.header.map(colKey))) {
-      if (!colOf.has(k)) {
-        const c: Column = { key: k, label: x.header.find((h) => colKey(h) === k)!, required: false };
+    for (const { key, label } of excelKeys.get(x)!) {
+      if (!colOf.has(key)) {
+        const c: Column = { key, label, required: false };
         columns.push(c);
-        colOf.set(k, c);
+        colOf.set(key, c);
       }
-      excelCount.set(k, (excelCount.get(k) ?? 0) + 1);
+      excelCount.set(key, (excelCount.get(key) ?? 0) + 1);
     }
   }
   if (!base.length) for (const c of columns) c.required = (excelCount.get(c.key) ?? 0) >= Math.ceil(excels.length / 2);
@@ -169,20 +187,20 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   };
   for (const d of same) {
     const cells = new Map<string, string>();
-    for (const f of d.fields) {
-      const k = colKey(f.label);
-      if (colOf.has(k) && !cells.get(k)) cells.set(k, f.value);
+    for (const [i, k] of docKeys(d).entries()) {
+      if (k && colOf.has(k.key) && !cells.get(k.key)) cells.set(k.key, d.fields[i].value);
     }
     pushDoc(d, cells);
   }
   for (const x of excels) {
     const file = basename(x.path);
     const fileM = matchDept(roster, { path: x.path, values: [], text: [x.header, ...x.rows].map((r) => r.join(' ')).join('\n') });
-    const deptCol = x.header.findIndex((h) => colKey(h) === DEPT_KEY);
+    const keys = excelKeys.get(x)!;
+    const deptCol = keys.findIndex((k) => k.key === DEPT_KEY);
     const depts = new Map<string, boolean>();
     for (const r of x.rows) {
       const cells = new Map<string, string>();
-      x.header.forEach((h, i) => { if ((r[i] ?? '').trim() && !cells.get(colKey(h))) cells.set(colKey(h), r[i].trim()); });
+      keys.forEach((k, i) => { if ((r[i] ?? '').trim()) cells.set(k.key, r[i].trim()); });
       const own = deptCol >= 0 && r[deptCol]?.trim() ? matchDept(roster, { path: '', values: [r[deptCol]], text: '' }) : null;
       const m = own?.in_roster ? own : fileM.dept ? fileM : own ?? fileM;
       rows.push({ file, dept: m.dept, cells });

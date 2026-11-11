@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import JSZip from 'jszip';
-import { markdownToHwpx } from 'kordoc';
+import { markdownToHwpx, parse } from 'kordoc';
 import { call, sample, setupEnv } from './doc-helpers.js';
 import { buildXlsx } from '../src/core/excel/xlsx.js';
 import { colKey } from '../src/core/collect/gather.js';
@@ -96,6 +96,17 @@ describe('부서 이름 맞추기', () => {
     // 명단 없으면 부서 칸 → 파일 이름 토막
     expect(matchDept([], { path: '/x/조사서_도시계획과.hwpx', values: [], text: '' }).dept).toBe('도시계획과');
   });
+  it('파일 이름의 낱말 속에 부서 줄기가 들어 있을 뿐이면 그 부서로 보지 않는다', () => {
+    const roster = ['교육과', '조사과', '총무과', '홍보과'];
+    expect(matchDept(roster, { path: '/x/교육수요조사_최종.xlsx', values: [], text: '' }).in_roster).toBe(false);
+    expect(matchDept(roster, { path: '/x/수요조사 제출(김가온).hwpx', values: [], text: '' }).in_roster).toBe(false);
+    expect(matchDept(roster, { path: '/x/홍보계획_제출.hwpx', values: [], text: '' }).in_roster).toBe(false);
+    // 토막이 줄기 그대로이거나 끝말만 다르면 그 부서
+    expect(matchDept(roster, { path: '/x/수요조사_총무.hwpx', values: [], text: '' })).toEqual({ dept: '총무과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/수요조사 (홍보팀).hwpx', values: [], text: '' })).toEqual({ dept: '홍보과', in_roster: true });
+    expect(matchDept(roster, { path: '/x/교육과수요조사.hwpx', values: [], text: '' })).toEqual({ dept: '교육과', in_roster: true });
+  });
+
   it('열 이름: 띄어쓰기·괄호 설명·흔한 다른 이름', () => {
     expect(colKey('희망 인원(명)')).toBe(colKey('희망인원'));
     expect(colKey('부서')).toBe(colKey('부서명'));
@@ -237,5 +248,29 @@ describe('collect_gather', () => {
     expect(r.failed[0].path).toBe(bad);
     expect(r.status.find((s: { dept: string }) => s.dept === '세무과')).toMatchObject({ submitted: true, files: ['깨진파일_세무과.hwpx'] });
     await expect(call('collect_gather', { paths: [] })).rejects.toThrow(/하나 이상/);
+  }, 60_000);
+
+  it('한 파일에 비슷한 이름·같은 이름 열이 함께 있으면 따로 둔다 (부서+팀명, 전화+내선, 금액 둘: 뒤 열이 사라지거나 합계에서 빠지지 않게)', async () => {
+    const head = '부서,팀명,담당자,작성자,전화번호,내선번호,금액,금액';
+    const a = join(dir, '겹침_총무과.csv');
+    const b = join(dir, '겹침_세무과.csv');
+    writeFileSync(a, `${head}\n총무과,서무팀,김가온,이나래,02-123-4567,1201,1000,300\n`);
+    writeFileSync(b, `${head}\n세무과,부과팀,박다솜,최라온,02-123-4568,1302,3000,700\n`);
+    const r = await call('collect_gather', { paths: [a, b] });
+    const labels = r.columns.map((c: { label: string }) => c.label);
+    expect(labels).toEqual(['부서', '팀명', '담당자', '작성자', '전화번호', '내선번호', '금액', '금액 (2)']);
+    const total = (label: string) => r.columns.find((c: { label: string }) => c.label === label)?.total;
+    expect(total('금액')).toBe(4000);
+    expect(total('금액 (2)')).toBe(1000);
+    const back = await parse(readFileSync(r.output_path));
+    const md = back.success ? back.markdown : '';
+    for (const v of ['서무팀', '부과팀', '이나래', '최라온', '1201', '1302']) expect(md).toContain(v);
+    // 파일 사이에서는 그대로 묶는다: 한 파일은 "부서", 다른 파일은 "소속" 이어도 한 열
+    const c = join(dir, '묶음_가.csv');
+    const d = join(dir, '묶음_나.csv');
+    writeFileSync(c, '부서,인원\n총무과,3\n');
+    writeFileSync(d, '소속,인원\n세무과,4\n');
+    const r2 = await call('collect_gather', { paths: [c, d] });
+    expect(r2.columns.map((x: { label: string }) => x.label)).toEqual(['부서', '인원']);
   }, 60_000);
 });

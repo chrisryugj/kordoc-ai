@@ -78,7 +78,7 @@ function OrgLine({ kind, refInfo, loaded, on, onChange, onManage, noAi, ownSampl
 }
 
 export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRoute?: (r: "library" | "blank") => void }) {
-  const { ai, settings, docs, openSettings } = useApp();
+  const { ai, settings, docs, openSettings, toast } = useApp();
   const { openInEditor } = useCreate();
   const meta = useGongmunMeta();
   // 갈래를 고르면 문서 갈래도 맞춘다 (대응표는 엔진 gongmun_meta 가 정본)
@@ -127,6 +127,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
   const orgTemplate = opts.levelsFrom ? "" : orgApply?.template_path ?? "";
   /** 마지막 초안이 따른 우리 기관 문서 */
   const [draftOrg, setDraftOrg] = useState<{ label: string; count: number } | null>(null);
+  const [draftNote, setDraftNote] = useState("");
 
   const k = KINDS.find((x) => x.value === kind)!;
   /** 서식 옵션만 (우리 기관 견본 없이) */
@@ -169,6 +170,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
     // 갈래를 넘겨받은 바로 그 자리(시작값)에서는 상태가 아직 안 바뀌었으니 여기서 맞춘다
     const ps = kd !== kind && kd !== "general" ? kindPreset(kd) : preset;
     setDraftOrg(null);
+    setDraftNote("");
     void draft.run(async ({ signal }) => {
       const r = await rpc("ai_draft", {
         instruction: instr.trim() || (kd === "reply" ? "받은 공문에 협조하겠다는 회신 공문을 써 줘" : kd === "memo" ? "" : "공문서 초안을 써 줘"),
@@ -176,6 +178,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
       }, { signal, onToken: (t) => setMarkdown((m) => m + t) });
       setMarkdown(r.markdown);
       setDraftOrg(r.org ? { label: r.org.label, count: r.org.count } : null);
+      setDraftNote(r.note ?? "");
       mdRef.current = r.markdown;
       // 한 줄 맞춤은 초안을 먼저 보여 준 뒤 따로 (멈출 수 있고, 맞추는 동안 한글 문서로 만들어도 된다). 줄 맞춤은 덤: 안 되면 초안 그대로
       void refit.run(({ signal: s }) => fitLines(r.markdown, s, ps));
@@ -319,6 +322,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
               {!k.ref && nothingToWrite && <p className="kd-small kd-muted">무엇을 쓸지 위 칸에 적거나 참고 문서를 붙이면 켜집니다</p>}
               <OrgLine kind={meta?.presets.find((p) => p.id === preset)?.label ?? "문서"} refInfo={orgRef} loaded={orgRead !== undefined} on={orgOn} ownSample={!!opts.levelsFrom} onChange={setOrgOn} onManage={() => openSettings("set-orgdocs")} />
               {draftOrg && !draft.busy && markdown.trim() && <StatusLine tone="ok">우리 기관 {draftOrg.label} {draftOrg.count}건의 구성을 따라 썼습니다</StatusLine>}
+              {draftNote && !draft.busy && markdown.trim() && <StatusLine tone="warn">{draftNote}</StatusLine>}
               <ErrorLine message={draft.error} />
             </>
           )}
@@ -375,6 +379,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
             refit.cancel(); // 맞추는 중이면 멈추고 지금 글로 만든다
             const r = await rpc("generate_hwpx", { ...genParams, output_path: await workingFile(`${firstTitle(markdown)}.hwpx`) });
             if (!r.output_path) throw new Error("한글 문서를 만들지 못했습니다. 글을 확인하고 다시 누르세요.");
+            // 엔진이 알린 것(견본 서식을 못 따랐다 등)은 편집기로 넘어간 뒤에도 보이게 남긴다
+            for (const w of r.warnings ?? []) toast(w, "error");
             made.current = markdown;
             await openInEditor(r.output_path, { title: firstTitle(markdown), working: true });
           })}><FilePen size={15} /> 한글 문서로 만들어 편집하기</Button>

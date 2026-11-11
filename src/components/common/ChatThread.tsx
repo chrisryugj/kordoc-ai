@@ -10,6 +10,9 @@ import type { ChatItem } from "../../hooks/useChat";
 import { baseName } from "../../lib/format";
 import { Note } from "./Status";
 
+/** 엔진이 줄 앞 날짜에 붙인 역슬래시("2026\. 5. 20.")와 굵게 표시를 걷는다 (이 화면은 글 그대로 보인다) */
+const unescapeMd = (s: string) => s.replace(/\\([.\-~*_#|>+()[\]])/g, "$1").replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, "$1");
+
 function withCites(text: string, cites: Citation[] | undefined, onCite: (c: Citation) => void) {
   return text.split(/(\[\d+\])/g).map((part, i) => {
     const m = /^\[(\d+)\]$/.exec(part);
@@ -40,7 +43,7 @@ export function ChatThread({ items, onCite, empty }: { items: ChatItem[]; onCite
           <div className="kd-turn-label">{it.role === "user" ? "질문" : "답"}</div>
           <div className="min-w-0 flex-1">
             <div className="kd-turn-text kd-pre">
-              {it.role === "assistant" ? withCites(it.content, it.citations, onCite) : it.content}
+              {it.role === "assistant" ? withCites(unescapeMd(it.content), it.citations, onCite) : it.content}
               {it.pending && !it.content && <span className="kd-status"><Loader2 size={13} className="kd-spin" /> 문서를 읽는 중</span>}
             </div>
             {it.error && <div className="mt-2"><Note tone={it.error === "답을 멈췄습니다" ? "info" : "err"}>{it.error}</Note></div>}

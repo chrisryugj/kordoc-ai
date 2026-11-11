@@ -6,7 +6,7 @@
  */
 
 import type { IRBlock, ParseResult, RedactHit, RedactRule } from 'kordoc';
-import { countRead, redactMarkdown, redactText, tighten } from './rules.js';
+import { countRead, joinBroken, redactMarkdown, redactText, tighten } from './rules.js';
 import { PDFDocument } from 'pdf-lib';
 import type { PDFiumDocument, PDFiumPage } from '@hyzyla/pdfium';
 import { openPdf } from '../render/pdfium.js';
@@ -142,8 +142,23 @@ function charBoxes(page: PDFiumPage, tp: number, text: string, charAt: number[],
   return boxes;
 }
 
-/** 걸린 곳 모으기 — 쪽 글에서 바로 찾은 것 + 문서 전체(표 머리글 문맥)에서 찾은 원문을 쪽 글에서 다시 찾은 것. 겹치면 하나로 */
+/** 걸린 곳 모으기 — 쪽 글에서 바로 찾은 것 + 문서 전체(표 머리글 문맥)에서 찾은 원문을 쪽 글에서 다시 찾은 것. 겹치면 하나로.
+ *  끊긴 곳(기호 앞뒤 띄어쓰기, 줄표 자리에서 바뀐 줄)을 붙인 글에서도 찾고 자리는 원래 글 기준으로 되돌린다:
+ *  글자 읽기는 "hong @ gaon.example"처럼 띄워 읽고, 좁은 표 칸에서는 "010-1234-" / "5678"로 줄이 바뀐다 */
 function pageHits(text: string, rules: readonly RedactRule[], known: Known, keep: (s: string) => boolean, located?: Set<string>): RedactHit[] {
+  const hits = plainHits(text, rules, known, located);
+  const tight = tighten(text, true);
+  if (tight.text.length !== text.length) {
+    for (const h of plainHits(tight.text, rules, known, located)) {
+      const index = tight.at[h.index];
+      const length = tight.at[h.index + h.length - 1] + 1 - index;
+      if (!hits.some((o) => index < o.index + o.length && o.index < index + length)) hits.push({ ...h, index, length });
+    }
+  }
+  return hits.filter((h) => !keep(text.slice(h.index, h.index + h.length)) && !keep(squeeze(text.slice(h.index, h.index + h.length))));
+}
+
+function plainHits(text: string, rules: readonly RedactRule[], known: Known, located?: Set<string>): RedactHit[] {
   const hits: RedactHit[] = redactText(text, { rules }).hits.slice();
   for (const [orig, k] of known) {
     // 쪽 글은 줄바꿈·띄어쓰기가 문서 전체 글과 다르다 → 띄어쓰기를 무시하고 찾는다
@@ -153,19 +168,6 @@ function pageHits(text: string, rules: readonly RedactRule[], known: Known, keep
       const length = m[0].length;
       if (!hits.some((h) => i < h.index + h.length && h.index < i + length)) hits.push({ rule: k.rule, index: i, length, masked: k.masked });
     }
-  }
-  return hits.filter((h) => !keep(text.slice(h.index, h.index + h.length)));
-}
-
-/** 글자 읽기로 얻은 글에서 걸린 곳 — 읽은 그대로 + 기호 앞뒤 띄어쓰기를 뺀 글에서 찾은 것 (자리는 읽은 글 기준으로 되돌린다) */
-function readHits(text: string, rules: readonly RedactRule[], known: Known, keep: (s: string) => boolean, located?: Set<string>): RedactHit[] {
-  const hits = pageHits(text, rules, known, keep, located);
-  const tight = tighten(text);
-  if (tight.text.length === text.length) return hits;
-  for (const h of pageHits(tight.text, rules, known, keep, located)) {
-    const index = tight.at[h.index];
-    const length = tight.at[h.index + h.length - 1] + 1 - index;
-    if (!hits.some((o) => index < o.index + o.length && o.index < index + length)) hits.push({ ...h, index, length });
   }
   return hits;
 }
@@ -228,7 +230,7 @@ function tableCellBoxes(b: IRBlock, rules: readonly RedactRule[], keep: (s: stri
   const out: Box[] = [];
   t.cells.forEach((row, r) => row.forEach((cell, c) => {
     // 표 칸은 글자 읽기로만 온다 → 기호 앞뒤 띄어쓰기를 뺀 글에서도 찾는다 (칸 전체를 칠하니 자리는 필요 없다)
-    const tight = tighten(cell.text).text;
+    const tight = tighten(cell.text, true).text;
     const hitsIn = (s: string) => redactText(s, { rules }).hits.filter((h) => !keep(s.slice(h.index, h.index + h.length)));
     const plain = hitsIn(cell.text);
     const found = tight.length === cell.text.length ? plain : [plain, hitsIn(tight)].sort((a, b) => b.length - a.length)[0];
@@ -280,9 +282,13 @@ export async function redactPdf(
   const known: Known = new Map();
   const whole = await read(bytes, { ocr: false, images: false }, signal);
   if (whole?.success) {
-    for (const h of redactMarkdown(whole.markdown, { rules }).hits) {
-      const orig = whole.markdown.slice(h.index, h.index + h.length);
-      if (squeeze(orig).length >= 2 && !/[\\*|]/.test(orig)) known.set(orig, { rule: h.rule, masked: h.masked });
+    // 표 칸 안에서 줄이 바뀐 번호("010-1234-<br>5678")는 붙인 글에서만 걸린다 → 붙인 글에서도 찾는다 (쪽 글에서는 띄어쓰기·줄바꿈을 무시하고 찾는다)
+    const joined = joinBroken(whole.markdown);
+    for (const md of joined === whole.markdown ? [whole.markdown] : [whole.markdown, joined]) {
+      for (const h of redactMarkdown(md, { rules }).hits) {
+        const orig = md.slice(h.index, h.index + h.length);
+        if (squeeze(orig).length >= 2 && !/[\\*|]/.test(orig) && !known.has(orig)) known.set(orig, { rule: h.rule, masked: h.masked });
+      }
     }
   }
   const doc: PDFiumDocument = await openPdf(bytes);
@@ -349,7 +355,7 @@ export async function redactPdf(
         for (const b of blocks) {
           if (b.table) { boxes.push(...tableCellBoxes(b, rules, skip, hits)); continue; }
           const text = b.text ?? '';
-          const found = readHits(text, rules, known, skip, located);
+          const found = pageHits(text, rules, known, skip, located);
           for (const h of found) {
             boxes.push(...estimateBoxes({ text, bbox: b.bbox! }, h.index, h.index + h.length, lineH));
             hits.push({ rule: h.rule, masked: h.masked });
@@ -434,7 +440,7 @@ export async function redactPdf(
         for (const b of blocks) {
           if (b.table) { boxes.push(...tableCellBoxes(b, rules, keep, left)); continue; }
           const text = b.text ?? '';
-          for (const h of readHits(text, rules, known, keep)) {
+          for (const h of pageHits(text, rules, known, keep)) {
             boxes.push(...estimateBoxes({ text, bbox: b.bbox! }, h.index, h.index + h.length, lineH));
             left.push({ rule: h.rule, masked: h.masked });
           }

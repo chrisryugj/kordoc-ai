@@ -32,11 +32,17 @@ type Block =
 const FOOT_RE = /^(시\s*행(?=\s|$)|접\s*수(?=\s|[(]|$)|협\s*조\s*자|우\s*\d{3}|전\s*화\s|전\s*송\s|공개\s*구분|\/\s*(비|부분)?공개|(비|부분)공개\s*\(|공개$)/;
 const HEAD_RE = /^(수\s*신(자)?|\(?\s*경\s*유\s*\)?|제\s*목)/;
 /** 결문이 시작됐다는 표시 — 시행 번호 줄·협조자·기안자 줄 */
-const FOOT_ANCHOR = /^(시\s*행\s+\S+\s?-\s?\d|협\s*조\s*자(?:\s|$)|기\s*안\s*자\s)/;
+const FOOT_ANCHOR = /^(시\s*행\s+(?!\d+\s?-)\S+\s?-\s?\d|협\s*조\s*자(?:\s|$)|기\s*안\s*자\s)/;
+/** 결문만큼 짧은가 — 결문은 서명 줄·시행·주소·전화 몇 줄이다(수신자 목록이 길어도 이 안).
+ *  본문 한가운데의 "시행 …"·"… 끝" 을 결문으로 잘못 보면 그 뒤 장이 통째로 사라지므로, 남은 글이 이보다 길면 결문으로 보지 않는다 */
+const footSized = (ps: string[]) => ps.length <= 25 && ps.reduce((n, p) => n + visible(p), 0) <= 1500;
+/** 서술로 끝나는 줄 ("… 적용한다" · "… 붙임과 같음") — 결문 줄이 아니라 본문 문장이다 */
+const isStatement = (t: string) => /[다음함임됨]\.?$/.test(t);
 /** 결문 서명 줄·발신명의 — 문장으로 끝나지 않는 짧은 줄("지도관 홍길동 팀장 전결 06/09" · 결재일 "2026. 6. 26." · "가온시장" · 서명 이름), 수신자 목록 */
 const isSignLine = (t: string) => /^수\s*신\s*자(?:\s|$)/.test(t)
   || (visible(t) <= 60 && !/(?:[다요오음함임]\.?|[.?!。])$/.test(t.replace(/\s*\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?$/, '')) && !readMarker(unescapeLead(t)) && !/^(#|붙\s*임|<table|\||!\[)/.test(t));
-const END_RE = /(?:^|\s|(?<=\.))끝\s*\.?\s*$/;
+/** 끝 표시 — "… 붙임과 같음.  끝." 처럼 마침표가 붙은 것, 또는 "끝" 만 적힌 줄. "14:00에 끝" 같은 문장 끝의 낱말은 아니다 */
+const END_RE = /(?:^|\s|(?<=\.))끝\s*\.\s*$|^\s*끝\s*$/;
 const isRaw = (t: string) => /^(<table|\||!\[|```|<img)/i.test(t);
 const visible = (s: string) => s.replace(/\s/g, '').length;
 
@@ -136,13 +142,13 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
   const endAt = paras.map((p) => END_RE.test(p) && !isRaw(p.trim())).lastIndexOf(true);
   if (endAt >= 0) {
     const after = paras.slice(endAt + 1);
-    if (!after.length || after.some((p) => FOOT_RE.test(p.trim()))) paras = paras.slice(0, endAt + 1);
+    if (!after.length || (footSized(after) && after.some((p) => FOOT_RE.test(p.trim())))) paras = paras.slice(0, endAt + 1);
     hadEndMark = true;
     paras[endAt] = paras[endAt].replace(END_RE, '').replace(/\s+$/, '');
     if (!paras[endAt].trim()) paras.splice(endAt, 1);
   }
   // 결문: 끝 표시가 없는 원문도 시행 번호·협조자·기안자 줄부터 끝까지, 그 바로 앞 서명 줄·발신명의는 버린다 (생성기가 결문을 새로 그린다)
-  const anchor = paras.findIndex((p, i) => i > 0 && FOOT_ANCHOR.test(p.trim()) && !/다\.?$/.test(p.trim()));
+  const anchor = paras.findIndex((p, i) => i > 0 && FOOT_ANCHOR.test(p.trim()) && !isStatement(p.trim()) && footSized(paras.slice(i)));
   if (anchor > 0) {
     let from = anchor;
     while (from > 1 && !END_RE.test(paras[from - 1]) && isSignLine(paras[from - 1].trim())) from--;

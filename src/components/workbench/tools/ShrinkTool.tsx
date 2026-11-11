@@ -89,6 +89,8 @@ export function ShrinkTool({ doc, info }: ToolProps) {
         <>
           <SavedFile path={r.output_path} label={`용량을 줄인 PDF를 저장했습니다: ${shrinkSummary(r)}`} />
           {r.under_target === false && <Note tone="warn">{r.note}</Note>}
+          {/* 전자서명 경고는 한도 안으로 줄었을 때도 보인다 (서명이 풀린 사본을 서명본인 줄 알고 첨부하지 않게) */}
+          {r.under_target !== false && /전자서명/.test(r.note ?? "") && <Note tone="warn">전자서명이 든 PDF라 줄인 사본에서는 서명이 풀립니다. 서명이 필요하면 원본을 첨부하세요.</Note>}
           {!r.text_kept && r.under_target !== false && <Note tone="info">쪽을 그림으로 바꿔 줄였습니다. 이 PDF는 글자를 복사하거나 찾을 수 없습니다.</Note>}
         </>
       ) : <Note tone="info">{r.note}</Note>)}

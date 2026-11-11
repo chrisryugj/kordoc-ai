@@ -244,6 +244,8 @@ export function AiSection() {
                 <div className="flex gap-2">
                   {models.length ? (
                     <select className="kd-select" disabled={lk("ai.openai.model")} value={draft.openai.model} onChange={(e) => setDraft((d) => ({ ...d, openai: { ...d.openai, model: e.target.value } }))} aria-label="모델">
+                      {/* 지금 값이 목록에 없으면 그 값도 보기로 넣는다 (없으면 화면은 첫 모델을 보이는데 저장 값은 옛 이름이다) */}
+                      {draft.openai.model && !models.includes(draft.openai.model) && <option value={draft.openai.model}>{draft.openai.model} (이 서버 목록에 없음)</option>}
                       {models.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   ) : (

@@ -403,7 +403,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     setBusy("save");
     previewSeq.current++; // 저장 결과가 미리보기의 주인
     try {
-      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target }) as FormFillRes;
+      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target, overwrite: true }) as FormFillRes;
       setFillResult(res);
       shown.current = res.filled.map((f) => ({ label: f.label, value: f.value }));
       if (res.doc_b64) {
@@ -413,7 +413,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
       if (res.success) {
         setUnsaved(false);
         setAskClose(false);
-        showToast(`저장했습니다: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
+        showToast(`저장했습니다${res.output_path ? ` (${res.output_path.split(/[\\/]/).pop()})` : ""}: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
       }
     } catch (e) {
       showToast(`저장하지 못했습니다: ${errorText(e)}`, "error");

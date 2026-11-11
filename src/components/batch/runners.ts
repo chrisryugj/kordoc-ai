@@ -13,6 +13,8 @@ export interface RowState {
   output?: string;
   error?: string;
   note?: string;
+  /** 됐지만 사람이 확인할 것이 남았다 (가리기의 남은 의심 곳) → 초록 완료가 아니라 경고로 보인다 */
+  warn?: boolean;
 }
 
 export type Outcome =
@@ -64,7 +66,7 @@ function applyBatch(env: RunEnv, results: BatchItemResult[]) {
 }
 
 /** 파일마다 차례로 — 하나가 실패해도 다음으로. 저장한 폴더(고른 곳, 없으면 첫 결과가 놓인 곳)도 돌려준다 */
-async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: string; note?: string; empty?: boolean }>) {
+async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: string; note?: string; empty?: boolean; warn?: boolean }>) {
   let ok = 0;
   let empty = 0;
   let first = "";
@@ -74,7 +76,7 @@ async function eachFile(env: RunEnv, work: (f: FileEntry) => Promise<{ output?: 
     try {
       const r = await work(f);
       if (r.empty) { env.setRow(f.path, { status: "wait", note: r.note }); empty++; continue; }
-      env.setRow(f.path, { status: "ok", output: r.output, note: r.note });
+      env.setRow(f.path, { status: "ok", output: r.output, note: r.note, ...(r.warn ? { warn: true } : {}) });
       if (!first && r.output) first = r.output;
       ok++;
     } catch (e) {
@@ -139,11 +141,13 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       const r = await rpc("redact_batch", { paths, rules: opts.rules, keep: env.keep ?? [], ...outDirOf(opts) }, o);
       for (const it of r.results) {
         env.setRow(it.path, it.ok
-          ? { status: "ok", output: it.output_path, note: `${it.total ?? 0}건 가림${it.residual ? `, 남은 의심 ${it.residual}곳 확인 필요` : ""}` }
+          ? { status: "ok", output: it.output_path, note: `${it.total ?? 0}건 가림${it.residual ? `, 남은 의심 ${it.residual}곳 확인 필요` : ""}`, ...(it.residual ? { warn: true } : {}) }
           : { status: "fail", error: it.error });
       }
       const ok = r.results.filter((x) => x.ok).length;
-      return { kind: "files", message: `${ok}개 완료${r.results.length - ok ? `, ${r.results.length - ok}개 실패` : ""}`, dir: r.output_dir };
+      // 덜 가려졌을 수 있는 사본은 "완료"에 묻히지 않게 따로 센다 (그대로 공개하면 개인정보가 나간다)
+      const check = r.results.filter((x) => x.ok && x.residual).length;
+      return { kind: "files", message: `${ok}개 완료${r.results.length - ok ? `, ${r.results.length - ok}개 실패` : ""}${check ? `. ${check}개는 남은 의심 곳이 있으니 사본을 열어 확인하세요` : ""}`, dir: r.output_dir };
     }
     case "pdf":
       return { kind: "files", ...(await eachFile(env, async (f) => ({ output: (await rpc("export_pdf", { path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.pdf`) } : {}) }, { signal })).output_path }))) };
@@ -151,7 +155,8 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       return { kind: "files", ...(await eachFile(env, async (f) => {
         const r = await rpc("pdf_shrink", { path: f.path, ...shrinkParams(opts.shrink), ...outDirOf(opts) }, { signal });
         if (!r.output_path) return { note: r.note };
-        return { output: r.output_path, note: r.under_target === false ? `${shrinkSummary(r)}. 한도를 아직 넘습니다` : shrinkSummary(r) };
+        const signed = /전자서명/.test(r.note ?? "");
+        return { output: r.output_path, note: `${shrinkSummary(r)}${r.under_target === false ? ". 한도를 아직 넘습니다" : ""}${signed ? ". 전자서명이 풀린 사본입니다" : ""}`, ...(signed ? { warn: true } : {}) };
       })) };
     case "join": {
       // 모두 한글이면 서식 그대로 HWPX 한 파일, 아니면 PDF 한 권 (쪽 번호·워터마크 없이)

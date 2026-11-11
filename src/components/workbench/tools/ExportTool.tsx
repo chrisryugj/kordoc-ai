@@ -32,6 +32,8 @@ export function ExportTool({ doc, info }: ToolProps) {
   const [dir, setDir] = useState("");
   /** 한글로 바꾼 결과에 엔진이 고른 서식 */
   const [style, setStyle] = useState("");
+  /** 엔진이 알린 것 (스캔 쪽이 있어 글이 빠졌다, 서식 그대로 옮기지 못했다 …): 결과 옆에 남긴다 */
+  const [warns, setWarns] = useState<string[]>([]);
   const task = useTask<string>();
 
   const defaultDir = settings?.convert.output_dir || dirName(doc.path);
@@ -47,6 +49,7 @@ export function ExportTool({ doc, info }: ToolProps) {
   const target: Target = options.find((o) => o.value === picked && !o.disabled)?.value ?? options.find((o) => !o.disabled)?.value ?? "txt";
 
   const run = () => void task.run(async ({ signal, onProgress }) => {
+    setWarns([]);
     const pw = doc.password ? { password: doc.password } : {};
     // 쉬운 화면은 쪽 범위·그림 칸을 숨기므로 전체 화면에서 넣어 둔 값을 쓰지 않는다 (전체 쪽·그림 함께)
     const easy = uiMode === "easy";
@@ -55,12 +58,14 @@ export function ExportTool({ doc, info }: ToolProps) {
       // 서식은 문서 모양을 보고 엔진이 고른다 (공문은 기안문, □○ 항목은 보고서 …, 애매하면 꾸밈 없이)
       const r = await rpc("to_hwpx", { path: doc.path, ocr, preset: "auto", output_path: joinPath(outDir, `${stem(doc.name)}.hwpx`) }, { signal, onProgress });
       setStyle(r.style);
+      setWarns(r.warnings ?? []);
       return r.output_path;
     }
     const r = await rpc("convert", {
       path: doc.path, format: target, save: true, output_dir: outDir, images: easy || images, ...pw,
       ...(pages.trim() && !easy ? { pages: pages.trim() } : {}), ...(info.needs_ocr ? { ocr } : {}),
     }, { signal, onProgress });
+    setWarns(r.warnings ?? []);
     return r.output_path ?? "";
   });
 
@@ -119,6 +124,7 @@ export function ExportTool({ doc, info }: ToolProps) {
       )}
       <ErrorLine message={task.error} />
       {task.result && <SavedFile path={task.result} />}
+      {task.result && warns.map((w) => <Note key={w} tone="warn">{w}</Note>)}
       {task.result && target === "hwpx" && style && <p className="kd-small kd-muted">{style === "꾸밈 없이" ? "문서 갈래가 뚜렷하지 않아 서식은 입히지 않고 글·표만 옮겼습니다." : style === "서식 그대로" ? "원본 서식 그대로 옮겼습니다." : `문서 모양을 보고 ${style}으로 맞췄습니다.`}</p>}
     </div>
   );

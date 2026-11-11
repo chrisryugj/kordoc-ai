@@ -62,6 +62,8 @@ export interface QuickResult {
   message: string;
   /** 창에서 이어 할 일 (합칠 PDF 가 하나뿐 → PDF 작업 화면) */
   open?: "pdf";
+  /** 됐지만 사람이 꼭 볼 것 (가리기의 남은 의심 곳). 있으면 "끝" 알림 대신 이 글로 알리고 창을 띄운다 */
+  review?: string;
 }
 
 const byName = (a: FileEntry, b: FileEntry) => a.name.localeCompare(b.name, "ko", { numeric: true });
@@ -99,8 +101,8 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
     // 폴더를 합치면 결과는 폴더 밖(옆)에: 다시 합칠 때 결과가 섞이지 않게
     const dir = env.outDir || (folder ? dirName(folder) : dirName(list[0].path));
     const name = folder ? `${baseName(folder)}_합본.${ext}` : `${stem(list[0].name)}_외${list.length - 1}건_합본.${ext}`;
-    const r = await rpc("merge_files", { files: list.map((f) => f.path), mode: "native", output_path: joinPath(dir, name) }, { signal: env.signal }) as { output_path: string; file_count?: number; failed_files?: string[]; warnings?: string[] };
-    const failed = (r.failed_files ?? []).map((p) => ({ path: p, error: "읽지 못함" }));
+    const r = await rpc("merge_files", { files: list.map((f) => f.path), mode: "native", output_path: joinPath(dir, name) }, { signal: env.signal }) as { output_path: string; file_count?: number; failed_files?: string[]; failed?: Array<{ path: string; error: string }>; warnings?: string[] };
+    const failed = r.failed ?? (r.failed_files ?? []).map((p) => ({ path: p, error: "읽지 못함" }));
     // 합본으로 옮기지 못한 것(그림·메모·표 서식)이 있으면 알린다 (말없이 빠지면 합본만 보고 내보낸다)
     const notes = r.warnings?.length ? `. ${r.warnings.join(" ")}` : "";
     return { ok: list.length - failed.length, failed, message: `${baseName(r.output_path)} (${list.length - failed.length}개 ${action === "hwpmerge" ? "문서" : "파일"})${failed.length ? `. ${failed.length}개는 넣지 못했습니다` : ""}${notes}` };
@@ -170,5 +172,10 @@ export async function runQuick(action: QuickAction, paths: string[], env: { sign
   const where = outputs.length === 1 ? baseName(outputs[0]) : outputs.length && outcome && "dir" in outcome && outcome.dir ? `${baseName(outcome.dir)} 폴더` : "";
   // 파일 하나면 그 줄의 안내(줄인 크기·줄일 것 없음·표 수)를 그대로. 한글로 바꾸기의 안내(쓴 꾸밈)는 알림에 뜻이 없어 뺀다
   const note = files.length === 1 && (action === "shrink" || action === "tables" || !outputs.length) ? rows[files[0].path]?.note?.replace(/[.\s]+$/, "") : "";
-  return { ok: files.length - failed.length, failed, message: [note || outcome?.message || "", where].filter(Boolean).join(". ") };
+  // 가리기: 덜 가려졌을 수 있는 사본이 있으면 "끝"으로 알리지 않는다 (창 없이 도는 길이라 이 알림이 유일한 경고다)
+  const unsure = action === "redact" ? files.filter((f) => rows[f.path]?.warn) : [];
+  const review = unsure.length
+    ? `${unsure.length === 1 ? `${baseName(rows[unsure[0].path]?.output ?? unsure[0].path)}: ${rows[unsure[0].path]?.note ?? ""}` : `${unsure.length}개 사본에 남은 의심 곳이 있습니다`}. 다 가려지지 않았을 수 있으니 내보내기 전에 사본을 열어 확인하세요${where && unsure.length > 1 ? ` (${where})` : ""}`
+    : undefined;
+  return { ok: files.length - failed.length, failed, message: [note || outcome?.message || "", where].filter(Boolean).join(". "), ...(review ? { review } : {}) };
 }

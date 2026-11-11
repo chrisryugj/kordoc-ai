@@ -143,6 +143,28 @@ describe('redact', () => {
     }
   }, 60_000);
 
+  it('PDF 좁은 칸에서 줄표 자리에 줄이 바뀐 번호도 찾아 가린다 ("010-1234-" / "5678")', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595, 842]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const put = (text: string, x: number, y: number) => page.drawText(text, { x, y, size: 12, font });
+    put('Contact list of the autumn sports event of the province', 50, 780);
+    put('Kim', 50, 700); put('010-1234-', 200, 700); put('5678', 200, 684);
+    put('Lee', 50, 650); put('010-9876-5432', 200, 650);
+    put('Park', 50, 600); put('900101-', 200, 600); put('1234567', 200, 584);
+    const src = join(env.work, '좁은 칸 명단.pdf');
+    writeFileSync(src, await pdf.save());
+    const dry = await call('redact', { path: src, rules: ['phone', 'rrn'], dry_run: true });
+    expect(dry.hits.find((h: { rule: string }) => h.rule === 'phone')?.count).toBe(2);
+    expect(dry.hits.find((h: { rule: string }) => h.rule === 'rrn')?.count).toBe(1);
+    const r = await call('redact', { path: src, rules: ['phone', 'rrn'] });
+    expect(r.output_path).toMatch(/_가림\.pdf$/);
+    expect(r.total).toBe(3);
+    // 견본에도 가린 모양만 (전화는 규칙대로 끝 네 자리가 남는다)
+    expect(JSON.stringify(r)).not.toContain('1234');
+  }, 60_000);
+
   it('엔진 경고: 가리지 못한 개체는 사람이 볼 곳으로 세고, 삽입 그림은 수만 넘긴다(그림 속 글자는 따로 읽는다)', async () => {
     const { blindSpots } = await import('../src/core/redact/index.js');
     const b = blindSpots([

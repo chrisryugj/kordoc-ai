@@ -105,6 +105,24 @@ describe('내용 다시 짜기', () => {
     expect(r2.markdown).toBe('# 보고\n\n- 보고합니다.\n\n붙임  1. 계획 1부.\n      2. 명단 1부.\n      3. 사진 1부.\n');
   });
 
+  it('본문 한가운데의 "시행 …"·"협조자 …"·"… 끝" 을 결문으로 보아 뒤 내용을 자르지 않는다', () => {
+    const long = '추진 내용을 차례대로 적은 문단입니다. '.repeat(30).trim();
+    const tail = `\n\n## 추진 일정\n\n${long}\n\n${long}\n\n${long}`;
+    for (const mid of ['시행 2026-03-01부터 적용한다는 방침', '협조자 명단은 붙임과 같음', '시행 계획-2 안을 따름']) {
+      const r = normalizeContent(`# 계획\n\n1. 개요를 적습니다.\n\n${mid}${tail}`);
+      expect(r.markdown, mid).toContain('추진 일정');
+      expect(r.markdown.split('차례대로').length - 1, mid).toBe(90);
+    }
+    // 문장 끝의 "끝" 은 끝 표시가 아니다 (뒤에 "접수 …" 로 시작하는 문단이 와도 잘리지 않는다)
+    const r = normalizeContent('# 행사\n\n1부 행사는 14:00에 끝\n\n접수 인원은 200명으로 한다.\n\n2부 행사는 15:00에 시작한다.');
+    expect(r.markdown).toContain('14:00에 끝');
+    expect(r.markdown).toContain('2부 행사는 15:00에 시작한다');
+    expect(r.hadEndMark).toBe(false);
+    // 진짜 결문은 그대로 버린다
+    const real = normalizeContent('수신 내부결재\n\n제목 알림\n\n1. 알립니다.  끝.\n\n주무관 김가온 팀장 박나래\n\n협조자\n\n시행 총무과-1234 (2026. 10. 1.) 접수\n\n우 12345 가온시 시청로 1 / www.gaon.example\n\n전화 031-000-0000 /전송 / 공개');
+    expect(real.markdown).toBe('# 알림\n\n- 알립니다.\n');
+  });
+
   it('PDF 글의 "- 가." 목록 표시는 안쪽 기호로 읽고, 줄을 끊은 짧은 꼬리는 앞 항목에 잇는다', () => {
     const r = normalizeContent('# 계획\n\n1. 개최 계획을 수립하고\n\n보고합니다.\n\n- 가. 행사명: 심포지엄\n  - 나. 일시: 11월\n- 붙임 계획 1부.');
     expect(r.markdown).toBe('# 계획\n\n- 개최 계획을 수립하고 보고합니다.\n  - 행사명: 심포지엄\n  - 일시: 11월\n\n붙임  계획 1부.\n');

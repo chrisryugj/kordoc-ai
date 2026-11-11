@@ -414,8 +414,12 @@ export function purposeOf(items: ReceiptItem[]): ReceiptValue {
 /** 취소·환불 전표로 보이는가 — 거래 종류를 적은 말(승인취소·환불금액…)이나 음수로 적힌 합계(-11,000 · △11,000).
  *  "교환·환불은 7일 이내" 같은 안내 글의 낱말만으로는 보지 않는다 */
 export function looksRefund(lines: readonly string[], totalLine = ''): boolean {
-  if (lines.some((l) => /승인취소|취소승인|결제취소|거래취소|매출취소|취소매출|취소전표|취소영수증|환불금액|환불승인|환불완료|반품영수증/.test(squash(l)))) return true;
-  return /(?<![\d가-힣A-Za-z])[-−–△▽]\s*[₩￦\\]?\s*\d{1,3}(?:,\d{3})+(?!\d)/.test(totalLine);
+  const kind = /(?:신용|체크|카드|현금|현금영수증|승인|결제|거래|매출|전표)취소|취소(?:승인|매출|전표|영수증|금액|일시|거래)|환불(?:금액|승인|완료)|반품영수증/;
+  // 안내 글("결제취소 시 영수증 지참"·"거래취소는 14일 이내")은 거래 종류가 아니다
+  const notice = /취소(?:시|는|은|가|를|하|할|및)|이내|지참|가능|불가|문의|경우|바랍니다|하세요|하십시오|안내/;
+  if (lines.some((l) => { const s = squash(l); return /^\[?취소\]?$|^반품$/.test(s) || (kind.test(s) && !notice.test(s)); })) return true;
+  // 음수로 적힌 합계: -11,000 · -11000 · -11.000 · △11,000 · 합계금액-11,000 (날짜·번호의 줄표는 앞이 숫자·영문이다)
+  return /(?<![\dA-Za-z])[-−–△▽]\s*[₩￦\\]?\s*\d{1,3}(?:[,.]?\d{3})*(?!\d)\s*원?\s*$/.test(totalLine.trim());
 }
 
 export function parseReceipt(raw: ReceiptLine[]): { fields: ReceiptFields; items: ReceiptItem[] } {

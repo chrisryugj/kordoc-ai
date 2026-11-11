@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { logger } from './logger.js';
+import { winTool } from './win-tools.js';
 
 const isUncLike = (v: string) => v.startsWith('\\\\') || v.startsWith('//') || win32.normalize(v).startsWith('\\\\');
 
@@ -47,34 +48,80 @@ export function policyCandidates(env: NodeJS.ProcessEnv = process.env, platform:
   return out;
 }
 
-/** 보안 설명자(SDDL)의 소유자가 관리자 쪽인가 — Administrators(BA)·SYSTEM(SY)·TrustedInstaller */
+/** 관리자 쪽 계정 — Administrators(BA)·SYSTEM(SY)·TrustedInstaller·기본 관리자 계정(LA)·도메인·엔터프라이즈 관리자(DA·EA) */
+const isAdminSid = (sid: string) => ['BA', 'SY', 'LA', 'DA', 'EA', 'S-1-5-32-544', 'S-1-5-18'].includes(sid)
+  || sid.startsWith('S-1-5-80-956008885-') || /^S-1-5-21-[\d-]+-(?:500|512|519)$/.test(sid);
+
+/** 보안 설명자(SDDL)의 소유자가 관리자 쪽인가 */
 export function adminOwned(sddl: string): boolean {
-  const owner = /^\s*O:(S-[\d-]+|[A-Z]{2})/.exec(sddl)?.[1] ?? '';
-  return owner === 'BA' || owner === 'SY' || owner === 'S-1-5-32-544' || owner === 'S-1-5-18' || owner.startsWith('S-1-5-80-956008885-');
+  return isAdminSid(/^\s*O:(S-[\d-]+|[A-Z]{2})/.exec(sddl)?.[1] ?? '');
 }
 
-/** 파일 소유자의 SDDL 을 읽는다 (Windows). 경로는 환경 변수로 넘겨 따옴표·특수 문자 문제를 피한다 */
+/** SDDL 권한 이름 → 비트 */
+const RIGHT_BITS: Record<string, number> = {
+  CC: 0x1, DC: 0x2, LC: 0x4, SW: 0x8, RP: 0x10, WP: 0x20, DT: 0x40, LO: 0x80, CR: 0x100,
+  SD: 0x10000, RC: 0x20000, WD: 0x40000, WO: 0x80000,
+  GA: 0x10000000, GX: 0x20000000, GW: 0x40000000, GR: 0x80000000,
+  FA: 0x1f01ff, FR: 0x120089, FW: 0x120116, FX: 0x1200a0,
+};
+/** 파일: 내용 쓰기·덧붙이기·지우기·권한 바꾸기·소유자 바꾸기·모든 권한 */
+const FILE_WRITE = 0x2 | 0x4 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000;
+/** 폴더: 안의 파일 지우기·폴더 지우기(이름 바꾸기)·권한 바꾸기·소유자 바꾸기·모든 권한. 새 파일 만들기는 뺀다(%ProgramData% 기본값이고, 만든 파일은 소유자 검사에 걸린다) */
+const DIR_WRITE = 0x40 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000;
+
+/** 관리자 쪽이 아닌 계정이 고칠 수 있는가 — 허용 항목(ACE) 가운데 쓰기·지우기·권한 바꾸기가 든 것이 있으면 true.
+ *  소유자만 보면 모자라다: 일반 사용자가 폴더를 먼저 만들어 물려줄 권한을 넣어 두면, 관리자가 넣은 파일이 "관리자 소유"이면서 그 사용자가 고칠 수 있다.
+ *  읽지 못하는 권한 표기는 위험한 것으로 본다 */
+export function writableByOthers(sddl: string, folder = false): boolean {
+  const from = sddl.indexOf('D:');
+  if (from < 0) return true; // 권한 목록이 없으면(읽지 못했으면) 믿지 않는다
+  const sacl = sddl.indexOf('S:', from);
+  const dacl = sddl.slice(from, sacl < 0 ? undefined : sacl);
+  const danger = folder ? DIR_WRITE : FILE_WRITE;
+  for (const m of dacl.matchAll(/\(([^)]*)\)/g)) {
+    const [type = '', flags = '', rights = '', , , sid = ''] = m[1].split(';');
+    if (type !== 'A' && type !== 'XA') continue;
+    // 파일에서는 "물려주기 전용" 항목이 그 파일에 적용되지 않는다. 폴더에서는 물려줄 권한도 본다
+    if (!folder && flags.includes('IO')) continue;
+    // 소유자 권한(OW)은 소유자 검사가 따로 막는다.
+    // 만든 사람(CO)에게 주는 권한은 그 사람이 만든 것에만 붙는다(%ProgramData% 기본값) → 남이 만든 파일은 소유자 검사에 걸린다
+    if (isAdminSid(sid) || sid === 'OW' || sid === 'CO') continue;
+    let mask = 0;
+    if (/^0x[0-9a-f]+$/i.test(rights)) mask = parseInt(rights, 16);
+    else for (const code of rights.match(/../g) ?? []) mask |= RIGHT_BITS[code] ?? danger;
+    if (rights.length % 2 && !/^0x/i.test(rights)) mask |= danger;
+    if (mask & danger) return true;
+  }
+  return false;
+}
+
+/** 파일·폴더의 SDDL 을 읽는다 (Windows). 경로는 환경 변수로 넘겨 따옴표·특수 문자 문제를 피한다 */
 function readOwnerSddl(path: string): string {
-  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '(Get-Acl -LiteralPath $env:KORDOC_POLICY_FILE).Sddl'], {
+  return execFileSync(winTool('powershell'), ['-NoProfile', '-NonInteractive', '-Command', '(Get-Acl -LiteralPath $env:KORDOC_POLICY_FILE).Sddl'], {
     env: { ...process.env, KORDOC_POLICY_FILE: path }, encoding: 'utf-8', timeout: 15_000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   });
 }
 
-const ownerSeen = new Map<string, boolean>();
+/** 판정 기억 — 소유자·권한은 파일 수정 시각을 바꾸지 않으므로 잠깐만 기억한다(오래 떠 있는 MCP 서버가 고친 권한을 다시 본다) */
+const ownerSeen = new Map<string, { ok: boolean; at: number }>();
+const SEEN_MS = 60_000;
 
-/** 기계 전체 자리(%ProgramData%·/Library)의 정책 파일을 믿어도 되는가 — 소유자가 관리자·시스템일 때만.
- *  %ProgramData% 는 일반 사용자도 폴더와 파일을 만들 수 있다. 소유자를 보지 않으면 여럿이 쓰는 PC 에서 한 사용자가 정책 파일을 심어
+/** 기계 전체 자리(%ProgramData%·/Library)의 정책 파일을 믿어도 되는가 — 파일과 그 폴더의 소유자가 관리자·시스템이고,
+ *  관리자 쪽이 아닌 계정이 고칠 수 없을 때만.
+ *  %ProgramData% 는 일반 사용자도 폴더와 파일을 만들 수 있다. 이것을 보지 않으면 여럿이 쓰는 PC 에서 한 사용자가 정책 파일을 심거나 고쳐
  *  다른 사용자의 앱이 엉뚱한 실행 파일을 띄우거나(구독 프로그램 위치) 문서를 엉뚱한 서버로 보내게(AI 서버 주소) 할 수 있다.
  *  확인하지 못하면(확인 도구가 막힘) 믿지 않는다 */
-export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl): boolean {
+export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl, now = Date.now()): boolean {
   try {
     const st = statSync(path);
-    if (platform !== 'win32') return st.uid === 0;
+    if (platform !== 'win32') return st.uid === 0 && (st.mode & 0o022) === 0;
     const key = `${path}|${st.mtimeMs}|${st.size}`;
     const hit = ownerSeen.get(key);
-    if (hit !== undefined) return hit;
-    const ok = adminOwned(readSddl(path));
-    ownerSeen.set(key, ok);
+    if (hit && now - hit.at < SEEN_MS) return hit.ok;
+    const file = readSddl(path);
+    const dir = readSddl(win32.dirname(path));
+    const ok = adminOwned(file) && !writableByOthers(file) && adminOwned(dir) && !writableByOthers(dir, true);
+    ownerSeen.set(key, { ok, at: now });
     return ok;
   } catch {
     return false;
@@ -150,16 +197,26 @@ function leafPaths(o: Obj, prefix = ''): string[] {
   return Object.entries(o).flatMap(([k, v]) => (isObj(v) ? leafPaths(v, `${prefix}${k}.`) : [`${prefix}${k}`]));
 }
 
-/** 정책 파일을 찾아 읽는다. 없으면 null. shape 는 정할 수 있는 구획의 기본값 */
+/** 정책 파일을 찾아 읽는다. 없으면 null. shape 는 정할 수 있는 구획의 기본값.
+ *  앞 자리의 파일을 못 쓰면(믿지 못하는 소유자·권한, 깨진 파일) 다음 자리로 넘어간다: 일반 사용자가 %ProgramData% 에 아무 파일이나
+ *  만들어 두는 것만으로 설치 폴더의 기관 정책(폐쇄망 모드·AI 서버 주소 고정)이 통째로 풀리면 안 된다 */
 export function loadPolicy(shape: Obj): Policy | null {
-  const source = policyCandidates().find((p) => existsSync(p));
-  if (!source) return null;
+  let failed: Policy | null = null;
+  for (const source of policyCandidates().filter((p) => existsSync(p))) {
+    const one = readPolicy(source, shape);
+    if (!one.error) return one;
+    failed ??= one;
+  }
+  return failed;
+}
+
+function readPolicy(source: string, shape: Obj): Policy {
   let raw: Obj;
   try {
     if (isMachineSpot(source) && !machinePolicyTrusted(source)) {
       throw new Error(process.platform === 'win32'
-        ? '파일 소유자가 관리자(Administrators)나 SYSTEM이 아니어서 적용하지 않았습니다. 관리자 권한 명령 프롬프트에서 복사하거나 icacls "<파일>" /setowner Administrators 를 실행하세요'
-        : '파일 소유자가 root가 아니어서 적용하지 않았습니다. sudo chown root 로 소유자를 바꾸세요');
+        ? '파일이나 그 폴더의 소유자가 관리자(Administrators)·SYSTEM이 아니거나, 일반 사용자가 고칠 수 있는 권한이 있어 적용하지 않았습니다. 관리자 권한 명령 프롬프트에서 폴더를 새로 만들어 파일을 넣고 권한을 관리자·SYSTEM만 쓰도록 맞추세요(배포 안내 문서의 명령 참고)'
+        : '파일 소유자가 root가 아니거나 다른 사용자가 고칠 수 있어 적용하지 않았습니다. sudo chown root 와 chmod 644 로 맞추세요');
     }
     raw = readPolicyFile(source);
   } catch (err) {

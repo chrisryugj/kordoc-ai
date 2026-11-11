@@ -2,7 +2,7 @@
 
 import "./batch.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, ExternalLink, FilePlus2, FolderOpen, FolderPlus, Loader2, Play, RotateCcw, Sparkles, Trash2, XCircle, Layers } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Circle, ExternalLink, FilePlus2, FolderOpen, FolderPlus, Loader2, Play, RotateCcw, Sparkles, Trash2, XCircle, Layers } from "lucide-react";
 import { useFileMenu } from "../common/file-menu";
 import type { FileEntry } from "../../lib/contract";
 import { useApp, type BatchTaskId } from "../../state/app";
@@ -30,6 +30,7 @@ const toImported = (f: FileEntry): ImportedFile => ({ path: f.path, name: f.name
 function RowStatus({ s }: { s?: RowState }) {
   if (!s || (s.status === "wait" && !s.note)) return <span className="kd-status"><Circle size={13} /> 대기</span>;
   if (s.status === "run") return <span className="kd-status" data-tone="busy"><Loader2 size={13} className="kd-spin" /> 하는 중</span>;
+  if (s.status === "ok" && s.warn) return <span className="kd-status" data-tone="warn" title={s.note}><AlertTriangle size={13} /> <span className="kd-status-note">{s.note ?? "확인 필요"}</span></span>;
   if (s.status === "ok") return <span className="kd-status" data-tone="ok" title={s.note}><CheckCircle2 size={13} /> <span className="kd-status-note">{s.note ?? "완료"}</span></span>;
   if (s.status === "fail") return <span className="kd-status" data-tone="err"><XCircle size={13} /> 실패</span>;
   return <span className="kd-status" title={s.note}><Circle size={13} /> <span className="kd-status-note">{s.note}</span></span>;
@@ -248,7 +249,7 @@ export function BatchScreen({ active }: { active: boolean }) {
                         </div>
                       </div>
                     ) : ordered ? (
-                      <div className="mt-2"><OrderList items={usable.map((f) => f.path)} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
+                      <div className="mt-2"><OrderList items={usable.map((f) => f.path)} notes={Object.fromEntries(usable.filter((f) => rows[f.path]?.status === "fail").map((f) => [f.path, `넣지 못함: ${rows[f.path]?.error ?? "읽지 못했습니다"}`]))} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
                     ) : (
                       <ul className="kd-filetable">
                         {files.map((f) => {

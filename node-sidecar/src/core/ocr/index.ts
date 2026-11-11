@@ -20,6 +20,8 @@ export interface OcrParams {
   engine?: 'local' | 'ai';
   /** 텍스트층이 있어도 전 쪽 OCR */
   force?: boolean;
+  /** false 면 읽기만 하고 파일을 만들지 않는다 */
+  save?: boolean;
 }
 
 export interface OcrResult {
@@ -69,9 +71,10 @@ export async function ocr(params: OcrParams, signal: AbortSignal): Promise<OcrRe
   if (!result.success) {
     return { success: false, output_path: '', markdown: '', engine, error: cleanMessage(result.error) };
   }
-  const outputPath = outputFile({ output_path: params.output_path, source: input_path, name: `${stemOf(input_path)}.md` });
-  await writeFile(outputPath, result.markdown, 'utf-8');
-  logger.info(`[ocr] done → ${outputPath} (${result.markdown.length}자)`);
+  // 화면에서 읽어 보기만 할 때(save: false)는 파일을 만들지 않는다 (누를 때마다 원본 옆에 .md 가 말없이 생기지 않게)
+  const outputPath = params.save === false ? '' : outputFile({ output_path: params.output_path, source: input_path, name: `${stemOf(input_path)}.md` });
+  if (outputPath) await writeFile(outputPath, result.markdown, 'utf-8');
+  logger.info(`[ocr] done → ${outputPath || '(저장 안 함)'} (${result.markdown.length}자)`);
   return {
     success: true,
     output_path: outputPath,

@@ -103,6 +103,9 @@ pub fn run() {
 
             let handle = app.handle().clone();
 
+            // 붙여 넣은 글·그림의 임시 파일 가운데 오래된 것을 치운다
+            commands::clipboard::sweep_old();
+
             // 비-MSIX 설치본·개발 실행은 OS 에 kordoc:// 가 등록돼 있지 않을 수 있어 런타임 등록
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             if let Err(e) = app.deep_link().register_all() {

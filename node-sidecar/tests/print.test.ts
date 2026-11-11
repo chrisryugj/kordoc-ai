@@ -71,7 +71,8 @@ describe('printFiles', () => {
     expect(result.jobIds[0]).toMatch(/kordoc-print/);
     expect(mockDocToPdf).toHaveBeenCalledWith(file, expect.anything());
     // execFile 가 PowerShell Start-Process 명령으로 호출됨
-    expect(mockExecFile).toHaveBeenCalledWith('powershell', expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']), expect.anything());
+    // 이름만이 아니라 윈도 폴더의 절대 경로로 띄운다 (작업 폴더에 놓인 같은 이름 파일이 실행되지 않게)
+    expect(mockExecFile).toHaveBeenCalledWith(expect.stringMatching(/\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/i), expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']), expect.anything());
     const command = mockExecFile.mock.calls[0][1].at(-1) as string;
     expect(command).toContain('Start-Process');
     expect(command).toContain('PrintTo');

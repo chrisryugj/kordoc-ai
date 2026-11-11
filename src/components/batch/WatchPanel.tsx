@@ -16,7 +16,9 @@ type Watch = { id: string; dir: string; out_dir: string; format: string; process
 type Event = { id: string; path: string; ok: boolean; output_path?: string; error?: string; at: number };
 
 export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: number) => void }) {
-  const { ready } = useApp();
+  const { ready, settings } = useApp();
+  /** 담을 폴더를 고르지 않았을 때 엔진이 쓰는 곳: 설정의 저장 폴더, 없으면 지켜볼 폴더 안 "변환 결과" */
+  const defaultOut = settings?.convert.output_dir ? `${baseName(settings.convert.output_dir)} (설정의 저장 폴더)` : "지켜볼 폴더 안 “변환 결과”";
   const [list, setList] = useState<Watch[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [dir, setDir] = useState("");
@@ -63,7 +65,7 @@ export function WatchPanel({ active, onCount }: { active: boolean; onCount: (n: 
           <Field label="바꿀 형식"><Seg label="바꿀 형식" value={format} onChange={setFormat} options={[{ value: "md", label: "제목·표 살린 글" }, { value: "html", label: "웹 페이지" }, { value: "txt", label: "글자만" }]} /></Field>
           <Field label="담을 폴더">
             <div className="flex items-center gap-2">
-              <span className="kd-path" title={outDir || undefined}>{outDir ? baseName(outDir) : "지켜볼 폴더 안 “변환 결과”"}</span>
+              <span className="kd-path" title={outDir || undefined}>{outDir ? baseName(outDir) : defaultOut}</span>
               <button type="button" className="kd-link kd-small" onClick={() => void pickFolder().then((d) => d && setOutDir(d))}>바꾸기</button>
             </div>
           </Field>

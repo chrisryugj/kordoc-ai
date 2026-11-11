@@ -60,13 +60,15 @@ export function redactMarkdown(markdown: string, opts: Opts = {}): ReturnType<ty
 
 /** 글자 읽기(OCR)는 기호 앞뒤를 띄워 읽곤 한다 ("hong @ gaon.example"·"900101 - 1234567"). 그대로 두면 전자우편·번호 규칙이
  *  걸리지 않아 스캔본·양식 칸의 개인정보가 "0곳"으로 나간다 → @ 앞뒤, 숫자 사이 줄표 앞뒤의 띄어쓰기를 뺀 글. at[i] 는 읽은 글에서의 자리 */
-export function tighten(text: string): { text: string; at: number[] } {
+export function tighten(text: string, lines = false): { text: string; at: number[] } {
+  // lines: 줄바꿈도 붙인다. 좁은 표 칸에서는 번호가 줄표 자리에서 줄이 바뀐다("010-1234-" / "5678") → 그대로 두면 그 번호만 가려지지 않는다
+  const gap = (c: string | undefined) => c === ' ' || c === '\t' || (lines && (c === '\n' || c === '\r'));
   let out = '';
   const at: number[] = [];
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === ' ' || text[i] === '\t') {
+    if (gap(text[i])) {
       let j = i;
-      while (text[j] === ' ' || text[j] === '\t') j++;
+      while (gap(text[j])) j++;
       const prev = out.at(-1) ?? '';
       const next = text[j] ?? '';
       const joins = prev === '@' || next === '@'
@@ -80,11 +82,17 @@ export function tighten(text: string): { text: string; at: number[] } {
   return { text: out, at };
 }
 
-/** 글자 읽기로 얻은 글에서 걸린 곳 수 — 읽은 그대로와 기호 앞뒤 띄어쓰기를 뺀 글 가운데 많은 쪽 */
+/** 문서 글(마크다운)에서 줄이 바뀌어 끊긴 번호·전자우편을 붙인 글 — 표 칸의 줄바꿈(<br>)과 기호 앞뒤 띄어쓰기·줄바꿈.
+ *  표 줄 자체는 건드리지 않는다(칸 사이 | 는 그대로) */
+export function joinBroken(markdown: string): string {
+  return tighten(markdown.replace(/(?<=[\d@-])\s*<br\s*\/?>\s*(?=[\d@-])/gi, '\n'), true).text;
+}
+
+/** 글자 읽기로 얻은 글에서 걸린 곳 수 — 읽은 그대로와 끊긴 곳을 붙인 글 가운데 많은 쪽 */
 export function countRead(markdown: string, rules: readonly RedactRule[], keep: (s: string) => boolean): number {
   const count = (s: string) => redactMarkdown(s, { rules }).hits.filter((h) => !keep(s.slice(h.index, h.index + h.length))).length;
-  const tight = tighten(markdown).text;
-  return tight.length === markdown.length ? count(markdown) : Math.max(count(markdown), count(tight));
+  const joined = joinBroken(markdown);
+  return joined === markdown ? count(markdown) : Math.max(count(markdown), count(joined));
 }
 
 /** kordoc 주소 규칙이 못 잡는 주소만 (같은 글에서 kordoc 이 잡은 곳과 겹치면 뺀다) */

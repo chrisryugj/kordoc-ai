@@ -82,6 +82,8 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   const [aiBusy, setAiBusy] = useState(false);
   const [aiDone, setAiDone] = useState(aiUsed);
   const autoTried = useRef(false);
+  /** 저장·AI 적요 때 엔진이 알린 것 */
+  const [later, setLater] = useState<string[]>([]);
   const rows = useMemo(() => lines.map((l) => l.row), [lines]);
 
   // 고칠 때마다 (잠깐 멈추면) 미리보기·복사 글을 다시
@@ -130,7 +132,8 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
         setSaved(r.output_path);
         void rpc("open_file", { path: r.output_path }).catch(() => undefined);
       }
-      for (const w of r.warnings) toast(w, "info");
+      // 경고는 화면에 남긴다 (저장하면 곧바로 한글이 앞에 떠서 잠깐 뜨는 알림은 못 본다: "기본 서식으로 만들었습니다" 등)
+      setLater(r.warnings);
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -144,7 +147,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
     try {
       const paths = [...new Set(lines.map((l) => l.path))];
       const r = await rpc("receipt_read", { paths, ai: true });
-      for (const w of r.warnings) toast(w, "info");
+      setLater((x) => [...new Set([...x, ...r.warnings])]);
       if (!r.ai_used) return;
       const by = new Map(r.receipts.filter((x) => x.ok).map((x) => [`${x.path}#${x.page ?? 0}`, x.purpose]));
       setLines((ls) => ls.map((l) => {
@@ -165,7 +168,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
 
   return (
     <div className="kd-receipt">
-      {warnings.map((w) => <Note key={w} tone="warn">{w}</Note>)}
+      {[...new Set([...warnings, ...(preview?.warnings ?? []), ...later])].map((w) => <Note key={w} tone="warn">{w}</Note>)}
       {failed.length > 0 && (
         <Note tone="warn">
           <p>읽지 못한 파일 {failed.length}개</p>

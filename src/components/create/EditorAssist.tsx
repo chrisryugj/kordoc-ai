@@ -52,13 +52,22 @@ function FieldsTab() {
       {fields && fields.length === 0 && <Note tone="info">이 문서에는 이름 붙은 칸(누름틀)이 없습니다. 편집기에서 바로 쓰세요.</Note>}
       {fields && fields.length > 0 && (
         <TemplateForm key={nonce} compact fields={fields} initial={initial} finishLabel="편집기에 넣기" busy={put.busy}
-          onFinish={(values) => void put.run(() => call("put_fields", { values }))} />
+          onFinish={(values) => void put.run(async () => {
+            // 이 탭에서 바꾼 칸만 넣는다. 손대지 않은 칸까지 보내면, 그사이 편집기에서 직접 쓴 글이 문서를 열 때 읽어 둔 값(빈 값)으로 덮인다
+            const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => (v ?? "") !== (initial[k] ?? "")));
+            if (!Object.keys(changed).length) return { applied: [], missing: [] };
+            const r = await call("put_fields", { values: changed });
+            setInitial((x) => ({ ...x, ...changed }));
+            return r;
+          })} />
       )}
       <ErrorLine message={put.error} />
       {put.result && (
         put.result.missing.length
           ? <Note tone="warn">{put.result.applied.length}칸을 넣었습니다. 찾지 못한 칸: {put.result.missing.join(", ")}</Note>
-          : <Note tone="ok">{put.result.applied.length}칸을 넣었습니다. 편집기의 실행 취소 한 번이면 모두 되돌립니다.</Note>
+          : put.result.applied.length
+            ? <Note tone="ok">{put.result.applied.length}칸을 넣었습니다. 편집기의 실행 취소 한 번이면 모두 되돌립니다.</Note>
+            : <Note tone="info">바꾼 칸이 없어 넣지 않았습니다. 위 칸에 값을 적은 뒤 누르세요.</Note>
       )}
     </div>
   );

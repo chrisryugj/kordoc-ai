@@ -478,7 +478,7 @@ const handlers: Handlers = {
   },
   ai_extract: async (p) => {
     await wait(900);
-    return { rows: p.paths.map((x, i) => Object.fromEntries([["문서", baseName(x)], ...p.columns.map((c) => [c, `${c} ${i + 1}`])])), output_path: joinPath(DOCS_DIR, "항목 뽑기.xlsx"), failed: [] };
+    return { rows: p.paths.map((x, i) => Object.fromEntries([["파일", baseName(x)], ...p.columns.map((c) => [c, `${c} ${i + 1}`])])), output_path: joinPath(DOCS_DIR, "항목 뽑기.xlsx"), failed: [] };
   },
 
   to_hwpx: async (p) => { await wait(700); return { output_path: p.output_path ?? out(p.path, "hwpx"), warnings: [], style: p.path.endsWith(".hwp") ? "서식 그대로" : "기안문 서식" }; },

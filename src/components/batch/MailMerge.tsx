@@ -16,6 +16,7 @@ import { Button } from "../ui/Button";
 import { Field, Seg, SelectField } from "../common/Field";
 import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../common/Status";
 import type { BatchOpts } from "./tasks";
+import { mergeFailed } from "./runners";
 
 const BUILTIN: Record<string, string> = { gian: "일반 기안문", "gian-simple": "간이 기안문" };
 
@@ -127,8 +128,8 @@ export function MailMergeOptions({ opts, set }: { opts: BatchOpts; set: (p: Part
 /** 결과 — 만든 폴더, 줄마다 실패 이유, 이어서 할 일 (한 파일로 합치기·합본 PDF·한꺼번에 인쇄) */
 export function MailMergeResult({ message, result }: { message: string; result: RpcResult<"mail_merge"> }) {
   const { outputs, failed, output_dir: dir, rejected } = result;
-  const merge = useTask<string>();
-  const pdf = useTask<{ output_path: string; page_count: number }>();
+  const merge = useTask<{ path: string; missed: number }>();
+  const pdf = useTask<{ output_path: string; page_count: number; failed?: Array<{ path: string }> }>();
   const print = useTask<string>();
   const [printer, setPrinter] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -160,7 +161,8 @@ export function MailMergeResult({ message, result }: { message: string; result: 
               const out = joinPath(dir, `${folder}_합친 문서.hwpx`);
               // 같은 이름이 있으면 엔진이 (2) 를 붙인 경로를 돌려준다
               const r = (await rpc("merge_files", { files: outputs, output_path: out, mode: "native" }, { signal })) as { output_path?: string } | null;
-              return r?.output_path || out;
+              // 빠진 장이 있으면 알린다 (몇 장이 빠진 합본을 그대로 보내지 않게)
+              return { path: r?.output_path || out, missed: mergeFailed(r).length };
             })}><Combine size={13} /> 한 파일로 합치기</Button>
             <Button variant="secondary" size="sm" disabled={pdf.busy} onClick={() => void pdf.run(({ signal, onProgress }) => rpc("bundle_pdf", { paths: outputs, output_path: joinPath(dir, `${folder}_합본.pdf`), page_numbers: false }, { signal, onProgress }))}>
               <FileText size={13} /> 합본 PDF
@@ -182,10 +184,10 @@ export function MailMergeResult({ message, result }: { message: string; result: 
           )}
           {merge.busy && <Working label="한 파일로 합치는 중" onCancel={merge.cancel} />}
           <ErrorLine message={merge.error} />
-          {merge.result && <SavedFile path={merge.result} label="한 파일로 합쳤습니다" />}
+          {merge.result && <SavedFile path={merge.result.path} label={`한 파일로 합쳤습니다${merge.result.missed ? ` (${merge.result.missed}장은 넣지 못했습니다. 만든 폴더의 문서를 확인하세요)` : ""}`} />}
           {pdf.busy && <Working label="합본 PDF를 만드는 중" progress={pdf.progress} onCancel={pdf.cancel} />}
           <ErrorLine message={pdf.error} />
-          {pdf.result && <SavedFile path={pdf.result.output_path} label={`${pdf.result.page_count}쪽짜리 합본 PDF를 만들었습니다`} />}
+          {pdf.result && <SavedFile path={pdf.result.output_path} label={`${pdf.result.page_count}쪽짜리 합본 PDF를 만들었습니다${pdf.result.failed?.length ? ` (${pdf.result.failed.length}장은 넣지 못했습니다. 만든 폴더의 문서를 확인하세요)` : ""}`} />}
           {print.busy && <Working label="프린터로 보내는 중" />}
           <ErrorLine message={print.error} />
           {print.result && <Note tone="ok">{print.result}</Note>}

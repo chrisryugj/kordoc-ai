@@ -244,6 +244,49 @@ function mergeDocxStyles(
   return { added, remap };
 }
 
+/** 문단 속성(pPr)의 규격 차례 — 차례가 틀리면 워드가 문서를 못 읽는 일이 있다 */
+const PPR_ORDER = ['pStyle', 'keepNext', 'keepLines', 'pageBreakBefore', 'framePr', 'widowControl', 'numPr', 'suppressLineNumbers', 'pBdr', 'shd', 'tabs',
+  'suppressAutoHyphens', 'kinsoku', 'wordWrap', 'overflowPunct', 'topLinePunct', 'autoSpaceDE', 'autoSpaceDN', 'bidi', 'adjustRightInd', 'snapToGrid',
+  'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap', 'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl',
+  'divId', 'cnfStyle', 'rPr', 'sectPr', 'pPrChange'];
+
+const docDefaults = (stylesXml: string) => ({
+  rPr: stylesXml.match(/<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>/)?.[1] ?? '',
+  pPr: stylesXml.match(/<w:pPrDefault>\s*<w:pPr>([\s\S]*?)<\/w:pPr>\s*<\/w:pPrDefault>/)?.[1] ?? '',
+});
+/** 속성 묶음의 맨 위 요소들 (같은 이름이 안에 겹쳐 들지 않는 묶음에만 쓴다) */
+const topLevel = (inner: string) => [...inner.matchAll(/<w:(\w+)\b[^>]*?(?:\/>|>[\s\S]*?<\/w:\1>)/g)].map((m) => ({ tag: m[1], xml: m[0] }));
+
+/** 뒤 문서의 문서 기본값이 합본과 다르면, 기대는 서식이 없는 문단 서식(뿌리 서식)에 그 기본값을 적어 넣은 styles.xml 을 돌려준다.
+ *  서식에 이미 적힌 속성은 그대로 둔다(서식이 기본값을 이긴다). 같으면 그대로 */
+export function withDocDefaults(donorStylesXml: string, baseStylesXml: string): string {
+  const own = docDefaults(donorStylesXml);
+  const base = docDefaults(baseStylesXml);
+  const flat = (s: string) => topLevel(s).map((k) => k.xml.replace(/\s+/g, ' ')).sort().join('');
+  if (flat(own.rPr) === flat(base.rPr) && flat(own.pPr) === flat(base.pPr)) return donorStylesXml;
+  const fill = (have: string, defaults: string, order?: string[]) => {
+    const kids = topLevel(have);
+    const merged = [...topLevel(defaults).filter((d) => !kids.some((k) => k.tag === d.tag)), ...kids];
+    if (order) merged.sort((a, b) => (order.indexOf(a.tag) + 1 || 99) - (order.indexOf(b.tag) + 1 || 99));
+    return merged.map((k) => k.xml).join('');
+  };
+  return donorStylesXml.replace(/<w:style\b[^>]*w:type="paragraph"[^>]*(?<!\/)>[\s\S]*?<\/w:style>/g, (whole) => {
+    if (/<w:basedOn\b/.test(whole)) return whole;
+    const style = whole.replace(/<w:(?:pPr|rPr)\/>/g, '');
+    // 문단 속성과 그 밖을 가른다 (서식의 글자 속성은 문단 속성 밖에 있다)
+    const pPr = style.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+    const rest = pPr ? style.replace(pPr[0], '\u0000') : style;
+    const rPr = rest.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+    const nextP = own.pPr ? `<w:pPr>${fill(pPr?.[1] ?? '', own.pPr, PPR_ORDER)}</w:pPr>` : pPr?.[0] ?? '';
+    const nextR = own.rPr ? `<w:rPr>${fill(rPr?.[1] ?? '', own.rPr)}</w:rPr>` : rPr?.[0] ?? '';
+    // 서식 안 차례: … pPr, rPr, (tblPr …) → 있던 자리에 넣고, 없었으면 닫는 표시 앞(표 속성이 있으면 그 앞)에
+    let out = rest;
+    out = rPr ? out.replace(rPr[0], () => nextR) : out.replace(/(<w:tblPr\b|<\/w:style>)/, (m) => nextR + m);
+    out = pPr ? out.replace('\u0000', () => nextP) : out.replace(nextR || /(<w:tblPr\b|<\/w:style>)/, (m) => nextP + m);
+    return out;
+  });
+}
+
 /** 뒤 문서의 기본 문단 서식이 합본의 기본 서식과 다르면, 서식을 적지 않은 문단에 그 서식을 적어 준다
  *  (안 적으면 그 문단들이 첫 문서의 기본 글꼴·크기·줄 간격으로 바뀐다) */
 function withParagraphStyle(xml: string, styleId: string): string {
@@ -340,7 +383,8 @@ function mergeNumbering(
   // 규격의 차례대로 넣는다: 번호 정의(abstractNum)가 모두 먼저, 목록(num)이 그 뒤.
   // 섞어 넣으면 워드가 뒤에 온 정의를 못 읽어 뒤 문서의 목록이 앞 문서 목록에 이어 붙는다
   const insertAt = (xml: string, at: number, text: string) => (at < 0 ? xml : xml.slice(0, at) + text + xml.slice(at));
-  let mergedXml = baseXml;
+  // 첫 문서의 번호 부품이 빈 꼴(<w:numbering …/>)이면 넣을 자리가 없어 뒤 문서의 번호 정의가 말없이 빠진다 → 펼친다
+  let mergedXml = baseXml.replace(/<w:numbering\b([^>]*)\/>\s*$/, (_, attrs) => `<w:numbering${attrs}></w:numbering>`);
   const end = (xml: string) => xml.search(/<w:numIdMacAtCleanup\b|<\/w:numbering>\s*$/);
   if (abstractNums.length > 0) {
     const firstNum = mergedXml.search(/<w:num\s/);
@@ -408,11 +452,13 @@ export async function concatDocx(
       const docXml = await docFile.async('text');
 
       if (!baseZip) {
+        // 본문이 있는지 본 뒤에 첫 문서로 삼는다 (본문 없는 파일을 첫 문서로 잡으면 뒤 문서가 모두 실패한다)
+        const first: any = new DOMParser().parseFromString(docXml, 'text/xml');
+        const firstBody = getChildElements(first.documentElement, 'body')[0];
+        if (!firstBody) throw new Error('w:body 없음');
         baseZip = zip;
-        baseDoc = new DOMParser().parseFromString(docXml, 'text/xml');
-        const bodies = getChildElements(baseDoc.documentElement, 'body');
-        baseBody = bodies[0] || null;
-        if (!baseBody) throw new Error('w:body 없음');
+        baseDoc = first;
+        baseBody = firstBody;
 
         const sectPrs = getChildElements(baseBody, 'sectPr');
         if (sectPrs.length > 0) {
@@ -437,6 +483,13 @@ export async function concatDocx(
 
       // ── 추가 파일 ──
 
+      // 본문과 문서 꼴을 먼저 본다 (서식·번호를 합본에 더한 뒤에 실패하면 찌꺼기가 남는다)
+      const doc: any = new DOMParser().parseFromString(docXml, 'text/xml');
+      const body = getChildElements(doc.documentElement, 'body')[0];
+      if (!body) throw new Error('w:body 없음');
+      // 이름공간이 다른 꼴(Strict Open XML)은 본문 요소 이름이 달라 그대로 이어 붙이면 깨진다
+      if (doc.documentElement.namespaceURI !== baseDoc.documentElement.namespaceURI) throw new Error('문서 이름공간이 첫 문서와 다름');
+
       // 스타일 병합
       let styleRemap = new Map<string, string>();
       let addedStyles: string[] = [];
@@ -444,7 +497,9 @@ export async function concatDocx(
       let implicitStyle: string | undefined;
       const donorStylesFile = zip.file('word/styles.xml');
       if (donorStylesFile && mergedStylesXml) {
-        const donorStylesXml = await donorStylesFile.async('text');
+        // 문서 기본값(글꼴·크기·문단 간격)이 첫 문서와 다르면 이 문서의 뿌리 서식에 적어 넣는다
+        // (기본값은 합본에 하나뿐이라, 안 적으면 이 문서 본문 전체가 첫 문서의 글꼴·크기로 바뀐다)
+        const donorStylesXml = withDocDefaults(await donorStylesFile.async('text'), mergedStylesXml);
         const result = mergeDocxStyles(mergedStylesXml, donorStylesXml, i + 1);
         addedStyles = result.added;
         styleRemap = result.remap;
@@ -469,11 +524,6 @@ export async function concatDocx(
           ? mergedStylesXml.replace(/<\/w:styles>\s*$/, () => `${insert}</w:styles>`)
           : mergedStylesXml.replace(/<w:styles\b([^>]*)\/>\s*$/, (_, attrs) => `<w:styles${attrs}>${insert}</w:styles>`);
       }
-
-      const doc: any = new DOMParser().parseFromString(docXml, 'text/xml');
-      const bodies = getChildElements(doc.documentElement, 'body');
-      const body = bodies[0];
-      if (!body) { failedFiles.push(files[i]); continue; }
 
       // 이 문서의 관계: 바깥 링크는 그대로, 그림·차트·삽입 개체는 부품째 옮기고, 나머지(머리글·각주…)는 옮기지 않는다.
       // 관계 id 는 이 문서 것만 새로 매긴다 (앞 문서의 관계까지 건드리면 같은 이름 그림이 뒤바뀐다)
@@ -524,6 +574,16 @@ export async function concatDocx(
       baseBody.appendChild(baseDoc.importNode(breakDoc.documentElement, true));
       for (const node of nodes) baseBody.appendChild(node);
       if (sectPr) lastSectPr = sectPr;
+      // 이 문서가 쓰는 이름공간 선언과 "몰라도 되는 확장" 목록을 합본 뿌리에 더한다
+      // (글상자·도형의 mc:Choice Requires="wps" 는 뿌리에 선언된 접두사만 알아본다. 없으면 워드가 문서를 손상으로 본다)
+      const root = baseDoc.documentElement;
+      const from = doc.documentElement;
+      for (let a = 0; a < from.attributes.length; a++) {
+        const attr = from.attributes[a];
+        if (attr.name.startsWith('xmlns:') && !root.hasAttribute(attr.name)) root.setAttribute(attr.name, attr.value);
+      }
+      const ignorable = new Set(`${root.getAttribute('mc:Ignorable') ?? ''} ${from.getAttribute('mc:Ignorable') ?? ''}`.split(/\s+/).filter((x) => x && root.hasAttribute(`xmlns:${x}`)));
+      if (ignorable.size && root.hasAttribute('xmlns:mc')) root.setAttribute('mc:Ignorable', [...ignorable].join(' '));
       additionalRels.push(...mine);
       const name = basename(files[i]);
       if (notes) warnings.push(`${name}: 각주·미주·메모 ${notes}개는 합본으로 옮기지 못했습니다. 본문은 그대로입니다.`);

@@ -62,6 +62,7 @@ export function registerDocuments(router: RpcRouter): void {
     pages: str(p.pages),
     engine: oneOf(p.engine, ['local', 'ai'] as const),
     force: bool(p.force),
+    ...(p.save === false ? { save: false } : {}),
   }, signal), { heavy: true });
 
   // ── 비교·표·검사·보안 ──
@@ -173,6 +174,7 @@ export function registerDocuments(router: RpcRouter): void {
     output_path: optPath(p.output_path),
     dry_run: bool(p.dry_run),
     include_doc: bool(p.include_doc),
+    overwrite: bool(p.overwrite),
   }, signal), { heavy: true });
   reg('patch_blocks', (p, signal) => {
     const input_path = optPath(p.input_path);

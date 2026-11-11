@@ -9,7 +9,7 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename } from 'node:path';
+import { dirname, basename, resolve } from 'node:path';
 import {
   parse, extractFormSchema, fillHwpx, fillWithUniqueGuard, patchHwpxBlocks, compare,
   type FormFieldSchema, type BlockEdit, type DiffResult,
@@ -108,6 +108,8 @@ export interface FormFillParams {
   dry_run?: boolean;
   /** 응답에 채워진 문서 base64 동봉 (기본 true — 미리보기 갱신) */
   include_doc?: boolean;
+  /** 저장 창에서 바꾸기까지 확인한 자리면 true: 있는 파일을 덮어쓴다. 아니면 (2) 를 붙인다 */
+  overwrite?: boolean;
 }
 
 export interface FormFillRpcResult {
@@ -160,7 +162,10 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
 
   let outPath = '';
   if (!dry_run) {
-    outPath = outputFile({ output_path, source: input_path, name: `${stemOf(input_path)}_채움.hwpx` });
+    // 덮어쓰기는 저장 창에서 확인받은 자리만. 양식 원본 자리는 덮지 않는다 (빈 양식을 잃는다)
+    const sameFile = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+    const overwrite = params.overwrite === true && !!output_path && !sameFile(output_path, input_path);
+    outPath = outputFile({ output_path, source: input_path, name: `${stemOf(input_path)}_채움.hwpx`, overwrite });
     await writeFile(outPath, filledBuf);
   }
 

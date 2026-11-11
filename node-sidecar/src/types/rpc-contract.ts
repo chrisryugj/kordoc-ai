@@ -120,7 +120,8 @@ export interface RpcMethods {
   /** HWP·HWPX 는 조판 그대로(rhwp 쪽 SVG → Chromium 인쇄, 실패 시 kordoc 렌더), 그 밖은 글 변환 후 인쇄용 PDF. Chromium(Edge·Chrome) 필요 — 없으면 안내 오류 */
   /** overwrite: 저장 창에서 고른 경로라 있는 파일을 바꾼다. 없으면 같은 이름이 있을 때 (2) 를 붙인다 */
   export_pdf: [{ path: string; output_path?: string; overwrite?: boolean }, { output_path: string }];
-  ocr: [{ input_path: string; output_path?: string; pages?: string; engine?: 'local' | 'ai'; force?: boolean }, { success: boolean; output_path: string; markdown: string; page_count?: number; engine: 'local' | 'ai'; warnings?: string[]; error?: string }];
+  /** save: false 면 읽기만 하고 .md 파일을 만들지 않는다(output_path 는 빈 글) */
+  ocr: [{ input_path: string; output_path?: string; pages?: string; engine?: 'local' | 'ai'; force?: boolean; save?: boolean }, { success: boolean; output_path: string; markdown: string; page_count?: number; engine: 'local' | 'ai'; warnings?: string[]; error?: string }];
   compare: [{ old_path: string; new_path: string; export?: 'html' | 'md' | 'xlsx'; output_path?: string }, CompareResult];
   /** allow_empty: 표가 없으면 오류 대신 빈 결과(일괄 처리에서 "뽑을 것 없음"으로) */
   tables_extract: [{ path: string; format: 'xlsx' | 'csv' | 'md'; pages?: string; only_data?: boolean; output_path?: string; allow_empty?: boolean }, TablesResult];
@@ -234,7 +235,7 @@ export interface RpcMethods {
   /** 공문서 초안 — 결과 markdown 은 generate_hwpx 로 바로 넣을 수 있는 모양.
    *  kind: 'reply'(받은 공문에 회신 — references[0] 이 받은 공문) · 'complaint'(민원 답변) · 'minutes'(메모 → 회의록) · 'onepage'(긴 문서 → 한 장 보고) · 'press'(보도자료). 없으면 preset 을 따른 일반 초안 */
   /** org: 우리 기관 서식 묶음에 그 갈래 문서가 있으면 구성·표현을 따름 (기본 켬, false 면 끔). 결과 org = 따른 갈래·대표 문서 */
-  ai_draft: [{ instruction: string; preset?: string; kind?: 'reply' | 'complaint' | 'minutes' | 'onepage' | 'press' | 'memo'; references?: string[]; length?: 'short' | 'medium' | 'long'; org?: boolean }, { markdown: string; redacted: number; org?: { kind: string; label: string; title: string; count: number } }];
+  ai_draft: [{ instruction: string; preset?: string; kind?: 'reply' | 'complaint' | 'minutes' | 'onepage' | 'press' | 'memo'; references?: string[]; length?: 'short' | 'medium' | 'long'; org?: boolean }, { markdown: string; redacted: number; org?: { kind: string; label: string; title: string; count: number }; note?: string }];
   /** gaejosik: 개조식으로 · narrative: 서술문으로 · public: 쉬운 공공언어로(행정 용어 순화) · press: 보도자료 문체 */
   ai_rewrite: [{ text: string; mode: 'polish' | 'concise' | 'formal' | 'plain' | 'expand' | 'english' | 'gaejosik' | 'narrative' | 'public' | 'press' | 'custom'; instruction?: string }, { text: string; redacted: number }];
   /** K팀장 검토 — AI 논리·숫자·날짜 검토 + 표기법 검사 결과를 함께 */

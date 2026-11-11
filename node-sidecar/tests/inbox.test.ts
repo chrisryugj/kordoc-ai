@@ -271,4 +271,19 @@ describe('기한 날짜 읽기', () => {
     expect(untilDates('10. 23.까지 제출', '2026-10-01')).toEqual(['2026-10-23']);
     expect(untilDates('10월 23일까지 제출', '2026-10-01')).toEqual(['2026-10-23']);
   });
+
+  it('작은따옴표 없는 두 자리 연도(25.10.23.)도 읽고, 소수(4.5)는 날짜로 읽지 않는다', async () => {
+    const { untilDates, labeledDue } = await import('../src/core/inbox/dates.js');
+    expect(untilDates('25.10.23.까지 제출', '2025-10-01')).toEqual(['2025-10-23']);
+    expect(labeledDue('제출기한: 25.10.23.', '2025-10-01')?.due).toBe('2025-10-23');
+    expect(untilDates("'25.10.23.까지 제출", '2025-10-01')).toEqual(['2025-10-23']);
+    expect(untilDates('평점 4.5까지 인정', '2025-10-01')).toEqual([]);
+    expect(untilDates('최대 1.5까지 가산', '2025-10-01')).toEqual([]);
+    // 날짜로 적은 한 자리 월·일은 그대로 읽는다 (끝 점·요일·"일"·연도가 있을 때)
+    expect(untilDates('4. 5.까지 제출', '2025-03-01')).toEqual(['2025-04-05']);
+    expect(untilDates('4.5(토)까지 제출', '2025-03-01')).toEqual(['2025-04-05']);
+    expect(untilDates('2025.4.5까지 제출', '2025-03-01')).toEqual(['2025-04-05']);
+    expect(untilDates('10.23까지 제출', '2025-10-01')).toEqual(['2025-10-23']);
+    expect(untilDates('10. 23. 14시까지 제출', '2025-10-01')).toEqual(['2025-10-23']);
+  });
 });

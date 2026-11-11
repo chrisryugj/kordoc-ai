@@ -110,7 +110,15 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
       .map((k) => ({ k, at: file.lastIndexOf(pick(k)), len: pick(k).length }))
       .filter((x) => x.at >= 0 && x.len >= 2)
       .sort((a, b) => b.len - a.len || b.at - a.at)[0]?.k;
-    const byFile = best((k) => k.full) ?? best((k) => k.stem);
+    // 줄기(총무과의 "총무")는 파일 이름의 토막 하나가 그 줄기일 때만 맞춘다. 이름 어디에든 들어 있으면 맞는 것으로 보면
+    // "교육수요조사_최종"이 조사과로, "홍보계획_제출"이 홍보과로 잡혀 그 부서가 미제출 목록에서 빠진다
+    const tokens = basename(h.path, extname(h.path)).normalize('NFC').split(/[\s_\-.,()[\]{}·~+]+/).filter(Boolean);
+    const stemAt = (stem: string) => tokens.map((t) => norm(t) === stem || deptStem(t) === stem).lastIndexOf(true);
+    const byStem = keys
+      .map((k) => ({ k, at: k.stem.length >= 2 ? stemAt(k.stem) : -1 }))
+      .filter((x) => x.at >= 0)
+      .sort((a, b) => b.k.stem.length - a.k.stem.length || b.at - a.at)[0]?.k;
+    const byFile = best((k) => k.full) ?? byStem;
     if (byFile) return { dept: byFile.name, in_roster: true };
     // 3) 본문: 온이름 또는 "줄기+과·팀·동·실" 이 가장 먼저 나오는 부서
     const text = norm(h.text.slice(0, 4000));

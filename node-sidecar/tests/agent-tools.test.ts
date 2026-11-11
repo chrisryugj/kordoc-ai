@@ -122,6 +122,14 @@ describe('보안·취소 (검증에서 나온 것)', () => {
     expect((await read(LETTER, { files: [], said: [`${SAMPLES} 폴더의 공문을 요약해 줘`] })).isError).toBeFalsy();
     // 다른 파일의 경로를 적은 것으로 그 폴더 전체가 열리지는 않는다
     expect((await read(LETTER, { files: [], said: [`${REPORT} 요약해 줘`] })).isError).toBe(true);
+    // 폴더 이름이 거기서 끝난 것만 폴더로 본다: 더 긴 경로의 앞부분(이름에 빈칸·점이 든 폴더)은 그 폴더를 적은 것이 아니다
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES} 예산\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES}.2\\계획.hwp 를 요약해 줘`] })).isError).toBe(true);
+    expect((await read(LETTER, { files: [], said: [`"${SAMPLES}" 안의 공문을 요약해 줘`] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: [`공문은 ${SAMPLES}. 요약해 줘`] })).isError).toBeFalsy();
+    expect((await read(LETTER, { files: [], said: [`${SAMPLES}\\ 에서 찾아 줘`] })).isError).toBeFalsy();
+    // 파일 이름도 낱말로 적혔을 때만 (다른 이름의 뒷부분으로 들어 있는 것은 아니다)
+    expect((await read(LETTER, { files: [], said: ['최종1-받은공문_도민체육대회 참가 협조 요청.hwpx 를 요약해 줘'] })).isError).toBe(true);
     // 여러 파일을 받는 도구도 하나라도 밖이면 막는다. 경로가 없는 도구는 그대로
     expect((await runWorkTool('list_documents', { paths: [REPORT, LETTER] }, dispatch, { app: true, scope: { files: [REPORT], said: [] } })).isError).toBe(true);
     expect((await runWorkTool('document_guide', { preset: 'official' }, dispatch, { app: true, scope: { files: [], said: [] } })).isError).toBeFalsy();

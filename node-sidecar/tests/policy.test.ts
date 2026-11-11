@@ -310,7 +310,11 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     const admin = () => { asked++; return 'O:BAG:SYD:'; };
     expect(machinePolicyTrusted(file, 'win32', admin)).toBe(true);
     expect(machinePolicyTrusted(file, 'win32', admin)).toBe(true);
-    expect(asked).toBe(1);
+    // 파일과 그 폴더를 한 번씩
+    expect(asked).toBe(2);
+    // 권한은 수정 시각을 바꾸지 않는다 → 판정은 잠깐만 기억하고 다시 본다
+    expect(machinePolicyTrusted(file, 'win32', admin, Date.now() + 61_000)).toBe(true);
+    expect(asked).toBe(4);
     const other = join(root, `owner-${++n}.json`);
     writeFileSync(other, '{"version":1}');
     expect(machinePolicyTrusted(other, 'win32', () => 'O:S-1-5-21-1-2-3-1001G:BU')).toBe(false);
@@ -318,5 +322,39 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     writeFileSync(third, '{"version":1}');
     expect(machinePolicyTrusted(third, 'win32', () => { throw new Error('막힘'); })).toBe(false);
     expect(machinePolicyTrusted(join(root, '없는 파일.json'), 'win32', admin)).toBe(false);
+  });
+
+  it('관리자 소유여도 일반 사용자가 고칠 수 있으면 믿지 않는다 (파일의 쓰기 권한, 폴더의 소유자·지우기 권한)', async () => {
+    const { machinePolicyTrusted, writableByOthers } = await import('../src/infra/policy.js');
+    // %ProgramData% 아래에 관리자가 만든 폴더와 파일의 흔한 권한: 관리자·SYSTEM 모든 권한, 사용자 읽기, 만든 사람 물려주기
+    const cleanFile = 'O:BAG:SYD:AI(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;0x1200a9;;;BU)';
+    const cleanDir = 'O:BAG:SYD:AI(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIIOID;GA;;;CO)(A;OICIID;0x1200a9;;;BU)(A;CIID;DCLCRPCR;;;BU)';
+    expect(writableByOthers(cleanFile)).toBe(false);
+    expect(writableByOthers(cleanDir, true)).toBe(false);
+    // 사용자에게 모든 권한·고치기 권한이 남은 파일
+    expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;;FA;;;BU)')).toBe(true);
+    expect(writableByOthers('O:BAG:SYD:AI(A;ID;FA;;;BA)(A;ID;0x1301bf;;;AU)')).toBe(true);
+    expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;;FRFW;;;S-1-5-21-1-2-3-1001)')).toBe(true);
+    // 물려주기 전용 항목은 그 파일에는 적용되지 않지만, 폴더에서는 새 파일에 물려준다
+    expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;OICIIO;FA;;;BU)')).toBe(false);
+    expect(writableByOthers('O:BAG:SYD:(A;;FA;;;BA)(A;OICIIO;FA;;;BU)', true)).toBe(true);
+    // 거부 항목·관리자 항목은 위험이 아니다. 권한 목록을 못 읽으면 믿지 않는다
+    expect(writableByOthers('O:BAG:SYD:(D;;FA;;;BU)(A;;FA;;;SY)S:(AU;SA;FA;;;WD)')).toBe(false);
+    expect(writableByOthers('O:BAG:SY')).toBe(true);
+
+    const make = () => { const f = join(root, `acl-${++n}.json`); writeFileSync(f, '{"version":1}'); return f; };
+    const answer = (file: string, dir: string) => (p: string) => (p.endsWith('.json') ? file : dir);
+    expect(machinePolicyTrusted(make(), 'win32', answer(cleanFile, cleanDir))).toBe(true);
+    expect(machinePolicyTrusted(make(), 'win32', answer('O:BAG:SYD:(A;;FA;;;BA)(A;;FA;;;BU)', cleanDir))).toBe(false);
+    // 폴더를 일반 사용자가 만들었으면(소유자) 언제든 권한을 물려줄 수 있다
+    expect(machinePolicyTrusted(make(), 'win32', answer(cleanFile, 'O:S-1-5-21-1-2-3-1001G:BUD:AI(A;OICIID;FA;;;BA)'))).toBe(false);
+    expect(machinePolicyTrusted(make(), 'win32', answer(cleanFile, 'O:BAG:SYD:(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)'))).toBe(false);
+  });
+
+  it('윈도 기본 도구는 윈도 폴더의 절대 경로로 띄운다 (작업 폴더에 놓인 같은 이름 파일이 실행되지 않게)', async () => {
+    const { winTool } = await import('../src/infra/win-tools.js');
+    expect(winTool('powershell', 'win32', { SystemRoot: 'C:\\Windows' })).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    expect(winTool('explorer', 'win32', {})).toBe('C:\\Windows\\explorer.exe');
+    expect(winTool('powershell', 'darwin', {})).toBe('powershell');
   });
 });

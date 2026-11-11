@@ -114,7 +114,9 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
   }, [mode, doc.path]);
 
   const runOcr = () => void ocr.run(async ({ signal, onProgress }) => {
-    const r = await rpc("ocr", { input_path: doc.path }, { signal, onProgress });
+    // 읽어 보기만 한다(파일로 저장하지 않는다). 엔진은 실패를 던지지 않고 success: false 로 준다 → 오류로 보인다
+    const r = await rpc("ocr", { input_path: doc.path, save: false }, { signal, onProgress });
+    if (!r.success) throw new Error(r.error || "글자를 읽지 못했습니다. 그림이 흐리거나 글자가 너무 작을 수 있습니다.");
     setMode("text");
     return r.markdown;
   });
@@ -126,7 +128,8 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
     setZoom(next);
   };
 
-  const markdown = ocr.result ?? text.result;
+  // 읽은 글이 비면 원래 뽑은 글을 그대로 둔다
+  const markdown = ocr.result || text.result;
 
   return (
     <section className="kd-viewer" aria-label="문서 미리보기">

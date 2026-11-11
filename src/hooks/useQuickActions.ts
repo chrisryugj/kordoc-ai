@@ -74,6 +74,13 @@ export function useQuickActions() {
             await openInApp(`${label}: ${r.ok ? `${r.ok}개는 했고 ` : ""}${r.failed.length}개는 못 했습니다. ${baseName(first.path)}: ${first.error}`);
             continue;
           }
+          if (r.review) {
+            // 확인할 것이 남았다: 알림과 함께 창에도 남긴다 (알림은 놓치기 쉽다)
+            void notifyQuick(`KorDoc AI: ${label} 확인 필요`, r.review);
+            await invokeCmd("shell_show").catch(() => undefined);
+            appRef.current.toast(`${label}: ${r.review}`, "error");
+            continue;
+          }
           if (!(await notifyQuick(`KorDoc AI: ${label} 끝`, r.message))) {
             await invokeCmd("shell_show").catch(() => undefined);
             appRef.current.toast(`${label} 끝: ${r.message}`, "success");

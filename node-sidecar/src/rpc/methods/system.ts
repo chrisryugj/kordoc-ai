@@ -13,6 +13,7 @@ import { detectMcpEnv, installMcpConfig } from '../../core/mcp-setup/index.js';
 import { modelsImport, modelsStatus, selftest, systemInfo } from '../../core/system/index.js';
 import { scanPaths } from '../../core/files/index.js';
 import { optPath, registrar, reqPath, reqPaths, strList } from './params.js';
+import { winTool } from '../../infra/win-tools.js';
 
 /** 탐색기·Finder·기본 앱 실행 — 윈도 explorer 는 성공해도 종료 코드 1 을 자주 내므로 결과를 따지지 않는다 */
 function launch(cmd: string, args: string[]): Promise<boolean> {
@@ -58,7 +59,7 @@ export function registerSystem(router: RpcRouter): void {
   reg('open_folder', async (p) => {
     const dir = reqPath(p.path);
     if (!(await stat(dir)).isDirectory()) throw new Error('폴더가 아닙니다. 폴더를 고르세요.');
-    return launch(process.platform === 'win32' ? 'explorer' : opener(), [process.platform === 'win32' ? winPath(dir) : dir]);
+    return launch(process.platform === 'win32' ? winTool('explorer') : opener(), [process.platform === 'win32' ? winPath(dir) : dir]);
   });
 
   reg('open_file', async (p) => {
@@ -66,14 +67,14 @@ export function registerSystem(router: RpcRouter): void {
     if (!(await stat(file)).isFile()) throw new Error('파일이 아닙니다. 파일을 고르세요.');
     const ext = file.toLowerCase().match(/\.[^.\\/]+$/)?.[0] ?? '';
     if (!OPENABLE_EXT.has(ext)) throw new Error(`이 형식은 앱에서 열 수 없습니다: ${ext || '확장자 없음'}`);
-    return launch(process.platform === 'win32' ? 'explorer' : opener(), [process.platform === 'win32' ? winPath(file) : file]);
+    return launch(process.platform === 'win32' ? winTool('explorer') : opener(), [process.platform === 'win32' ? winPath(file) : file]);
   });
 
   // 탐색기·Finder 에서 파일을 고른 채로 폴더 열기
   reg('reveal_file', async (p) => {
     const file = reqPath(p.path);
     await stat(file);
-    if (process.platform === 'win32') return launch('explorer', [`/select,${winPath(file)}`]);
+    if (process.platform === 'win32') return launch(winTool('explorer'), [`/select,${winPath(file)}`]);
     if (process.platform === 'darwin') return launch('open', ['-R', file]);
     return launch('xdg-open', [dirname(file)]);
   });

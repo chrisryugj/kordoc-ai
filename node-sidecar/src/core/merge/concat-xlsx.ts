@@ -6,7 +6,9 @@ import JSZip from 'jszip';
 import { DOMParser } from '@xmldom/xmldom';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
-import type { MergeFilesParams, MergeFilesResult } from './types.js';
+import type { MergeFailure, MergeFilesParams, MergeFilesResult } from './types.js';
+
+const RESAVE = '통합 문서의 시트 목록을 읽지 못했습니다. 엑셀에서 열어 다른 이름으로 저장(xlsx)한 뒤 다시 넣으세요.';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,7 +30,8 @@ function parseSharedStringsText(xml: string): string[] {
   const strings: string[] = [];
   const siList = getElements(doc.documentElement, 'si');
   for (const si of siList) {
-    const tElements = getElements(si, 't');
+    // 읽는 법 표기(rPh, 한자 위의 후리가나)는 본문이 아니다
+    const tElements = getElements(si, 't').filter((t: any) => t.parentNode?.nodeName !== 'rPh');
     strings.push(tElements.map((t: any) => t.textContent ?? '').join(''));
   }
   return strings;
@@ -40,6 +43,8 @@ interface SheetInfo {
   name: string;
   sheetId: string;
   rId: string;
+  /** hidden · veryHidden (숨긴 시트는 합본에서도 숨긴다) */
+  state?: string;
 }
 
 function parseWorkbook(xml: string): SheetInfo[] {
@@ -51,6 +56,7 @@ function parseWorkbook(xml: string): SheetInfo[] {
       name: el.getAttribute('name') ?? `Sheet${sheets.length + 1}`,
       sheetId: el.getAttribute('sheetId') ?? '',
       rId: el.getAttribute('r:id') ?? '',
+      ...(el.getAttribute('state') ? { state: el.getAttribute('state') } : {}),
     });
   }
   return sheets;
@@ -69,18 +75,17 @@ function parseRels(xml: string): Map<string, string> {
 }
 
 function resolveSharedStrings(sheetXml: string, strings: string[]): string {
-  return sheetXml.replace(
-    /(<c\b[^>]*)\bt="s"([^>]*>)([\s\S]*?<v>)(\d+)(<\/v>[\s\S]*?<\/c>)/g,
-    (full, pre, mid, vPre, numStr, vPost) => {
-      const idx = parseInt(numStr, 10);
-      const text = strings[idx] ?? '';
-      const escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return `${pre}t="inlineStr"${mid}<is><t>${escaped}</t></is></c>`;
-    },
-  );
+  // 칸 하나씩 본다 (값 없는 t="s" 칸에서 다음 칸의 <v> 까지 먹으면 시트가 깨진다)
+  return sheetXml.replace(/<c\b([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g, (full, attrs: string, tail: string, body: string | undefined) => {
+    if (!/\bt="s"/.test(attrs)) return full;
+    const index = body?.match(/<v>(\d+)<\/v>/)?.[1];
+    if (index === undefined) return `<c${attrs.replace(/\s*\bt="s"/, '')}${tail === '/>' ? '/>' : `>${body ?? ''}</c>`}`;
+    const text = strings[parseInt(index, 10)] ?? '';
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // 앞뒤 빈칸·줄바꿈은 지키라고 적어야 엑셀이 버리지 않는다
+    const keep = /^\s|\s$|\n/.test(text) ? ' xml:space="preserve"' : '';
+    return `<c${attrs.replace(/\bt="s"/, 't="inlineStr"')}><is><t${keep}>${escaped}</t></is></c>`;
+  });
 }
 
 const xmlText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -108,6 +113,15 @@ function uniqueSheetName(name: string, existing: Set<string>): string {
  *  합치면서 시트 이름이 바뀌는데 수식을 그대로 두면 다시 계산할 때 다른 파일의 같은 이름 시트 값을 가져온다 */
 export function renameSheetRefs(formula: string, renames: Map<string, string>): string {
   if (!renames.size) return formula;
+  // 여러 시트에 걸친 참조('1월:12월'!C5 · Sheet1:Sheet3!A1)는 양 끝 이름을 함께 바꿔 한 따옴표 안에 적는다
+  const span = (a: string, b: string, whole: string) => {
+    if (!renames.has(a) && !renames.has(b)) return whole;
+    return xmlText(`'${(renames.get(a) ?? a).replace(/'/g, "''")}:${(renames.get(b) ?? b).replace(/'/g, "''")}'!`);
+  };
+  const plain = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/''/g, "'");
+  formula = formula
+    .replace(/(?<![\p{L}\p{N}_.'\]])'((?:[^':]|'')+):((?:[^':]|'')+)'!/gu, (whole, a: string, b: string) => span(plain(a), plain(b), whole))
+    .replace(/(?<![\p{L}\p{N}_.'\]])([\p{L}_][\p{L}\p{N}_.]*):([\p{L}_][\p{L}\p{N}_.]*)!/gu, (whole, a: string, b: string) => span(a, b, whole));
   const table = new Map<string, string>();
   for (const [from, to] of renames) {
     const next = xmlText(`'${to.replace(/'/g, "''")}'!`);
@@ -131,7 +145,7 @@ export function renameDefinedNames(formula: string, names: Map<string, string>):
 function renameInSheet(xml: string, renames: Map<string, string>, names: Map<string, string>): string {
   if (!renames.size && !names.size) return xml;
   return xml
-    .replace(/(<(f|formula|formula1|formula2)\b[^>]*>)([^<]*)(<\/\2>)/g, (_, open, _tag, body, close) => open + renameDefinedNames(renameSheetRefs(body, renames), names) + close)
+    .replace(/(<((?:\w+:)?(?:f|formula|formula1|formula2))\b[^>]*>)([^<]*)(<\/\2>)/g, (_, open, _tag, body, close) => open + renameDefinedNames(renameSheetRefs(body, renames), names) + close)
     .replace(/(<hyperlink\b[^>]*\blocation=")([^"]*)(")/g, (_, a, loc, z) => a + renameSheetRefs(loc, renames) + z);
 }
 
@@ -163,11 +177,14 @@ function dropParts(sheetXml: string, relsXml: string | null): { xml: string; rel
   return { xml, rels: kept ? rels : null, dropped: [...dropped] };
 }
 
-function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; rId: string; sheetId: number }>, definedNames: string[] = []): string {
+function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; rId: string; sheetId: number; state?: string }>, definedNames: string[] = []): string {
   const sheetsContent = sheetEntries.map(s =>
-    `<sheet name="${xmlAttr(s.name)}" sheetId="${s.sheetId}" r:id="${s.rId}"/>`,
+    `<sheet name="${xmlAttr(s.name)}" sheetId="${s.sheetId}"${s.state ? ` state="${xmlAttr(s.state)}"` : ''} r:id="${s.rId}"/>`,
   ).join('');
-  let xml = originalXml.replace(/<sheets>[\s\S]*?<\/sheets>/, () => `<sheets>${sheetsContent}</sheets>`);
+  let xml = originalXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/, () => `<sheets>${sheetsContent}</sheets>`);
+  // 열어 둘 시트(activeTab)는 숨기지 않은 첫 시트로 (숨긴 시트가 열려 있다고 적혀 있으면 안 된다)
+  const firstShown = Math.max(0, sheetEntries.findIndex((s) => !s.state));
+  xml = xml.replace(/(<workbookView\b[^>]*?)\s+activeTab="\d+"/g, '$1').replace(/<workbookView\b/, `<workbookView activeTab="${firstShown}"`);
   // 이름 정의(인쇄 영역·인쇄 제목 포함)는 시트 번호와 시트 이름이 바뀐 대로 다시 적는다
   const block = definedNames.length ? `<definedNames>${definedNames.join('')}</definedNames>` : '';
   if (/<definedNames\b/.test(xml)) xml = xml.replace(/<definedNames\b[^>]*>[\s\S]*?<\/definedNames>|<definedNames\b[^>]*\/>/, () => block);
@@ -435,6 +452,10 @@ function remapCellStyles(sheetXml: string, remap: Map<number, number>): string {
       const newIdx = remap.get(oldIdx) ?? oldIdx;
       return `${pre}s="${newIdx}"`;
     },
+  ).replace(
+    // 열의 기본 서식(빈 칸이 따르는 서식)도 같은 번호표를 쓴다
+    /(<col\b[^>]*)\bstyle="(\d+)"/g,
+    (full, pre, num) => `${pre}style="${remap.get(parseInt(num, 10)) ?? num}"`,
   );
 }
 
@@ -498,10 +519,15 @@ export async function concatXlsx(
   const { files, output_path } = params;
   const failedFiles: string[] = [];
 
+  const failures: MergeFailure[] = [];
+  /** 첫 파일의 시트 이름이 바뀐 것 (첫 파일은 차트·피벗 부품이 그대로 남으므로 그 안의 시트 이름도 바꿔야 한다) */
+  let baseRenames = new Map<string, string>();
+
   const collectedSheets: Array<{
     name: string;
     xml: string;
     relsXml: string | null;
+    state?: string;
   }> = [];
   const usedSheetNames = new Set<string>();
   const warnings: string[] = [];
@@ -530,12 +556,16 @@ export async function concatXlsx(
     try {
       const buffer = await readFile(files[fi]);
       const zip = await JSZip.loadAsync(buffer);
+      const workbookXml = (await zip.file('xl/workbook.xml')?.async('text')) ?? '';
+      const sheets = workbookXml ? parseWorkbook(workbookXml) : [];
+      // 시트 목록을 못 읽는 꼴(이름 앞에 접두사가 붙은 통합 문서 등)은 넣지 않는다.
+      // 그대로 두면 뒤 파일은 시트가 말없이 빠지고, 첫 파일이면 깨진 합본이 성공으로 나간다
+      if (!sheets.length || !/<sheets\b/.test(workbookXml) || !/\bxmlns:r=/.test(workbookXml)) throw new Error(RESAVE);
       const isFirst = !baseZip;
 
       if (isFirst) {
         baseZip = zip;
-        const wbFile = zip.file('xl/workbook.xml');
-        if (wbFile) baseWorkbookXml = await wbFile.async('text');
+        baseWorkbookXml = workbookXml;
         const relsFile = zip.file('xl/_rels/workbook.xml.rels');
         if (relsFile) baseRelsXml = await relsFile.async('text');
         const ctFile = zip.file('[Content_Types].xml');
@@ -571,11 +601,6 @@ export async function concatXlsx(
         }
       }
 
-      const wbFile = zip.file('xl/workbook.xml');
-      if (!wbFile) { failedFiles.push(files[fi]); continue; }
-      const workbookXml = await wbFile.async('text');
-      const sheets = parseWorkbook(workbookXml);
-
       const relsFile = zip.file('xl/_rels/workbook.xml.rels');
       const relsMap = relsFile ? parseRels(await relsFile.async('text')) : new Map<string, string>();
 
@@ -588,6 +613,7 @@ export async function concatXlsx(
         if (finalName !== sheet.name) renames.set(sheet.name, finalName);
         return finalName;
       });
+      if (isFirst) baseRenames = renames;
       // 통합 문서 범위의 이름 정의가 앞 파일과 겹치면 새 이름으로 (이 파일의 수식도 그 이름으로 바꾼다)
       const definedHere = [...workbookXml.matchAll(/<definedName\b([^>]*)>([^<]*)<\/definedName>/g)];
       const nameRenames = new Map<string, string>();
@@ -605,6 +631,7 @@ export async function concatXlsx(
       const placed = new Map<number, number>();
       const droppedParts = new Set<string>();
       let chartSheets = 0;
+      let outsideLinks = false;
       for (const [si, sheet] of sheets.entries()) {
         let target = (relsMap.get(sheet.rId) || `worksheets/sheet${sheet.sheetId}.xml`).replace(/^\//, '');
         if (!target.startsWith('xl/')) target = 'xl/' + target;
@@ -639,8 +666,9 @@ export async function concatXlsx(
           cut.dropped.forEach((x) => droppedParts.add(x));
         }
 
+        if (!isFirst && /<(?:\w+:)?f\b[^>]*>[^<]*\[\d+\]/.test(sheetXml)) outsideLinks = true;
         placed.set(si, collectedSheets.length);
-        collectedSheets.push({ name: finalNames[si], xml: sheetXml, relsXml: sheetRelsContent });
+        collectedSheets.push({ name: finalNames[si], xml: sheetXml, relsXml: sheetRelsContent, ...(sheet.state ? { state: sheet.state } : {}) });
       }
 
       // 이름 정의: 시트에 딸린 것(인쇄 영역·인쇄 제목)은 새 시트 번호로, 통합 문서 범위는 위에서 정한 이름으로
@@ -664,10 +692,15 @@ export async function concatXlsx(
       if (droppedParts.size) {
         const what = [...droppedParts].join(', ');
         const last = what.charCodeAt(what.length - 1) - 0xac00;
-        warnings.push(`${fileName}: ${what}${last >= 0 && last <= 11171 && last % 28 ? '은' : '는'} 합본으로 옮기지 못했습니다. 글자·숫자·서식·수식은 그대로입니다.`);
+        warnings.push(`${fileName}: ${what}${last >= 0 && last <= 11171 && last % 28 ? '은' : '는'} 합본으로 옮기지 못했습니다. 글자·숫자·서식·수식은 그대로입니다.${droppedParts.has('표 서식') ? ' 표 이름을 쓰는 수식(표1[열])이 있으면 값을 확인하세요.' : ''}`);
       }
       if (chartSheets) warnings.push(`${fileName}: 차트 시트 ${chartSheets}개는 넣지 못했습니다.`);
+      if (outsideLinks) warnings.push(`${fileName}: 다른 통합 문서를 가리키는 수식이 있습니다. 그 연결은 합본으로 옮기지 못하니 해당 칸의 값을 확인하세요.`);
+      // 날짜 기준이 다르면(1900·1904) 같은 숫자가 4년쯤 다른 날짜로 보인다. 합본은 첫 파일 기준을 쓴다
+      const is1904 = (xml: string) => /<workbookPr\b[^>]*\bdate1904="(?:1|true)"/.test(xml);
+      if (!isFirst && is1904(workbookXml) !== is1904(baseWorkbookXml)) warnings.push(`${fileName}: 날짜 기준(1904 날짜 체계)이 첫 파일과 달라 이 파일의 날짜가 4년쯤 어긋나 보입니다. 날짜 칸을 확인하세요.`);
     } catch (err) {
+      failures.push({ path: files[fi], error: err instanceof Error && err.message === RESAVE ? RESAVE : '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.' });
       failedFiles.push(files[fi]);
       logger.warn(`[concat-xlsx] 실패: ${files[fi]} — ${err instanceof Error ? err.message : err}`);
     }
@@ -677,7 +710,26 @@ export async function concatXlsx(
 
   // ── 출력 ZIP 구성 ──
 
-  const sheetEntries: Array<{ name: string; target: string; rId: string; sheetId: number }> = [];
+  const sheetEntries: Array<{ name: string; target: string; rId: string; sheetId: number; state?: string }> = [];
+
+  // 첫 파일의 차트·피벗 원본 범위가 가리키는 시트 이름 (파일 이름으로 바뀐 시트를 그대로 가리키면 다른 파일의 같은 이름 시트를 읽는다)
+  if (baseRenames.size) {
+    for (const path of Object.keys(baseZip.files)) {
+      if (/^xl\/charts\/[^/]+\.xml$/.test(path)) {
+        const xml = await baseZip.file(path)!.async('text');
+        const next = xml.replace(/(<c:f>)([^<]*)(<\/c:f>)/g, (_, a, body, z) => a + renameSheetRefs(body, baseRenames) + z);
+        if (next !== xml) baseZip.file(path, next);
+      } else if (/^xl\/pivotCache\/pivotCacheDefinition\d*\.xml$/.test(path)) {
+        const xml = await baseZip.file(path)!.async('text');
+        const plain = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        const next = xml.replace(/(<worksheetSource\b[^>]*\bsheet=")([^"]*)(")/g, (_, a, name, z) => a + xmlAttr(baseRenames.get(plain(name)) ?? plain(name)) + z);
+        if (next !== xml) baseZip.file(path, next);
+      }
+    }
+  }
+  // 파일마다 첫 시트가 "선택됨"으로 적혀 있다. 그대로 합치면 엑셀이 여러 시트를 묶어 선택한 채 열어, 한 칸에 적은 것이 그 시트들에 모두 들어간다
+  const shown = Math.max(0, collectedSheets.findIndex((c) => !c.state));
+  collectedSheets.forEach((c, i) => { if (i !== shown) c.xml = c.xml.replace(/(<sheetView\b[^>]*?)\s+tabSelected="(?:1|true)"/g, '$1'); });
 
   const existingSheets = Object.keys(baseZip.files).filter(p =>
     (p.startsWith('xl/worksheets/') && p.endsWith('.xml')) ||
@@ -699,6 +751,7 @@ export async function concatXlsx(
       target: `worksheets/sheet${i + 1}.xml`,
       rId: `rId${100 + i}`,
       sheetId: i + 1,
+      ...(collectedSheets[i].state ? { state: collectedSheets[i].state } : {}),
     });
   }
 
@@ -738,6 +791,7 @@ export async function concatXlsx(
     file_count: files.length,
     total_length: outputBuffer.length,
     failed_files: failedFiles,
+    failed: failures,
     ...(warnings.length ? { warnings } : {}),
   };
 }

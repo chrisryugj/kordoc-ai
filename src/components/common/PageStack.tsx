@@ -165,13 +165,18 @@ export function PageStack({ pageCount, pages, sizes, onNeed, zoom, scrollTo, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey, onNeed]);
 
+  /** 이미 따라간 요청 (요청 하나에 한 번) */
+  const scrolledTo = useRef<unknown>(null);
   useEffect(() => {
-    if (!scrollTo || !pageCount) return;
+    // 폭을 재기 전(처음 그릴 때)에는 쪽 위치가 가짜 폭 기준이다 → 그때 움직이면 좁은 칸에서 뒤쪽으로 밀린다.
+    // 폭과 쪽 수를 안 뒤에 한 번 움직인다 (근거 번호·지적을 눌러 처음 여는 문서)
+    if (!scrollTo || !pageCount || !box.width || scrolledTo.current === scrollTo) return;
+    scrolledTo.current = scrollTo;
     const p = Math.min(Math.max(1, scrollTo.page), pageCount);
     const inPage = scrollTo.frac != null ? scrollTo.frac * slotH(sizeOf(p)) - view / 3 : -16;
     rootRef.current?.scrollTo({ top: offset() + layout.tops[p - 1] + inPage, behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollTo]);
+  }, [scrollTo, box.width, pageCount]);
 
   useEffect(() => {
     const root = rootRef.current;

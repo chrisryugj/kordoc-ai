@@ -134,6 +134,16 @@ impl SidecarManager {
     }
 
     pub async fn start(&self) -> AppResult<()> {
+        let result = self.start_inner().await;
+        if let Err(e) = &result {
+            // 켜지 못했으면 "켜는 중"에 머물지 않게 오류 상태로 둔다. 그대로 두면 화면은 끝없이 "켜는 중"이고
+            // (백신이 막았는지 확인하라는 안내가 안 보인다) 다시 켜기도 먹지 않는다(오류·멈춤일 때만 다시 켠다)
+            *self.status.write().await = SidecarStatus::Error(e.to_string());
+        }
+        result
+    }
+
+    async fn start_inner(&self) -> AppResult<()> {
         let _guard = self.start_lock.lock().await;
         // 엔진이 죽으면 기다리던 호출마다 다시 켜기를 부른다. 차례로 다 돌리면 앞사람이 방금 켠 엔진을 뒷사람이 다시 죽여
         // 앞사람의 재시도가 "엔진이 멈췄습니다"로 끝난다 → 방금(2초 안) 켜졌고 살아 있으면 그대로 쓴다

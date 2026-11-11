@@ -28,7 +28,8 @@ export function colName(i: number): string {
   return s;
 }
 
-const NUMBER = /^-?(0|[1-9]\d{0,14}|[1-9]\d{0,2}(,\d{3})+)(\.\d+)?$/;
+// 쉼표 없는 12자리 이상은 글 칸으로 둔다: 계좌·등록·관리 번호가 숫자 칸이 되면 엑셀이 1.10123E+11 꼴로 보여 준다 (금액은 11자리면 충분하다)
+const NUMBER = /^-?(0|[1-9]\d{0,10}|[1-9]\d{0,2}(,\d{3})+)(\.\d+)?$/;
 
 /** 동아시아 글자는 두 칸으로 세어 열 너비 */
 function textWidth(s: string): number {

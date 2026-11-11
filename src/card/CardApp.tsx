@@ -117,7 +117,8 @@ function Card({ input }: { input: CardInput }) {
   const multi = input.paths.length > 1;
   const docs = paths.length ? paths : input.paths;
   const suggestions = useMemo(() => suggestionsFor(input.paths), [input.paths]);
-  const direct = useMemo(() => directFor(input.paths), [input.paths]);
+  // 바로 하기·앱에서 이어서도 지금 남긴 문서로 (카드에서 뺀 문서가 딸려 가면 머리의 "문서 N개"와 실제 처리한 수가 다르다)
+  const direct = useMemo(() => directFor(docs), [docs]);
   // AI 상태를 아직 모르면(null) 어느 쪽도 그리지 않는다 (깜빡임 없게)
   const aiOn = !!ai?.configured;
   const aiOff = !!ai && !ai.configured;
@@ -132,7 +133,7 @@ function Card({ input }: { input: CardInput }) {
 
   const handoff = (action: string, ps: string[]) => invokeCmd("card_handoff", { action, paths: ps }).then(() => true, (e) => { toast(errorText(e), "error"); return false; });
   const runDirect = async (d: Direct) => {
-    if (await handoff(d.id, input.paths) && isQuick(d.id)) toast(`${d.label}: 본창에서 시작했습니다. 끝나면 알림이 뜹니다.`, "info");
+    if (await handoff(d.id, docs) && isQuick(d.id)) toast(`${d.label}: 본창에서 시작했습니다. 끝나면 알림이 뜹니다.`, "info");
   };
   // 카드 창에는 설정 화면이 없다: 본창을 띄우고 어디를 누를지 알린다
   const toMainSettings = () => {
@@ -256,9 +257,9 @@ function Card({ input }: { input: CardInput }) {
 
       <footer className="kd-card-foot">
         {/* 폴더는 문서 화면이 열지 못한다 → 여러 파일 한꺼번에 화면으로 */}
-        <Button size="sm" variant="secondary" onClick={() => void handoff(folder ? "tools" : "open", input.paths)} data-tip={folder ? "본창의 여러 파일 한꺼번에 화면에 이 폴더의 문서를 놓습니다" : "본창을 열어 이 문서로 이어서 합니다"}><LayoutGrid size={13} /> 앱에서 이어서</Button>
+        <Button size="sm" variant="secondary" onClick={() => void handoff(folder ? "tools" : "open", docs)} data-tip={folder ? "본창의 여러 파일 한꺼번에 화면에 이 폴더의 문서를 놓습니다" : "본창을 열어 이 문서로 이어서 합니다"}><LayoutGrid size={13} /> 앱에서 이어서</Button>
         {single && HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => void handoff("edit", [first])} data-tip="본창의 한글 편집기로 엽니다"><FilePen size={13} /> 편집기에서 고치기</Button>}
-        {input.paths.length === 2 && <Button size="sm" variant="ghost" onClick={() => void handoff("compare", input.paths)} data-tip="본창에서 두 문서의 바뀐 곳을 나란히 봅니다"><GitCompareArrows size={13} /> 두 문서 비교 화면</Button>}
+        {docs.length === 2 && <Button size="sm" variant="ghost" onClick={() => void handoff("compare", docs)} data-tip="본창에서 두 문서의 바뀐 곳을 나란히 봅니다"><GitCompareArrows size={13} /> 두 문서 비교 화면</Button>}
       </footer>
     </div>
   );

@@ -965,8 +965,12 @@ pub fn shell_menu_uninstall() -> Result<MenuStatus, String> {
 /// 화면 없이 우클릭 메뉴 넣기·빼기·상태 — 기관 배포 스크립트용 (`kordoc-ai.exe --shell-menu install`).
 /// 창을 띄우기 전에 처리하고 종료 코드를 돌려준다. 해당 인자가 없으면 None.
 pub fn cli_shell_menu(args: &[String]) -> Option<i32> {
-    let i = args.iter().position(|a| a == "--shell-menu")?;
-    let result = match args.get(i + 1).map(String::as_str) {
+    // 첫 인자일 때만 받는다. 어디에 있든 받으면 `kordoc://x" --shell-menu uninstall "` 같은 링크가
+    // 따옴표를 그대로 넘기는 프로그램을 거쳐 사용자의 우클릭 메뉴를 빼 버릴 수 있다
+    if args.get(1).map(String::as_str) != Some("--shell-menu") {
+        return None;
+    }
+    let result = match args.get(2).map(String::as_str) {
         Some("install") => platform::install().map(|_| "우클릭 메뉴를 넣었습니다."),
         Some("uninstall") => platform::uninstall().map(|_| "우클릭 메뉴를 뺐습니다."),
         Some("status") => Ok(if platform::status().installed { "우클릭 메뉴가 들어 있습니다." } else { "우클릭 메뉴가 없습니다." }),

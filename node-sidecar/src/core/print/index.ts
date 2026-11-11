@@ -26,6 +26,7 @@ import { docToPdf } from '../export/index.js';
 import { validatePath } from '../../infra/pathGuard.js';
 import { logger } from '../../infra/logger.js';
 import { errorText } from '../errors.js';
+import { winTool } from '../../infra/win-tools.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,7 +82,7 @@ async function shellPrint(pdfPath: string, printer?: string): Promise<void> {
   const env: NodeJS.ProcessEnv = { ...process.env, KORDOC_PRINT_FILE: pdfPath };
   if (printer) env.KORDOC_PRINTER = printer;
   else delete env.KORDOC_PRINTER;
-  await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS_PRINT], {
+  await execFileAsync(winTool('powershell'), ['-NoProfile', '-NonInteractive', '-Command', PS_PRINT], {
     windowsHide: true,
     env,
   });
@@ -185,7 +186,7 @@ export async function listPrinters(): Promise<Printer[]> {
     'Select-Object Name, Default, PrinterStatus, DriverName | ConvertTo-Json -Compress';
 
   const { stdout } = await execFileAsync(
-    'powershell',
+    winTool('powershell'),
     ['-NoProfile', '-NonInteractive', '-Command', ps],
     { windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
   );

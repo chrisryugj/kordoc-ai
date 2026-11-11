@@ -10,7 +10,7 @@ import { DOMParser } from '@xmldom/xmldom';
 vi.mock('../src/infra/progress.js', () => ({ sendProgress: vi.fn() }));
 vi.mock('../src/infra/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { concatDocx } from '../src/core/merge/concat-docx.js';
+import { concatDocx, withDocDefaults } from '../src/core/merge/concat-docx.js';
 import { concatXlsx, renameDefinedNames, renameSheetRefs, safeSheetName } from '../src/core/merge/concat-xlsx.js';
 
 const signal = new AbortController().signal;
@@ -176,6 +176,71 @@ describe('엑셀 서식 유지 합치기 — 딸린 부품', () => {
   });
 });
 
+describe('엑셀 서식 유지 합치기 — 시트 상태와 칸', () => {
+  it('여러 시트에 걸친 참조는 양 끝 이름을 함께 바꾼다', () => {
+    const renames = new Map([['Sheet1', 'Sheet1 (2)'], ['Sheet3', 'Sheet3 (2)'], ['1월', '1월 (2)'], ['12월', '12월 (2)']]);
+    expect(renameSheetRefs('SUM(Sheet1:Sheet3!A1)', renames)).toBe("SUM('Sheet1 (2):Sheet3 (2)'!A1)");
+    expect(renameSheetRefs("SUM('1월:12월'!C5)+Sheet1!A1", renames)).toBe("SUM('1월 (2):12월 (2)'!C5)+'Sheet1 (2)'!A1");
+    expect(renameSheetRefs('SUM(A:B!A1)+SUM(A1:B2)', renames)).toBe('SUM(A:B!A1)+SUM(A1:B2)');
+  });
+
+  it('숨긴 시트는 숨긴 채로, 선택된 시트는 하나만 (여러 시트가 묶여 선택된 채 열리지 않게)', async () => {
+    const view = '<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>';
+    const book = async (name: string) => {
+      const p = await xlsx(join(dir, name), [{ name: '자료', xml: view + data(cell('A1', 1)) }, { name: '코드', xml: data(cell('A1', 2)) }]);
+      const zip = await JSZip.loadAsync(await readFile(p));
+      zip.file('xl/workbook.xml', (await zip.file('xl/workbook.xml')!.async('text')).replace('<sheet name="코드"', '<sheet name="코드" state="hidden"'));
+      await writeFile(p, Buffer.from(await zip.generateAsync({ type: 'arraybuffer' })));
+      return p;
+    };
+    const out = join(dir, 'out.xlsx');
+    await concatXlsx({ files: [await book('a.xlsx'), await book('b.xlsx')], output_path: out, mode: 'native' }, signal);
+    const zip = await JSZip.loadAsync(await readFile(out));
+    const wb = await zip.file('xl/workbook.xml')!.async('text');
+    expect([...wb.matchAll(/<sheet name="([^"]*)"[^>]*?( state="hidden")?\s+r:id/g)].map((m) => [m[1], !!m[2]])).toEqual([['자료', false], ['코드', true], ['자료 (2)', false], ['코드 (2)', true]]);
+    expect(await zip.file('xl/worksheets/sheet1.xml')!.async('text')).toContain('tabSelected="1"');
+    expect(await zip.file('xl/worksheets/sheet3.xml')!.async('text')).not.toContain('tabSelected');
+  });
+
+  it('값 없는 글 칸에서 다음 칸을 먹지 않고, 앞뒤 빈칸은 지키고, 확장 영역 수식도 바꾼다', async () => {
+    const strings = `${HEAD}<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t xml:space="preserve">  들여쓴 글 </t></si><si><r><t>東京</t></r><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si></sst>`;
+    const rows = '<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"/><c r="D1"><v>2</v></c></row></sheetData>';
+    const ext = '<extLst><ext><x14:dataValidations xmlns:x14="x14" xmlns:xm="xm"><x14:dataValidation><x14:formula1><xm:f>코드!$A$1:$A$5</xm:f></x14:formula1></x14:dataValidation></x14:dataValidations></ext></extLst>';
+    const book = (name: string) => xlsx(join(dir, name), [{ name: '자료', xml: rows + ext }, { name: '코드', xml: data(cell('A1', 1)) }], { files: { 'xl/sharedStrings.xml': strings } });
+    const out = join(dir, 'out.xlsx');
+    await concatXlsx({ files: [await book('a.xlsx'), await book('b.xlsx')], output_path: out, mode: 'native' }, signal);
+    const second = await (await JSZip.loadAsync(await readFile(out))).file('xl/worksheets/sheet3.xml')!.async('text');
+    expect(wellFormed(second)).toBe(true);
+    expect(second).toContain('<c r="A1" t="inlineStr"><is><t xml:space="preserve">  들여쓴 글 </t></is></c>');
+    expect(second).toContain('<c r="B1" t="inlineStr"><is><t>東京</t></is></c>');
+    expect(second).toContain('<c r="C1"/><c r="D1"><v>2</v></c>');
+    expect(second).toContain("<xm:f>'코드 (2)'!$A$1:$A$5</xm:f>");
+  });
+
+  it('첫 파일의 시트가 파일 이름으로 바뀌면 그 파일 차트의 범위도 따라 바뀐다', async () => {
+    const a = await xlsx(join(dir, '총무과.xlsx'), [{ name: 'Sheet1', xml: data(cell('A1', 1)) }], { files: { 'xl/charts/chart1.xml': '<c:chartSpace xmlns:c="c"><c:f>Sheet1!$A$1:$A$3</c:f></c:chartSpace>' } });
+    const b = await xlsx(join(dir, '세무과.xlsx'), [{ name: 'Sheet1', xml: data(cell('A1', 2)) }]);
+    const out = join(dir, 'out.xlsx');
+    await concatXlsx({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    const zip = await JSZip.loadAsync(await readFile(out));
+    expect(await zip.file('xl/charts/chart1.xml')!.async('text')).toContain("<c:f>'총무과'!$A$1:$A$3</c:f>");
+  });
+
+  it('시트 목록을 못 읽는 통합 문서는 넣지 않고 까닭을 알린다 (말없이 빠지거나 깨진 합본이 나오지 않게)', async () => {
+    const good = await xlsx(join(dir, 'a.xlsx'), [{ name: '자료', xml: data(cell('A1', 1)) }]);
+    const odd = await xlsx(join(dir, 'b.xlsx'), [{ name: '자료', xml: data(cell('A1', 2)) }]);
+    const zip = await JSZip.loadAsync(await readFile(odd));
+    zip.file('xl/workbook.xml', (await zip.file('xl/workbook.xml')!.async('text')).replace(/<(\/?)(workbook|sheets|sheet)\b/g, '<$1x:$2').replace('<x:workbook ', '<x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '));
+    await writeFile(odd, Buffer.from(await zip.generateAsync({ type: 'arraybuffer' })));
+    const out = join(dir, 'out.xlsx');
+    const r = await concatXlsx({ files: [odd, good, odd], output_path: out, mode: 'native' }, signal);
+    expect(r.failed_files).toEqual([odd, odd]);
+    expect(r.failed?.[0].error).toMatch(/다른 이름으로 저장/);
+    const wb = await (await JSZip.loadAsync(await readFile(out))).file('xl/workbook.xml')!.async('text');
+    expect([...wb.matchAll(/<sheet name="([^"]*)"/g)].map((m) => m[1])).toEqual(['a']);
+  });
+});
+
 // ─── 워드 ──────────────────────────────────────────────
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -321,6 +386,51 @@ describe('워드 서식 유지 합치기 — 서식과 번호', () => {
     expect(part('다')).toMatch(/<w:pPr><w:pStyle w:val="a_3"\/><\/w:pPr><w:r><w:rPr><w:rStyle w:val="ac"\/>/);
     expect(doc).toMatch(/<w:p[^>]*><w:pPr><w:pStyle w:val="a_3"\/><\/w:pPr><\/w:p>/);
     expect(doc).not.toContain('w:val="ad"');
+  });
+
+  it('문서 기본값(글꼴 크기·문단 간격)이 다른 문서는 그 값을 뿌리 서식에 적어 넣어 본문 모양을 지킨다', async () => {
+    const defaults = (size: number, after: number) => `<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="${size}"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="${after}"/></w:pPr></w:pPrDefault></w:docDefaults>`;
+    const plain = '<w:style w:type="paragraph" w:default="1" w:styleId="a"><w:name w:val="Normal"/><w:pPr><w:keepNext/><w:jc w:val="both"/></w:pPr></w:style>';
+    const child = '<w:style w:type="paragraph" w:styleId="1"><w:name w:val="heading 1"/><w:basedOn w:val="a"/><w:rPr><w:b/></w:rPr></w:style>';
+    const base = styles(defaults(20, 160) + plain + child);
+    const donor = styles(defaults(32, 400) + plain + child);
+    // 같으면 그대로
+    expect(withDocDefaults(base, base)).toBe(base);
+    const filled = withDocDefaults(donor, base);
+    // 기대는 서식이 없는 서식에만, 문단 속성은 규격 차례로(keepNext → spacing → jc), 글자 속성은 문단 속성 뒤에
+    expect(filled).toContain('<w:name w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:after="400"/><w:jc w:val="both"/></w:pPr><w:rPr><w:sz w:val="32"/></w:rPr></w:style>');
+    expect(filled).toContain(child);
+
+    const a = await docx(join(dir, 'a.docx'), para('가 본문'), { files: { 'word/styles.xml': base } });
+    const b = await docx(join(dir, 'b.docx'), para('나 본문'), { files: { 'word/styles.xml': donor } });
+    const out = join(dir, 'out.docx');
+    await concatDocx({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    const zip = await JSZip.loadAsync(await readFile(out));
+    const merged = await zip.file('word/styles.xml')!.async('text');
+    // 둘째 문서의 기본 서식은 새 이름의 사본이 되고(크기 32), 서식을 적지 않은 문단에 그 서식을 적는다
+    expect(merged).toMatch(/w:styleId="a_2"><w:name w:val="Normal \(2\)"\/>[\s\S]*?<w:sz w:val="32"\/>/);
+    const doc = await zip.file('word/document.xml')!.async('text');
+    expect(doc).toMatch(/<w:pPr><w:pStyle w:val="a_2"\/><\/w:pPr><w:r><w:t>나 본문/);
+    expect(doc).toMatch(/<w:p[^>]*><w:r><w:t>가 본문/);
+  });
+
+  it('뒤 문서가 쓰는 이름공간 선언과 "몰라도 되는 확장" 목록을 합본 뿌리에 더한다 (글상자·도형이 든 문서)', async () => {
+    const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+    const WPS = 'http://schemas.microsoft.com/office/word/2010/wordprocessingShape';
+    const a = await docx(join(dir, 'a.docx'), para('가'));
+    const b = await docx(join(dir, 'b.docx'), para('나') + '<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:wsp><wps:txbx/></wps:wsp></w:drawing></mc:Choice><mc:Fallback><w:t>글상자</w:t></mc:Fallback></mc:AlternateContent></w:r></w:p>');
+    // 둘째 문서의 뿌리에만 선언이 있다
+    const zipB = await JSZip.loadAsync(await readFile(b));
+    zipB.file('word/document.xml', (await zipB.file('word/document.xml')!.async('text')).replace('<w:document ', `<w:document xmlns:mc="${MC}" xmlns:wps="${WPS}" xmlns:w14="w14" mc:Ignorable="w14 wps" `));
+    await writeFile(b, Buffer.from(await zipB.generateAsync({ type: 'arraybuffer' })));
+    const out = join(dir, 'out.docx');
+    await concatDocx({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    const doc = await (await JSZip.loadAsync(await readFile(out))).file('word/document.xml')!.async('text');
+    const root = doc.match(/<w:document\b[^>]*>/)![0];
+    expect(root).toContain(`xmlns:wps="${WPS}"`);
+    expect(root).toContain(`xmlns:mc="${MC}"`);
+    expect(root).toMatch(/mc:Ignorable="[^"]*\bw14\b[^"]*"/);
+    expect(wellFormed(doc)).toBe(true);
   });
 
   it('번호 정의는 규격의 차례로(정의 먼저, 목록 뒤) 넣고 고유 번호가 겹치지 않게 한다. 첫 문서에 번호가 없으면 번호 부품을 문서에 잇는다', async () => {

@@ -39,6 +39,7 @@ function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) =>
   const [preset, setPreset] = useState("auto");
   const [ocr, setOcr] = useState<"auto" | "force" | "off">("auto");
   const task = useTask<string>();
+  const { toast } = useApp();
 
   return (
     <div className="kd-route-panel">
@@ -60,6 +61,8 @@ function ConvertStart({ file, setFile }: { file: string; setFile: (p: string) =>
         <Button size="lg" disabled={!file} data-tip="원본은 그대로 두고 새 한글 문서를 만들어 편집기에서 엽니다" onClick={() => void task.run(async ({ signal, onProgress }) => {
           const r = await rpc("to_hwpx", { path: file, preset, ocr, output_path: await workingFile(`${stem(file)}.hwpx`) }, { signal, onProgress });
           await openInEditor(r.output_path, { title: stem(file), working: true });
+          // 엔진이 알린 것(글자 층 없는 스캔 쪽, 서식 그대로 옮기지 못함)은 편집기로 넘어간 뒤에도 보이게 남긴다
+          for (const w of r.warnings ?? []) toast(w, "error");
           return r.output_path;
         })}><FileInput size={15} /> 한글로 바꿔 편집하기</Button>
       </ActionBar>

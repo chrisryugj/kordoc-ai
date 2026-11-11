@@ -388,12 +388,18 @@ function mentioned(raw: string, said: string): boolean {
   const p = flat(resolve(raw));
   if (said.includes(p)) return true;
   const name = p.slice(p.lastIndexOf('/') + 1);
-  if (name.length >= 5 && /\.[a-z0-9]{2,5}$/.test(name) && said.includes(name)) return true;
-  // 폴더를 적었으면 그 안의 파일 (드라이브만 적은 것은 치지 않는다). 파일 경로의 앞부분이 아니라 폴더로 끝난 것만
+  // 파일 이름은 낱말로 적혔을 때만 ("최종보고서.hwp" 를 적었다고 "보고서.hwp" 를 맡긴 것은 아니다)
+  if (name.length >= 5 && /\.[a-z0-9]{2,5}$/.test(name)) {
+    for (let at = said.indexOf(name); at >= 0; at = said.indexOf(name, at + 1)) {
+      if (at === 0 || /[\s"'‘“`(\[<,/]/.test(said[at - 1])) return true;
+    }
+  }
+  // 폴더를 적었으면 그 안의 파일 (드라이브만 적은 것은 치지 않는다). 더 긴 경로의 앞부분이 아니라 폴더 이름이 거기서 끝난 것만:
+  // "d:/업무/2026 예산/계획.hwp" 를 적었다고 "d:/업무/2026" 폴더를 맡긴 것이 아니고, "v1.2" 를 적었다고 "v1" 폴더를 맡긴 것도 아니다
   for (let dir = p.slice(0, p.lastIndexOf('/')); dir.split('/').length > 1 && dir.length > 3; dir = dir.slice(0, dir.lastIndexOf('/'))) {
     for (let at = said.indexOf(dir); at >= 0; at = said.indexOf(dir, at + 1)) {
-      const rest = said.slice(at + dir.length).replace(/^\//, '');
-      if (!rest || /^[\s"'’”`)\]>,.]/.test(rest)) return true;
+      const rest = said.slice(at + dir.length);
+      if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest) || /^\/?[,.]?(?:\s|$)/.test(rest) && !/^\/?[,.]?\s+[^\s/]*\//.test(rest)) return true;
     }
   }
   return false;
@@ -430,6 +436,13 @@ export async function runWorkTool(name: string, input: Record<string, unknown>, 
   const run: Dispatch = root
     ? (async (m, p) => {
       const r = await d(m, p);
+      // 판 찾기는 대상의 위 폴더도 훑는다 → 허용 폴더 밖 파일의 이름·경로가 결과에 실리지 않게 거른다
+      if (m === 'find_versions') {
+        const v = r as RpcResult<'find_versions'>;
+        const versions = v.versions.filter((x) => !outsideRoot({ path: x.path }, root));
+        const latest = versions.some((x) => x.path === v.latest) ? v.latest : versions[versions.length - 1]?.path ?? v.latest;
+        return { ...v, versions, latest } as never;
+      }
       if (m !== 'scan_paths') return r;
       const s = r as RpcResult<'scan_paths'>;
       const files = s.files.filter((f) => !outsideRoot({ path: f.path }, root));

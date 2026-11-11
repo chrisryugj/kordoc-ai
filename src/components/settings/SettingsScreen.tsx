@@ -83,9 +83,12 @@ export function SettingsScreen({ active }: { active: boolean }) {
     return () => root.removeEventListener("scroll", onScroll);
   }, [active, settings]);
 
+  const handledIntent = useRef(0);
   // 다른 곳(첫 실행 마법사·AI 안내)에서 구획을 집어 들어오면 그리로
   useEffect(() => {
-    if (!settingsIntent || !active || !settings) return;
+    // 요청 하나에 한 번만: 기억하지 않으면 설정을 열 때마다 예전에 요청한 구획으로 다시 뛴다
+    if (!settingsIntent || !active || !settings || settingsIntent.nonce === handledIntent.current) return;
+    handledIntent.current = settingsIntent.nonce;
     requestAnimationFrame(() => goTo(settingsIntent.value));
     // 요청마다 한 번
     // eslint-disable-next-line react-hooks/exhaustive-deps
