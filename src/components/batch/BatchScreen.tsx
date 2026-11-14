@@ -13,6 +13,7 @@ import { useTask } from "../../hooks/useTask";
 import { detectFileType } from "../../utils/fileType";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
+import { useAsk } from "../ui/useAsk";
 import { ErrorLine, Note, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 import { OrderList } from "../common/OrderList";
@@ -60,6 +61,21 @@ export function BatchScreen({ active }: { active: boolean }) {
   const busyRef = useRef(false);
   busyRef.current = run.busy;
   const handled = useRef(0);
+  const { ask, dialog: askDialog } = useAsk();
+  /** 결과의 지출조서 표를 사람이 고쳤고 아직 저장 전이다 (ReceiptEditor 가 알린다) */
+  const receiptEdited = useRef(false);
+  const onReceiptEdited = useCallback((v: boolean) => { receiptEdited.current = v; }, []);
+  /** 결과를 지우기 전에: 고친 지출조서 표가 있으면 묻는다 (지워도 되면 true). 사람이 고친 값이 말없이 사라지지 않게.
+   *  표시는 표가 실제로 내려갈 때(ReceiptEditor 정리) 내린다: 멈추거나 실패한 다시 하기는 앞 표를 남긴다 */
+  const dropEdits = useCallback(async () => {
+    if (!receiptEdited.current) return true;
+    const a = await ask({
+      title: "고친 지출조서 표가 있습니다",
+      body: <p className="kd-text">계속하면 결과에서 고친 표가 사라집니다. 표 두기를 누르면 하려던 일은 하지 않으니, 표 아래 HWPX 저장·열기나 표 복사를 한 뒤 다시 하세요.</p>,
+      choices: [{ id: "cancel", label: "표 두기", variant: "secondary" }, { id: "drop", label: "표 버리고 계속" }],
+    });
+    return a === "drop";
+  }, [ask]);
   const def = TASKS.find((t) => t.id === task)!;
   // 쉬운 화면은 자주 쓰는 일만 (지금 고른 일은 늘 보임)
   const shown = TASKS.filter((t) => uiMode === "full" || !t.adv || t.id === task);
@@ -69,6 +85,12 @@ export function BatchScreen({ active }: { active: boolean }) {
     if (!paths.length) return [];
     try {
       const r = await rpc("scan_paths", { paths });
+      // 새 파일이 들면 아래에서 앞 결과를 지운다: 고친 지출조서 표가 있으면 먼저 묻는다 (넘어온 요청(replace)은 부른 쪽이 이미 물었다).
+      // 그만두면 목록·알림을 하나도 바꾸지 않는다
+      if (!replace && receiptEdited.current) {
+        const known = new Set(filesRef.current.map((f) => f.path));
+        if (r.files.some((f) => !known.has(f.path)) && !(await dropEdits())) return filesRef.current;
+      }
       setSkipped(r.skipped);
       // 문서가 아주 많은 폴더는 앞의 2,000개만 담긴다: 말없이 빼면 수합·찾기가 일부만으로 끝난 줄 모른다
       if (r.truncated) toast("문서가 2,000개를 넘어 앞의 2,000개만 올렸습니다. 나머지는 폴더를 나눠 다시 넣으세요.", "error");
@@ -89,7 +111,7 @@ export function BatchScreen({ active }: { active: boolean }) {
       toast(`파일 목록을 만들지 못했습니다: ${errorText(e)}`, "error");
       return [];
     }
-  }, [toast, run]);
+  }, [toast, run, dropEdits]);
 
   useEffect(() => registerDrop("batch", (p) => {
     if (busyRef.current) { toast("작업 중에는 파일을 넣을 수 없습니다. 끝나거나 멈춘 뒤 넣으세요.", "info"); return; }
@@ -101,8 +123,11 @@ export function BatchScreen({ active }: { active: boolean }) {
   useEffect(() => { if (late > 0) document.getElementById("gather-late")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [late]);
   useEffect(() => setBadge("batch", run.busy ? "진행" : watchCount ? `지켜봄 ${watchCount}` : undefined), [run.busy, watchCount, setBadge]);
 
-  /** again: 문서 수합을 앞서 만든 엑셀로 다시 만들기 (overwrite 면 같은 파일을 바꾸고, 아니면 번호 붙은 새 파일) */
-  const start = useCallback(async (list = usable, t = task, again?: { overwrite: boolean }) => {
+  /** again: 문서 수합을 앞서 만든 엑셀로 다시 만들기 (overwrite 면 같은 파일을 바꾸고, 아니면 번호 붙은 새 파일).
+   *  asked: 부른 쪽이 고친 표를 버릴지 이미 물었다 (넘어온 요청) */
+  const start = useCallback(async (list = usable, t = task, again?: { overwrite: boolean }, asked = false) => {
+    // 새 결과가 고친 지출조서 표를 덮는다 (한 번 더 하기)
+    if (!asked && !(await dropEdits())) return;
     if (t === "merge") { setDialog("merge"); return; }
     const gather = { ai: !!ai?.configured, ...(again && gatherPrev ? { previous: gatherPrev, overwrite: again.overwrite } : {}) };
     const outcome = await run.run((ctx) => runTask(t, { ...ctx, files: list, opts, gather, keep: keepFromSettings(settings?.org), receiptAi: !!ai?.configured && !ai.is_cloud, defaultDir: settings?.convert.output_dir || undefined, setRow: (p, s) => setRows((r) => ({ ...r, [p]: s })) }));
@@ -110,7 +135,7 @@ export function BatchScreen({ active }: { active: boolean }) {
     // 결과는 맨 위에 나온다: 작은 화면에서도 보이게 올린다
     if (outcome) mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     if (outcome) void notifySystem("KorDoc AI: 여러 파일 작업 끝", outcome.message);
-  }, [usable, task, opts, run, ai, gatherPrev]);
+  }, [usable, task, opts, run, ai, gatherPrev, dropEdits]);
 
   // 홈·우클릭·예제에서 넘어온 파일과 할 일 (우클릭은 바로 시작)
   useEffect(() => {
@@ -118,17 +143,25 @@ export function BatchScreen({ active }: { active: boolean }) {
     handled.current = batchIntent.nonce;
     // 일하는 중에 넘어온 요청(탐색기 우클릭 등)은 받지 않는다: 받으면 도는 작업의 파일 목록·결과 줄이 새 것과 섞인다
     if (busyRef.current) { toast("앞 작업이 끝나지 않아 새 요청을 받지 못했습니다. 끝나거나 멈춘 뒤 다시 하세요.", "info"); return; }
-    const { paths, task: t, autoRun } = batchIntent.value;
-    if (t) {
-      setTask(t);
-      // 고른 할 일이 왼쪽 목록 아래쪽이어도 보이게
-      requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector(`.kd-tasklist [data-task="${t}"]`)?.scrollIntoView({ block: "nearest" })));
+    const { paths, task: t, autoRun, fallback } = batchIntent.value;
+    // 넘어온 파일은 목록을 바꾸며 앞 결과를 지운다. 고친 지출조서 표가 있으면: 빠른 동작이 실패해 넘어온 것(사용자가 이 화면을 부른 게 아니다)은
+    // 받지 않고 알리기만, 사용자가 부른 것(카드의 본창에서 열기·홈 빠른 작업·우클릭)은 묻는다
+    if (fallback && paths.length && receiptEdited.current) {
+      toast(`고친 지출조서 표가 있어 넘어온 파일 ${num(paths.length)}개를 목록에 넣지 않았습니다. 표를 저장한 뒤 그 파일을 이 화면에 끌어다 놓으세요.`, "info");
+      return;
     }
     void (async () => {
+      if (paths.length && !(await dropEdits())) return;
+      if (t) {
+        setTask(t);
+        // 고른 할 일이 왼쪽 목록 아래쪽이어도 보이게
+        requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector(`.kd-tasklist [data-task="${t}"]`)?.scrollIntoView({ block: "nearest" })));
+      }
       const list = paths.length ? await add(paths, true) : files;
       const d = TASKS.find((x) => x.id === (t ?? task))!;
       const ok = list.filter((f) => accepts(d, f.format));
-      if (autoRun && t && ok.length >= Math.max(1, d.min)) void start(ok, t);
+      // 파일이 넘어왔으면 위에서 이미 물었다 (지운 표는 아직 화면에서 안 내려가 표시가 남아 있다)
+      if (autoRun && t && ok.length >= Math.max(1, d.min)) void start(ok, t, undefined, paths.length > 0);
     })();
     // 넘어온 요청마다 한 번
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,9 +201,10 @@ export function BatchScreen({ active }: { active: boolean }) {
     : task === "stylecopy" && !opts.styleId ? "맞출 서식을 먼저 저장하세요. 새로 쓰기 › 우리 서식으로 맞추기에서 견본 문서로 서식을 저장합니다."
     : "";
   const blocked = blockReason !== "";
-  const pickTask = (t: BatchTaskId) => {
+  const pickTask = async (t: BatchTaskId) => {
     // 신구대조표는 비교 화면에서 (넣은 파일 앞 두 개를 고치기 전·후로)
     if (t === "compare") { startCompare(usable[0]?.path, usable[1]?.path); return; }
+    if (!(await dropEdits())) return;
     setTask(t);
     run.reset();
     setRows({});
@@ -180,7 +214,7 @@ export function BatchScreen({ active }: { active: boolean }) {
 
   const pickIn = () => void pickFiles().then((p) => add(p));
   const pickDir = () => void pickFolder().then((d) => { if (d) void add([d]); });
-  const clearAll = () => { setFiles([]); setRows({}); run.reset(); setGatherPrev(""); setLate(0); };
+  const clearAll = () => void dropEdits().then((ok) => { if (ok) { setFiles([]); setRows({}); run.reset(); setGatherPrev(""); setLate(0); } });
   const showFiles = def.min > 0;
   const ordered = task === "bundle" || task === "join";
   const plan = resultLine(task, usable.map((f) => f.format), opts);
@@ -196,7 +230,7 @@ export function BatchScreen({ active }: { active: boolean }) {
             <div key={g} className="mb-3">
               <h2 className="kd-label px-2 pb-1">{g}</h2>
               {shown.filter((t) => t.group === g).map((t) => (
-                <button key={t.id} type="button" className="kd-taskitem" data-task={t.id} aria-pressed={task === t.id} disabled={run.busy} onClick={() => pickTask(t.id)}>
+                <button key={t.id} type="button" className="kd-taskitem" data-task={t.id} aria-pressed={task === t.id} disabled={run.busy} onClick={() => void pickTask(t.id)}>
                   <span className="kd-row-title block">{t.title}{t.ai && !ai?.configured && <span className="kd-badge" data-tone="warn">AI 필요</span>}</span>
                   <span className="kd-row-desc block">{t.desc}</span>
                 </button>
@@ -227,7 +261,7 @@ export function BatchScreen({ active }: { active: boolean }) {
                       </Note></div>
                     )}
                     <ErrorLine message={run.error} />
-                    {run.result && <BatchResults outcome={run.result} onAddLate={pickIn} />}
+                    {run.result && <BatchResults outcome={run.result} onAddLate={pickIn} onReceiptEdited={onReceiptEdited} />}
                   </section>
                 )}
 
@@ -346,6 +380,7 @@ export function BatchScreen({ active }: { active: boolean }) {
           return t.every((x) => x === t[0]) && ["hwpx", "docx", "xlsx", "pdf"].includes(t[0]) ? t[0] : null;
         })()} outputDir={opts.outDir} onConfirm={runMerge} onCancel={() => setDialog("")} />
       )}
+      {askDialog}
     </div>
   );
 }

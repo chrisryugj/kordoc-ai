@@ -58,7 +58,9 @@ export interface Printer {
 }
 
 const PRINT_TEMP_DIR = join(tmpdir(), 'kordoc-print');
-const TEMP_PDF_TTL_MS = 60_000;
+// 맥 lp 는 스풀에 복사해 바로 지워도 되지만, Windows PrintTo 는 처리 프로그램을 띄우자마자 돌아와 그 프로그램이 앞 작업 때문에 뒤 파일을
+// 60초 넘어서 열면 파일이 없어 그 장이 빠졌다(여러 장 한꺼번에 인쇄) → Windows 는 넉넉히 둔다(어차피 1시간 넘은 것은 청소)
+const TEMP_PDF_TTL_MS = process.platform === 'win32' ? 10 * 60_000 : 60_000;
 
 async function ensurePrintTempDir(): Promise<void> {
   await mkdir(PRINT_TEMP_DIR, { recursive: true });

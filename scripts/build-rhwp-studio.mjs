@@ -18,7 +18,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AI_PLUGIN_FILES, ALLOW_FILE, allowAiPlugin } from './rhwp-patches.mjs';
 
-const RHWP_VERSION = '0.9.0'; // 올릴 땐 이 줄만 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
+const RHWP_VERSION = '0.9.0'; // 올릴 땐 이 줄과 아래 커밋을 같이 (studio·core·editor SDK 를 같은 버전으로 맞춘다)
+// v${RHWP_VERSION} 태그가 가리키는 커밋 (`git ls-remote https://github.com/edwardkim/rhwp.git refs/tags/v<판>`). 태그가 다른 커밋으로
+// 옮겨져도 모른 채 그 코드를 빌드해 서명된 설치본에 싣지 않게, 받은 뒤 대조한다
+const RHWP_COMMIT = 'c9095c5f67632e6721e800ccc7fb43ea49d26682';
 const OUT = resolve('node-sidecar', 'editor');
 const HOST_SRC = resolve('node-sidecar', 'editor-host');
 const PLUGIN_DIR = resolve('node-sidecar', 'studio-plugin');
@@ -47,12 +50,20 @@ const work = join(tmpdir(), `kordoc-rhwp-build-${RHWP_VERSION}`);
 const src = join(work, 'rhwp');
 mkdirSync(work, { recursive: true });
 
-// 1) 소스 (스파스·blobless)
-if (!existsSync(join(src, 'rhwp-studio', 'package.json'))) {
+// 1) 소스 (스파스·blobless). 받아 둔 것이 그 커밋이 아니거나 git 을 못 읽으면(임시 폴더 청소가 .git 일부를 지움) 다시 받는다
+const headOf = () => {
+  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: src, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; }
+};
+if (!existsSync(join(src, 'rhwp-studio', 'package.json')) || headOf() !== RHWP_COMMIT) {
   rmSync(src, { recursive: true, force: true });
   run('git', ['clone', '--depth', '1', '--branch', `v${RHWP_VERSION}`, '--filter=blob:none', '--sparse', 'https://github.com/edwardkim/rhwp.git', 'rhwp'], work);
   // 0.9.0 스튜디오는 PDF 가져오기 Worker(rhwp-shared/pdf)·누름틀 동작(rhwp-shared/forms)·셰이더(src/renderer)·ajv(vendor) 를 레포 밖에서 가져온다
   run('git', ['sparse-checkout', 'set', 'rhwp-studio', 'npm/editor', 'npm/hwpctrl-ocx', 'assets/logo', 'assets/fonts', 'rhwp-shared', 'vendor/npm/ajv', 'src/renderer'], src);
+}
+const head = headOf();
+if (head !== RHWP_COMMIT) {
+  console.error(`[rhwp-studio] v${RHWP_VERSION} 가 ${RHWP_COMMIT} 가 아니라 ${head} 를 가리킵니다. 태그가 옮겨졌는지 확인하고 RHWP_COMMIT 을 맞추세요 (작업 폴더 ${src} 를 지우면 다시 받습니다)`);
+  process.exit(1);
 }
 
 // 2) WASM pkg = npm @rhwp/core 같은 버전, SDK = npm @rhwp/editor 같은 버전

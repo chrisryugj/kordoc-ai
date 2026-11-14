@@ -8,7 +8,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,8 +164,11 @@ async function backupOnce(path: string): Promise<void> {
  *  쓰는 도중에 꺼지거나 디스크가 차면 반쯤 쓴 파일이 남아 그 프로그램의 설정이 통째로 날아간다 */
 async function writeWhole(path: string, text: string): Promise<void> {
   const tmp = `${path}.kordoc-tmp`;
+  // 원래 권한을 그대로 — 다른 MCP 서버의 토큰을 흔히 담은 0600 파일(~/.claude.json 등)이 기본 0644 임시 파일로 바꿔치기돼 다른 계정이 읽게 됐다
+  const mode = await stat(path).then((st) => st.mode & 0o777, () => 0o600);
   try {
-    await writeFile(tmp, text, 'utf-8');
+    await writeFile(tmp, text, { encoding: 'utf-8', mode });
+    await chmod(tmp, mode);
     await rename(tmp, path);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => undefined);

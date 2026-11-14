@@ -1,12 +1,13 @@
 /** XLSX 서식 유지 수합 — 시트 레벨 병합 + 스타일 병합 */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename, extname } from 'node:path';
+import { dirname, basename } from 'node:path';
 import JSZip from 'jszip';
 import { DOMParser } from '@xmldom/xmldom';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFailure, MergeFilesParams, MergeFilesResult } from './types.js';
+import { stemOf } from '../output/index.js';
 
 const RESAVE = '통합 문서의 시트 목록을 읽지 못했습니다. 엑셀에서 열어 다른 이름으로 저장(xlsx)한 뒤 다시 넣으세요.';
 
@@ -595,7 +596,7 @@ export async function concatXlsx(
       const relsFile = zip.file('xl/_rels/workbook.xml.rels');
       const relsMap = relsFile ? parseRels(await relsFile.async('text')) : new Map<string, string>();
 
-      const fileBaseName = basename(files[fi], extname(files[fi]));
+      const fileBaseName = stemOf(files[fi]); // 맥 경로의 자소 갈라진 이름은 완성형으로 (시트 이름이 윈도에서 갈라져 보이지 않게)
       // 이 파일의 시트가 합본에서 받을 이름을 먼저 정한다 (같은 파일 안의 수식이 서로의 새 이름을 알아야 한다)
       const renames = new Map<string, string>();
       const finalNames = sheets.map((sheet) => {

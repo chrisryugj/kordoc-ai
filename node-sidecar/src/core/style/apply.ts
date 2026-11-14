@@ -152,7 +152,12 @@ export function markdownTables(md: string): Array<{ rows: number; cols: number }
     let t = chunk.trim();
     if (/^<table/i.test(t)) {
       // 칸 안의 표(중첩)는 바깥 표의 줄·칸이 아니다 → 안쪽 표부터 지운다
-      while ((t.match(/<table\b/gi) ?? []).length > 1) t = t.replace(/<table\b[^>]*>(?:(?!<table\b)[\s\S])*?<\/table>/i, '');
+      // 닫히지 않은 표(글 파일의 "<table" 조각)는 지울 것이 없다 — 바뀌지 않으면 멈춘다(그대로 두면 엔진이 영영 돈다)
+      while ((t.match(/<table\b/gi) ?? []).length > 1) {
+        const next = t.replace(/<table\b[^>]*>(?:(?!<table\b)[\s\S])*?<\/table>/i, '');
+        if (next === t) break;
+        t = next;
+      }
       // 칸 합치기(rowspan·colspan)까지 격자로 세기
       const taken: boolean[][] = [];
       let rows = 0;

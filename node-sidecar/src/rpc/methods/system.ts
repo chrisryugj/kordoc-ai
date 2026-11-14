@@ -105,8 +105,10 @@ export function registerSystem(router: RpcRouter): void {
     const path = reqPath(p.path);
     const name = basename(path);
     if (!/^kordoc-batch-\d+\.json$/.test(name)) throw new Error(`허용되지 않은 manifest 파일명: ${name}`);
-    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
-    if (!norm(path).startsWith(`${norm(tmpdir())}/`)) throw new Error('manifest는 임시 폴더에서만 읽을 수 있습니다.');
+    const norm = (s: string) => s.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    // 앱(Rust)은 임시 폴더를 TMP 먼저, Node 의 tmpdir() 은 TEMP 먼저 본다 — 관리자가 TEMP 만 옮긴 PC 에서 둘이 달라 여러 파일 동작이 늘 실패했다
+    const temps = [tmpdir(), process.env.TMP, process.env.TEMP].filter((d): d is string => !!d).map(norm);
+    if (!temps.some((d) => norm(path).startsWith(`${d}/`))) throw new Error('manifest는 임시 폴더에서만 읽을 수 있습니다.');
     if ((await stat(path)).size > 1024 * 1024) throw new Error('manifest 파일이 너무 큽니다 (1MB까지).');
     let parsed: unknown;
     try {

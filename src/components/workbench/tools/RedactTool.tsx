@@ -65,6 +65,12 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   const { settings, openDocs, uiMode, screen, docs, toast } = useApp();
   const where = useRef({ screen, docs });
   where.current = { screen, docs };
+  /** 이 패널이 아직 붙어 있나 — 문서를 닫으면 내려가고, where 는 닫기 직전 값(그 문서가 열린 목록)에서 멈춘다 */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const easy = uiMode === "easy";
   // 검토 탭의 가리기는 정보공개 공개본이 기본 (이름·주소까지). 번호만 가릴 때는 아래에서 고른다
   const [rules, setRules] = useState<Set<RedactRule>>(() => new Set(DISCLOSURE_RULES));
@@ -97,7 +103,7 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
     // 가린 사본을 작업대에 열어 미리보기로 바로 보인다 (원본 탭은 그대로 남는다).
     // 오래 걸리는 사이 다른 화면으로 갔거나 이 문서를 닫았으면 끌고 오지 않고 알리기만 한다 (하던 일·저장 안 한 설정을 밀어내지 않게)
     const { screen: now, docs: open } = where.current;
-    const here = now === "workbench" && open.some((d) => d.path === doc.path);
+    const here = mounted.current && now === "workbench" && open.some((d) => d.path === doc.path);
     setOpened(here);
     // 사본을 열면 이 패널(원본 문서의 자리)은 가려진다. 남은 의심 곳·엔진 안내가 같이 숨으면 다 끝난 것처럼 보이니 알림으로도 띄운다
     const left = r.residual > 0

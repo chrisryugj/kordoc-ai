@@ -6,9 +6,15 @@ on:
       version:
         description: "릴리스 버전 (예: 2.0.0) — 태그 v<버전> 의 GitHub Release 가 먼저 있어야 한다"
         required: true
+      overwrite:
+        description: "이미 올린 같은 이름 설치 파일을 바꿀지 (사람들이 받아 간 파일이 다른 빌드로 바뀐다)"
+        type: boolean
+        default: false
 
+# 빌드 잡은 읽기만: 빌드 중에 도는 남의 설치 스크립트가 저장소·릴리스에 쓰지 못하게. 올리기 잡만 쓴다
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 jobs:
   build:
@@ -26,7 +32,11 @@ jobs:
               src-tauri/target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     steps:
+      # 실행한 브랜치 머리가 아니라 그 버전의 태그를 빌드한다. 토큰은 .git 에 남기지 않는다
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ github.event.inputs.version }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -38,6 +48,21 @@ jobs:
           workspaces: src-tauri
 
       - run: pnpm install --frozen-lockfile
+
+      # 그 태그 커밋의 CI(엔진·화면·Rust, Windows·macOS)가 통과했어야 한다 — 실패한 커밋이 설치 파일로 나가지 않게
+      - name: CI 통과 확인
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          ok=$(gh run list --repo ${{ github.repository }} --workflow CI --commit "$sha" --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')
+          if [ "${ok:-0}" -lt 1 ]; then
+            echo "::error::태그 커밋 $sha 의 CI 가 통과하지 않았습니다(또는 아직 돌지 않았습니다). CI 를 통과시킨 뒤 다시 릴리스하세요"; exit 1
+          fi
+
+      # Rust 허용 목록이 RPC 계약과 어긋나면 설치본에서 그 기능이 막힌다
+      - run: node scripts/sync-rpc-whitelist.mjs --check
 
       # 입력한 버전과 앱 버전이 다르면 다른 판 설치 파일이 그 릴리스에 올라간다
       - name: 버전 대조
@@ -122,6 +147,8 @@ jobs:
     name: Upload to Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -130,5 +157,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 같은 이름 파일이 이미 있으면 기본은 실패: 받아 간 설치 파일을 말없이 다른 빌드로 바꾸지 않는다
+          clobber=""
+          if [ "${{ github.event.inputs.overwrite }}" = "true" ]; then clobber="--clobber"; fi
           find out -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" \) -print0 \
-            | xargs -0 gh release upload "v${{ github.event.inputs.version }}" --repo ${{ github.repository }} --clobber
+            | xargs -0 gh release upload "v${{ github.event.inputs.version }}" --repo ${{ github.repository }} $clobber

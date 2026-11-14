@@ -8,7 +8,9 @@ import { Button } from "./Button";
 import { Seg } from "../common/Field";
 import { Tooltip } from "./Tooltip";
 import { showMenu } from "./menu";
+import { useAsk } from "./useAsk";
 import { openExternal } from "../../lib/native";
+import { displayHref, isExternalHref, linkMismatch, showsOwnHref } from "../../lib/links";
 // "글만" 저장과 같은 변환 (엔진 정본, 의존 없는 순수 함수): 표시를 걷고 표는 탭으로 이은 줄
 import { markdownToPlain } from "../../../node-sidecar/src/core/converter/plain";
 
@@ -62,6 +64,27 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
     setCopied(kind);
     setTimeout(() => setCopied(""), 2000);
   }, [markdown, plain]);
+
+  // 문서 속 링크: 글이 곧 그 주소면 바로 열고, 아니면 실제로 갈 주소를 보이고 묻는다 (밖에서 온 문서의 링크는 글과 다른 곳으로 갈 수 있다)
+  const { ask, dialog } = useAsk();
+  const openLink = useCallback(async (href: string | undefined, text: string) => {
+    if (!isExternalHref(href)) return;
+    if (showsOwnHref(text, href)) { void openExternal(href); return; }
+    const fake = linkMismatch(text, href);
+    const a = await ask({
+      title: fake ? "보이는 주소와 다른 링크" : "링크 열기",
+      body: (
+        <div className="flex flex-col gap-2">
+          <p className="kd-text">{fake
+            ? <>링크 글에 보이는 곳은 <b>{fake.shown}</b>인데 실제로는 아래 주소({fake.real})로 갑니다. 속이는 링크일 수 있으니 문서를 보낸 곳에 확인한 뒤 여세요.</>
+            : /^mailto:/i.test(href) ? "메일 프로그램으로 아래 주소에 보낼 메일을 엽니다." : "기본 브라우저로 아래 주소를 엽니다. 믿을 수 있는 곳인지 확인한 뒤 여세요."}</p>
+          <p className="kd-inset kd-small px-3 py-2" style={{ overflowWrap: "anywhere" }}>{displayHref(href)}</p>
+        </div>
+      ),
+      choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: fake ? "그래도 열기" : "열기" }],
+    });
+    if (a === "open") void openExternal(href);
+  }, [ask]);
 
   if (!markdown) return null;
 
@@ -130,7 +153,7 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           <pre className="p-5 ts-sm whitespace-pre-wrap" style={{ color: "var(--color-text-secondary)", fontFamily: "inherit", lineHeight: 1.7, overflowWrap: "anywhere" }}>{markdown}</pre>
         ) : view === "rendered" ? (
           <div className="markdown-body p-5 ts-sm">
-            <Rendered markdown={markdown} />
+            <Rendered markdown={markdown} onLink={openLink} />
           </div>
         ) : (
           <pre
@@ -141,12 +164,14 @@ export function MarkdownViewer({ markdown, onSummarize, isSummarizing, maxHeight
           </pre>
         )}
       </div>
+      {dialog}
     </div>
   );
 }
 
-/** 마크다운을 그린 본문 — 글이 바뀔 때만 다시 푼다. 긴 문서는 푸는 데 오래 걸려, 복사됨 표시나 메뉴 같은 작은 변화마다 다시 풀면 화면이 버벅인다 */
-const Rendered = memo(function Rendered({ markdown }: { markdown: string }) {
+/** 마크다운을 그린 본문 — 글이 바뀔 때만 다시 푼다. 긴 문서는 푸는 데 오래 걸려, 복사됨 표시나 메뉴 같은 작은 변화마다 다시 풀면 화면이 버벅인다.
+ *  onLink: 링크를 눌렀을 때 (주소, 보이는 글). 바뀌지 않는 함수를 넘겨야 다시 풀지 않는다 */
+const Rendered = memo(function Rendered({ markdown, onLink }: { markdown: string; onLink: (href: string | undefined, text: string) => void }) {
   return (
             <ReactMarkdown
               remarkPlugins={REMARK}
@@ -181,7 +206,10 @@ const Rendered = memo(function Rendered({ markdown }: { markdown: string }) {
                 pre: (props) => <>{props.children}</>,
                 blockquote: (props) => <blockquote style={{ borderLeft: "3px solid var(--color-accent)", paddingLeft: "1em", margin: "0.75em 0", color: "var(--color-text-muted)", fontStyle: "italic" }} {...props} />,
                 hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--color-border)", margin: "1.5em 0" }} />,
-                a: ({ href, ...props }) => <a style={{ color: "var(--color-accent)", textDecoration: "underline" }} href={href} {...props} onClick={(e) => { e.preventDefault(); void openExternal(href); }} />,
+                // 말풍선에 실제로 갈 주소 (링크 글만 보고 누르지 않게)
+                a: ({ href, ...props }) => <a style={{ color: "var(--color-accent)", textDecoration: "underline" }} href={href} {...props}
+                  data-tip={isExternalHref(href) ? [props.title, displayHref(href)].filter(Boolean).join(" · ") : undefined}
+                  onClick={(e) => { e.preventDefault(); onLink(href, e.currentTarget.textContent ?? ""); }} />,
                 strong: (props) => <strong style={{ fontWeight: 600, color: "var(--color-text-primary)" }} {...props} />,
               }}
             >

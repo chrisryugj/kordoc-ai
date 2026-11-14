@@ -20,6 +20,8 @@ import { useTask } from "../../hooks/useTask";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { Button } from "../ui/Button";
 import { ContextMenu, type ContextMenuEntry } from "../ui/ContextMenu";
+import { askQuit, useAsk } from "../ui/useAsk";
+import { onQuitGuard } from "../../lib/quit";
 import {
   EMPTY, NO_SELECTION, addFile, duplicate, fileOf, imageItems, insertBlank, interleave, invert, keysFromSpec, looksBlank, move, nudge, oddEven,
   planAll, planCuts, planEvery, planSelected, positionsOf, pruneSelection, remove, removeFile, reverse, rotate, selectKeys, selectedName, toggleCut,
@@ -89,6 +91,15 @@ export function PdfScreen({ active }: { active: boolean }) {
   const handled = useRef(0);
   const selRef = useRef(sel);
   selRef.current = sel;
+  /** 책상 전체를 마지막으로 저장한 때의 책상 — 그 뒤로 바꾼 게 없으면 앱을 꺼도 잃을 것이 없다 */
+  const savedBoard = useRef<Board>(EMPTY);
+  const { ask, dialog } = useAsk();
+  // 트레이 "완전 종료" 전: 놓은 쪽·차례·돌리기는 이 화면에만 있다 (원본 파일은 그대로)
+  useEffect(() => onQuitGuard(async () => {
+    const b = boardRef.current;
+    return !b.items.length || b === savedBoard.current
+      || askQuit(ask, "저장하지 않은 PDF 작업", "PDF 작업 책상을 아직 저장하지 않았습니다. 앱을 끄면 놓은 쪽과 바꾼 차례·돌리기·나눌 곳이 사라집니다. 원본 파일은 그대로입니다.");
+  }), [ask]);
 
   // ── 바꾸기·되돌리기 (StrictMode 에서 두 번 돌지 않게 상태 함수 밖에서 쌓는다) ──
   const commit = useCallback((next: Board, o?: { merge?: boolean }) => {
@@ -250,6 +261,9 @@ export function PdfScreen({ active }: { active: boolean }) {
       }, { signal, onProgress });
       void notifySystem("KorDoc AI: PDF 작업 끝", r.outputs.length > 1 ? `PDF ${r.outputs.length}개를 저장했습니다` : `${r.outputs[0].page_count}쪽짜리 PDF를 저장했습니다`);
       return { kind: "pdf", outputs: r.outputs, secured: r.secured };
+    }).then((r) => {
+      // 책상 전체를 PDF 로 낸 저장(하나로·나누어)만 책상을 저장한 것으로 본다 (고른 쪽만·그림으로 낸 것이면 끌 때 묻는다)
+      if (r && (kind === "all" || kind === "split")) savedBoard.current = b;
     });
   }, [save, opts, names]);
 
@@ -524,6 +538,7 @@ export function PdfScreen({ active }: { active: boolean }) {
           }}
           onClose={() => setPreview(null)} />
       )}
+      {dialog}
     </div>
   );
 }

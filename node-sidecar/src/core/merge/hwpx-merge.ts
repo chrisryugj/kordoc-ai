@@ -5,7 +5,7 @@
  *   1) 머리(header.xml)의 목록(글꼴·테두리·글자 모양·탭·번호·글머리·문단 모양·스타일·메모)을 바탕 뒤에 붙이며 ID 를 새로 매기고
  *      (같은 이름의 글꼴·스타일은 바탕 것을 그대로 쓴다)
  *   2) 본문 구역(section*.xml)의 참조 ID 를 새 ID 로 바꿔 새 구역으로 붙이고 (구역이라 쪽 설정이 그대로, 새 쪽에서 시작)
- *   3) 그림(BinData)을 이름을 바꿔 옮긴다.
+ *   3) 그림(BinData)·차트(Chart)·바탕쪽(masterpage)을 이름을 바꿔 옮기고, 메모 답글 관계(memoExtended)를 이어 붙인다.
  * HWP(5.x) 는 rhwp 로 HWPX 로 바꿔서 섞어 합칠 수 있다.
  */
 
@@ -94,6 +94,10 @@ interface Maps {
   font: Record<string, IdMap>;
   list: Record<string, IdMap>;
   bin: IdMap;
+  /** 차트 부품 경로 (chartIDRef 는 묶음 안 경로다) */
+  chart?: IdMap;
+  /** 바탕쪽 id (구역 secPr 의 <hp:masterPage idRef>) */
+  master?: IdMap;
 }
 
 /** 뒤 문서 머리를 바탕 머리에 붙이고 ID 대응표를 돌려준다 */
@@ -202,13 +206,24 @@ function remapSection(xml: string, maps: Maps): string {
     ['binaryItemIDRef', maps.bin],
     ['outlineShapeIDRef', maps.list.numbering],
     ['memoShapeIDRef', maps.list.memoPr],
+    ['chartIDRef', maps.chart],
   ];
   let out = xml;
   for (const [attr, map] of table) {
     if (!map || map.size === 0) continue;
     out = out.replace(new RegExp(`\\b${attr}="([^"]*)"`, 'g'), (m, v: string) => (map.has(v) ? `${attr}="${map.get(v)}"` : m));
   }
+  // 바탕쪽 참조는 idRef 라는 흔한 이름이라 그 요소에서만
+  const master = maps.master;
+  if (master?.size) out = out.replace(/(<(?:[\w-]+:)?masterPage\b[^>]*?\sidRef=")([^"]*)"/g, (m, head: string, v: string) => (master.has(v) ? `${head}${master.get(v)}"` : m));
   return out;
+}
+
+/** used 가 아닌 가장 작은 번호 (from 부터) */
+function freeNo(from: number, used: (n: number) => boolean): number {
+  let n = from;
+  while (used(n)) n++;
+  return n;
 }
 
 export interface Manifest {
@@ -278,12 +293,54 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
 
     const maps = mergeHeader(header, parser.parseFromString(await addHeader.async('string'), 'text/xml'), bin);
 
+    // 차트·바탕쪽: 문서마다 Chart/chart1·masterpage0 부터 매겨서(한컴 문서·kordoc 변환본), 그대로 두면 뒤 문서 구역이 첫 문서의 차트·바탕쪽을
+    // 가리킨다. 바탕에 없는 번호로 옮기고 이 문서 구역의 참조를 바꾼다. 이름 꼴은 그대로 둔다: kordoc 은 Contents/masterpage*.xml 만 바탕쪽으로 읽는다
+    maps.chart = new Map();
+    for (const name of Object.keys(add.files).filter((n) => /^Chart\/[^/]+\.xml$/i.test(n))) {
+      const no = freeNo(1, (n) => !!zip.file(`Chart/chart${n}.xml`) || manifest.items.some((i) => i.id === `chart${n}`));
+      const to = `Chart/chart${no}.xml`;
+      zip.file(to, await add.file(name)!.async('uint8array'));
+      maps.chart.set(name, to);
+      // 차트를 manifest 에 올린 문서(kordoc 마크다운 변환본)면 항목도. 한컴 문서·HWP 변환본은 올리지 않는다
+      const item = addManifest.items.find((i) => i.href === name);
+      if (item) newItems.push(`<opf:item ${item.attrs.replace(/\bid="[^"]*"/, `id="chart${no}"`).replace(/\bhref="[^"]*"/, `href="${to}"`)}/>`);
+    }
+    maps.master = new Map();
+    for (const it of addManifest.items.filter((i) => /^Contents\/masterpage[^/]*\.xml$/i.test(i.href))) {
+      const xml = await add.file(it.href)?.async('string');
+      if (xml == null) continue;
+      const id = `masterpage${freeNo(0, (n) => !!zip.file(`Contents/masterpage${n}.xml`) || manifest.items.some((i) => i.id === `masterpage${n}`))}`;
+      const href = `Contents/${id}.xml`;
+      // 바탕쪽 안의 글자·문단 모양·그림·차트도 이 문서의 새 ID 로. 뿌리 id 도 새 이름으로 (kordoc 은 뿌리 id 로, 한글·rhwp 는 manifest 로 찾는다)
+      zip.file(href, remapSection(xml, maps).replace(/(<(?:[\w-]+:)?masterPage\b[^>]*?\sid=")[^"]*"/, `$1${id}"`));
+      maps.master.set(it.id, id);
+      newItems.push(`<opf:item ${it.attrs.replace(/\bid="[^"]*"/, `id="${id}"`).replace(/\bhref="[^"]*"/, `href="${href}"`)}/>`);
+    }
+
+    // 메모 답글 관계(memoExtended): 메모 id 는 그대로 옮기므로 바탕 것에 항목만 이어 붙인다
+    const exItem = addManifest.items.find((i) => /memoExtended\.xml$/i.test(i.href));
+    const exXml = exItem && (await add.file(exItem.href)?.async('string'));
+    if (exItem && exXml) {
+      const baseItem = manifest.items.find((i) => /memoExtended\.xml$/i.test(i.href));
+      const baseXml = baseItem && (await zip.file(baseItem.href)?.async('string'));
+      if (baseItem && baseXml) {
+        const into = parser.parseFromString(baseXml, 'text/xml');
+        for (const memo of kids(parser.parseFromString(exXml, 'text/xml').documentElement!, 'memo')) into.documentElement!.appendChild(into.importNode(memo, true));
+        zip.file(baseItem.href, new XMLSerializer().serializeToString(into));
+      } else {
+        zip.file(exItem.href, exXml);
+        newItems.push(`<opf:item ${exItem.attrs}/>`);
+      }
+    }
+
     // 구역
     const newRefs: string[] = [];
     for (const href of sectionHrefs(addManifest)) {
       const xml = await add.file(href)?.async('string');
       if (!xml) continue;
-      const id = `section${sectionNo}`;
+      // 이름은 바탕에 없는 번호로: 옛 판으로 나눈 조각은 Contents/section0.xml 의 id 가 section1 일 수 있어, 구역 수로만 매기면
+      // 같은 id 가 둘이 되고 한 조각이 두 번 나오고 다른 조각은 빠진다
+      const id = `section${freeNo(sectionNo, (n) => !!zip.file(`Contents/section${n}.xml`) || manifest.items.some((i) => i.id === `section${n}`))}`;
       const path = `Contents/${id}.xml`;
       zip.file(path, remapSection(xml, maps));
       newItems.push(`<opf:item id="${id}" href="${path}" media-type="application/xml"/>`);

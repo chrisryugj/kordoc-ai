@@ -90,7 +90,7 @@ export async function fixLines(md: string, errors: Array<{ line: number; text: s
   for (const it of parsed.lines ?? []) {
     const n = Number(it?.line);
     if (!nums.includes(n) || typeof it.text !== 'string' || !it.text.trim() || it.text.includes('\n')) continue;
-    out[n - 1] = it.text.trimEnd();
+    out[n - 1] = r.restore(it.text).trimEnd();
   }
   return { markdown: out.join('\n'), redacted: r.redacted };
 }
@@ -173,7 +173,7 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
   sendProgress({ current: 1, total: 3, message: `${PRESET_LABEL[preset]} 초안 쓰는 중` });
   const first = await ask({ system, messages: [{ role: 'user', content: parts.join('\n\n') }], maxTokens, signal });
   redacted += first.redacted;
-  let markdown = finish(first.text);
+  let markdown = finish(first.restore(first.text));
   if (!markdown.replace(/^#.*$/m, '').trim()) throw new Error('AI가 초안을 쓰지 못했습니다. 지시를 조금 더 구체적으로 적어 다시 시도하세요.');
 
   const errors = lintErrors(markdown, preset);

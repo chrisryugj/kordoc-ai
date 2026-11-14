@@ -65,7 +65,7 @@ export async function extractTable(
       const row: Record<string, string> = columns.includes(FILE_COL) ? {} : { [FILE_COL]: doc.name };
       for (const c of columns) {
         const v = raw[c];
-        row[c] = unescapeMd(typeof v === 'string' ? v : v == null ? '' : String(v)).trim();
+        row[c] = r.restore(unescapeMd(typeof v === 'string' ? v : v == null ? '' : String(v))).trim();
       }
       rows.push(row);
     } catch (err) {

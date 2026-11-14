@@ -20,7 +20,8 @@ const ids = new WeakMap<object, number>();
 let idSeq = 0;
 const idOf = (o: object) => ids.get(o) ?? (ids.set(o, ++idSeq), idSeq);
 
-export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLate: () => void }) {
+/** onReceiptEdited: 지출조서 표를 사람이 고쳤고 아직 저장 전인지 (새 요청으로 표를 지우기 전에 묻는다) */
+export function BatchResults({ outcome, onAddLate, onReceiptEdited }: { outcome: Outcome; onAddLate: () => void; onReceiptEdited?: (edited: boolean) => void }) {
   const { openDocs } = useApp();
   if (outcome.kind === "gather") return <GatherResult result={outcome.result} message={outcome.message} onAddLate={onAddLate} />;
   // 다시 돌린 결과는 새로 그린다: 그대로 두면 앞 묶음으로 만든 합본·PDF·인쇄 결과가 새 묶음 옆에 남는다
@@ -30,7 +31,7 @@ export function BatchResults({ outcome, onAddLate }: { outcome: Outcome; onAddLa
       <div className="flex flex-col gap-3">
         <Note tone={outcome.result.receipts.some((r) => r.ok) ? "ok" : "warn"}>{outcome.message}</Note>
         {/* 다시 읽은 결과는 새로 그린다 (경로가 같다고 옛 표를 두면, 다시 읽어 살아난 영수증이 표에도 실패 목록에도 없다) */}
-        <ReceiptEditor key={idOf(outcome)} receipts={outcome.result.receipts} aiUsed={outcome.result.ai_used} warnings={outcome.result.warnings} outputDir={outcome.outDir} />
+        <ReceiptEditor key={idOf(outcome)} receipts={outcome.result.receipts} aiUsed={outcome.result.ai_used} warnings={outcome.result.warnings} outputDir={outcome.outDir} onEdited={onReceiptEdited} />
       </div>
     );
   }

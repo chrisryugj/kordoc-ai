@@ -19,6 +19,8 @@ import { useGongmunMeta } from "../../hooks/useGongmunMeta";
 import { useOrgReference } from "../../hooks/useOrgCorpus";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+import { askQuit, useAsk } from "../ui/useAsk";
+import { onQuitGuard } from "../../lib/quit";
 import { Check, Field, Seg, SelectField } from "../common/Field";
 import { AiWhere } from "../common/AiGate";
 import { ErrorLine, StatusLine, Working } from "../common/Status";
@@ -94,8 +96,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
   /** 한 줄 맞춤 결과 — before 로 되돌린다 */
   const [fit, setFit] = useState<Fit | null>(null);
   const [fitOpen, setFitOpen] = useState(false);
-  /** 쓰던 초안을 덮어쓸 시작값이 왔을 때 — 고르면 이걸 부른다 */
-  const [seedAsk, setSeedAsk] = useState<(() => void) | null>(null);
+  /** 쓰던 초안을 덮어쓰기 전에 묻는다 — 고르면 apply 를 부른다 (again: 초안 쓰기를 다시 눌렀다, 아니면 다른 화면이 보낸 시작값) */
+  const [seedAsk, setSeedAsk] = useState<{ apply: () => void; again?: boolean } | null>(null);
   const [optsOpen, setOptsOpen] = useState(false);
   const [opts, setOpts] = useState<FormatOpts>(() => ({
     agency: settings?.org.agency ?? "", cover: false, coverOrg: settings?.org.name ?? "", coverDate: gongmunDate(),
@@ -117,6 +119,11 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
   useEffect(() => { mdRef.current = markdown; }, [markdown]);
   /** 마지막으로 한글 문서로 만든 글 — 이와 같으면 덮어써도 잃는 게 없다 */
   const made = useRef("");
+  /** 이 글을 지우면 잃는 게 있나 (아직 한글 문서로 만들지 않은 초안) */
+  const unmade = (md: string) => !!md.trim() && md !== made.current;
+  const { ask, dialog } = useAsk();
+  // 트레이 "완전 종료" 전: 한글 문서로 만들지 않은 초안은 이 화면에만 있다
+  useEffect(() => onQuitGuard(async () => !unmade(mdRef.current) || askQuit(ask, "한글 문서로 만들지 않은 초안", "AI 초안을 아직 한글 문서로 만들지 않았습니다. 앱을 끄면 초안은 사라집니다.")), [ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** 우리 기관 서식 묶음 — 이 갈래 문서가 있으면 초안은 그 구성·표현을, 만들 때는 그 서식을 (끌 수 있음) */
   const orgRead = useOrgReference(preset);
@@ -203,7 +210,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
       if (autoDraft) runDraft("", seed.kind, seed.references);
     };
     // 쓰던 초안을 덮어쓰는 시작값(보낸 글·회신 자동 초안)은 먼저 묻는다
-    if ((seed.markdown || autoDraft) && markdown.trim() && markdown !== made.current) setSeedAsk(() => apply);
+    if ((seed.markdown || autoDraft) && unmade(markdown)) setSeedAsk({ apply });
     else apply();
     // 시작값마다 한 번
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,7 +324,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
                 <div className="flex-1" />
                 {draft.busy
                   ? <Button variant="secondary" onClick={draft.cancel}><Square size={13} /> 멈추기</Button>
-                  : <Button onClick={() => runDraft()} disabled={(!!k.ref && !refs.length) || nothingToWrite} data-tip="AI가 쓰는 글이 바로 보입니다. 다 쓰면 미리보기와 표기법 검사가 나옵니다"><Sparkles size={14} /> 초안 쓰기</Button>}
+                  // 다시 쓰면 지금 초안을 지운다: 한글 문서로 만들지 않은 초안(손으로 고친 것 포함)이면 시작값처럼 먼저 묻는다
+                  : <Button onClick={() => (unmade(markdown) ? setSeedAsk({ apply: () => runDraft(), again: true }) : runDraft())} disabled={(!!k.ref && !refs.length) || nothingToWrite} data-tip="AI가 쓰는 글이 바로 보입니다. 다 쓰면 미리보기와 표기법 검사가 나옵니다"><Sparkles size={14} /> 초안 쓰기</Button>}
               </div>
               {k.ref && !refs.length && <p className="kd-small kd-muted">{k.ref} 필요</p>}
               {!k.ref && nothingToWrite && <p className="kd-small kd-muted">무엇을 쓸지 위 칸에 적거나 참고 문서를 붙이면 켜집니다</p>}
@@ -382,8 +390,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
             if (!r.output_path) throw new Error("한글 문서를 만들지 못했습니다. 글을 확인하고 다시 누르세요.");
             // 엔진이 알린 것(견본 서식을 못 따랐다 등)은 편집기로 넘어간 뒤에도 보이게 남긴다
             for (const w of r.warnings ?? []) toast(w, "error");
-            made.current = markdown;
-            await openInEditor(r.output_path, { title: firstTitle(markdown), working: true });
+            // 편집기로 연 뒤에만 "만든 글"로 본다: 앞 문서 묻기에서 취소해 못 열었으면 초안은 아직 이 화면에만 있다
+            if (await openInEditor(r.output_path, { title: firstTitle(markdown), working: true })) made.current = markdown;
           })}><FilePen size={15} /> 한글 문서로 만들어 편집하기</Button>
         </ActionBar>}
       </div>
@@ -416,11 +424,14 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
         footer={(
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="secondary" onClick={() => setSeedAsk(null)}>쓰던 초안 두기</Button>
-            <Button onClick={() => { const apply = seedAsk; setSeedAsk(null); apply?.(); }}>새 내용으로 바꾸기</Button>
+            <Button onClick={() => { const a = seedAsk; setSeedAsk(null); a?.apply(); }}>{seedAsk?.again ? "다시 쓰기" : "새 내용으로 바꾸기"}</Button>
           </div>
         )}>
-        <p className="kd-text">다른 화면에서 보낸 내용으로 바꾸면 지금 쓰던 초안은 사라집니다. 쓰던 초안을 두면 보낸 내용은 받지 않습니다.</p>
+        <p className="kd-text">{seedAsk?.again
+          ? "초안을 다시 쓰면 지금 쓰던 초안(손으로 고친 것까지)은 사라집니다. 쓰던 초안을 두면 다시 쓰지 않습니다."
+          : "다른 화면에서 보낸 내용으로 바꾸면 지금 쓰던 초안은 사라집니다. 쓰던 초안을 두면 보낸 내용은 받지 않습니다."}</p>
       </Modal>
+      {dialog}
     </div>
   );
 }

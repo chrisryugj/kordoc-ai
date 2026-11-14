@@ -110,7 +110,7 @@ pub const ACTIONS: &[Action] = &[
 
 /// 메뉴 판. 항목을 바꾸면 올린다 → 켤 때 깔려 있으면 다시 깐다 (옛 항목이 남지 않게)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
-const MENU_VERSION: &str = "10";
+const MENU_VERSION: &str = "11";
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const EXTS: &[&str] = &[
@@ -634,14 +634,25 @@ fn is_network_path(a: &str) -> bool {
     !local
 }
 
-/// 실행 인자 → (동작, 파일들). `--shell <동작> <파일…>` 또는 파일만(= open)
-pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
+/// 상대 경로는 그 실행을 한 폴더(base) 기준으로 — 켜진 앱으로 넘어온 인자를 첫 인스턴스의 작업 폴더에서 확인하면 파일이 말없이 버려지고,
+/// 꺼진 앱이면 엔진(설치 폴더 안에서 뜸)이 엉뚱한 곳을 찾았다. 드라이브 문자·네트워크 경로는 어느 OS 에서든 그대로 둔다
+fn absolutize(base: &std::path::Path, a: &str) -> String {
+    let b = a.as_bytes();
+    let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+    if drive || is_network_path(a) || std::path::Path::new(a).is_absolute() {
+        return a.to_string();
+    }
+    base.join(a).to_string_lossy().into_owned()
+}
+
+/// 실행 인자 → (동작, 파일들). `--shell <동작> <파일…>` 또는 파일만(= open). base: 그 실행의 작업 폴더
+pub fn parse_args(args: &[String], base: &std::path::Path) -> Option<(String, Vec<String>)> {
     let rest: Vec<&String> = args.iter().skip(1).collect();
     if rest.is_empty() {
         return None;
     }
     if rest[0] == "--shell" && rest.len() >= 3 && is_action(rest[1]) {
-        return Some((rest[1].clone(), rest[2..].iter().map(|s| unquote_root(s)).collect()));
+        return Some((rest[1].clone(), rest[2..].iter().map(|s| absolutize(base, &unquote_root(s))).collect()));
     }
     // 주소(kordoc://…)로 켜진 실행은 그 주소 하나만 다룬다. 주소 속 `|` 나 따옴표로 갈라져 나온 나머지 토큰을 파일로 보면
     // 링크 하나로 임의 파일이 "앱에서 열기"로 뜬다 (single-instance 플러그인은 인자를 `|` 로 이어 보내고 다시 `|` 로 자른다)
@@ -654,8 +665,9 @@ pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     // 찔러 보지 않고 그대로 넘긴다: 엔진이 열지 않고 "네트워크 경로는 쓸 수 없습니다"로 알린다 (말없이 버리면 빈 창만 뜬다)
     let files: Vec<String> = rest
         .iter()
-        .filter(|a| !a.starts_with("-") && (is_network_path(a) || std::path::Path::new(a.as_str()).is_file()))
-        .map(|s| s.to_string())
+        .filter(|a| !a.starts_with("-"))
+        .map(|a| absolutize(base, a))
+        .filter(|a| is_network_path(a) || std::path::Path::new(a.as_str()).is_file())
         .collect();
     (!files.is_empty()).then(|| ("open".to_string(), files))
 }
@@ -689,16 +701,26 @@ pub fn is_batch_url(url: &str) -> bool {
     tauri::Url::parse(url).map(|u| u.scheme() == "kordoc" && url_action(&u) == "batch").unwrap_or(false)
 }
 
-/// 주소(kordoc://…)로 온 동작을 어떻게 돌릴지. 윈도에서는 빠른 동작(창 없이 바로 처리)을 그대로 돌리지 않고
+/// 주소(kordoc://…)로 온 동작을 어떻게 돌릴지. 빠른 동작(창 없이 바로 처리)과 문서 수합은 그대로 돌리지 않고
 /// "여러 파일 한꺼번에" 화면에 파일만 올려 둔다: 주소는 웹·메일·문서 속 링크로도 올 수 있어, 누른 사람이 모르는 사이
-/// 폴더 안 문서 수천 개를 바꾸거나 글 사본을 만들 수 있다. 탐색기 우클릭은 실행 인자(--shell)로 오므로 그대로 바로 돈다.
-/// macOS 는 Finder 빠른 동작이 주소로 들어오므로 그대로 둔다
+/// 폴더 안 문서 수천 개를 바꾸거나 글 사본·수합 엑셀을 만들 수 있다. 탐색기 우클릭은 실행 인자(--shell)로 오므로 그대로 바로 돈다.
+/// macOS Finder 빠른 동작은 주소로 들어오지만 설치 때 만든 이 PC 의 표지(k)를 붙여 오므로, 표지가 맞는 주소만 그대로 돌린다
 pub fn routed_action(url: &str) -> Option<(String, String)> {
     let (action, path) = parse_action_url(url)?;
-    if cfg!(not(target_os = "macos")) && is_quick(&action) {
+    if (is_quick(&action) || action == "collect") && !from_quick_action(url) {
         return Some(("tools".into(), path));
     }
     Some((action, path))
+}
+
+/// 이 PC 의 Finder 빠른 동작이 보낸 주소인가 (링크를 만든 쪽은 표지를 모른다)
+fn from_quick_action(url: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Some(token) = platform::quick_token() {
+        return tauri::Url::parse(url).map(|u| u.query_pairs().any(|(k, v)| k == "k" && v == token.as_str())).unwrap_or(false);
+    }
+    let _ = url;
+    false
 }
 
 // ── 메뉴 설치 ──
@@ -850,6 +872,24 @@ mod platform {
         dir.join(bundle_name(ACTIONS[0].label)).join("Contents").join("kordoc-menu-version")
     }
 
+    /// 빠른 동작 표지 파일 (판 표시 파일 옆). 깔 때마다 새로 만든다
+    fn token_file(dir: &std::path::Path) -> PathBuf {
+        dir.join(bundle_name(ACTIONS[0].label)).join("Contents").join("kordoc-menu-key")
+    }
+
+    /// 깔린 빠른 동작이 주소에 붙이는 표지 (깔리지 않았으면 None)
+    pub fn quick_token() -> Option<String> {
+        let dir = services_dir()?;
+        std::fs::read_to_string(token_file(&dir)).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    }
+
+    fn new_token() -> Result<String, String> {
+        use std::io::Read;
+        let mut b = [0u8; 16];
+        std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).map_err(|e| e.to_string())?;
+        Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+    }
+
     pub fn status() -> MenuStatus {
         let installed = services_dir().map(|d| installed_in(&d)).unwrap_or(false);
         MenuStatus { supported: true, installed, kind: "quick-action" }
@@ -882,12 +922,13 @@ mod platform {
     fn install_unlocked() -> Result<(), String> {
         let dir = services_dir().ok_or("사용자 폴더를 찾을 수 없습니다")?;
         remove_all(&dir);
+        let token = new_token()?;
         for a in mac_actions() {
             let root = dir.join(bundle_name(a.label)).join("Contents");
             std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
             let script = format!(
-                r#"/usr/bin/osascript -l JavaScript -e 'function run(argv){{var a=Application.currentApplication();a.includeStandardAdditions=true;argv.forEach(function(p){{a.openLocation("kordoc://{}?path="+encodeURIComponent(p))}})}}' "$@""#,
-                a.id
+                r#"/usr/bin/osascript -l JavaScript -e 'function run(argv){{var a=Application.currentApplication();a.includeStandardAdditions=true;argv.forEach(function(p){{a.openLocation("kordoc://{}?k={}&path="+encodeURIComponent(p))}})}}' "$@""#,
+                a.id, token
             );
             std::fs::write(root.join("document.wflow"), WFLOW.replace("__COMMAND__", &xml_escape(&script)))
                 .map_err(|e| e.to_string())?;
@@ -915,6 +956,7 @@ mod platform {
             );
             std::fs::write(root.join("Info.plist"), plist).map_err(|e| e.to_string())?;
         }
+        std::fs::write(token_file(&dir), &token).map_err(|e| e.to_string())?;
         std::fs::write(version_file(&dir), MENU_VERSION).map_err(|e| e.to_string())?;
         let _ = std::process::Command::new("/System/Library/CoreServices/pbs").arg("-flush").status();
         Ok(())
@@ -1030,23 +1072,35 @@ mod tests {
     #[test]
     fn parses_shell_args() {
         let a = vec!["app".into(), "--shell".into(), "redact".into(), "C:\\a.hwp".into()];
-        assert_eq!(parse_args(&a), Some(("redact".into(), vec!["C:\\a.hwp".into()])));
-        assert_eq!(parse_args(&["app".into(), "--shell".into(), "evil".into(), "x".into()]), None);
+        assert_eq!(parse_args(&a, std::path::Path::new("/")), Some(("redact".into(), vec!["C:\\a.hwp".into()])));
+        assert_eq!(parse_args(&["app".into(), "--shell".into(), "evil".into(), "x".into()], std::path::Path::new("/")), None);
+    }
+
+    #[test]
+    fn relative_args_resolve_against_the_launching_folder() {
+        // 스크립트·start 로 "kordoc-ai 보고.hwp" 처럼 상대 경로를 주면, 그 실행의 작업 폴더 기준으로 찾아 절대 경로로 넘긴다
+        let me = std::env::current_exe().unwrap();
+        let (dir, name) = (me.parent().unwrap(), me.file_name().unwrap().to_string_lossy().into_owned());
+        let want = dir.join(&name).to_string_lossy().into_owned();
+        assert_eq!(parse_args(&["app".into(), name.clone()], dir), Some(("open".into(), vec![want.clone()])));
+        assert_eq!(parse_args(&["app".into(), "--shell".into(), "redact".into(), name.clone()], dir), Some(("redact".into(), vec![want])));
+        // 다른 폴더 기준이면 없는 파일이라 열지 않는다
+        assert_eq!(parse_args(&["app".into(), name], std::path::Path::new("/")), None);
     }
 
     #[test]
     fn deep_link_launch_never_opens_other_tokens_as_files() {
         // 실제로 있는 파일을 인자로 줘도, 주소(kordoc:)가 섞인 실행이면 파일로 열지 않는다
         let me = std::env::current_exe().unwrap().to_string_lossy().into_owned();
-        assert_eq!(parse_args(&["app".into(), me.clone()]), Some(("open".into(), vec![me.clone()])));
-        assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), me.clone()]), None);
-        assert_eq!(parse_args(&["app".into(), me.clone(), "kordoc://open?path=a".into()]), None);
-        assert_eq!(parse_args(&["app".into(), "KORDOC://x?".into(), me.clone()]), None);
+        assert_eq!(parse_args(&["app".into(), me.clone()], std::path::Path::new("/")), Some(("open".into(), vec![me.clone()])));
+        assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), me.clone()], std::path::Path::new("/")), None);
+        assert_eq!(parse_args(&["app".into(), me.clone(), "kordoc://open?path=a".into()], std::path::Path::new("/")), None);
+        assert_eq!(parse_args(&["app".into(), "KORDOC://x?".into(), me.clone()], std::path::Path::new("/")), None);
         // 네트워크 경로는 있는지 찔러 보지 않고 그대로 넘긴다 (엔진이 열지 않고 까닭을 알린다). 주소가 섞였으면 그것도 버린다
         for unc in ["\\\\192.0.2.1\\share\\a.hwp", "//192.0.2.1/share/a.hwp", "/\\192.0.2.1\\share\\a.hwp", "\\\\?\\UNC\\192.0.2.1\\share\\a.hwp"] {
             assert!(is_network_path(unc), "{unc}");
-            assert_eq!(parse_args(&["app".into(), unc.into()]), Some(("open".into(), vec![unc.to_string()])));
-            assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), unc.into()]), None);
+            assert_eq!(parse_args(&["app".into(), unc.into()], std::path::Path::new("/")), Some(("open".into(), vec![unc.to_string()])));
+            assert_eq!(parse_args(&["app".into(), "kordoc://x?".into(), unc.into()], std::path::Path::new("/")), None);
         }
         // 긴 경로 표기의 로컬 파일·보통 경로는 네트워크 경로가 아니다
         for local in ["\\\\?\\C:\\a\\b.hwp", "C:\\a\\b.hwp", "/Users/a/b.hwp", "Z:\\share\\a.hwp"] {
@@ -1066,11 +1120,14 @@ mod tests {
         // "//" 없이 쓴 주소도 같은 동작으로 읽는다. 못 읽으면 화면이 따로 풀어, 주소로 온 빠른 동작이 확인 없이 바로 돈다
         for u in ["kordoc:convert?path=D%3A%5C", "kordoc:/convert?path=D%3A%5C", "kordoc:///convert?path=D%3A%5C", "kordoc://CONVERT?path=D%3A%5C"] {
             assert_eq!(parse_action_url(u), Some(("convert".into(), "D:\\".into())), "{u}");
-            // 윈도·리눅스에서는 빠른 동작을 바로 돌리지 않고 여러 파일 화면에 올린다
-            if cfg!(not(target_os = "macos")) {
-                assert_eq!(routed_action(u), Some(("tools".into(), "D:\\".into())), "{u}");
-            }
+            // 링크로 온 빠른 동작은 바로 돌리지 않고 여러 파일 화면에 올린다 (macOS 도: 빠른 동작 표지가 없는 주소)
+            assert_eq!(routed_action(u), Some(("tools".into(), "D:\\".into())), "{u}");
         }
+        // 표지가 틀린 주소·링크로 온 문서 수합도 화면에 올리기만 한다 (수합은 폴더 아래 문서 수천 개로 엑셀을 쓴다)
+        assert_eq!(routed_action("kordoc://redact?k=00&path=%2FUsers"), Some(("tools".into(), "/Users".into())));
+        assert_eq!(routed_action("kordoc://collect?path=D%3A%5C"), Some(("tools".into(), "D:\\".into())));
+        // 화면을 여는 동작(빠른 동작 아님)은 그대로
+        assert_eq!(routed_action("kordoc://compare?path=D%3A%5Ca.hwpx"), Some(("compare".into(), "D:\\a.hwpx".into())));
         // 동작으로 읽지 못한 주소 가운데 화면으로 넘기는 것은 묶음 주소뿐
         assert!(is_batch_url("kordoc://batch?manifest=x"));
         assert!(is_batch_url("kordoc:batch?manifest=x"));
@@ -1295,14 +1352,11 @@ mod tests {
 
     #[test]
     fn links_do_not_run_quick_actions_unseen() {
-        // 주소로 온 빠른 동작은 윈도에서 바로 돌리지 않고 여러 파일 한꺼번에 화면에 올려 둔다 (맥은 Finder 빠른 동작이 주소로 온다)
+        // 주소로 온 빠른 동작은 바로 돌리지 않고 여러 파일 한꺼번에 화면에 올려 둔다. 맥도 같다: Finder 빠른 동작은 설치 때 만든
+        // 표지(k)를 붙여 오고, 웹·메일 링크는 그 값을 모른다
         let quick = routed_action("kordoc://convert?path=C%3A%5CUsers").unwrap();
-        if cfg!(target_os = "macos") {
-            assert_eq!(quick.0, "convert");
-        } else {
-            assert_eq!(quick, ("tools".to_string(), "C:\\Users".to_string()));
-            assert!(!is_quick(&quick.0));
-        }
+        assert_eq!(quick, ("tools".to_string(), "C:\\Users".to_string()));
+        assert!(!is_quick(&quick.0));
         // 창을 여는 동작은 그대로
         assert_eq!(routed_action("kordoc://pdfwork?path=%2Fa.pdf").unwrap().0, "pdfwork");
         assert_eq!(routed_action("kordoc://batch?manifest=x"), None);
@@ -1333,10 +1387,10 @@ mod tests {
     fn drive_root_background_path_is_repaired() {
         // 드라이브 맨 위 빈 곳 우클릭: 명령줄 "D:\" 가 인자 D:" 로 온다
         let a = vec!["app".into(), "--shell".into(), "join".into(), "D:\"".into()];
-        assert_eq!(parse_args(&a), Some(("join".into(), vec!["D:\\".into()])));
+        assert_eq!(parse_args(&a, std::path::Path::new("/")), Some(("join".into(), vec!["D:\\".into()])));
         // 보통 경로는 그대로
         let b = vec!["app".into(), "--shell".into(), "join".into(), "D:\\자료 모음".into()];
-        assert_eq!(parse_args(&b), Some(("join".into(), vec!["D:\\자료 모음".into()])));
+        assert_eq!(parse_args(&b, std::path::Path::new("/")), Some(("join".into(), vec!["D:\\자료 모음".into()])));
     }
 
     #[test]
@@ -1352,7 +1406,7 @@ mod tests {
     #[test]
     fn parses_new_actions() {
         let a = vec!["app".into(), "--shell".into(), "pdfmerge".into(), "C:\\a.pdf".into(), "C:\\b.pdf".into()];
-        assert_eq!(parse_args(&a), Some(("pdfmerge".into(), vec!["C:\\a.pdf".into(), "C:\\b.pdf".into()])));
+        assert_eq!(parse_args(&a, std::path::Path::new("/")), Some(("pdfmerge".into(), vec!["C:\\a.pdf".into(), "C:\\b.pdf".into()])));
         assert!(is_quick("pagenum") && is_quick("xlsxmerge") && is_quick("inbox") && is_quick("join") && is_quick("split"));
         assert!(is_quick("pdfsplit") && is_quick("shrink") && !is_quick("pdfwork") && !is_quick("open") && !is_quick("evil"));
         assert_eq!(parse_action_url("kordoc://pdfwork?path=%2Fa.pdf"), Some(("pdfwork".into(), "/a.pdf".into())));

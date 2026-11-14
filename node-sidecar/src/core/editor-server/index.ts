@@ -115,7 +115,8 @@ export function startEditorServer(): Promise<{ host_url: string; studio_version:
     // 지난 실행의 편집기가 남긴 저장소(고치던 문서)를 다음 실행이 보지도 지우지도 못한다. 같은 출처여야 host.js 가 띄우기 전에 지운다
     let fallback = false;
     srv.on('error', (err) => {
-      if (!fallback && (err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      // 고정 포트를 못 쓰면 까닭과 상관없이 빈 포트로 — 쓰는 중(EADDRINUSE)만 넘기면 Windows 예약 포트 범위·보안 프로그램(EACCES)에서 편집기가 아예 안 떴다
+      if (!fallback) {
         fallback = true;
         srv.listen(0, '127.0.0.1');
         return;

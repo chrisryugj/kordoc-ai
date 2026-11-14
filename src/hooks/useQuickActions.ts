@@ -59,7 +59,7 @@ export function useQuickActions() {
           const { startPdf, startBatch, go, toast } = appRef.current;
           if (back.screen === "pdf") startPdf({ paths });
           else if (back.screen === "inbox") go("inbox");
-          else startBatch({ paths, task: back.task });
+          else startBatch({ paths, task: back.task, fallback: true });
           if (why) toast(why, "error");
         };
         const slow = setTimeout(() => void notifyQuick(`KorDoc AI: ${label}`, `${paths.length > 1 ? `${paths.length}개를 ` : ""}처리하는 중입니다. 끝나면 다시 알립니다.`), 1500);

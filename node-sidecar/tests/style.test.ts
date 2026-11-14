@@ -168,6 +168,11 @@ describe('내용 다시 짜기', () => {
     const html = '<table><tr><th colspan="2">가</th><th>나</th></tr><tr><td rowspan="2">다</td><td>라<table><tr><td>안</td></tr><tr><td>안</td></tr></table></td><td>마</td></tr><tr><td>바</td><td>사</td></tr></table>';
     expect(markdownTables(`${html}\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n`)).toEqual([{ rows: 3, cols: 3 }, { rows: 2, cols: 2 }]);
   });
+
+  it('닫히지 않은 표 조각이 둘 넘게 든 글 파일에서도 멈추지 않는다', () => {
+    // "<table>" 이 열리기만 한 메모 — 안쪽 표 지우기가 바꿀 것이 없어 영영 돌았다
+    expect(() => markdownTables('<table>\n<tr><td>a</td></tr>\n<table>\nb')).not.toThrow();
+  });
 });
 
 describe('견본 서식 읽기', () => {

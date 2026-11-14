@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { atomicWriteFile } from '../files/io.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PDFDocument, degrees, type PDFEmbeddedPage, type PDFPage } from 'pdf-lib';
@@ -19,7 +20,7 @@ import { stampPdf } from '../export/stamp.js';
 import { shrinkImages } from '../pdf-shrink/index.js';
 import { formatOf } from '../files/format.js';
 import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
-import { openPdf, rasterPdfPage } from '../render/pdfium.js';
+import { closePdfPage, openPdf, rasterPdfPage } from '../render/pdfium.js';
 import { parsePageSpec } from '../render/index.js';
 
 const WORK_DIR = join(tmpdir(), 'kordoc-pdf-work');
@@ -87,7 +88,9 @@ export async function pdfOpen(p: { path: string }, signal?: AbortSignal): Promis
       // 보안 PDF 는 pdf-lib 으로 크기를 못 읽어 PDFium 으로 (쪽마다 불러와 내용까지 풀지만 보안 PDF 는 드물고 대개 짧다). 아주 길면 A4 로 둔다
       : Array.from({ length: count }, (_, i) => {
         if (count > 300) return { width: 595.28, height: 841.89 };
-        const { originalWidth, originalHeight } = check.getPage(i).getOriginalSize();
+        const pg = check.getPage(i);
+        const { originalWidth, originalHeight } = pg.getOriginalSize();
+        closePdfPage(pg);
         return { width: r2(originalWidth), height: r2(originalHeight) };
       });
   } finally {
@@ -290,7 +293,7 @@ export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Prom
     const path = o.output_path
       ? outputFile({ output_path: o.output_path, name, overwrite: p.overwrite })
       : outputFile({ output_dir: dir, source: p.source, name });
-    await writeFile(path, bytes);
+    await atomicWriteFile(path, bytes);
     results.push({ output_path: path, page_count: out.getPageCount(), bytes: bytes.length });
   }
   return { outputs: results, secured: src.secured };

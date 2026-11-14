@@ -22,7 +22,7 @@ export interface PictureScan {
   /** 개인정보로 보이는 글이 나온 그림 수와 그 글의 수 */
   flagged: number;
   hits: number;
-  /** 글자를 읽지 못한 그림 수 (못 여는 형식·읽기 실패·상한 넘음) */
+  /** 글자를 읽지 못한 그림 수 (못 여는 형식·읽기 실패·글자 읽기 모델 없음·상한 넘음) */
   unread: number;
 }
 
@@ -43,8 +43,9 @@ export async function scanPictures(path: string, rules: readonly RedactRule[], k
       const meta = await sharp(Buffer.from(bytes)).metadata();
       if ((meta.width ?? 0) < MIN_SIDE || (meta.height ?? 0) < MIN_SIDE) continue;
       // 멈추기를 누르면 읽는 도중에도 멈춘다 (parseBytes 가 신호를 본다)
-      const r = await parseBytes(Buffer.from(await imageToPdf(bytes)), { ocr: 'force', images: false }, undefined, signal);
-      if (!r.success) { out.unread++; continue; }
+      const r = await parseBytes(Buffer.from(await imageToPdf(bytes)), { ocr: 'force', images: false, ocrLines: true }, undefined, signal);
+      // 모델이 없으면(폐쇄망) 엔진은 실패로 돌려주지 않고 경고만 남겨 "글 없는 그림"처럼 보인다 → 글자 읽기가 그 그림을 실제로 읽었는지(ocrLines)로 본다
+      if (!r.success || !r.ocrLines?.length) { out.unread++; continue; }
       const found = countRead(r.markdown, rules, keep);
       if (found) { out.flagged++; out.hits += found; }
     } catch (err) {

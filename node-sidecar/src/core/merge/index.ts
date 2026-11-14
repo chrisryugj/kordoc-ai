@@ -14,7 +14,7 @@ import { concatXlsx } from './concat-xlsx.js';
 import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult, MergeFailure } from './types.js';
 import { errorText, parseFailure } from '../errors.js';
-import { resultDir } from '../output/index.js';
+import { resultDir, stemOf } from '../output/index.js';
 
 export type { MergeFilesParams, MergeFilesResult } from './types.js';
 export { splitPdf, extractPdfPages, getPdfPageCount } from './concat-pdf.js';
@@ -96,7 +96,7 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
   const r = await splitHwpx(bytes, p.mode ?? 'auto');
   // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
   const output_dir = resultDir(p.output_dir);
-  const stem = basename(p.path, extname(p.path));
+  const stem = stemOf(p.path);
   const width = String(r.parts.length).length;
   const output_files: string[] = [];
   for (const [i, part] of r.parts.entries()) {

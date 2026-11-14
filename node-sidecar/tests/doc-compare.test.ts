@@ -7,7 +7,7 @@ import { markdownToHwpx, parse } from 'kordoc';
 import { call, corpus, hasCorpus, sample, setupEnv } from './doc-helpers.js';
 import { buildXlsx } from '../src/core/excel/xlsx.js';
 import { parseCsv, toCsv } from '../src/core/excel/csv.js';
-import { wordDiff } from '../src/core/comparator/index.js';
+import { markSegs, wordDiff } from '../src/core/comparator/index.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -90,6 +90,12 @@ describe('compare', () => {
     const d = wordDiff('시에 주소를 둔 사람', '시에 주민등록을 한 사람');
     expect(d.old.filter((s) => s.changed).map((s) => s.text.trim())).toEqual(['주소를 둔']);
     expect(d.new.filter((s) => s.changed).map((s) => s.text.trim())).toEqual(['주민등록을 한']);
+  });
+
+  it('줄을 넘는 바뀐 덩어리는 줄마다 굵게 (칸 글이 <br> 로 갈려도 별표가 짝을 잃지 않게)', () => {
+    const br = (t: string) => t.replace(/\r?\n/g, '<br>');
+    expect(markSegs([{ text: '앞 ', changed: false }, { text: '새1\n새2', changed: true }], br, '**', '**')).toBe('앞 **새1**<br>**새2**');
+    expect(markSegs([{ text: ' 새 ', changed: true }], br, '**', '**')).toBe(' **새** ');
   });
 });
 

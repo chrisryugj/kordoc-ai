@@ -101,10 +101,17 @@ export async function readOne(path: string, signal?: AbortSignal, warn?: (messag
   }
   // 여러 쪽 PDF: 쪽마다 영수증 한 장 (빈 쪽은 건너뜀)
   const out: ReceiptRead[] = [];
+  const unread: number[] = [];
   for (const p of pages) {
     const o = ocrPages.get(p.pageNumber);
     const lines = o && !o.regionsOnly ? linesFromOcr(o) : linesFromMarkdown(p.markdown);
     if (lines.length) out.push(fromLines(path, lines, o ? 'ocr' : 'text', p.pageNumber));
+    else if (o || p.markdown.trim()) unread.push(p.pageNumber);
+  }
+  // 그림·글이 있는데 줄을 못 뽑은 쪽(모델 없는 스캔 쪽·흐린 감열지)을 말없이 빼면 지출조서의 건수와 합계가 줄어든 채 저장된다 → 알린다
+  if (unread.length && out.length) {
+    const list = unread.length > 10 ? `${unread.slice(0, 10).join('·')}쪽 외 ${unread.length - 10}쪽` : `${unread.join('·')}쪽`;
+    warn?.(`${basename(path)}: ${list}은 글자를 읽지 못해 빠졌습니다. ${ready ? '그 쪽을 더 또렷하게 찍거나 스캔해 따로 넣으세요.' : '설정 › 엔진과 모델에서 글자 읽기(OCR) 모델을 넣은 뒤 다시 하세요.'}`);
   }
   return out.length ? flagged(out) : [fromLines(path, [], 'text', undefined, emptyError)];
 }

@@ -130,7 +130,8 @@ export interface RpcMethods {
   gongmun_meta: [Record<string, never>, GongmunMeta];
   generate_hwpx: [GenerateParams, { output_path?: string; warnings: string[]; lint: LintFinding[]; preview?: PagePreview[]; preview_hwpx_b64?: string }];
   template_fields: [{ template?: string; path?: string }, { fields: Array<{ name: string; label?: string; multiline?: boolean }> }];
-  template_fill: [{ template?: string; path?: string; values: Record<string, string>; output_path?: string }, { output_path: string; filled: string[]; unmatched: string[] }];
+  /** rejected: 같은 이름 칸이 사용자 서식 여러 곳에 있어 넣지 않은 이름 */
+  template_fill: [{ template?: string; path?: string; values: Record<string, string>; output_path?: string }, { output_path: string; filled: string[]; unmatched: string[]; rejected?: string[] }];
   /** 명부(xlsx·csv) 한 줄 = 문서 한 장 */
   /** org(기본 true): 명부에 없는 칸은 내 기관 정보로. 날짜·전화 열은 같은 모양으로. output_dir 는 한 장이라도 만들었을 때만(아니면 ''). 파일 번호는 1부터.
    *  rejected: 같은 이름 칸이 양식 여러 곳에 있어 넣지 않은 열 */

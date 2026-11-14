@@ -37,7 +37,8 @@ export interface Intent<T> {
 /** 다른 화면에서 도구를 열며 바로 돌릴 일 */
 export type AutoRunKind = "summarize" | "redact" | "precheck";
 export interface WorkbenchFocus { path: string; page?: number; tool?: ToolId; run?: AutoRunKind }
-export interface BatchStart { paths: string[]; task?: BatchTaskId; autoRun?: boolean }
+/** fallback: 우클릭 빠른 동작이 실패해 연 것 (사용자가 이 화면을 부른 게 아니다: 고친 표가 있으면 바꾸지 않고 알리기만) */
+export interface BatchStart { paths: string[]; task?: BatchTaskId; autoRun?: boolean; fallback?: boolean }
 export type DraftKind = "reply" | "complaint" | "minutes" | "onepage" | "press" | "memo";
 export interface AgentTask { text: string; label: string }
 export interface CreateStart {

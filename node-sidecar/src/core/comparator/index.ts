@@ -83,12 +83,17 @@ function joinGaps(segs: Seg[]): Seg[] {
   return out;
 }
 
-/** 바뀐 조각을 감싸되 앞뒤 공백은 밖으로 (마크다운 굵게가 공백으로 시작·끝나면 안 됨) */
-function markSegs(segs: Seg[], esc: (s: string) => string, open: string, close: string): string {
+/** 바뀐 조각을 감싸되 앞뒤 공백은 밖으로 (마크다운 굵게가 공백으로 시작·끝나면 안 됨). 줄바꿈을 넘는 조각은 줄마다 감싼다 —
+ *  표 칸 글은 <br> 로 갈려 문단이 되므로 "**새1<br>새2**" 의 별표가 짝을 잃고 글자로 찍혔다(이웃 두 줄의 끝·첫 어절이 함께 바뀐 경우) */
+export function markSegs(segs: Seg[], esc: (s: string) => string, open: string, close: string): string {
+  const wrap = (part: string) => {
+    if (!part.trim()) return esc(part);
+    const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(part)!;
+    return `${m[1]}${open}${esc(m[2])}${close}${m[3]}`;
+  };
   return segs.map((s) => {
     if (!s.changed || !s.text.trim()) return esc(s.text);
-    const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s.text)!;
-    return `${m[1]}${open}${esc(m[2])}${close}${m[3]}`;
+    return s.text.split(/(\r?\n)/).map((part) => (/^\r?\n$/.test(part) ? esc(part) : wrap(part))).join('');
   }).join('');
 }
 

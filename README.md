@@ -11,7 +11,7 @@
 
 | 받는 곳 | |
 | --- | --- |
-| 설치 파일(Windows·macOS) | [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
+| 설치 파일(Windows·macOS Apple Silicon. 인텔 맥은 아직 없음) | [GitHub 최신 릴리스](https://github.com/chrisryugj/kordoc-ai/releases/latest) |
 | 소스 | GitHub [chrisryugj/kordoc-ai](https://github.com/chrisryugj/kordoc-ai) |
 | 문서 엔진 | [kordoc](https://github.com/chrisryugj/kordoc) (같은 개발자, MIT) |
 

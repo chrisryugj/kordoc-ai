@@ -18,6 +18,8 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "../ui/Button";
 import { useDialogKeys } from "../ui/useDialogKeys";
+import { askQuit, useAsk } from "../ui/useAsk";
+import { onQuitGuard } from "../../lib/quit";
 import { b64ToBytes } from "../../lib/rhwp";
 import { RhwpPreview } from "../../lib/rhwp-preview";
 import { annotateLabels, annotateValues } from "../../lib/svg-annotate";
@@ -295,6 +297,9 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   const [unsaved, setUnsaved] = useState(false);
   const [askClose, setAskClose] = useState(false);
   const requestClose = useCallback(() => { if (unsaved) setAskClose(true); else onClose(); }, [unsaved, onClose]);
+  // 트레이 "완전 종료" 전에도 같은 것을 묻는다 (닫기만 묻고 끄기는 말없이 값을 버렸다)
+  const { ask, dialog } = useAsk();
+  useEffect(() => onQuitGuard(async () => !unsaved || askQuit(ask, "저장하지 않은 값", `${file.name}에 넣은 값을 아직 저장하지 않았습니다. 앱을 끄면 넣은 값은 사라집니다.`)), [unsaved, ask, file.name]);
 
   /** 채울 값만 추출 (빈 문자열 제외 — 코어가 빈 값 비우기를 지원하지 않음) */
   const fillValues = useMemo(() => {
@@ -648,6 +653,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
           </div>
         </div>
       )}
+      {dialog}
     </div>
   );
 }

@@ -20,7 +20,7 @@ import { patchDocument } from '../hwpx-tools/index.js';
 import { withVersionXml } from '../merge/hwpx-merge.js';
 import { exportPdf } from '../export/index.js';
 import { imageToPdf, redactPdf } from './pdf.js';
-import { pictureNotes, scanPictures } from './pictures.js';
+import { pictureNotes, scanPictures, type PictureScan } from './pictures.js';
 import { sealPreview } from './preview.js';
 import { missedAddressHits, redactMarkdown, redactText } from './rules.js';
 
@@ -115,18 +115,26 @@ function maskName(name: string, rules: readonly RedactRule[], maskChar: string):
   return out.join('');
 }
 
-/** 남길 원문 → 가린 모양. 같은 가린 모양을 남기지 않을 다른 원문도 가지면 되살리지 않는다(되살리면 그것까지 드러난다) */
-function keptForms(markdown: string, rules: readonly RedactRule[], maskChar: string, keep: (s: string) => boolean): Map<string, { orig: string; count: number }> {
-  const forms = new Map<string, { orig: string; count: number } | null>();
-  for (const h of redactMarkdown(markdown, { rules, maskChar }).hits) {
-    const orig = markdown.slice(h.index, h.index + h.length);
-    const cur = forms.get(h.masked);
-    if (!keep(orig)) { forms.set(h.masked, null); continue; }
-    if (cur === null) continue;
-    if (cur && cur.orig !== orig) forms.set(h.masked, null);
-    else forms.set(h.masked, { orig, count: (cur?.count ?? 0) + 1 });
-  }
-  return new Map([...forms].filter((e): e is [string, { orig: string; count: number }] => e[1] !== null));
+/** count: 되살리기 패치에 쓰는 출력(views[0])에서 센 수. shared: 남기지 않을 다른 원문도 같은 가린 모양을 가진다 */
+interface KeptForm { orig: string; count: number; shared: boolean }
+
+/** 남길 원문 → 가린 모양. views[0] 은 되살리기 패치에 쓰는 출력(keep), 나머지는 엔진(CLI)이 가릴 곳을 찾는 기본 출력:
+ *  테두리 없는 틀 표 속 명단처럼 기본 출력에서만 머리글 문맥이 보여 가려지는 이름이 있다. 남길 원문이 둘인 모양은 되살리지 않고,
+ *  남기지 않을 원문도 가진 모양(shared)은 통째로 되살리면 그것까지 드러나거나 남의 자리에 남길 글이 들어간다 */
+function keptForms(views: readonly string[], rules: readonly RedactRule[], maskChar: string, keep: (s: string) => boolean): Map<string, KeptForm> {
+  const forms = new Map<string, KeptForm | null>();
+  const shared = new Set<string>();
+  views.forEach((markdown, v) => {
+    for (const h of redactMarkdown(markdown, { rules, maskChar }).hits) {
+      const orig = markdown.slice(h.index, h.index + h.length);
+      const cur = forms.get(h.masked);
+      if (!keep(orig)) { shared.add(h.masked); continue; }
+      if (cur === null) continue;
+      if (cur && cur.orig !== orig) forms.set(h.masked, null);
+      else forms.set(h.masked, { orig, count: (cur?.count ?? 0) + (v === 0 ? 1 : 0), shared: false });
+    }
+  });
+  return new Map([...forms].flatMap(([m, f]): Array<[string, KeptForm]> => (f ? [[m, { ...f, shared: shared.has(m) }]] : [])));
 }
 
 /** 견본 목록에서 남길 것을 뺀다 (그 가린 모양은 남길 원문에서만 나온다 — keptForms 가 확인) */
@@ -158,23 +166,45 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
   const more: string[] = [];
   let leftover = 0;
   let pdfPath: string | undefined;
+  const blind = blindSpots(report.warnings);
+  let pics: PictureScan | null = null;
   try {
   if (p.keep?.length) {
-    // 되살리기 패치는 keep 출력으로 (틀 표 문서에서 기본 출력은 엔진이 거부). 원본·사본을 같은 출력으로 맞춘다
-    const orig = await parse(await readFile(p.path), { layoutTables: 'keep' });
-    const forms = orig.success ? keptForms(orig.markdown, rules, maskChar, keep) : new Map();
-    if (forms.size) {
-      listed = dropKept(listed, forms);
-      keptCount = [...forms.values()].reduce((a, f) => a + f.count, 0);
+    // 되살리기 패치는 keep 출력으로 (틀 표 문서에서 기본 출력은 엔진이 거부). 원본·사본을 같은 출력으로 맞춘다.
+    // 같은 가린 모양을 남의 글도 가졌는지는 엔진이 가릴 곳을 찾은 기본 출력에서도 본다
+    const buf = await readFile(p.path);
+    const orig = await parse(buf, { layoutTables: 'keep' });
+    const seen = orig.success ? await parse(buf) : null;
+    const forms = orig.success ? keptForms([orig.markdown, ...(seen?.success ? [seen.markdown] : [])], rules, maskChar, keep) : new Map<string, KeptForm>();
+    if (orig.success && forms.size) {
+      // 남의 글과 같은 모양으로 가려진 것은 찾은 곳에서 빼지 않는다 (빼면 그 사람 것까지 "찾지 못했습니다"로 나온다)
+      const own = new Map([...forms].filter(([, f]) => !f.shared));
+      listed = dropKept(listed, own);
+      keptCount = [...own.values()].reduce((a, f) => a + f.count, 0);
       // 가린 사본에서 남길 글을 되살린다 (본문·표 — 서식 그대로 패치)
       if (report.output && !report.output.toLowerCase().endsWith('.md')) {
         const masked = await parse(await readFile(report.output), { layoutTables: 'keep' });
         if (masked.success) {
+          const before = orig.markdown;
           let md = masked.markdown;
+          // 사본은 같은 길이로 가려 원본과 글자 자리가 맞는다 → 원본 그 자리가 남길 원문인 곳만 되살린다 (남의 "김●●" 자리에 남길 이름을 넣지 않게).
+          // 자리가 안 맞으면(가림 글자가 마크다운 기호라 \ 가 붙는 등) 남길 원문에서만 나오는 모양만 되살리고 나머지는 가린 채로 둔다
+          const aligned = md.length === before.length;
           // 가린 모양이 더 긴 가림의 앞부분과 같을 수 있다: 남길 이름 "김민"(김●)을 되살리다 다른 사람의 "김●●"까지 "김민●"로 바꾸면
           // 가린 글에 엉뚱한 글자가 들어간다 → 앞뒤가 가림 글자가 아닌 자리만 되살린다
           const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          for (const [form, f] of forms) md = md.replace(new RegExp(`(?<!${esc(maskChar)})${esc(form)}(?!${esc(maskChar)})`, 'g'), () => f.orig);
+          let restored = 0;
+          let left = 0;
+          for (const [form, f] of forms) {
+            if (!aligned && f.shared) { left += f.count; continue; }
+            md = md.replace(new RegExp(`(?<!${esc(maskChar)})${esc(form)}(?!${esc(maskChar)})`, 'g'), (m: string, at: number) => {
+              if (aligned && !before.startsWith(f.orig, at)) return m;
+              restored++;
+              return f.orig;
+            });
+          }
+          keptCount = restored;
+          if (left) more.push(`남길 것 ${left}곳은 다른 글과 같은 모양으로 가려져 가린 채로 두었습니다. 가린 사본에서 직접 고치세요.`);
           if (md !== masked.markdown) await patchInPlace(report.output, md, format);
         }
       }
@@ -215,12 +245,6 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
     const fixed = await withVersionXml(bytes);
     if (fixed !== bytes) await writeFile(report.output, fixed);
   }
-  } catch (err) {
-    // 사본을 만든 뒤의 손질(남길 글 되살리기·주소 마저 가리기)이 실패하면 반쯤 가린 사본이나, 원본을 복사만 한 사본이
-    // "가림" 이름으로 폴더에 남는다 → 그 파일을 지우고 실패를 알린다 (가리지 않은 파일을 가린 것으로 알고 내보내지 않게)
-    if (report.output && !p.dry_run) await rm(report.output, { force: true }).catch(() => undefined);
-    throw err;
-  }
   if (report.output && p.also_pdf && !report.output.toLowerCase().endsWith('.md')) {
     // PDF 를 못 만들어도 가린 한글 사본은 온전하다 → 그것까지 버리지 않고 알리기만 한다
     try {
@@ -230,9 +254,18 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
       more.push(`PDF로는 저장하지 못했습니다: ${errorText(err)}`);
     }
   }
-  const blind = blindSpots(report.warnings);
   // 엔진이 삽입 그림이 있다고 알리면 그림 속 글자를 읽어 본다 (엔진은 화소를 보지 않는다). 걸리는 글이 없으면 조용히
-  const pics = blind.pictures ? await scanPictures(p.path, rules, keep, signal) : null;
+  pics = blind.pictures ? await scanPictures(p.path, rules, keep, signal) : null;
+  // 그림을 읽는 도중의 멈춤은 엔진이 오류 없이 삼키기도 한다 → 멈췄으면 그림을 다 보지 않은 결과를 내지 않는다
+  signal?.throwIfAborted();
+  } catch (err) {
+    // 사본을 만든 뒤의 손질(남길 글 되살리기·주소 마저 가리기)이 실패하거나, PDF 저장·그림 속 글자 읽기 도중에 멈추면 반쯤 가린 사본,
+    // 원본을 복사만 한 사본, 그림을 보지 않은 사본이 "가림" 이름으로 폴더에 남는다 → 그 파일(과 PDF)을 지우고 실패를 알린다
+    // (가리지 않은 파일을 가린 것으로 알고 내보내지 않게)
+    if (report.output && !p.dry_run) await rm(report.output, { force: true }).catch(() => undefined);
+    if (pdfPath) await rm(pdfPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
   const picNotes = pics ? pictureNotes(pics) : [];
   const notes = [...picNotes, ...blind.notes, ...more];
   const unseen = report.unscanned.length + blind.count + (pics?.unread ?? 0);

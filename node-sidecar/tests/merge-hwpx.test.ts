@@ -7,7 +7,10 @@ import { join, resolve } from 'node:path';
 import JSZip from 'jszip';
 import { parse, validateHwpx } from 'kordoc';
 import { mergeFiles } from '../src/core/merge/index.js';
+import { mergeHwpx, readManifest, sectionHrefs } from '../src/core/merge/hwpx-merge.js';
+import { splitHwpx } from '../src/core/merge/hwpx-split.js';
 import { openRhwp } from '../src/core/render/rhwp.js';
+import { decorate, hpfOf } from './hwpx-parts.js';
 
 const SAMPLES = resolve(__dirname, '..', 'samples');
 const received = join(SAMPLES, '1-받은공문_도민체육대회 참가 협조 요청.hwpx');
@@ -35,6 +38,18 @@ async function check(out: string, texts: string[]) {
   doc.free?.();
   return { bytes, pages };
 }
+
+/** rhwp 가 그린 쪽 SVG 들 */
+async function pageSvgs(bytes: Uint8Array): Promise<string[]> {
+  const doc = (await openRhwp(bytes)) as unknown as { pageCount(): number; renderPageSvg(i: number): string; free?(): void };
+  try {
+    return Array.from({ length: doc.pageCount() }, (_, i) => doc.renderPageSvg(i));
+  } finally {
+    doc.free?.();
+  }
+}
+/** SVG 의 글만 (태그·공백 뺌. rhwp 는 글자를 따로따로 놓기도 한다) */
+const plain = (svg: string) => svg.replace(/<[^>]*>/g, '').replace(/\s/g, '');
 
 describe('HWPX 서식 유지 수합 (순수 XML)', () => {
   it('예제 3개 → 한 파일, 세 문서 글이 다 있고 구조 검증·rhwp 열기 통과', async () => {
@@ -91,6 +106,96 @@ describe('HWPX 서식 유지 수합 (순수 XML)', () => {
     expect(new Set(ids).size).toBe(3);
     expect(ids).toHaveLength(3);
   });
+
+  it('뒤 문서의 바탕쪽·차트도 옮긴다: 문서마다 masterpage0·chart1 이어도 쪽마다 제 문서의 바탕쪽·차트가 보인다', async () => {
+    const decorated = async (mark: string) => {
+      const zip = await JSZip.loadAsync(readFileSync(received));
+      await decorate(zip, 'Contents/section0.xml', { master: 0, chart: 1, image: 'image1', mark });
+      return zip.generateAsync({ type: 'uint8array' });
+    };
+    const marks = ['A', 'B', 'C', 'D'];
+    const [a, b, c, d] = await Promise.all(marks.map(decorated));
+    // 합친 문서에 또 합쳐도 (바탕에 masterpage0~2·chart1~3 이 이미 있다)
+    const out = join(dir, 'parts.hwpx');
+    writeFileSync(out, (await mergeHwpx([(await mergeHwpx([a, b, c])).bytes, d])).bytes);
+    const { bytes } = await check(out, ['한마음 체육대회']);
+    const zip = await JSZip.loadAsync(bytes);
+    const m = readManifest(await zip.file(hpfOf(zip))!.async('string'));
+    expect(new Set(m.items.map((i) => i.id)).size).toBe(m.items.length);
+    const hrefs = sectionHrefs(m);
+    expect(hrefs).toHaveLength(4);
+    for (const [i, href] of hrefs.entries()) {
+      const sec = await zip.file(href)!.async('string');
+      // 바탕쪽: manifest 로 찾는 부품(rhwp·한글)과 뿌리 id 로 찾는 부품(kordoc)이 같은 그 문서 것
+      const idRef = /<hp:masterPage idRef="([^"]*)"/.exec(sec)![1];
+      const master = await zip.file(m.items.find((it) => it.id === idRef)!.href)!.async('string');
+      expect(master).toContain(`바탕쪽 ${marks[i]}`);
+      expect(/<masterPage\b[^>]*\sid="([^"]*)"/.exec(master)![1]).toBe(idRef);
+      // 바탕쪽 안의 글자 모양·그림 참조도 그 문서의 새 ID 로 (본문 첫 글자 모양과 같은 ID 를 썼다)
+      expect(/charPrIDRef="(\d+)"/.exec(master)![1]).toBe(/charPrIDRef="(\d+)"/.exec(sec)![1]);
+      const bin = /binaryItemIDRef="([^"]*)"/.exec(master)![1];
+      expect(await zip.file(m.items.find((it) => it.id === bin)!.href)!.async('string')).toBe(`picture-${marks[i]}`);
+      const chart = /chartIDRef="([^"]*)"/.exec(sec)![1];
+      expect(await zip.file(chart)!.async('string')).toContain(`${marks[i]} 예산`);
+    }
+    // 실제로 그린 쪽: 쪽마다 그 문서의 바탕쪽 글과 차트
+    const pages = await pageSvgs(bytes);
+    expect(pages).toHaveLength(4);
+    for (const [i, svg] of pages.entries()) {
+      expect(plain(svg)).toContain(`바탕쪽${marks[i]}`);
+      for (const mark of marks) expect(svg.includes(`${mark} 예산`), `${i + 1}쪽 차트 ${mark}`).toBe(mark === marks[i]);
+    }
+  }, 60_000);
+
+  it('메모 답글 관계(memoExtended)도 뒤 문서 것을 이어 붙인다', async () => {
+    const withMemoEx = async (memos: string) => {
+      const zip = await JSZip.loadAsync(readFileSync(received));
+      zip.file('Contents/memoExtended.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><he:memosEx xmlns:he="http://www.hancom.co.kr/hwpml/2021/extended">${memos}</he:memosEx>`);
+      const hpf = hpfOf(zip);
+      zip.file(hpf, (await zip.file(hpf)!.async('string')).replace('</opf:manifest>', '<opf:item id="memoextended" href="Contents/memoExtended.xml" media-type="application/xml"/></opf:manifest>'));
+      return zip.generateAsync({ type: 'uint8array' });
+    };
+    const plainDoc = new Uint8Array(readFileSync(received));
+    const a = await withMemoEx('<he:memo id="1001" parentId="1000"/>');
+    const b = await withMemoEx('<he:memo id="2001" parentId="2000"/><he:memo id="2002" parentId="2000"/>');
+    for (const [inputs, want] of [[[a, b], ['1001', '2001', '2002']], [[plainDoc, b], ['2001', '2002']]] as const) {
+      const r = await mergeHwpx([...inputs]);
+      expect((await validateHwpx(r.bytes)).ok).toBe(true);
+      const zip = await JSZip.loadAsync(r.bytes);
+      const ex = await zip.file('Contents/memoExtended.xml')!.async('string');
+      expect([...ex.matchAll(/<he:memo id="(\d+)"/g)].map((x) => x[1])).toEqual(want);
+      expect((await zip.file(hpfOf(zip))!.async('string')).match(/href="Contents\/memoExtended\.xml"/g)).toHaveLength(1);
+    }
+  });
+
+  it('나눈 조각을 차례를 바꿔 다시 합쳐도 구역마다 한 번씩 들어간다 (옛 판 조각은 Contents/section0.xml 의 id 가 원래 구역 번호)', async () => {
+    const merged = await mergeHwpx([received, pii, report].map((p) => new Uint8Array(readFileSync(p))));
+    const parts = (await splitHwpx(merged.bytes, 'section')).parts;
+    // 옛 판 조각: 남긴 구역 항목의 id 를 그대로 두었다 (두 번째 조각 = id="section1" href="Contents/section0.xml")
+    const old = await Promise.all(parts.map(async (bytes, i) => {
+      const zip = await JSZip.loadAsync(bytes);
+      const hpf = hpfOf(zip);
+      zip.file(hpf, (await zip.file(hpf)!.async('string')).replace(/\bid="section0"/, `id="section${i}"`).replace(/\bidref="section0"/, `idref="section${i}"`));
+      return zip.generateAsync({ type: 'uint8array' });
+    }));
+    const out = join(dir, 'remerged.hwpx');
+    const r = await mergeHwpx([old[1], old[0], old[2]]);
+    expect(r.sections).toBe(3);
+    writeFileSync(out, r.bytes);
+    const { bytes } = await check(out, ['정보공개 청구서', '한마음 체육대회', '디지털 행정 혁신']);
+    const zip = await JSZip.loadAsync(bytes);
+    const m = readManifest(await zip.file(hpfOf(zip))!.async('string'));
+    expect(new Set(m.items.map((i) => i.id)).size).toBe(m.items.length);
+    const hrefs = sectionHrefs(m);
+    expect(new Set(hrefs).size).toBe(3);
+    const md = await parse(bytes);
+    const at = (t: string) => (md.success ? md.markdown.indexOf(t) : -1);
+    expect(at('정보공개 청구서')).toBeLessThan(at('한마음 체육대회'));
+    expect(at('한마음 체육대회')).toBeLessThan(at('디지털 행정 혁신'));
+    // 구역 파일 번호가 비어도(section0·2·3) rhwp 가 세 조각을 다 그린다
+    const drawn = (await pageSvgs(bytes)).map(plain).join('');
+    for (const t of ['정보공개청구서', '한마음체육대회', '디지털행정혁신']) expect(drawn, t).toContain(t);
+  }, 60_000);
 
   it('암호 걸린 HWPX 가 섞이면 그 파일만 빼고 합치고, 까닭을 한국어로 알린다', async () => {
     const zip = await JSZip.loadAsync(readFileSync(pii));

@@ -58,8 +58,8 @@ pub fn run() {
     tauri::Builder::default()
         // 두 번째 실행(우클릭 메뉴·파일 더블클릭) → 첫 인스턴스로 인자 전달.
         // features=["deep-link"] 라 kordoc:// 인자는 deep-link 플러그인 on_open_url 로 간다.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if let Some((action, paths)) = shell::parse_args(&args) {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            if let Some((action, paths)) = shell::parse_args(&args, std::path::Path::new(&cwd)) {
                 app.state::<ShellCollector>().push(app, &action, paths);
             } else if !args.iter().any(|a| a.starts_with("kordoc:")) {
                 // kordoc:// 주소는 deep-link 플러그인이 따로 넘긴다 (빠른 동작이면 창을 띄우지 않게 여기서 열지 않는다)
@@ -119,7 +119,7 @@ pub fn run() {
             // 첫 실행 인자 (우클릭 메뉴 `--shell <동작> <파일>` · 파일을 앱으로 열기).
             // 빠른 동작(창 없이 돌고 알림만)으로 켜졌으면 창을 띄우지 않는다
             let args: Vec<String> = std::env::args().collect();
-            let first = shell::parse_args(&args);
+            let first = shell::parse_args(&args, &std::env::current_dir().unwrap_or_default());
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             let first_urls: Vec<String> = app.deep_link().get_current().ok().flatten().unwrap_or_default().iter().map(|u| u.to_string()).collect();
             #[cfg(not(any(target_os = "linux", target_os = "windows")))]

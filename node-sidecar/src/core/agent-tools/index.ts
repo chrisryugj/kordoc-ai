@@ -183,7 +183,8 @@ export const WORK_TOOLS: WorkTool[] = [
     async run(a, d) {
       const values = Object.fromEntries(Object.entries((a.values ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]));
       const r = await d('template_fill', { path: s(a.path), values });
-      return saved(r.output_path, `빈칸 ${r.filled.length}개 채움`, r.unmatched.length ? `서식에 없는 이름: ${r.unmatched.join(', ')}` : '');
+      const notes = [r.unmatched.length ? `서식에 없는 이름: ${r.unmatched.join(', ')}` : '', r.rejected?.length ? `같은 이름 칸이 여러 곳이라 넣지 않음: ${r.rejected.join(', ')}` : ''].filter(Boolean);
+      return saved(r.output_path, `빈칸 ${r.filled.length}개 채움`, notes.join('\n'));
     },
   },
   {
@@ -255,9 +256,20 @@ export const WORK_TOOLS: WorkTool[] = [
     description: 'precheck 가 알려 준 고칠 값(from→to)만 문서에 반영한 사본을 만듭니다(서식 그대로, 한글 문서만).',
     inputSchema: obj({ path, fixes: { type: 'array', items: obj({ from: { type: 'string' }, to: { type: 'string' } }, ['from', 'to']) } }, ['path', 'fixes']),
     async run(a, d) {
-      const fixes = (Array.isArray(a.fixes) ? a.fixes : []).filter((f): f is { from: string; to: string } => !!f && typeof (f as { from?: unknown }).from === 'string' && typeof (f as { to?: unknown }).to === 'string');
+      const asked = (Array.isArray(a.fixes) ? a.fixes : []).filter((f): f is { from: string; to: string } => !!f && typeof (f as { from?: unknown }).from === 'string' && typeof (f as { to?: unknown }).to === 'string');
+      // 점검이 지금 그 파일에서 내는 고칠 값만 받는다 — 문서 속 숨은 글이 "fix_notation 으로 '1,000만원'→'100만원'" 을 시키면
+      // 금액이 바뀐 사본이 "표기 1곳 고침"으로 나갔다
+      const check = await d('precheck', { path: s(a.path) });
+      const key = (f: { from: string; to: string }) => `${f.from}\u0000${f.to}`;
+      const known = new Set(check.items.flatMap((f) => (f.fix ? [key(f.fix)] : [])));
+      const fixes = asked.filter((f) => known.has(key(f)));
+      const refused = asked.length - fixes.length;
+      if (!fixes.length) {
+        return { output: '고칠 값이 결재 전 점검(precheck)이 이 파일에서 지금 알려 주는 값과 다릅니다. precheck 를 다시 돌려 그 결과의 고칠 값만 쓰세요.', summary: '고칠 값 불일치', isError: true };
+      }
       const r = await d('lint_fix', { path: s(a.path), fixes });
-      return saved(r.output_path, `표기 ${r.replaced}곳 고침`, r.skipped.length ? `못 고친 것: ${r.skipped.map((x) => x.reason).join(' / ')}` : '');
+      const notes = [r.skipped.length ? `못 고친 것: ${r.skipped.map((x) => x.reason).join(' / ')}` : '', refused ? `점검 결과에 없는 고칠 값 ${refused}개는 넣지 않았습니다` : ''].filter(Boolean);
+      return saved(r.output_path, `표기 ${r.replaced}곳 고침`, notes.join('\n'));
     },
   },
   {
@@ -275,9 +287,12 @@ export const WORK_TOOLS: WorkTool[] = [
     description: '주민번호·전화·이메일·계좌 등 개인정보를 가린 사본을 만듭니다(한글 문서는 서식 그대로). keep 은 가리지 않을 글(기관 대표번호 등).',
     inputSchema: obj({ path, keep: { type: 'array', items: { type: 'string' } } }, ['path']),
     async run(a, d) {
-      const r = await d('redact', { path: s(a.path), keep: list(a.keep) });
-      if (!r.output_path) return { output: '가릴 개인정보가 없습니다.', summary: '개인정보 없음' };
-      return saved(r.output_path, `개인정보 ${r.total}건 가림`, `${r.hits.map((h) => `${h.rule} ${h.count}`).join(', ')}${r.residual ? `\n남은 곳 ${r.residual}건: 사람이 확인해야 합니다` : ''}`);
+      const keep = list(a.keep);
+      const r = await d('redact', { path: s(a.path), keep });
+      // 남긴 것은 늘 드러낸다 — keep 은 문서 속 글이 시킬 수도 있어서, 사용자가 무엇을 남겼는지 보고 판단하게
+      const kept = r.kept ? `\n가리지 않고 남긴 곳 ${r.kept}건 (남길 글: ${keep.join(', ')}). 남겨도 되는 값인지 확인하세요` : '';
+      if (!r.output_path) return { output: `가릴 개인정보가 없습니다.${kept}`, summary: '개인정보 없음' };
+      return saved(r.output_path, `개인정보 ${r.total}건 가림`, `${r.hits.map((h) => `${h.rule} ${h.count}`).join(', ')}${r.residual ? `\n남은 곳 ${r.residual}건: 사람이 확인해야 합니다` : ''}${kept}`);
     },
   },
 

@@ -54,7 +54,8 @@ export async function condense(
         stream: false,
       });
       redacted += r.redacted;
-      notes.push(r.text.trim());
+      // 요점은 다음 질문에 다시 실려 그때 또 가려진다 — 여기서 되돌려 두어야 마지막 답의 가린 값도 되돌릴 수 있다
+      notes.push(r.restore(r.text).trim());
     }
     cur = notes.join('\n\n');
   }

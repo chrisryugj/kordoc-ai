@@ -67,6 +67,17 @@ describe('파일 오류·이름·글자 코드', () => {
     expect(safeFileName('console 보고')).toBe('console 보고');
   });
 
+  it('긴 한글 이름에 뒷말을 붙여도 파일 이름 한도(255바이트) 안에 들고 뒷말·확장자는 남는다', async () => {
+    const { fitFileName } = await import('../src/core/output/index.js');
+    const fitted = fitFileName(`${'가'.repeat(84)}_용량줄임.pdf`);
+    expect(Buffer.byteLength(fitted)).toBeLessThanOrEqual(240);
+    expect(fitted).toMatch(/…가*_용량줄임\.pdf$/);
+    expect(fitFileName('짧은 이름_가림.hwpx')).toBe('짧은 이름_가림.hwpx');
+    // 이름이 너무 길어 저장이 막히면 무엇을 하면 되는지 한국어로
+    const { toUserError } = await import('../src/core/errors.js');
+    expect(text(toUserError(Object.assign(new Error('ENAMETOOLONG: name too long'), { code: 'ENAMETOOLONG', syscall: 'open', path: '/x/a.pdf' })))).toMatch(/너무 깁니다/);
+  });
+
   it('UTF-16(엑셀 유니코드 텍스트) 글을 깨지지 않게 읽는다', async () => {
     const { decodeText } = await import('../src/core/converter/index.js');
     const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('성명\t부서\n김가온\t총무과', 'utf16le')]);

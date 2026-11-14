@@ -69,7 +69,8 @@ async function drfGet(path: 'lawSearch.do' | 'lawService.do', params: Record<str
   const timeout = AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_MS);
   let body: string;
   try {
-    const res = await fetch(url, { signal: o.signal ? AbortSignal.any([o.signal, timeout]) : timeout });
+    // 넘겨주기는 따르지 않는다 — 따라가면 관문(assertAllowed)·통신 기록을 거치지 않은 곳으로 간다(법제처 점검 때는 모든 주소가 안내 쪽으로 넘어간다)
+    const res = await fetch(url, { signal: o.signal ? AbortSignal.any([o.signal, timeout]) : timeout, redirect: 'manual' });
     body = await res.text();
     if (!res.ok) throw new LawNetError(`HTTP ${res.status}`);
   } catch (err) {

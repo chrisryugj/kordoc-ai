@@ -26,6 +26,13 @@ export async function openPdf(bytes: Uint8Array, password?: string): Promise<PDF
   }
 }
 
+/** 그리지 않고 크기·글만 읽은 쪽을 닫는다 — @hyzyla/pdfium 은 그린 뒤에만 쪽을 닫고 문서를 닫을 때도 쪽은 닫지 않아, 쪽마다 불러 크기만 보면
+ *  엔진 전체가 쓰는 PDFium WASM 힙에 쌓였다(300쪽 도면 용량 줄이기 몇 번 뒤 "Failed to allocate memory for bitmap"). 그린 쪽에는 부르지 말 것(두 번 닫힘) */
+export function closePdfPage(page: PDFiumPage): void {
+  const { module: m, pageIdx } = page as unknown as { module: { _FPDF_ClosePage(p: number): void }; pageIdx: number };
+  m._FPDF_ClosePage(pageIdx);
+}
+
 /** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배, maxScale 을 주면 그만큼). width·height 는 pt 원본 크기.
  *  loaded: 크기를 보려고 앞서 불러 둔 쪽. @hyzyla/pdfium 은 그린 뒤 쪽을 닫으므로 한 쪽 객체는 한 번만 그린다 (두 번째는 WASM 오류) */
 export async function rasterPdfPage(

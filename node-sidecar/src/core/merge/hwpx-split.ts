@@ -4,7 +4,7 @@
  * 자르는 곳 (mode): section = 구역(section*.xml) 경계, pagebreak = 구역 경계 + 본문 맨 위 문단의 강제 쪽 나눔(pageBreak="1", Ctrl+Enter).
  * auto(기본) = 구역이 여럿이면 구역마다(합친 문서 되돌리기), 하나면 강제 쪽 나눔마다(표지·목차·본문).
  * 줄 배치로 정해지는 "쪽마다"는 한글 문서에서 정확히 알 수 없어 자르지 않는다.
- * 조각마다: 머리(글꼴·글자·문단 모양·스타일)와 그림은 그대로 두고, 본문은 그 조각의 문단만.
+ * 조각마다: 머리(글꼴·글자·문단 모양·스타일)는 그대로 두고, 본문은 그 조각의 문단만, 그림·바탕쪽·차트는 그 조각이 쓰는 것만.
  * 구역 중간에서 잘린 조각은 그 구역 첫 문단의 쪽 설정(secPr·단 설정)을 맨 앞에 붙여 용지·여백이 같다.
  * 줄 배치 정보(linesegarray)는 빼서 한글이 열 때 다시 배치한다.
  */
@@ -108,16 +108,34 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
     dropLineseg(root);
     titles.push(piece.paras.map(textOf).find(Boolean)?.slice(0, 40) ?? '');
 
-    // 구역 하나만 남긴다: 이 조각의 구역을 section0 으로
+    // 구역 하나만 남긴다: 이 조각의 구역을 section0 으로 (항목 id 도. 원래 id 를 두면 조각을 차례를 바꿔 다시 합칠 때 같은 id 가 둘이 된다)
     for (const href of hrefs) zip.remove(href);
     zip.file('Contents/section0.xml', new XMLSerializer().serializeToString(doc));
     let hpf = await zip.file(hpfPath)!.async('string');
     const keepItem = manifest.items.find((i) => i.href === piece.href);
     for (const it of manifest.items.filter((i) => hrefs.includes(i.href))) {
       const re = new RegExp(`<opf:item\\s${it.attrs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/>`);
-      hpf = hpf.replace(re, it === keepItem ? `<opf:item ${it.attrs.replace(/\bhref="[^"]*"/, 'href="Contents/section0.xml"')}/>` : '');
+      hpf = hpf.replace(re, it === keepItem ? `<opf:item ${it.attrs.replace(/\bid="[^"]*"/, 'id="section0"').replace(/\bhref="[^"]*"/, 'href="Contents/section0.xml"')}/>` : '');
     }
-    hpf = hpf.replace(/<opf:itemref\s[^>]*idref="([^"]*)"[^>]*\/>/g, (m, id) => (manifest.items.some((i) => i.id === id && hrefs.includes(i.href)) && id !== keepItem?.id ? '' : m));
+    hpf = hpf.replace(/<opf:itemref\s[^>]*idref="([^"]*)"[^>]*\/>/g, (m, id) => {
+      if (!manifest.items.some((i) => i.id === id && hrefs.includes(i.href))) return m;
+      return id === keepItem?.id ? m.replace(/\bidref="[^"]*"/, 'idref="section0"') : '';
+    });
+
+    // 바탕쪽·차트도 이 조각 구역이 가리키는 것만 남긴다. 조각마다 원본 묶음 전체에서 시작해서, 두면 조각 하나만 보내도 다른 조각(다른 부서)의
+    // 바탕쪽 글·차트 숫자가 딸려 간다. 바탕쪽을 먼저 빼야 그 바탕쪽만 쓰던 차트·그림도 뒤에서 빠진다
+    const drop = (name: string) => {
+      zip.remove(name);
+      const it = manifest.items.find((i) => i.href === name);
+      if (it) hpf = hpf.replace(new RegExp(`<opf:item\\s${it.attrs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/>`), '');
+    };
+    const masters = new Set([...(doc.getElementsByTagName('hp:masterPage') as unknown as El[])].map((m) => m.getAttribute('idRef')));
+    for (const name of Object.keys(zip.files).filter((n) => /^Contents\/masterpage[^/]*\.xml$/i.test(n))) {
+      if (!masters.has(manifest.items.find((i) => i.href === name)?.id ?? name.replace(/^.*\/|\.xml$/gi, ''))) drop(name);
+    }
+    const xmls = await Promise.all(Object.keys(zip.files).filter((n) => /\.xml$/i.test(n) && !/^Chart\//i.test(n)).map((n) => zip.file(n)!.async('string')));
+    const charts = new Set(xmls.flatMap((t) => [...t.matchAll(/\bchartIDRef="([^"]*)"/g)].map((m) => m[1])));
+    for (const name of Object.keys(zip.files).filter((n) => /^Chart\/[^/]+$/i.test(n) && !charts.has(n))) drop(name);
 
     // 그림: 이 조각(과 머리·바탕쪽)이 쓰지 않는 것은 뺀다. 두면 조각 하나만 보내도 다른 조각의 그림이 모두 딸려 가고,
     // 조각 수만큼 용량이 불어난다

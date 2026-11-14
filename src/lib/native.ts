@@ -4,6 +4,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { invokeCmd, isTauri, loadMock } from "./rpc";
+import { isExternalHref } from "./links";
 
 export const DOC_EXTENSIONS = [
   "hwp", "hwpx", "hml", "pdf", "xls", "xlsx", "docx", "pptx",
@@ -142,7 +143,7 @@ export function b64ToBuffer(b64: string): ArrayBuffer {
 
 /** 문서·AI 답 속 링크는 앱 창을 넘기지 않고 기본 브라우저로 (http·https·mailto 만) */
 export async function openExternal(href: string | undefined) {
-  if (!href || !/^(https?:|mailto:)/i.test(href)) return;
+  if (!isExternalHref(href)) return;
   if (!isTauri) { window.open(href, "_blank", "noopener"); return; }
   const { open: openUrl } = await import("@tauri-apps/plugin-shell");
   await openUrl(href).catch(() => {});

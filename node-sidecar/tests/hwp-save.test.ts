@@ -164,6 +164,23 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     await expect(editorWrite({ path, data_b64: Buffer.from('PK..').toString('base64'), token: o.token, overwrite: true })).rejects.toThrow(/HWP 형식이 아닌/);
     await expect(editorWrite({ path, data_b64: Buffer.from(blankHwp('x')).toString('base64'), token: 'gone', overwrite: true })).rejects.toThrow(EDITOR_REOPEN_NEEDED);
   });
+
+  it('다시 열어 저장할 때: 편집기가 쓴 판 그대로면 백업을 더 만들지 않고, 그 사이 바깥에서 고쳤으면 날짜 붙은 백업을 남긴다', async () => {
+    const path = join(dir, '보고.hwp');
+    writeFileSync(path, blankHwp('원래'));
+    const o1 = await editorOpen(path);
+    expect((await editorWrite({ path, data_b64: Buffer.from(blankHwp('편집기 1')).toString('base64'), token: o1.token, overwrite: true })).backup_path).toBe(`${path}.bak`);
+    // 다음 실행에서 다시 열어 저장 — 디스크는 편집기가 쓴 판 그대로
+    const o2 = await editorOpen(path);
+    expect((await editorWrite({ path, data_b64: Buffer.from(blankHwp('편집기 2')).toString('base64'), token: o2.token, overwrite: true })).backup_path).toBeUndefined();
+    // 그 뒤 한글에서 고쳐 저장(바깥 변경) → 다시 열어 저장하면 그 판을 날짜 백업으로
+    writeFileSync(path, blankHwp('한글에서 한 달 고친 판'));
+    const o3 = await editorOpen(path);
+    const w3 = await editorWrite({ path, data_b64: Buffer.from(blankHwp('편집기 3')).toString('base64'), token: o3.token, overwrite: true });
+    expect(w3.backup_path).toMatch(/보고\.hwp\.\d{8}-\d{6}\.bak$/);
+    expect(readFileSync(w3.backup_path!)).toEqual(Buffer.from(blankHwp('한글에서 한 달 고친 판')));
+    expect(readFileSync(`${path}.bak`)).toEqual(Buffer.from(blankHwp('원래')));
+  });
 });
 
 // 코퍼스(kordoc bench, rhwp 저장소 샘플)가 있는 PC 에서만: 한컴 문서를 편집기처럼 고쳐 저장하면 손실이 메워진다

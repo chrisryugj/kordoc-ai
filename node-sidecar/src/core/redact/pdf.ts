@@ -209,16 +209,16 @@ function flatten(blocks: IRBlock[]): IRBlock[] {
   return blocks.flatMap((b) => [b, ...(b.children ? flatten(b.children) : [])]);
 }
 
-/** 스캔 쪽 OCR — 쪽 번호별 블록 (kordoc 내장 OCR, bbox 는 PDF pt·아래가 0) */
+/** 스캔 쪽 OCR — 쪽 번호별 블록 (kordoc 내장 OCR, bbox 는 PDF pt·아래가 0). 글자 읽기가 실제로 읽은 쪽만 담는다:
+ *  모델이 없으면(폐쇄망) 엔진은 실패로 돌려주지 않고 경고만 붙여 글자층 결과를 돌려준다 → 읽은 쪽은 ocrLines 로 가린다 */
 async function ocrBlocks(bytes: Uint8Array, pages: number[], signal?: AbortSignal): Promise<Map<number, IRBlock[]> | null> {
   if (!pages.length) return new Map();
   signal?.throwIfAborted();
-  const r = await read(bytes, { ocr: 'force', pages: pages.join(','), images: false }, signal);
+  const r = await read(bytes, { ocr: 'force', pages: pages.join(','), images: false, ocrLines: true }, signal);
   if (!r?.success) return null;
-  const by = new Map<number, IRBlock[]>();
+  const by = new Map<number, IRBlock[]>((r.ocrLines ?? []).map((l) => [l.pageNumber, []]));
   for (const b of flatten(r.blocks)) {
-    if (!b.bbox || !b.pageNumber) continue;
-    by.set(b.pageNumber, [...(by.get(b.pageNumber) ?? []), b]);
+    if (b.bbox && b.pageNumber) by.get(b.pageNumber)?.push(b);
   }
   return by;
 }
@@ -291,6 +291,10 @@ export async function redactPdf(
       }
     }
   }
+  // kordoc 이 글자층을 믿을 수 없다고 본 쪽: 글꼴 글자 대응표가 없어 깨진 글(사설 영역·제어 문자·대체 문자·한글 자소 분포 이상)이나
+  // 글자를 곡선으로 그린 쪽. 글자층에서는 아무것도 안 걸리는데 쪽 그림에는 그대로 보인다 → 그림 붙은 쪽처럼 글자를 읽어 찾는다.
+  // 글이 아주 적은 쪽(low_text)은 kordoc 도 그림이 없으면 읽지 않는다 (스캔 쪽·큰 그림은 아래에서 따로 잡는다)
+  const flagged = new Set((whole?.success ? whole.pageQuality ?? [] : []).filter((q) => q.needsOcr && q.ocrReason !== 'low_text').map((q) => q.page));
   const doc: PDFiumDocument = await openPdf(bytes);
   const hits: PdfHit[] = [];
   const notes: string[] = [];
@@ -301,7 +305,7 @@ export async function redactPdf(
     const count = doc.getPageCount();
     const pageBoxes: Box[][] = [];
     const scanned: number[] = [];
-    /** 글자층도 있고 큰 그림·주석도 있는 쪽 → 글자층 글(띄어쓰기 뺌). 그림 속 글자는 따로 읽는다 */
+    /** 글자층도 있고 큰 그림·주석도 있는 쪽, 글자층을 믿을 수 없는 쪽(flagged) → 글자층 글(띄어쓰기 뺌). 쪽 그림의 글자는 따로 읽는다 */
     const mixed = new Map<number, string>();
     /** 글이 찍히는 주석(양식 칸·글상자·도장)이 있는 쪽 — 그 글은 쪽 그림을 만든 뒤 다시 읽을 때에야 보인다 */
     const annotated: number[] = [];
@@ -314,7 +318,7 @@ export async function redactPdf(
         if (text.replace(/\s/g, '').length < 5) { scanned.push(i + 1); pageBoxes.push([]); continue; }
         const { originalWidth, originalHeight } = page.getOriginalSize();
         const outside = textOutsideLayer(page, originalWidth * originalHeight);
-        if (outside) mixed.set(i + 1, squeeze(text));
+        if (outside || flagged.has(i + 1)) mixed.set(i + 1, squeeze(text));
         if (outside === 'annot') annotated.push(i + 1);
         const found = pageHits(text, rules, known, keep, located);
         const boxes: Box[] = [];
@@ -343,8 +347,8 @@ export async function redactPdf(
       for (const pn of toRead) {
         const blocks = ocr?.get(pn);
         const layer = mixed.get(pn);
-        // OCR 자체가 안 되면(모델 없음) 그림 속 글자를 본 것이 아니다. 되는데 글이 없으면 그림에 글이 없는 것
-        if (layer !== undefined ? !ocr : !blocks?.length) { (layer !== undefined ? blind : unscanned).push(pn); continue; }
+        // 글자 읽기가 그 쪽을 못 읽었으면(모델 없음·그 쪽만 실패) 그림 속 글자를 본 것이 아니다. 읽었는데 글이 없으면 그림에 글이 없는 것
+        if (layer !== undefined ? !blocks : !blocks?.length) { (layer !== undefined ? blind : unscanned).push(pn); continue; }
         ocrPages.add(pn);
         if (!blocks?.length) continue;
         // 글자층에서 이미 정확한 자리로 가린 글은 건너뛴다 (어림 상자로 넓게 덧칠하지 않게). 그림에만 있는 글이 여기서 걸린다.
@@ -366,7 +370,10 @@ export async function redactPdf(
     // 문서 전체 글에서는 걸렸는데 어느 쪽에서도 자리를 못 찾은 곳 — 가리지 못했으니 숨기지 않는다
     const lost = [...known.keys()].filter((orig) => !located.has(orig) && !keep(orig)).length;
     if (lost) notes.push(`문서 글에서 찾은 ${lost}곳은 쪽에서 자리를 찾지 못해 가리지 못했습니다. 눈으로 확인하세요.`);
-    if (blind.length) notes.push(`그림이나 주석이 있는 ${blind.join(', ')}쪽은 그림 속 글자를 읽지 못했습니다. 눈으로 확인하세요.`);
+    const pictured = blind.filter((pn) => !flagged.has(pn));
+    const unreadable = blind.filter((pn) => flagged.has(pn));
+    if (pictured.length) notes.push(`그림이나 주석이 있는 ${pictured.join(', ')}쪽은 그림 속 글자를 읽지 못했습니다. 눈으로 확인하세요.`);
+    if (unreadable.length) notes.push(`${unreadable.join(', ')}쪽은 글자 정보가 깨졌거나 글자를 그림처럼 그려서 글자를 읽지 못했습니다. 눈으로 확인하세요.`);
     residual += lost + blind.length;
     if (opts.dryRun) {
       // 양식 칸·글상자에 적힌 글은 쪽 그림을 만들어 다시 읽어야 보인다 → 미리 찾기에는 안 나오니 그렇다고 알린다
@@ -426,8 +433,9 @@ export async function redactPdf(
         const img = await again.embedJpg(shots[pn - 1].jpg);
         again.addPage([img.width, img.height]).drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
       }
-      const r = await read(await again.save(), { ocr: 'force', images: false }, signal);
-      if (!r?.success) return null;
+      const r = await read(await again.save(), { ocr: 'force', images: false, ocrLines: true }, signal);
+      // 다시 읽지 못한 쪽이 있으면(모델 없음·그 쪽만 실패: 엔진은 경고만 남긴다) 가려졌는지 확인한 것이 아니다
+      if (!r?.success || (r.ocrLines?.length ?? 0) < pages.length) return null;
       const by = new Map<number, IRBlock[]>();
       for (const b of flatten(r.blocks)) if (b.bbox && b.pageNumber) by.set(b.pageNumber, [...(by.get(b.pageNumber) ?? []), b]);
       let placed = 0;

@@ -98,7 +98,7 @@ export function TemplateWrite({ path, name }: { path: string; name: string }) {
             </details>
           )}
           <div>
-            <Button size="lg" disabled={open.busy} onClick={() => void open.run(() => openInEditor(r.output_path, { title, working: true }))}>편집기에서 열기</Button>
+            <Button size="lg" disabled={open.busy} onClick={() => void open.run(async () => { await openInEditor(r.output_path, { title, working: true }); })}>편집기에서 열기</Button>
           </div>
           <ErrorLine message={open.error} />
         </div>

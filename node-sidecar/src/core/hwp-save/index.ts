@@ -9,13 +9,43 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, constants } from 'node:fs/promises';
-import { basename } from 'node:path';
-import { readFileB64, writeFileB64 } from '../files/io.js';
+import { copyFile, constants, mkdir, readFile, stat } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
+import { dataDir } from '../../infra/config.js';
+import { atomicWriteFile, readFileB64, writeFileB64 } from '../files/io.js';
 import { recoveryBytes } from '../recovery/index.js';
 import { loadRhwp } from '../render/rhwp.js';
 import { fillTabWidths, hasZeroWidthTabs, restoreFieldKinds, restoreSectionTails, type Caret } from './fixups.js';
 import { headerFlags, isHwp5, readHwp5, writeHwp5 } from './hwp5.js';
+
+/** 편집기가 마지막으로 쓴 판의 크기·수정 시각 (경로별, 앱 데이터) — 다음 저장 때 그 사이 바깥에서 고쳤는지 가른다 */
+const writtenFile = () => join(dataDir(), 'editor-written.json');
+type WrittenMark = { size: number; mtimeMs: number };
+async function readWritten(): Promise<Record<string, WrittenMark>> {
+  try { return JSON.parse(await readFile(writtenFile(), 'utf-8')) as Record<string, WrittenMark>; } catch { return {}; }
+}
+async function sameAsLastWritten(path: string): Promise<boolean> {
+  const mark = (await readWritten())[resolve(path)];
+  if (!mark) return false;
+  const st = await stat(path);
+  return st.size === mark.size && Math.abs(st.mtimeMs - mark.mtimeMs) < 2;
+}
+async function rememberWritten(path: string): Promise<void> {
+  const st = await stat(path);
+  const all = await readWritten();
+  delete all[resolve(path)];
+  all[resolve(path)] = { size: st.size, mtimeMs: st.mtimeMs };
+  // 최근 500개만
+  const keep = Object.fromEntries(Object.entries(all).slice(-500));
+  await mkdir(dataDir(), { recursive: true });
+  await atomicWriteFile(writtenFile(), JSON.stringify(keep));
+}
+/** 이 PC 시각으로 "20261114-171230" */
+function stamp(): string {
+  const d = new Date();
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
+}
 
 interface OpenedDoc {
   /** 원본 HWP 바이트 (보정 기준). HWPX·원본 없음·변경 추적 문서는 null */
@@ -117,9 +147,17 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
       backup = `${p.path}.bak`;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      // 그런데 디스크 파일이 이 편집기가 마지막으로 쓴 판이 아니면(그 뒤 한글 등 바깥에서 고침) 그 판은 어디에도 백업이 없다 —
+      // .bak(옛 원본)은 두고 날짜 붙은 백업을 따로 남긴다
+      if (!(await sameAsLastWritten(p.path))) {
+        const dated = `${p.path}.${stamp()}.bak`;
+        await copyFile(p.path, dated, constants.COPYFILE_EXCL);
+        backup = dated;
+      }
     }
   }
   const r = await writeFileB64({ path: p.path, data_b64: Buffer.from(bytes).toString('base64'), overwrite: p.overwrite });
   doc?.written.add(r.path);
+  await rememberWritten(r.path).catch(() => undefined);
   return { path: r.path, ...(backup ? { backup_path: backup } : {}), ...(lost ? { tails_lost: true } : {}) };
 }

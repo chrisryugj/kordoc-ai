@@ -379,6 +379,24 @@ function hideTimings(win) {
   }
 }
 
+/** 편집기가 브라우저 저장소에 남기는 문서 사본을 막고 지운다. 스튜디오는 기본으로 10초 쉴 때마다 문서 전체를 IndexedDB 에 넣고(최대 12개)
+ *  최근 문서·고친 이력도 남긴다 — 앱을 지워도 WebView 프로필에 평문으로 남았다. 복구는 앱(core/recovery) 하나로 한다.
+ *  같은 출처(편집기 서버 고정 포트)라 스튜디오를 띄우기 전에 여기서 끄고 지울 수 있다 */
+async function clearStudioStorage() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('rhwp-settings') || '{}');
+    const settings = raw && typeof raw === 'object' ? raw : {};
+    settings.autosave = { ...(settings.autosave || {}), recoveryEnabled: false, idleSaveEnabled: false };
+    localStorage.setItem('rhwp-settings', JSON.stringify(settings));
+  } catch (e) { console.warn('[host] 편집기 자동 저장을 끄지 못했습니다', e); }
+  await Promise.all(['rhwpStudioAutosave', 'rhwpStudioDocHistory', 'rhwpStudioRecent'].map((name) => new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+    } catch { resolve(); }
+  })));
+}
+
 (async () => {
   if (!parentOk) {
     document.getElementById('boot').textContent = '허용되지 않은 위치에서 열렸습니다.';
@@ -386,6 +404,7 @@ function hideTimings(win) {
   }
   try {
     const version = await fetch('./version.json').then((r) => r.json()).catch(() => ({ studio: 'unknown' }));
+    await clearStudioStorage();
     // 요청 제한 시간은 모든 동작에 같이 걸린다 — PDF 가져오기 설정 창이 사용자 답을 기다리는 동안 끊기지 않게 앱 쪽(10분)에 맞춘다
     studio = await createStudio('#app', { studioUrl: new URL('./studio/?chrome=embed', location.href).href, plugins: ['hwpctrl'], requestTimeoutMs: 600_000 });
     forwardSaveKey(studio.element.contentWindow);

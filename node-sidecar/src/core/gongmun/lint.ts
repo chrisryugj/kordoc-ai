@@ -118,9 +118,11 @@ export function fixOf(f: { rule: string; match: string; suggest?: string }): Lin
   return to && to !== f.match ? { from: f.match, to } : undefined;
 }
 
-/** 줄에서 걸린 조각을 찾는다 (줄 번호가 어긋나면 글 전체에서 처음 나온 곳) */
-function locate(lines: string[], line: number | undefined, match: string): { row: number; at: number } | undefined {
+/** 줄에서 걸린 조각을 찾는다 (열 위치가 맞으면 그 자리, 아니면 줄에서 처음 나온 곳, 줄 번호가 어긋나면 글 전체에서 처음 나온 곳) */
+function locate(lines: string[], line: number | undefined, match: string, column?: number): { row: number; at: number } | undefined {
   if (!match) return undefined;
+  // 한 줄에 같은 조각이 둘이면("오후 2시 개회, 오후 2시 30분 폐회") 둘째 지적도 첫 자리로 잡혀 엉뚱한 값을 고쳤다
+  if (line && column && lines[line - 1]?.startsWith(match, column - 1)) return { row: line - 1, at: column - 1 };
   const at = line ? lines[line - 1]?.indexOf(match) ?? -1 : -1;
   if (at >= 0) return { row: line! - 1, at };
   for (let r = 0; r < lines.length; r++) {
@@ -156,7 +158,7 @@ export function contextOf(text: string, start: number, end: number): string {
 
 /** kordoc 지적 하나를 화면용으로 — text 가 있으면 낱말 단위 발췌·낱말 경계까지 넓힌 고칠 거리 */
 function toFinding(f: GongmunLintFinding | (Omit<GongmunLintFinding, 'severity'> & { severity: LintFinding['severity'] }), lines?: string[]): LintFinding {
-  const pos = lines ? locate(lines, f.line, f.match) : undefined;
+  const pos = lines ? locate(lines, f.line, f.match, 'column' in f ? f.column : undefined) : undefined;
   let fix: LintFinding['fix'];
   let context: string | undefined;
   let line = f.line;
@@ -223,6 +225,15 @@ export function replaceWords(text: string, from: string, to: string): { text: st
   return { text: out + text.slice(i), count };
 }
 
+/** 고칠 값이 지적한 자리 말고 다른 곳의 같은 글까지 바꾸게 되면 고칠 거리에서 뺀다 — lintFix 는 글 전체에서 바꾼다. 표 칸 "2026. 11. 5" 를
+ *  "2026. 11. 5." 로 고치면 맞게 쓴 본문 "2026. 11. 5.(목)" 이 "2026. 11. 5..(목)" 이 됐다 (표 합계 고칠 거리와 같은 막이) */
+export function dropSpreadingFixes(findings: LintFinding[], text: string): void {
+  const key = (f: { from: string; to: string }) => `${f.from}\u0000${f.to}`;
+  const flagged = new Map<string, number>();
+  for (const f of findings) if (f.fix) flagged.set(key(f.fix), (flagged.get(key(f.fix)) ?? 0) + 1);
+  for (const f of findings) if (f.fix && replaceWords(text, f.fix.from, f.fix.to).count > flagged.get(key(f.fix))!) delete f.fix;
+}
+
 /** 고른 지적을 문서 글에 바꿔 넣고 서식 그대로 사본으로 (kordoc patchHwpx 는 parse 결과 마크다운을 고친 것을 받는다) */
 export async function lintFix(p: { path: string; fixes: Array<{ from: string; to: string }>; output_path?: string }) {
   const fmt = formatOf(p.path);
@@ -245,7 +256,9 @@ export async function lintFix(p: { path: string; fixes: Array<{ from: string; to
 /** 글 검사 — document: 완성 원고 규칙("끝."·붙임) 포함, parsed: 문서를 파싱한 글(원고 전용 규칙 제외) */
 export function lintText(text: string, opts: { document?: boolean; parsed?: boolean } = {}): LintFinding[] {
   const lines = text.split('\n');
-  return lintGongmunText(text, { document: opts.document ?? true, parsed: opts.parsed }).map((f) => toFinding(f, lines));
+  const findings = lintGongmunText(text, { document: opts.document ?? true, parsed: opts.parsed }).map((f) => toFinding(f, lines));
+  dropSpreadingFixes(findings, text);
+  return findings;
 }
 
 export function countFindings(findings: Array<{ severity: LintFinding['severity'] }>): LintCounts {
@@ -323,6 +336,7 @@ export async function lintWithText(
       ...(f.suggest ? { suggestion: cleanMessage(f.suggest) } : {}),
     })));
   }
+  dropSpreadingFixes(findings, await readDoc());
   findings = sortFindings(findings);
   return { findings, counts: countFindings(findings), markdown: await readDoc() };
 }

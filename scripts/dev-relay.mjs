@@ -147,10 +147,22 @@ async function invoke(cmd, args = {}) {
 
 const readBody = (req) => new Promise((r) => { let s = ''; req.on('data', (d) => (s += d)); req.on('end', () => r(s ? JSON.parse(s) : {})); });
 
+/** 이 PC 의 화면(vite)·시험 스크립트만 — 아무 웹 페이지나 엔진 전체(파일 읽기·쓰기)를 부르지 못하게.
+ *  Host 가 이 주소가 아니면(DNS 리바인딩) 거절, 브라우저 출처(Origin)는 localhost·127.0.0.1 만(시험 스크립트는 Origin 이 없다),
+ *  POST 는 JSON 만(다른 출처 브라우저는 사전 요청을 거쳐야 해서 여기서 막힌다) */
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const LOCAL_HOST = new RegExp(`^(localhost|127\\.0\\.0\\.1):${PORT}$`);
+
 createServer(async (req, res) => {
-  res.setHeader('access-control-allow-origin', '*');
+  const origin = req.headers.origin;
+  if (!LOCAL_HOST.test(req.headers.host ?? '') || (origin && !LOCAL_ORIGIN.test(origin))) return res.writeHead(403).end();
+  if (origin) {
+    res.setHeader('access-control-allow-origin', origin);
+    res.setHeader('vary', 'origin');
+  }
   res.setHeader('access-control-allow-headers', 'content-type');
   if (req.method === 'OPTIONS') return res.writeHead(204).end();
+  if (req.method === 'POST' && !/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return res.writeHead(415).end();
   if (req.url === '/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     res.write(': ok\n\n');

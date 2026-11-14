@@ -5,7 +5,7 @@
  * - 취소(AbortError)는 그대로 둔다 — 라우터가 취소로 처리
  */
 
-import { basename } from 'node:path';
+import { basename, win32 } from 'node:path';
 import { NO_BROWSER } from './export/chromium.js';
 
 const FS_HINTS: Record<string, string> = {
@@ -17,6 +17,7 @@ const FS_HINTS: Record<string, string> = {
   ENOSPC: '디스크 공간이 부족합니다. 공간을 비우고 다시 시도하세요.',
   EISDIR: '파일 자리에 폴더가 지정됐습니다. 파일을 고르세요.',
   ENOTDIR: '폴더 자리에 파일이 지정됐습니다. 폴더를 고르세요.',
+  ENAMETOOLONG: '파일 이름이나 경로가 너무 깁니다. 더 짧은 이름으로 저장하거나 덜 깊은 폴더를 고르세요.',
 };
 
 const OPEN_ELSEWHERE = '파일이 다른 프로그램(한글·엑셀 등)에서 열려 있거나 읽기 전용이라 저장하지 못했습니다. 그 프로그램에서 파일을 닫고 다시 저장하세요.';
@@ -43,7 +44,9 @@ export function toUserError(err: unknown): unknown {
     const locked = (e.code === 'EPERM' || e.code === 'EACCES' || e.code === 'EBUSY') && (e.syscall === 'rename' || e.syscall === 'unlink');
     const hint = locked ? OPEN_ELSEWHERE : FS_HINTS[e.code];
     const shown = (e.syscall === 'rename' ? e.dest : undefined) ?? e.path;
-    return new Error(shown ? `${hint} (${basename(shown).replace(/\.kordoc-tmp$|\.tmp$/, '')})` : hint);
+    // Windows 꼴 경로(드라이브 문자·네트워크 경로)는 어느 OS 에서 읽든 Windows 규칙으로 이름을 뗀다 — 맥 엔진 시험이 "D:\\a\\문서.hwpx" 를 통째로 보였다
+    const name = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(shown ?? '') ? win32.basename(shown!) : basename(shown ?? '');
+    return new Error(shown ? `${hint} (${name.replace(/\.kordoc-tmp(?:-\d+-\d+)?$|\.tmp$/, '')})` : hint);
   }
   const msg = err instanceof Error ? err.message : String(err);
   if (CHROMIUM_MISSING.test(msg)) {

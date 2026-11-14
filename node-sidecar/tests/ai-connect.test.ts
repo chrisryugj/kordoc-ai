@@ -70,7 +70,9 @@ describe('이 PC 의 로컬 모델 서버', () => {
       expect(aiStatus()).toMatchObject({ provider: 'local', configured: true, is_cloud: false, model: 'gemma4:latest' });
       const sent = netLogSnapshot().external_sent;
       const r = await ask({ messages: [{ role: 'user', content: '주민번호 900101-1234567' }], signal: signal(), stream: false });
-      expect(r).toEqual({ text: '로컬 답', redacted: 0 });
+      expect(r).toMatchObject({ text: '로컬 답', redacted: 0 });
+      expect(r.truncated).toBeUndefined();
+      expect(r.restore('02-●●●-7114')).toBe('02-●●●-7114');
       expect(ollama.chats().at(-1)!.messages.at(-1)!.content).toContain('900101-1234567');
       expect(netLogSnapshot().external_sent).toBe(sent);
       expect(getProvider().id).toBe('local');

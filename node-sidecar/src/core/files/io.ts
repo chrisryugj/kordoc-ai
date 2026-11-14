@@ -14,6 +14,21 @@ function checkExt(path: string, allowed: Set<string>, verb: string): void {
   if (!allowed.has(ext)) throw new Error(`${ext || '확장자 없는'} 파일은 ${verb} 수 없습니다. 허용: ${[...allowed].join(' ')}`);
 }
 
+let tmpSeq = 0;
+/** 옆에 다 쓴 뒤 바꿔 넣는다 — 제자리로 쓰다 끊기면(매핑 드라이브 끊김·디스크 참) 원래 파일까지 잃는다. 임시 이름은 호출마다 달라
+ *  같은 파일을 잇달아 저장해도(검토 받기 → PDF 로 저장) 두 쓰기가 한 임시 파일에 섞이지 않는다. 못 바꿔 넣으면 임시 파일을 남기지 않는다 */
+export async function atomicWriteFile(path: string, data: Uint8Array | string): Promise<void> {
+  const tmp = `${path}.kordoc-tmp-${process.pid}-${++tmpSeq}`;
+  try {
+    await writeFile(tmp, data);
+    await rename(tmp, path);
+  } catch (err) {
+    // 바꿔치기를 못 하면(파일이 한글에서 열려 있음 등) 임시 파일을 폴더에 남기지 않는다
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
 export async function writeFileB64(p: { path: string; data_b64: string; overwrite?: boolean }): Promise<{ path: string }> {
   checkExt(p.path, WRITE_EXT, '저장할');
   if (typeof p.data_b64 !== 'string') throw new Error('저장할 내용이 없습니다.');
@@ -21,15 +36,7 @@ export async function writeFileB64(p: { path: string; data_b64: string; overwrit
   if (existsSync(p.path) && !p.overwrite) throw new Error('같은 이름의 파일이 이미 있습니다. 덮어쓰려면 덮어쓰기를 고르세요.');
   const data = Buffer.from(p.data_b64, 'base64');
   await mkdir(dirname(p.path), { recursive: true });
-  const tmp = `${p.path}.kordoc-tmp`;
-  try {
-    await writeFile(tmp, data);
-    await rename(tmp, p.path);
-  } catch (err) {
-    // 바꿔치기를 못 하면(파일이 한글에서 열려 있음 등) 임시 파일을 폴더에 남기지 않는다
-    await rm(tmp, { force: true }).catch(() => undefined);
-    throw err;
-  }
+  await atomicWriteFile(p.path, data);
   return { path: p.path };
 }
 

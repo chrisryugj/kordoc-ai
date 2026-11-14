@@ -6,7 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
-import { resultDir } from '../output/index.js';
+import { resultDir, stemOf } from '../output/index.js';
 
 /** 여러 PDF를 하나로 병합 */
 export async function concatPdf(
@@ -182,7 +182,8 @@ export async function splitPdf(
   const srcDoc = await PDFDocument.load(buffer);
   const totalPages = srcDoc.getPageCount();
   const outputFiles: string[] = [];
-  const baseName = basename(file, '.pdf');
+  // 맥 경로의 자소 갈라진 이름은 완성형으로, 대문자 .PDF 도 뺀다
+  const baseName = stemOf(file);
 
   // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
   const output_dir = resultDir(params.output_dir);

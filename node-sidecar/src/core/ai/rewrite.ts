@@ -113,7 +113,7 @@ export async function rewriteText(
         stream: false,
       });
       redacted += fix.redacted;
-      const fixed = cleanOutput(fix.text, text).replace(/[ \t]+$/gm, '');
+      const fixed = cleanOutput(fix.restore(fix.text), text).replace(/[ \t]+$/gm, '');
       if (fixed && lintMuncheText(fixed).filter((f) => f.severity === 'error').length < errs.length) result = fixed;
     }
   }

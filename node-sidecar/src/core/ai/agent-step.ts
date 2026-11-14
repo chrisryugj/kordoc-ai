@@ -125,6 +125,9 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
       return { text: r.text.trim(), calls: [], redacted: r.redacted };
     }
   }
+  // 외부 AI 로 보내며 가린 값이 도구 인자에 실려 오면 되돌린다 — 편집기 AI 의 고쳐 쓰기·칸 채우기가 문서의 연락처를 ● 로 바꿨다
+  const unmask = (v: unknown): unknown => typeof v === 'string' ? r.restore(v)
+    : Array.isArray(v) ? v.map(unmask) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unmask(x)])) : v;
   const byName = new Map(p.tools.map((t) => [t.name, t]));
   const calls: AgentCall[] = (Array.isArray(reply.calls) ? reply.calls : []).map((c, i) => {
     const call = (c ?? {}) as { tool?: unknown; args?: unknown };
@@ -133,7 +136,7 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
     const tool = byName.get(name);
     if (!tool) return { id, name, input: {}, inputError: `"${name}" 라는 도구는 없습니다. 도구 목록의 이름을 쓰세요.` };
     const inputError = checkArgs(tool, call.args);
-    return { id, name, input: inputError ? {} : (call.args as Record<string, unknown>), ...(inputError ? { inputError } : {}) };
+    return { id, name, input: inputError ? {} : (unmask(call.args) as Record<string, unknown>), ...(inputError ? { inputError } : {}) };
   });
-  return { text: typeof reply.say === 'string' ? reply.say : '', calls, redacted: r.redacted };
+  return { text: typeof reply.say === 'string' ? r.restore(reply.say) : '', calls, redacted: r.redacted };
 }

@@ -1,8 +1,9 @@
 /** 보안·손질·취합 — redact(서식 보존·잔존 재검사·결과에 원문 없음)·redact_batch·seal·patch_document·validate_hwpx·collect·write/read */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { markdownToHwpx, parse, redactMarkdown } from 'kordoc';
 import { call, makePng, sample, setupEnv, SAMPLES } from './doc-helpers.js';
 
@@ -21,6 +22,62 @@ beforeAll(async () => {
   if (!r.success) throw new Error(r.error);
   raw = redactMarkdown(r.markdown).hits.map((h) => r.markdown.slice(h.index, h.index + h.length));
 });
+
+/** 글자 읽기 모델을 넣지 않은 폐쇄망 PC 에서 돌린다: 빈 모델 폴더 + 내려받기 막힘.
+ *  엔진은 이때 실패 대신 경고만 남기고 글자층 결과(그림이면 빈 글)를 돌려준다 */
+async function withoutOcrModels<T>(run: () => Promise<T>): Promise<T> {
+  const empty = join(env.base, 'no-models');
+  mkdirSync(empty, { recursive: true });
+  const prev = { cache: process.env.KORDOC_MODEL_CACHE, offline: process.env.KORDOC_OFFLINE };
+  process.env.KORDOC_MODEL_CACHE = empty;
+  process.env.KORDOC_OFFLINE = '1';
+  try {
+    return await run();
+  } finally {
+    if (prev.cache === undefined) delete process.env.KORDOC_MODEL_CACHE; else process.env.KORDOC_MODEL_CACHE = prev.cache;
+    if (prev.offline === undefined) delete process.env.KORDOC_OFFLINE; else process.env.KORDOC_OFFLINE = prev.offline;
+  }
+}
+
+/** 글자층을 믿을 수 없는 두 쪽 PDF (쪽 그림에는 두 쪽 모두 주민등록번호·전화번호가 그대로 보인다).
+ *  1쪽: 본문 글꼴의 글자 대응표(ToUnicode)가 사설 영역(PUA)을 가리켜 뽑은 글이 깨진다 (대응표 없는 글꼴을 뽑을 때처럼).
+ *  2쪽: 본문 글자를 곡선으로 그렸다 (머리글만 글자층) */
+async function brokenLayerPdf(name: string): Promise<string> {
+  const { PDFDict, PDFDocument, PDFName, StandardFonts, rgb } = await import('pdf-lib');
+  const fontkit = (await import('@pdf-lib/fontkit')).default;
+  const pdf = await PDFDocument.create();
+  const head = await pdf.embedFont(StandardFonts.Helvetica);
+  const body = await pdf.embedFont(StandardFonts.Helvetica);
+  const title = 'Application form for the autumn sports event';
+  const lines = ['Applicant resident number 900101-1234567', 'Phone of the applicant 010-2345-6789', 'Address book record for the applicant above'];
+  // 줄 사이를 넓게: 글자 읽기가 줄마다 한 덩이로 읽는다 (여러 줄 덩이는 줄 자리를 어림잡아 칠하고 다시 읽어 마저 칠한다)
+  const y = (k: number) => 700 - 120 * k;
+  const broken = pdf.addPage([595, 842]);
+  broken.drawText(title, { x: 50, y: 780, size: 14, font: head });
+  lines.forEach((t, k) => broken.drawText(t, { x: 50, y: y(k), size: 16, font: body }));
+  const curves = pdf.addPage([595, 842]);
+  curves.drawText(title, { x: 50, y: 780, size: 14, font: head });
+  // 글자 윤곽선은 kordoc 이 싣는 pdfjs 표준 글꼴에서. 글꼴 좌표는 위가 + 라 SVG 좌표로 뒤집어 넣는다 (fontkit Path 의 scale)
+  const pdfjs = createRequire(createRequire(import.meta.url).resolve('kordoc')).resolve('pdfjs-dist/package.json');
+  const face = fontkit.create(readFileSync(join(dirname(pdfjs), 'standard_fonts', 'LiberationSans-Regular.ttf')));
+  lines.forEach((t, k) => {
+    const run = face.layout(t);
+    const s = 16 / face.unitsPerEm;
+    let x = 50;
+    run.glyphs.forEach((g, i) => {
+      const d = (g.path as unknown as { scale(sx: number, sy: number): { toSVG(): string } }).scale(1, -1).toSVG();
+      if (d) curves.drawSvgPath(d, { x, y: y(k), scale: s, color: rgb(0, 0, 0) });
+      x += run.positions[i].xAdvance * s;
+    });
+  });
+  await pdf.flush();
+  // 1쪽 본문 글꼴의 글자 대응표: 코드 c → U+E000+c (사설 영역)
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <00> <FF> <E000> endbfrange endcmap CMapName currentdict /CMap defineresource pop end end';
+  pdf.context.lookup(body.ref, PDFDict).set(PDFName.of('ToUnicode'), pdf.context.register(pdf.context.stream(cmap)));
+  const path = join(env.work, name);
+  writeFileSync(path, await pdf.save());
+  return path;
+}
 
 describe('redact', () => {
   it('HWPX — 서식 보존 마스킹, 잔존 0, 결과·파일에 원문 없음', async () => {
@@ -165,6 +222,42 @@ describe('redact', () => {
     expect(JSON.stringify(r)).not.toContain('1234');
   }, 60_000);
 
+  it('PDF 글자층이 깨진 쪽(글꼴 대응표가 사설 영역)·글자를 곡선으로 그린 쪽도 쪽 그림의 글자를 읽어 가린다', async () => {
+    const src = await brokenLayerPdf('글자층 깨진 신청서.pdf');
+    const rules = ['rrn', 'phone'];
+    const dry = await call('redact', { path: src, rules, dry_run: true });
+    const r = await call('redact', { path: src, rules });
+    if (r.notes?.some((n: string) => n.includes('읽지 못했습니다'))) {
+      // 글자 읽기 모델이 없는 PC: 깨끗하다고 하지 않는다 (아래 시험이 모델 없는 PC 를 따로 본다)
+      expect(r.residual).toBeGreaterThanOrEqual(2);
+      return;
+    }
+    // 글자층으로는 하나도 안 걸린다. 두 쪽의 주민등록번호·전화번호를 쪽 그림에서 읽어 찾는다
+    expect(dry.total).toBe(4);
+    expect(r.total).toBe(4);
+    expect(r.residual).toBe(0);
+    expect(r.output_path).toMatch(/_가림\.pdf$/);
+    // 가린 사본을 글자 읽기로 다시 읽어도 번호가 보이지 않는다
+    const back = await parse(readFileSync(r.output_path), { ocr: 'force' });
+    const text = back.success ? back.markdown : '';
+    expect(text).toContain('Applicant');
+    expect(text).not.toContain('1234567');
+    expect(text).not.toMatch(/2345.?6789/);
+  }, 60_000);
+
+  it('글자 읽기 모델이 없는 PC(폐쇄망): 글자층을 믿을 수 없는 쪽은 "남은 곳 0"으로 내지 않는다', async () => {
+    const src = await brokenLayerPdf('글자층 깨진 신청서 (모델 없음).pdf');
+    const [dry, r] = await withoutOcrModels(async () => [
+      await call('redact', { path: src, rules: ['rrn', 'phone'], dry_run: true }),
+      await call('redact', { path: src, rules: ['rrn', 'phone'] }),
+    ]);
+    expect(dry.total).toBe(0);
+    expect(dry.residual).toBeGreaterThanOrEqual(2);
+    expect(dry.notes?.join(' ')).toMatch(/1, 2쪽.*읽지 못했습니다/);
+    expect(r.residual).toBeGreaterThanOrEqual(2);
+    expect(r.notes?.join(' ')).toMatch(/1, 2쪽.*읽지 못했습니다/);
+  }, 60_000);
+
   it('엔진 경고: 가리지 못한 개체는 사람이 볼 곳으로 세고, 삽입 그림은 수만 넘긴다(그림 속 글자는 따로 읽는다)', async () => {
     const { blindSpots } = await import('../src/core/redact/index.js');
     const b = blindSpots([
@@ -205,6 +298,49 @@ describe('redact', () => {
     expect(dry.notes?.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('글자 읽기 모델이 없는 PC(폐쇄망): 한글 문서 안 그림은 "글자 없는 그림"이 아니라 읽지 못한 그림으로 센다', async () => {
+    const doc = join(env.work, '모델 없음 신청서.hwpx');
+    writeFileSync(doc, Buffer.from(await markdownToHwpx('# 신청서\n\n신청인 가온 (인)\n\n문의: kim@gaon.example\n')));
+    const img = join(env.work, '모델 없음 신분증.png');
+    writeFileSync(img, await makePng(1200, 300, 'mail hong@gaon.example'));
+    const sealed = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
+    expect(sealed.placed).toBe(1);
+    const [dry, r] = await withoutOcrModels(async () => [
+      await call('redact', { path: sealed.output_path, rules: ['email'], dry_run: true }),
+      await call('redact', { path: sealed.output_path, rules: ['email'] }),
+    ]);
+    // 본문 전자우편은 가렸지만 그림 속 전자우편은 보지 못했다 → 남은 곳 0 이 아니다
+    for (const x of [dry, r]) {
+      expect(x.residual).toBeGreaterThanOrEqual(1);
+      expect(x.unscanned).toBeGreaterThanOrEqual(1);
+      expect(x.notes?.join(' ')).toMatch(/그림 1개는 글자를 읽지 못했습니다/);
+    }
+    expect(r.output_path).toMatch(/_가림\.hwpx$/);
+  }, 60_000);
+
+  it('그림 속 글자를 읽다 멈추면 그림을 보지 않은 "가림" 사본을 남기지 않는다', async () => {
+    const doc = join(env.work, '멈춤 신청서.hwpx');
+    writeFileSync(doc, Buffer.from(await markdownToHwpx('# 신청서\n\n신청인 가온 (인)\n\n확인 (서명)\n\n문의: kim@gaon.example\n')));
+    const img = join(env.work, '멈춤.png');
+    writeFileSync(img, await makePng(1200, 300, 'mail hong@gaon.example'));
+    const one = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
+    const two = await call('seal', { path: one.output_path, image_path: img, anchor: '(서명)' });
+    expect(two.placed).toBe(1);
+    const { redact } = await import('../src/core/redact/index.js');
+    const { sendProgress } = await import('../src/infra/progress.js');
+    const ac = new AbortController();
+    // 사본을 만든 뒤 그림 속 글자를 읽기 시작할 때 멈추기를 누른다
+    vi.mocked(sendProgress).mockImplementation((p) => { if (/그림 속 글자를 읽는 중/.test(p.message ?? '')) ac.abort(); });
+    const dir = join(env.base, '멈춤 결과');
+    try {
+      await expect(redact({ path: two.output_path, rules: ['email'], output_dir: dir }, ac.signal)).rejects.toThrow();
+    } finally {
+      vi.mocked(sendProgress).mockReset();
+    }
+    expect(ac.signal.aborted).toBe(true);
+    expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+  }, 60_000);
+
   it('주소만 있는 문서 — 엔진 규칙에 안 걸려도 가린 사본을 만들고, 첫 쪽 미리보기 글에도 남기지 않는다', async () => {
     const JSZip = (await import('jszip')).default;
     const src = join(env.work, '주소만.hwpx');
@@ -235,6 +371,37 @@ describe('redact', () => {
     expect(back.markdown).toContain('031-000-1234');
     expect(back.markdown).toContain('김가온');
     expect(back.markdown).not.toContain('010-2345-6789');
+  });
+
+  it('남길 것 — 다른 사람 이름이 같은 모양(김●●)으로 가려져도 그 자리에 남길 이름을 넣지 않고, 찾은 곳에서 빼지도 않는다', async () => {
+    const JSZip = (await import('jszip')).default;
+    // 테두리 없는 한 칸짜리 틀 표 속 명단 표: 엔진(기본 출력)은 틀을 풀어 "성명" 머리글로 김철수를 가리지만, 서식 그대로 출력(keep)에서는 그 문맥이 안 보인다
+    const zip = await JSZip.loadAsync(Buffer.from(await markdownToHwpx('# 안내\n\n담당: 주무관 김민수\n\n<table><tr><td><table><tr><th>성명</th><th>부서</th></tr><tr><td>김철수</td><td>총무과</td></tr></table></td></tr></table>\n')));
+    const part = 'Contents/section0.xml';
+    const xml = await zip.file(part)!.async('string');
+    const outer = xml.indexOf('<hp:tbl');
+    const inner = xml.indexOf('<hp:tbl', outer + 1);
+    // 바깥 틀 표와 그 칸만 테두리 없는 모양(borderFill 1)으로
+    zip.file(part, xml.slice(0, outer) + xml.slice(outer, inner).replace(/borderFillIDRef="2"/g, 'borderFillIDRef="1"') + xml.slice(inner));
+    const src = join(env.work, '틀 표 명단.hwpx');
+    writeFileSync(src, await zip.generateAsync({ type: 'nodebuffer' }));
+    const shown = await parse(readFileSync(src));
+    expect(shown.success && shown.markdown).toContain('| 김철수 |'); // 전제: 기본 출력은 틀을 풀어 명단 표로 보인다
+
+    const opts = { path: src, rules: ['name'], keep: ['김민수'] };
+    // 미리 찾기: 김철수는 찾은 곳에 남는다 (빼면 "찾지 못했습니다"로 나와 원본을 그대로 내보낼 수 있다)
+    const dry = await call('redact', { ...opts, dry_run: true });
+    expect(dry.total).toBeGreaterThanOrEqual(1);
+    const r = await call('redact', opts);
+    expect(r.kept).toBe(1);
+    expect(r.total).toBeGreaterThanOrEqual(1);
+    const back = await parse(readFileSync(r.output_path), { layoutTables: 'keep' });
+    if (!back.success) throw new Error(back.error);
+    // 남길 이름은 제자리에만, 김철수 자리는 가린 그대로
+    expect(back.markdown.match(/김민수/g)).toHaveLength(1);
+    expect(back.markdown).toContain('주무관 김민수');
+    expect(back.markdown).toContain('<td>김●●</td>');
+    expect(back.markdown).not.toContain('김철수');
   });
 
   it('정보공개 공개본(이름·주소까지) — 도로명 주소 "가온시 한빛로 123, 101동 1004호" 까지 가린다 (kordoc 주소 규칙이 놓치는 꼴)', async () => {

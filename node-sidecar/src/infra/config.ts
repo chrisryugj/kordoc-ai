@@ -176,7 +176,9 @@ export function reload(): Settings {
         // 내용이 깨진 파일을 그대로 두면 다음 저장 한 번에 AI 키·기관 정보가 기본값으로 덮인다 → 옆으로 옮겨 남긴다
         const kept = `${p}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
         try { renameSync(p, kept); } catch { /* 옮기지 못해도 기본값으로 연다 */ }
-        logger.error(`[config] 설정 파일이 깨져 기본값으로 엽니다 (${basename(kept)} 에 남김): ${err}`);
+        // V8 오류 문장에는 파일 원문 조각(따옴표가 빠진 API 키 등)이 섞이므로 줄·칸만 남긴다 (policy.ts 와 같은 처리)
+        const at = /line (\d+) column (\d+)/.exec((err as Error).message);
+        logger.error(`[config] 설정 파일이 깨져 기본값으로 엽니다 (${basename(kept)} 에 남김)${at ? `: ${at[1]}번째 줄 ${at[2]}번째 칸 근처` : ''}`);
       }
     }
   } else {

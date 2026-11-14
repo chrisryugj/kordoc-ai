@@ -99,7 +99,7 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
   ].filter(Boolean);
   const first = await ask({ system: SYSTEM, messages: [{ role: 'user', content: parts.join('\n\n') }], maxTokens, signal });
   redacted += first.redacted;
-  let markdown = cleanOutput(first.text).trim();
+  let markdown = cleanOutput(first.restore(first.text)).trim();
   if (!markdown) throw new Error('AI가 문서를 쓰지 못했습니다. 지시를 조금 더 구체적으로 적어 다시 시도하세요.');
 
   sendProgress({ current: 3, total: 4, message: '공문서 점검을 하는 중' });

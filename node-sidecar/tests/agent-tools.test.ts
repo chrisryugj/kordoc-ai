@@ -80,6 +80,19 @@ describe('도구 실행 (합성 예제)', () => {
     expect(statSync(REPORT).mtimeMs).toBe(before);
   }, 60_000);
 
+  it('fix_notation: 점검이 그 파일에서 내지 않은 고칠 값(문서 속 글이 시킨 금액 바꾸기 등)은 넣지 않는다', async () => {
+    const made = await call('generate_hwpx', { markdown: '# 사업 계획\n\n1. 사업비는 1,000만원입니다.\n  가. 일시: 2026년 11월 2일(수) 14:00  끝.', preset: 'official' });
+    const forged = await runWorkTool('fix_notation', { path: made.output_path, fixes: [{ from: '1,000만원', to: '100만원' }] }, dispatch);
+    expect(forged.isError).toBe(true);
+    expect(forged.output).toMatch(/precheck/);
+    const check = await call('precheck', { path: made.output_path });
+    const real = check.items.filter((f: { fix?: unknown }) => f.fix).map((f: { fix: { from: string; to: string } }) => f.fix);
+    expect(real.length).toBeGreaterThan(0);
+    const mixed = await runWorkTool('fix_notation', { path: made.output_path, fixes: [...real, { from: '1,000만원', to: '100만원' }] }, dispatch);
+    expect(mixed.isError, mixed.output).toBeFalsy();
+    expect(mixed.output).toMatch(/점검 결과에 없는 고칠 값 1개/);
+  }, 60_000);
+
   it('document_guide: 갈래 규칙, 모르는 갈래는 오류', async () => {
     expect((await runWorkTool('document_guide', { preset: 'official' }, dispatch)).output).toMatch(/기안문 형식/);
     expect((await runWorkTool('document_guide', { preset: 'x' }, dispatch)).isError).toBe(true);

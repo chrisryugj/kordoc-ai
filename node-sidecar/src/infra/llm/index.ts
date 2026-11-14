@@ -125,7 +125,7 @@ export interface AskOptions {
 /** 공급자 호출 — 클라우드면 설정에 따라 개인정보를 가린 뒤 보낸다.
  *  system 은 가리지 않으니 고정 지시문만 넣고, 문서·기관 정보 같은 내용은 messages 로 보낼 것.
  *  구독 프로그램(Claude Code·Codex)은 system 도 대화와 같은 글로 넘어가므로 system 까지 가린다. */
-export async function ask(opts: AskOptions): Promise<{ text: string; redacted: number; truncated?: boolean }> {
+export async function ask(opts: AskOptions): Promise<{ text: string; redacted: number; truncated?: boolean; restore: (answer: string) => string }> {
   await primeHost();
   const p = getProvider();
   const { ai } = getSettings();
@@ -175,7 +175,10 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
     throw err;
   }
   if (over || text.length > cap) throw new Error(ANSWER_TOO_LONG);
-  return { text, redacted, ...(truncated ? { truncated: true } : {}) };
+  // 가린 값("02-●●●-7114")을 답에서 되돌리는 함수 — 답을 문서·표에 넣는 쪽이 쓴다(가린 채 넣으면 연락처가 ● 로 바뀐 문서가 나온다)
+  const source = [opts.system ?? '', ...opts.messages.map((m) => m.content)].join('\n');
+  const restore = (answer: string) => (redacted ? restoreMasked(source, answer) : answer);
+  return { text, redacted, restore, ...(truncated ? { truncated: true } : {}) };
 }
 
 export const ANSWER_TOO_LONG = 'AI 답이 끝없이 길어져 멈췄습니다. 같은 말을 되풀이했을 수 있습니다. 다시 시도하거나 다른 모델로 바꿔 보세요.';

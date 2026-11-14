@@ -6,6 +6,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { atomicWriteFile } from '../files/io.js';
 import { basename, resolve } from 'node:path';
 import { markdownToPdf, renderDocument } from 'kordoc';
 import { PDFDocument } from 'pdf-lib';
@@ -100,7 +101,8 @@ export async function exportPdf(p: { path: string; output_path?: string; overwri
   // 취소했으면 결과 파일을 남기지 않는다
   signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}.pdf`, overwrite: p.overwrite });
-  await writeFile(outPath, bytes);
+  // 덮어쓰기 저장이 쓰다 끊겨도 원래 PDF 는 남게 (옆에 다 쓴 뒤 바꿔 넣기)
+  await atomicWriteFile(outPath, bytes);
   return { output_path: outPath };
 }
 
@@ -127,7 +129,7 @@ export async function bundlePdf(
   // overwrite: 화면이 덮어쓰기를 확인한 경로. 합칠 원본 자리면 덮어쓰지 않는다
   const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => resolve(x).toLowerCase() === resolve(p.output_path!).toLowerCase());
   const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}${p.paths.length > 1 ? `_외${p.paths.length - 1}건` : ''}_합본.pdf`, overwrite });
-  await writeFile(outPath, await merged.save());
+  await atomicWriteFile(outPath, await merged.save());
   return { output_path: outPath, page_count: merged.getPageCount(), failed };
 }
 

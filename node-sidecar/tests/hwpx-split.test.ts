@@ -7,6 +7,9 @@ import { basename, join } from 'node:path';
 import JSZip from 'jszip';
 import { parse, validateHwpx } from 'kordoc';
 import { call, sample, setupEnv } from './doc-helpers.js';
+import { decorate, hpfOf } from './hwpx-parts.js';
+import { splitHwpx } from '../src/core/merge/hwpx-split.js';
+import { mergeHwpx, readManifest } from '../src/core/merge/hwpx-merge.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -95,6 +98,64 @@ describe('한글 나누기', () => {
     expect(previewB).toContain('디지털 행정 혁신');
     expect(await a.file('Preview/PrvImage.png')!.async('string')).toBe('원본 첫 쪽 그림');
     expect(await b.file('Preview/PrvImage.png')!.async('string')).not.toContain('원본 첫 쪽');
+  }, 60_000);
+
+  it('조각의 구역 항목은 id 도 section0: 조각을 차례를 바꿔 다시 합쳐도 구역 id 가 겹치지 않는다', async () => {
+    const { parts } = await splitHwpx(new Uint8Array(readFileSync(merged)), 'section');
+    for (const p of parts) {
+      const m = readManifest(await (await JSZip.loadAsync(p)).file('Contents/content.hpf')!.async('string'));
+      expect(m.items.filter((i) => /section\d+\.xml$/.test(i.href)).map((i) => [i.id, i.href])).toEqual([['section0', 'Contents/section0.xml']]);
+      expect(m.spine).toContain('section0');
+    }
+    const back = await mergeHwpx([parts[1], parts[0]]);
+    const m = readManifest(await (await JSZip.loadAsync(back.bytes)).file('Contents/content.hpf')!.async('string'));
+    expect(new Set(m.items.map((i) => i.id)).size).toBe(m.items.length);
+    const md = await parse(back.bytes);
+    const at = (t: string) => (md.success ? md.markdown.indexOf(t) : -1);
+    expect(at('디지털 행정 혁신')).toBeGreaterThanOrEqual(0);
+    expect(at('디지털 행정 혁신')).toBeLessThan(at('체육대회 참가 협조 요청'));
+  }, 60_000);
+
+  it('조각에는 그 조각 구역이 가리키는 바탕쪽·차트만 들어간다 (다른 조각의 바탕쪽 글·그림·차트 숫자가 딸려 가지 않는다)', async () => {
+    // 구역 둘(부서 둘), 구역마다 바탕쪽(글·그림)과 차트
+    const zip = await JSZip.loadAsync(readFileSync(LETTER));
+    const hpf = hpfOf(zip);
+    zip.file('Contents/section1.xml', await zip.file('Contents/section0.xml')!.async('string'));
+    zip.file(hpf, (await zip.file(hpf)!.async('string'))
+      .replace('</opf:manifest>', '<opf:item id="section1" href="Contents/section1.xml" media-type="application/xml"/></opf:manifest>')
+      .replace('</opf:spine>', '<opf:itemref idref="section1" linear="yes"/></opf:spine>'));
+    zip.file('Contents/header.xml', (await zip.file('Contents/header.xml')!.async('string')).replace(/secCnt="\d+"/, 'secCnt="2"'));
+    await decorate(zip, 'Contents/section0.xml', { master: 0, chart: 1, image: 'image1', mark: '총무과' });
+    await decorate(zip, 'Contents/section1.xml', { master: 1, chart: 2, image: 'image2', mark: '재무과' });
+    const { parts } = await splitHwpx(await zip.generateAsync({ type: 'uint8array' }), 'section');
+    expect(parts).toHaveLength(2);
+    for (const [i, [mine, other]] of [['총무과', '재무과'], ['재무과', '총무과']].entries()) {
+      expect((await validateHwpx(parts[i])).ok).toBe(true);
+      const part = await JSZip.loadAsync(parts[i]);
+      const names = Object.keys(part.files).filter((n) => !part.files[n].dir);
+      const texts = await Promise.all(names.map((n) => part.file(n)!.async('string')));
+      for (const want of [`바탕쪽 ${mine}`, `${mine} 예산`, `picture-${mine}`]) expect(texts.some((t) => t.includes(want)), want).toBe(true);
+      for (const [k, t] of texts.entries()) expect(t, names[k]).not.toContain(other);
+      expect(names.filter((n) => /masterpage|^Chart\//.test(n)).sort()).toEqual([`Contents/masterpage${i}.xml`, `Chart/chart${i + 1}.xml`].sort());
+      const items = readManifest(await part.file(hpf)!.async('string')).items.map((it) => it.id);
+      expect(items).toContain(`masterpage${i}`);
+      expect(items).not.toContain(`masterpage${1 - i}`);
+      expect(items).not.toContain(`image${2 - i}`);
+    }
+  }, 60_000);
+
+  it('쪽 나눔마다 나눠도 바탕쪽은 조각마다 그대로, 차트는 그 차트가 든 조각에만', async () => {
+    const zip = await JSZip.loadAsync(readFileSync(REPORT));
+    await decorate(zip, 'Contents/section0.xml', { master: 0, chart: 1, image: 'image1', mark: '기획과' }); // 차트는 본문 맨 끝(셋째 조각)
+    const { parts } = await splitHwpx(await zip.generateAsync({ type: 'uint8array' }), 'pagebreak');
+    expect(parts).toHaveLength(3);
+    for (const [i, p] of parts.entries()) {
+      const part = await JSZip.loadAsync(p);
+      expect(await part.file('Contents/section0.xml')!.async('string')).toContain('<hp:masterPage idRef="masterpage0"/>');
+      expect(part.file('Contents/masterpage0.xml'), `${i + 1}번째 조각 바탕쪽`).not.toBeNull();
+      expect(part.file('BinData/image1.png'), `${i + 1}번째 조각 바탕쪽 그림`).not.toBeNull();
+      expect(!!part.file('Chart/chart1.xml'), `${i + 1}번째 조각 차트`).toBe(i === 2);
+    }
   }, 60_000);
 
   it('쪽 나눔마다를 고르면 합친 문서도 구역 안 쪽 나눔까지 (1 + 3)', async () => {

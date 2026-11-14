@@ -66,15 +66,17 @@ export async function templateFields(p: { template?: string; path?: string }): P
 
 const nonEmpty = (values: Record<string, string>) => Object.fromEntries(Object.entries(values ?? {}).filter(([, v]) => typeof v === 'string' && v.trim() !== ''));
 
-export async function templateFill(p: { template?: string; path?: string; values: Record<string, string>; output_path?: string }): Promise<{ output_path: string; filled: string[]; unmatched: string[] }> {
+export async function templateFill(p: { template?: string; path?: string; values: Record<string, string>; output_path?: string }): Promise<{ output_path: string; filled: string[]; unmatched: string[]; rejected?: string[] }> {
   const values = nonEmpty(p.values);
   if (!Object.keys(values).length) throw new Error('채울 값이 없습니다. 칸에 내용을 적으세요.');
   const t = await loadTemplate(p.template, p.path);
-  const r = await fillHwpx(t.buf, values);
+  // 사용자 서식(누름틀 없는 표 서식 포함)은 이름 같은 칸이 여러 곳일 수 있다 — 위임인·수임인 줄의 "성명" 두 칸에 같은 값이 들어갔다.
+  // 그런 이름은 넣지 않고 알린다(양식 채우기·명부 채우기와 같은 막이). 내장 서식은 누름틀 이름이 계약이라 그대로
+  const r = t.source ? await fillWithUniqueGuard(values, (v, blocked) => fillHwpx(t.buf, v, blocked)) : { ...(await fillHwpx(t.buf, values)), rejected: [] as string[] };
   const name = t.source ? `${t.name}_채움.hwpx` : `${safeFileName(values['제목'] ?? '', t.name)}.hwpx`;
   const outPath = outputFile({ output_path: p.output_path, source: t.source, name });
   await writeFile(outPath, Buffer.from(r.buffer));
-  return { output_path: outPath, filled: [...new Set(r.filled.map((f) => f.label))], unmatched: r.unmatched };
+  return { output_path: outPath, filled: [...new Set(r.filled.map((f) => f.label))], unmatched: r.unmatched, ...(r.rejected.length ? { rejected: r.rejected } : {}) };
 }
 
 /** 명부 → [머리 행, 데이터 행들(엑셀 줄 번호)] — 머리는 칸이 둘 이상 찬 첫 줄 */

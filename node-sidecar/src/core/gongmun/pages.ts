@@ -7,12 +7,12 @@
 import { readFile, stat } from 'node:fs/promises';
 import { formatOf } from '../files/format.js';
 import { RHWP_MAX_PAGES, rhwpPages, tooBigForRhwp } from '../render/rhwp.js';
-import { openPdf } from '../render/pdfium.js';
+import { closePdfPage, openPdf } from '../render/pdfium.js';
 
 const squash = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!~$>|])/g, '$1').replace(/\*\*/g, '').replace(/[\s 　]+/g, '');
 const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, '&');
 
-const cache = new Map<string, Promise<string[] | null>>();
+const cache = new Map<string, { pages: Promise<string[] | null>; signal?: AbortSignal }>();
 
 async function load(path: string, signal?: AbortSignal): Promise<string[] | null> {
   const fmt = formatOf(path);
@@ -30,7 +30,10 @@ async function load(path: string, signal?: AbortSignal): Promise<string[] | null
     const doc = await openPdf(bytes);
     try {
       const out: string[] = [];
-      for (let i = 0; i < doc.getPageCount(); i++) out.push(squash(doc.getPage(i).getText()));
+      for (let i = 0; i < doc.getPageCount(); i++) {
+        const pg = doc.getPage(i);
+        try { out.push(squash(pg.getText())); } finally { closePdfPage(pg); }
+      }
       return out;
     } finally {
       doc.destroy();
@@ -44,12 +47,14 @@ export async function pageTexts(path: string, signal?: AbortSignal): Promise<str
   const st = await stat(path);
   const key = `${path}|${st.mtimeMs}|${st.size}`;
   let hit = cache.get(key);
-  if (!hit) {
-    hit = load(path, signal).catch(() => null);
+  // 멈춘 요청(다시 점검하며 앞 요청을 멈춤)이 만든 항목은 다시 쓰지 않는다 — 그 실패(null)가 남아 파일이 바뀌기 전까지 쪽 번호가 빠지고
+  // "문서가 커서 쪽을 나누지 못했습니다"라는 틀린 까닭이 떴다
+  if (!hit || hit.signal?.aborted) {
+    hit = { pages: load(path, signal).catch(() => null), signal };
     cache.set(key, hit);
     if (cache.size > 6) cache.delete(cache.keys().next().value!);
   }
-  return hit;
+  return hit.pages;
 }
 
 /** 글이 처음 나오는 쪽 (1부터). 긴 글은 앞 40자로, 너무 짧은 글(2자 이하)은 찾지 않는다 */

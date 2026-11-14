@@ -104,6 +104,19 @@ export function outputDir(opts: { output_dir?: string; source?: string }): strin
   return dir;
 }
 
+/** 파일 이름 한도(macOS·Windows 255바이트 안팎)에 맞춘다 — 긴 한글 이름(84자 = 252바이트)에 "_용량줄임" 같은 뒷말을 붙이면 넘어
+ *  ENAMETOOLONG 으로 실패했다. 뒷말·확장자가 남게 앞부분 뒤를 줄이고 "…" 를 넣는다. " (2)" 를 붙일 자리를 남긴다 */
+const NAME_MAX_BYTES = 240;
+export function fitFileName(name: string): string {
+  if (Buffer.byteLength(name) <= NAME_MAX_BYTES) return name;
+  const ext = extname(name);
+  const chars = [...name.slice(0, name.length - ext.length)];
+  const tail = chars.slice(-16).join('');
+  let head = chars.slice(0, -16);
+  while (head.length && Buffer.byteLength(`${head.join('')}…${tail}${ext}`) > NAME_MAX_BYTES) head = head.slice(0, -1);
+  return `${head.join('')}…${tail}${ext}`;
+}
+
 /** 저장 파일 경로 — name 은 `이름.확장자` (safeFileName 을 거친 것) */
 export function outputFile(opts: { output_path?: string; output_dir?: string; source?: string; name: string; overwrite?: boolean }): string {
   if (opts.output_path) {
@@ -112,5 +125,5 @@ export function outputFile(opts: { output_path?: string; output_dir?: string; so
     // overwrite: 사용자가 저장 창에서 고르고 바꾸기까지 확인한 경로. 그 밖에는 있는 파일을 지키려고 (2) 를 붙인다
     return opts.overwrite ? p : uniquePath(p);
   }
-  return uniquePath(join(outputDir(opts), opts.name));
+  return uniquePath(join(outputDir(opts), fitFileName(opts.name)));
 }

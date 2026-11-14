@@ -109,7 +109,8 @@ function scheduleSave(): void {
     if (!mergeUnread()) return;
     try {
       mkdirSync(dataDir(), { recursive: true });
-      const tmp = `${file()}.tmp`;
+      // 앱 엔진과 MCP 엔진이 같이 저장할 수 있다 — 임시 이름이 같으면 덜 쓴 파일이 바꿔 넣어져 다음 읽기가 기록을 지웠다
+      const tmp = `${file()}.${process.pid}.tmp`;
       await writeFile(tmp, JSON.stringify(data), 'utf-8');
       await rename(tmp, file());
     } catch (err) {

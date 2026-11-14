@@ -13,6 +13,8 @@ import { rpc, errorText } from "../../lib/rpc";
 import { copyTable } from "../../lib/clipboard";
 import { baseName } from "../../lib/format";
 import { Button } from "../ui/Button";
+import { askQuit, useAsk } from "../ui/useAsk";
+import { onQuitGuard } from "../../lib/quit";
 import { Note, SavedFile } from "../common/Status";
 
 /** 화면에서 고치는 칸 */
@@ -60,7 +62,7 @@ function lineOf(r: ReceiptRead, i: number): Line {
   return { key: `${r.path}#${r.page ?? 0}#${i}`, path: r.path, page: r.page, row, low, tips, touched: new Set() };
 }
 
-export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCopy = false, outputDir, actions }: {
+export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCopy = false, outputDir, actions, onEdited }: {
   receipts: ReceiptRead[];
   aiUsed?: boolean;
   warnings?: string[];
@@ -70,6 +72,8 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   outputDir?: string;
   /** 아래 단추 줄에 더할 것 (본창에서 열기 등) */
   actions?: ReactNode;
+  /** 사람이 고친 표가 아직 저장 전인지 알린다 (서무 도구가 새 요청으로 이 표를 지우기 전에 묻는다). 사라질 때 false */
+  onEdited?: (edited: boolean) => void;
 }) {
   const { ai, toast } = useApp();
   const [lines, setLines] = useState<Line[]>(() => receipts.filter((r) => r.ok).map(lineOf));
@@ -85,6 +89,15 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   /** 저장·AI 적요 때 엔진이 알린 것 */
   const [later, setLater] = useState<string[]>([]);
   const rows = useMemo(() => lines.map((l) => l.row), [lines]);
+  /** 사람이 표를 바꿨다(칸 고치기·빼기·AI 적요) · 마지막으로 저장한 줄들. 저장한 뒤로 안 바꿨으면 잃을 것이 없다 */
+  const [changed, setChanged] = useState(false);
+  const [savedRows, setSavedRows] = useState<ReceiptRow[] | null>(null);
+  const unsaved = changed && savedRows !== rows;
+  useEffect(() => { onEdited?.(unsaved); }, [unsaved, onEdited]);
+  useEffect(() => () => onEdited?.(false), [onEdited]);
+  // 트레이 "완전 종료" 전: 고친 표가 저장 전이면 묻는다
+  const { ask, dialog } = useAsk();
+  useEffect(() => onQuitGuard(async () => !unsaved || askQuit(ask, "저장하지 않은 지출조서 표", "고친 지출조서 표를 아직 저장하지 않았습니다. 앱을 끄면 고친 값은 사라집니다.")), [unsaved, ask]);
 
   // 고칠 때마다 (잠깐 멈추면) 미리보기·복사 글을 다시
   useEffect(() => {
@@ -121,6 +134,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   const edit = (key: string, k: EditKey, v: string) => {
     setSaved("");
     staleCopy();
+    setChanged(true);
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, row: { ...l.row, [k]: v }, low: { ...l.low, [k]: false }, touched: new Set(l.touched).add(k) } : l)));
   };
 
@@ -130,6 +144,8 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
       const r = await rpc("receipt_report", { rows, ...(outputDir ? { output_dir: outputDir } : {}) });
       if (r.output_path) {
         setSaved(r.output_path);
+        // 저장하는 사이 고친 칸이 있으면 rows 가 달라져 여전히 저장 전으로 남는다
+        setSavedRows(rows);
         void rpc("open_file", { path: r.output_path }).catch(() => undefined);
       }
       // 경고는 화면에 남긴다 (저장하면 곧바로 한글이 앞에 떠서 잠깐 뜨는 알림은 못 본다: "기본 서식으로 만들었습니다" 등)
@@ -155,6 +171,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
         if (!p?.value || l.touched.has("purpose")) return l;
         return { ...l, row: { ...l.row, purpose: p.value }, low: { ...l.low, purpose: true }, tips: { ...l.tips, purpose: "AI 제안입니다. 맞는지 확인하세요" } };
       }));
+      setChanged(true);
       setAiDone(true);
       toast("AI가 적요를 제안했습니다. 노란 칸을 확인하세요", "success");
     } catch (e) {
@@ -199,7 +216,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
                       </td>
                     ))}
                     <td>
-                      <button type="button" className="kd-icon-btn" onClick={() => { staleCopy(); setLines((ls) => ls.filter((x) => x.key !== l.key)); }} aria-label={`${baseName(l.path)} 빼기`}
+                      <button type="button" className="kd-icon-btn" onClick={() => { staleCopy(); setChanged(true); setLines((ls) => ls.filter((x) => x.key !== l.key)); }} aria-label={`${baseName(l.path)} 빼기`}
                         data-tip="이 영수증을 지출조서에서 뺍니다"><Trash2 size={14} /></button>
                     </td>
                   </tr>
@@ -234,6 +251,7 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
         </>
       )}
       {!lines.length && !failed.length && <p className="kd-small kd-muted">지출조서에 넣을 영수증이 없습니다.</p>}
+      {dialog}
     </div>
   );
 }

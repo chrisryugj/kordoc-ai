@@ -3,7 +3,8 @@
  * 편집기 iframe 은 한 번 붙으면 DOM 안에서 옮기지 않는다(옮기면 편집 상태가 사라짐). 숨길 땐 display:none.
  * 저장은 실제로 파일을 쓴 뒤에만 성공이다. 편집기가 열리는 중이면 저장·출력을 막고(canSave),
  * 고친 게 있는지는 편집기에 직접 묻는다(syncDirty). 편집기가 혼자 지운 dirty 는 믿지 않는다.
- * 저장하지 않은 문서는 30초마다(입력이 2초 멈췄을 때만) 복구 사본으로 남긴다(recovery_write). 저장하거나 버리면 지운다.
+ * 저장하지 않은 문서는 30초마다(입력이 2초 멈췄을 때만) 복구 사본으로 남긴다(recovery_write). 저장하거나 버리면 지운다
+ * (출력하느라 작업 사본에만 쓴 것은 저장이 아니다: 사본을 같은 내용으로 새로 쓴다).
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -77,8 +78,9 @@ interface CreateValue {
   takeAgentTask: (seq: number) => PendingAgentTask | null;
   frameRef: React.RefObject<HTMLIFrameElement | null>;
   frameSrc: string;
-  /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다). recover: 그 경로의 복구 사본을 연다 */
-  openInEditor: (path: string, opts?: OpenOpts) => Promise<void>;
+  /** 파일을 편집기로 열고 편집 단계로 (칸 값이 있으면 채워 넣는다). recover: 그 경로의 복구 사본을 연다.
+   *  그 문서가 지금 세션이 됐으면 true (묻기에서 취소했거나 PDF 가져오기를 취소·실패해 이 문서를 세션에 두지 않았으면 false) */
+  openInEditor: (path: string, opts?: OpenOpts) => Promise<boolean>;
   call: HwpEditorClient["call"];
   focusEditor: () => void;
   saveTo: (path: string, format?: "hwp" | "hwpx") => Promise<string>;
@@ -117,6 +119,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const { settings, toast } = useApp();
   const [step, setStep] = useState<Step>("compose");
   const [session, setSession] = useState<DocSession | null>(null);
+  /** 지금 세션 (열기 도중 앞 문서를 저장했으면 그 뒤 값 — PDF 가져오기를 취소하면 이리로 되돌린다) */
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const [editorState, setEditorState] = useState<EditorState>("idle");
   const [editorError, setEditorError] = useState("");
   const [docState, setDocState] = useState<EditorDocState | null>(null);
@@ -155,6 +160,26 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     recovery.current.gen++;
     recovery.current.seq = -1;
     void rpc("recovery_discard", { path }).catch(() => undefined);
+  }, []);
+  /** 작업 사본에만 쓴 초안(parked)의 복구 사본을 같은 내용으로 새로 쓴다 (seq: 그 내용의 변경 번호).
+   *  r·gen 은 그 내용을 내보내기 전에 잡은 것: 그 뒤 버리기·저장·다른 문서 열기가 있었으면 쓰지 않는다.
+   *  돌던 주기 쓰기(그보다 옛 내용)가 끝난 뒤에 쓴다: 그 쓰기가 나중에 끝나 새 내용을 덮지 않게 */
+  const keepRecovery = useCallback(async (r: typeof recovery.current, gen: number, path: string, data_b64: string, title: string, seq?: number) => {
+    const same = () => recovery.current === r && r.gen === gen;
+    while (r.busy) await new Promise((res) => setTimeout(res, 50));
+    if (!same()) return;
+    r.busy = true;
+    try {
+      await rpc("recovery_write", { path, data_b64, title, working: true });
+      // 쓰는 사이에 지웠다면 방금 쓴 것도 지운다
+      if (!same()) { void rpc("recovery_discard", { path }).catch(() => undefined); return; }
+      if (seq !== undefined) r.seq = seq;
+      r.at = Date.now();
+    } catch {
+      // 사본은 덤: 못 써도 앞서 쓴 사본은 남아 있다
+    } finally {
+      r.busy = false;
+    }
   }, []);
 
   useEffect(() => () => client.current?.destroy(), []);
@@ -234,6 +259,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     if (!session) throw new Error("저장할 문서가 없습니다. 작성 단계에서 시작점을 고르세요.");
     const ed = client.current;
     if (editorState === "ready" && ed && !opening.current) {
+      // 이 문서의 복구 사본 상태 (내보내는 사이 다른 문서를 열면 바뀐다)
+      const rec = recovery.current;
+      const recGen = rec.gen;
       const before = await ed.call("state", {}).catch(() => null);
       const bytes = await ed.save(fmt);
       const data_b64 = bytesToB64(bytes.buffer as ArrayBuffer);
@@ -246,8 +274,11 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // 내보낸 뒤에 고친 게 있으면(저장하는 사이 입력) 그건 아직 저장 안 된 것으로 둔다
       const after = before ? await ed.call("state", {}).catch(() => null) : null;
       const editedMeanwhile = !!before && !!after && after.changeSeq !== before.changeSeq;
-      // 디스크에 지금 내용이 있으니 사본은 지운다 (저장하는 사이 고친 것은 다음 차례에 다시 쓴다)
-      dropRecovery(session.path);
+      // 작업 사본(새로 쓰기 초안)에 쓴 것은 사용자가 저장한 게 아니다: 복구 사본을 지우지 않고 같은 내용으로 새로 쓴다.
+      // 지우면 그 뒤 PC 가 꺼졌을 때 홈 "저장하지 않고 꺼진 문서"에 안 보이고, 초안은 숨은 작업 사본 폴더에만 있다가 14일 뒤 지워진다.
+      // 사용자 자리에 저장했으면 디스크에 지금 내용이 있으니 사본은 지운다 (저장하는 사이 고친 것은 다음 차례에 다시 쓴다)
+      if (session.working && r.path === session.path) void keepRecovery(rec, recGen, session.path, data_b64, session.title, before?.changeSeq);
+      else dropRecovery(session.path);
       // 작업 사본에 쓴 것은 사용자가 저장한 게 아니다 (작업 사본 표시·저장 창 위치를 그대로 둔다)
       setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), format: fmt, dirty: editedMeanwhile, ...(s.working && r.path === s.path ? { parked: true } : { working: false, parked: false, savedAt: Date.now() }) } : s));
       return r.path;
@@ -261,7 +292,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       return r.path;
     }
     throw new Error(editorState === "unavailable" || editorState === "error" ? FIELDS_LOST : NOT_READY);
-  }, [session, editorState, toast, dropRecovery]);
+  }, [session, editorState, toast, dropRecovery, keepRecovery]);
 
   const suggestedName = useMemo(
     () => (session ? suggestFileName(session.title, settings?.org.dept ?? "") : ""),
@@ -343,11 +374,11 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     }
   }, [session, syncDirty, askUser, saveTo, ensureSaved, toast, dropRecovery]);
 
-  const openInEditor = useCallback(async (path: string, opts?: OpenOpts) => {
+  const openInEditor = useCallback(async (path: string, opts?: OpenOpts): Promise<boolean> => {
     // 앞 열기가 아직 끝나지 않았다 (PDF 가져오기 창은 답을 최대 10분 기다린다): 겹쳐 열면 두 열기가 서로를 끊는다
-    if (opening.current) { toast("앞 문서를 여는 중입니다. 편집기의 가져오기 창을 먼저 끝내세요.", "info"); return; }
+    if (opening.current) { toast("앞 문서를 여는 중입니다. 편집기의 가져오기 창을 먼저 끝내세요.", "info"); return false; }
     // 열기 준비(쪽 수 확인·묻기)를 기다리는 사이 또 눌렀다: 두 열기가 함께 들어가면 서로를 끊는다
-    if (entering.current) { toast("앞 문서를 여는 중입니다. 잠시 뒤 다시 누르세요.", "info"); return; }
+    if (entering.current) { toast("앞 문서를 여는 중입니다. 잠시 뒤 다시 누르세요.", "info"); return false; }
     entering.current = true;
     let recover = !!opts?.recover;
     try {
@@ -357,8 +388,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         title: "쪽이 아주 많은 문서",
         body: <p className="kd-text">이 문서는 {pages.toLocaleString("ko-KR")}쪽입니다. 한글 편집기로 열면 오래 걸릴 수 있고, 2분 안에 열리지 않으면 멈춥니다. 내용만 보려면 문서 화면에서 여세요.</p>,
         choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "open", label: "그래도 열기" }],
-      })) !== "open") return;
-      if (!(await settleCurrent())) return;
+      })) !== "open") return false;
+      if (!(await settleCurrent())) return false;
       recovery.current.gen++; // 앞 문서의 사본 쓰기가 아직 돌고 있으면 버린다
       // 이 파일에 저장하지 않고 꺼진 사본이 있으면 무엇을 열지 묻는다
       if (!recover) {
@@ -369,7 +400,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
             body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{baseName(path)}을 고치다 저장하지 않은 채 앱이 꺼졌습니다({new Date(copy.saved_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}). 그때 고친 내용으로 열까요? 원본으로 열면 사본은 지웁니다.</p>,
             choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "original", label: "원본 열기", variant: "secondary" }, { id: "recover", label: "고친 내용으로 열기" }],
           });
-          if (a === "cancel") return;
+          if (a === "cancel") return false;
           if (a === "original") dropRecovery(path);
           recover = a === "recover";
         }
@@ -383,15 +414,18 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     setOpenSeq((n) => n + 1);
     putAgentTask(null);
     recovery.current = { seq: -1, at: 0, busy: false, gen: recovery.current.gen + 1 };
-    // PDF 가져오기를 취소하면 되돌아갈 곳 (편집기에는 앞 문서가 그대로 남는다)
-    const back = { session, step };
+    // PDF 가져오기를 취소하면 되돌아갈 곳 (편집기에는 앞 문서가 그대로 남는다).
+    // 묻기에서 앞 문서를 저장했으면 저장한 뒤의 세션이다 (이 함수를 만들 때의 세션은 저장 전 경로·고침 표시라 되살리면 어긋난다)
+    const back = { session: sessionRef.current, step };
     setSession({ path, name: baseName(path), format, title: opts?.title ?? stem(path), dirty: false, ...(fields ? { withFields: true } : {}), ...(opts?.working ? { working: true } : {}), ...(opts?.existing ? { existing: true } : {}) });
     setStep("edit");
     setBusyText("한글 편집기를 여는 중");
     // 편집기에 이 문서가 실제로 들어갔는지 — 못 들어갔는데 편집기를 그대로 두면 앞 문서 내용이 이 경로로 저장된다
     let loaded = false;
+    /** 이 문서가 지금 세션으로 남았나 (돌려줄 값: 취소·실패로 앞 세션으로 되돌리거나 비우면 false) */
+    let held = true;
     try {
-      if (!(await ensureEditor())) return;
+      if (!(await ensureEditor())) return true;
       const ed = client.current!;
       const file = await rpc("editor_open", { path, ...(recover ? { recover: true } : {}) });
       setSession((s) => (s && s.path === path ? { ...s, token: file.token } : s));
@@ -423,18 +457,20 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         // (PDF 세션을 남기면 "편집기를 열지 못했습니다" 화면에 저장 단추가 켜진 채 갇힌다)
         setSession(back.session);
         setStep(back.session ? back.step : "compose");
+        held = false;
         toast("PDF 가져오기를 취소했습니다.", "info");
       } else {
         if (!loaded && client.current) stopEditor(OPEN_FAILED);
         // 가져오지 못한 PDF 는 "고치지 않은 그대로 저장"할 한글 문서가 없다: 세션을 남기지 않고 작성 단계로
-        if (!loaded && extOf(path) === "pdf") { setSession(null); setStep("compose"); }
+        if (!loaded && extOf(path) === "pdf") { setSession(null); setStep("compose"); held = false; }
         toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
       }
     } finally {
       opening.current = false;
       setBusyText("");
     }
-  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast, dropRecovery, session, step]);
+    return held;
+  }, [askUser, settleCurrent, ensureEditor, stopEditor, toast, dropRecovery, step]);
 
   // 트레이 "완전 종료" 전에 편집 중인 문서를 묻는다
   useEffect(() => onQuitGuard(() => settleCurrent("앱을 끄기 전에")), [settleCurrent]);

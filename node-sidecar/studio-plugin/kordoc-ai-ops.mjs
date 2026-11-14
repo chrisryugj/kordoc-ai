@@ -354,6 +354,8 @@ export function deleteParagraphs(doc, { ids }) {
     checkPara(doc, p);
     if (hasObjects(doc, p.sec, p.para, ctl)) fail(`문단 ${p.sec}.${p.para} 에는 표나 그림이 있어 지우지 않았습니다.`);
     if (p.para === 0) fail(`문단 ${p.sec}.0 은 구역의 첫 문단이라 지우지 않았습니다. 글만 비우려면 rewrite_paragraph 로 빈 글을 주세요.`);
+    // 글을 고칠 땐 괜찮은 조판 설정(머리말·꼬리말·새 쪽 번호·단 정의)도 문단째 지우면 함께 사라져 뒤쪽 쪽 번호·머리말·단이 조용히 바뀐다
+    if ((ctl.get(`${p.sec}.${p.para}`) ?? []).length) fail(`문단 ${p.sec}.${p.para} 에는 머리말·쪽 번호 같은 조판 설정이 있어 지우지 않았습니다. 글만 비우려면 rewrite_paragraph 로 빈 글을 주세요.`);
   }
   ps.sort((a, b) => b.sec - a.sec || b.para - a.para);
   for (const p of ps) {
@@ -439,7 +441,7 @@ export function insertTable(doc, { after, rows }) {
     const c = all.find((x) => x.row === ri && x.col === ci);
     if (!c || !text) return;
     setCell(doc, t, c.cellIdx, String(text));
-    if (ri === 0) String(text).split('\n').forEach((line, li) => { if (line) doc.applyCharFormatInCell(t.sec, t.para, t.ctrl, c.cellIdx, li, 0, line.length, JSON.stringify({ bold: true })); });
+    if (ri === 0) String(text).split('\n').forEach((line, li) => { if (line) doc.applyCharFormatInCell(t.sec, t.para, t.ctrl, c.cellIdx, li, 0, [...line].length, JSON.stringify({ bold: true })); });
   }));
   return { table: `${t.sec}.${t.para}.${t.ctrl}`, rows: rows.length, cols };
 }
@@ -509,8 +511,9 @@ export function formatText(doc, { id, find: text, ...f }) {
   if (text) {
     const i = full.indexOf(text);
     if (i < 0) fail(`문단 ${id} 에 "${text}" 가 없습니다.`);
-    start = i;
-    end = i + text.length;
+    // 엔진 글자 자리는 코드 포인트로 센다 (insertFootnote 와 같다) — UTF-16 자리를 넘기면 확장 한자·그림 문자 뒤 낱말에서 서식이 밀렸다
+    start = [...full.slice(0, i)].length;
+    end = start + [...text].length;
   }
   if (end <= start) fail(`문단 ${id} 에 글이 없습니다.`);
   doc.applyCharFormat(p.sec, p.para, start, end, JSON.stringify(charProps(doc, f)));

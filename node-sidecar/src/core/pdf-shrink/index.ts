@@ -206,8 +206,10 @@ async function rasterize(bytes: Uint8Array, step: { dpi: number; quality: number
     const n = src.getPageCount();
     for (let i = 1; i <= n; i++) {
       signal?.throwIfAborted();
-      const { originalWidth } = src.getPage(i - 1).getOriginalSize();
-      const r = await rasterPdfPage(src, i, Math.round((originalWidth / 72) * step.dpi), 'jpeg', step.quality);
+      // 크기를 보려고 불러 둔 쪽을 그대로 그린다(그리면서 닫힌다) — 따로 또 불러 그리면 이 쪽 객체가 닫히지 않고 남았다
+      const page = src.getPage(i - 1);
+      const { originalWidth } = page.getOriginalSize();
+      const r = await rasterPdfPage(src, i, Math.round((originalWidth / 72) * step.dpi), 'jpeg', step.quality, page);
       const pic = await out.embedJpg(r.data);
       out.addPage([r.width, r.height]).drawImage(pic, { x: 0, y: 0, width: r.width, height: r.height });
       sendProgress({ current: i, total: n, message: `쪽을 그림으로 바꾸는 중 (${i}/${n}쪽)` });

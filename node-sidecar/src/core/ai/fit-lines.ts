@@ -101,7 +101,7 @@ export async function fitLinesWithAi(p: GenerateParams, signal: AbortSignal): Pr
     const tried: Array<{ i: number; before: string; after: string }> = [];
     for (const it of items) {
       const t = targets[Number(String(it.id).replace(/\D/g, '')) - 1];
-      const after = typeof it.text === 'string' ? it.text.trim() : '';
+      const after = typeof it.text === 'string' ? r.restore(it.text).trim() : '';
       if (!t || !after) continue;
       const shorter = t.text.replace(/\s+/g, '').length - after.replace(/\s+/g, '').length;
       // 숫자가 바뀌었거나 덜 줄였거나 지나치게 줄인(뜻이 빠졌을 수 있는) 답은 버린다

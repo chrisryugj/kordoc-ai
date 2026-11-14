@@ -20,7 +20,10 @@ export function createAnthropicProvider(cfg: { api_key: string; model: string },
     async chat(req: ChatRequest) {
       if (!cfg.api_key) throw new Error('Claude API 키가 없습니다. 설정 › AI 연결에서 넣으세요.');
       await assertAllowed('https://api.anthropic.com/v1/messages');
-      const client = new Anthropic({ apiKey: cfg.api_key, timeout: timeoutMs, maxRetries: 2 });
+      // SDK 는 주소·토큰·헤더를 환경 변수(Claude Code·사내 게이트웨이용 ANTHROPIC_BASE_URL·AUTH_TOKEN·CUSTOM_HEADERS)에서도 읽는다 —
+      // 그러면 관문이 확인하고 기록한 곳(api.anthropic.com)과 다른 곳으로 문서가 갔다. 주소·토큰은 박고, 헤더 변수는 지우고, 넘겨주기는 따르지 않는다
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+      const client = new Anthropic({ apiKey: cfg.api_key, authToken: null, baseURL: 'https://api.anthropic.com', timeout: timeoutMs, maxRetries: 2, fetchOptions: { redirect: 'error' } });
 
       const messages: Anthropic.Beta.BetaMessageParam[] = req.messages.map((m) => ({
         role: m.role,

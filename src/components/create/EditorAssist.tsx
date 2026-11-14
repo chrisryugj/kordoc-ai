@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ClipboardCheck, Download, Replace, Scale, Sparkles, SpellCheck, Square, Undo2 } from "lucide-react";
 import type { LintFinding, ReviewIssue, RpcResult } from "../../lib/contract";
+import type { EditorParagraphTarget } from "../../../node-sidecar/src/types/editor-bridge";
 import { useApp } from "../../state/app";
 import { useCreate, visibleField } from "./session";
 import { rpc, errorText } from "../../lib/rpc";
@@ -135,6 +136,9 @@ function LawTab() {
   );
 }
 
+/** 같은 본문 문단인가 (편집기 커서 자리) */
+const sameParagraph = (a: EditorParagraphTarget | null, b: EditorParagraphTarget) => !!a && a.section === b.section && a.paragraph === b.paragraph;
+
 type Mode = "polish" | "concise" | "gaejosik" | "narrative" | "public" | "formal";
 const MODES: Array<{ value: Mode; label: string }> = [
   { value: "polish", label: "다듬기" }, { value: "concise", label: "간결하게" }, { value: "gaejosik", label: "개조식" },
@@ -143,34 +147,77 @@ const MODES: Array<{ value: Mode; label: string }> = [
 
 function RewriteTab() {
   const { toast, ai } = useApp();
-  const { call, editorState, focusEditor } = useCreate();
+  const { call, editorState, focusEditor, docSeq } = useCreate();
   const [source, setSource] = useState("");
   const [mode, setMode] = useState<Mode>("polish");
   const [out, setOut] = useState("");
-  const [replaced, setReplaced] = useState(false);
+  /** 바꿔 넣은 직후의 문서 변경 번호 (null: 되돌릴 것 없음). 그 뒤로 문서가 바뀌었으면 되돌리기가 다른 고침을 지운다 */
+  const [replaced, setReplaced] = useState<number | null>(null);
+  /** 가져온 문단 — 바꿔 넣기는 편집기가 지금 커서가 있는 문단을 바꾸므로, 넣기 직전에 커서가 아직 이 문단에 있고 글도 그대로인지 본다 */
+  const picked = useRef<{ target: EditorParagraphTarget; text: string } | null>(null);
   const grab = useTask<void>();
   const rewrite = useTask<void>();
   const replace = useTask<void>();
+
+  // 편집기에 다른 문서를 열면 앞 문서에서 가져온 글·다듬은 글·되돌리기를 지운다 (남으면 새 문서의 문단을 바꾸거나 되돌린다)
+  useEffect(() => {
+    grab.reset();
+    rewrite.reset();
+    replace.reset();
+    setSource("");
+    setOut("");
+    setReplaced(null);
+    picked.current = null;
+  }, [docSeq, grab.reset, rewrite.reset, replace.reset]);
 
   const take = () => void grab.run(async () => {
     const r = await call("selection_text", {});
     setSource(r.text);
     setOut("");
-    setReplaced(false);
+    setReplaced(null);
+    picked.current = r.target && r.text.trim() ? { target: r.target, text: r.text } : null;
     // 표 칸·글상자 안에서는 편집기가 문단을 알려 주지 않는다 (기안문 머리·결재란도 표다)
     if (!r.text.trim()) throw new Error(r.target ? "커서가 있는 문단이 비어 있습니다. 고칠 글이 있는 문단에 커서를 두세요." : "본문 문단에 커서를 두고 다시 누르세요. 표 칸 안의 글은 가져올 수 없으니 복사해서 아래 칸에 붙여 넣으세요.");
   });
   const run = () => {
     setOut("");
-    setReplaced(false);
+    setReplaced(null);
     void rewrite.run(async ({ signal }) => {
       const r = await rpc("ai_rewrite", { text: source, mode }, { signal, onToken: (t) => setOut((o) => o + t) });
       setOut(r.text);
     });
   };
+  /** 바꿔 넣기·되돌리기 뒤: 커서가 아직 그 문단에 있으면 그 문단의 지금 글로 기억을 고친다 (다른 방식으로 다시 다듬어 또 바꿔 넣을 수 있게) */
+  const repick = async (t: EditorParagraphTarget) => {
+    const now = await call("selection_text", {}).catch(() => null);
+    picked.current = now && sameParagraph(now.target, t) ? { target: t, text: now.text } : null;
+  };
   const put = () => void replace.run(async () => {
+    const from = picked.current;
+    // 편집기에서 가져온 문단이 없다 (아래 칸에 직접 붙여 넣은 글): 어느 문단을 바꿀지 모르니 복사해 두고 붙여 넣게 한다
+    if (!from) {
+      await navigator.clipboard.writeText(out);
+      focusEditor();
+      toast("편집기에서 가져온 문단이 없어 바꿔 넣지 않고 복사해 두었습니다. 바꿀 글을 골라 Ctrl+V(맥은 ⌘V)로 붙여 넣으세요.", "info");
+      return;
+    }
+    const now = await call("selection_text", {});
+    if (!sameParagraph(now.target, from.target)) {
+      toast("가져온 문단에서 커서가 옮겨졌습니다. 그 문단에 커서를 두고 다시 가져오세요.", "info");
+      return;
+    }
+    if (now.text !== from.text) {
+      toast("가져온 뒤 그 문단의 글이 바뀌었습니다. 고칠 문단을 다시 가져오세요.", "info");
+      return;
+    }
     const r = await call("replace_selection", { text: out });
-    if (r.ok) { setReplaced(true); toast("편집기의 글을 바꿨습니다", "success"); return; }
+    if (r.ok) {
+      const st = await call("state", {}).catch(() => null);
+      setReplaced(st ? st.changeSeq : null);
+      await repick(from.target);
+      toast("편집기의 글을 바꿨습니다", "success");
+      return;
+    }
     if (r.fallback === "paste") {
       await navigator.clipboard.writeText(out);
       focusEditor();
@@ -178,6 +225,18 @@ function RewriteTab() {
       return;
     }
     throw new Error(r.reason || "바꿔 넣지 못했습니다. 글을 복사해 직접 붙여 넣으세요.");
+  });
+  // 바꿔 넣은 뒤 문서가 또 바뀌었으면(직접 고침·AI 대화·칸 채우기) 실행 취소가 그 고침을 지운다: 되돌리지 않고 알린다
+  const undo = () => void replace.run(async () => {
+    const st = await call("state", {});
+    if (st.changeSeq !== replaced) {
+      setReplaced(null);
+      toast("바꿔 넣은 뒤 문서가 또 바뀌어 되돌리지 않았습니다. 편집기에서 실행 취소(Ctrl+Z, 맥은 ⌘Z)를 차례로 눌러 되돌리세요.", "info");
+      return;
+    }
+    await call("undo", {});
+    setReplaced(null);
+    if (picked.current) await repick(picked.current.target);
   });
 
   if (!ai?.configured) return <AiOffNote>고른 글을 다듬으려면 AI가 필요합니다.</AiOffNote>;
@@ -198,7 +257,7 @@ function RewriteTab() {
           {!rewrite.busy && (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={put} disabled={replace.busy || editorState !== "ready"} data-tip="편집기의 그 글을 이 글로 바꿉니다. 되돌리기로 돌아갈 수 있습니다"><Replace size={13} /> 바꿔 넣기</Button>
-              {replaced && <Button size="sm" variant="secondary" onClick={() => void call("undo", {}).then(() => setReplaced(false))}><Undo2 size={13} /> 되돌리기</Button>}
+              {replaced !== null && <Button size="sm" variant="secondary" onClick={undo} disabled={replace.busy}><Undo2 size={13} /> 되돌리기</Button>}
             </div>
           )}
           <ErrorLine message={replace.error} />
