@@ -6,7 +6,8 @@ import { PDFDocument } from 'pdf-lib';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
-import { resultDir, stemOf } from '../output/index.js';
+import { dropPartial, resultDir, stemOf } from '../output/index.js';
+import { loadPdf } from '../export/index.js';
 
 /** 여러 PDF를 하나로 병합 */
 export async function concatPdf(
@@ -179,7 +180,8 @@ export async function splitPdf(
 ): Promise<SplitPdfResult> {
   const { file, mode = 'each', ranges } = params;
   const buffer = await readFile(file);
-  const srcDoc = await PDFDocument.load(buffer);
+  // 보안 설정만 걸린 PDF(발급 서류)는 쪽 그림으로 바꿔 나눈다 — 합본·PDF 작업 화면과 같게
+  const srcDoc = await loadPdf(buffer, signal);
   const totalPages = srcDoc.getPageCount();
   const outputFiles: string[] = [];
   // 맥 경로의 자소 갈라진 이름은 완성형으로, 대문자 .PDF 도 뺀다
@@ -190,34 +192,40 @@ export async function splitPdf(
 
   logger.info(`[split-pdf] ${file} (${totalPages}p) → ${mode} 모드`);
 
-  if (mode === 'range' && ranges) {
-    const groups = parseRanges(ranges, totalPages);
-    for (let gi = 0; gi < groups.length; gi++) {
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      const doc = await PDFDocument.create();
-      const pages = await doc.copyPages(srcDoc, groups[gi]);
-      for (const page of pages) doc.addPage(page);
-      const outPath = join(output_dir, `${baseName}_${gi + 1}.pdf`);
-      await writeFile(outPath, await doc.save());
-      outputFiles.push(outPath);
-    }
-  } else {
-    for (let i = 0; i < totalPages; i++) {
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  try {
+    if (mode === 'range' && ranges) {
+      const groups = parseRanges(ranges, totalPages);
+      for (let gi = 0; gi < groups.length; gi++) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const doc = await PDFDocument.create();
+        const pages = await doc.copyPages(srcDoc, groups[gi]);
+        for (const page of pages) doc.addPage(page);
+        const outPath = join(output_dir, `${baseName}_${gi + 1}.pdf`);
+        outputFiles.push(outPath);
+        await writeFile(outPath, await doc.save());
+      }
+    } else {
+      for (let i = 0; i < totalPages; i++) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-      sendProgress({
-        current: i + 1,
-        total: totalPages,
-        message: `PDF 나누는 중 ${i + 1}/${totalPages}쪽`,
-      });
+        sendProgress({
+          current: i + 1,
+          total: totalPages,
+          message: `PDF 나누는 중 ${i + 1}/${totalPages}쪽`,
+        });
 
-      const doc = await PDFDocument.create();
-      const [page] = await doc.copyPages(srcDoc, [i]);
-      doc.addPage(page);
-      const outPath = join(output_dir, `${baseName}_p${String(i + 1).padStart(3, '0')}.pdf`);
-      await writeFile(outPath, await doc.save());
-      outputFiles.push(outPath);
+        const doc = await PDFDocument.create();
+        const [page] = await doc.copyPages(srcDoc, [i]);
+        doc.addPage(page);
+        const outPath = join(output_dir, `${baseName}_p${String(i + 1).padStart(3, '0')}.pdf`);
+        outputFiles.push(outPath);
+        await writeFile(outPath, await doc.save());
+      }
     }
+  } catch (err) {
+    // 멈추거나 쓰다 실패하면 반쯤 만든 조각을 남기지 않는다
+    await dropPartial(outputFiles, output_dir);
+    throw err;
   }
 
   logger.info(`[split-pdf] done → ${outputFiles.length}개 파일`);

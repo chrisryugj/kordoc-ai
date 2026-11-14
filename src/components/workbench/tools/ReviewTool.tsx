@@ -10,8 +10,9 @@ import { rpc } from "../../../lib/rpc";
 import { useTask } from "../../../hooks/useTask";
 import { Button } from "../../ui/Button";
 import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../../common/Status";
+import { AiWhere } from "../../common/AiGate";
 import { Check } from "../../common/Field";
-import { isHangul } from "../../../lib/format";
+import { baseName, isHangul } from "../../../lib/format";
 import { LawResults, lawReason, type LawCitation } from "./LawResults";
 import { precheckTask, sentPoints } from "../../../lib/hwp-agent/precheck-task";
 
@@ -134,7 +135,7 @@ export function keepFromSettings(org?: { phone?: string; fax?: string; person?: 
 }
 
 export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { onGoPage?: (page: number) => void; autoRun?: number }) {
-  const { ai, openSettings, settings, openDocs, startCreate } = useApp();
+  const { ai, openSettings, settings, openDocs, startCreate, toast } = useApp();
   const hangul = isHangul(info.format);
   const [munche, setMunche] = useState(false);
   /** 지금 점검한 문서 (고친 뒤엔 고친 사본) */
@@ -212,7 +213,15 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
     if (!fixedCopy && onGoPage) onGoPage(x.page);
     else openDocs([target], { page: x.page });
   };
-  const runFix = () => void fix.run(() => rpc("lint_fix", { path: target, fixes })).then((r) => { if (r) runAll(r.output_path); });
+  const runFix = () => {
+    const n = run.current;
+    void fix.run(() => rpc("lint_fix", { path: target, fixes })).then((r) => {
+      if (!r) return;
+      // 고치는 사이 점검을 다시 시작했으면 그 점검을 사본 것으로 바꾸지 않는다 (원본을 다시 본 줄 아는데 사본 결과가 뜬다). 사본이 생긴 것은 알린다
+      if (n !== run.current) { toast(`고친 사본을 저장했습니다: ${baseName(r.output_path)}. 그 사이 다시 시작한 점검은 원본을 봅니다.`, "info"); return; }
+      runAll(r.output_path);
+    });
+  };
 
   const done = !!pre.result && !pre.busy;
   /** K팀장·법령 확인이 아직 돈다 — 이때 "고칠 것 0" 을 녹색으로 내면 다 본 것처럼 읽힌다 */
@@ -228,6 +237,8 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
           <ClipboardCheck size={14} /> 결재 전 한 번에 점검
         </Button>
       )}
+      {/* 점검은 K팀장(AI) 검토까지 이어서 하니, 문서가 어디로 가는지 단추 곁에 밝힌다 */}
+      <AiWhere />
       <div className="kd-adv">
         <Check label="개조식 끝맺음(함·임)도 보기" desc="보고서·계획서일 때" checked={munche} onChange={setMunche} />
       </div>

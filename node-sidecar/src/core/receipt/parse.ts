@@ -82,7 +82,7 @@ export function linesFromMarkdown(md: string): ReceiptLine[] {
 const MONEY = /(\d{1,3}(?:[,.]\d{3})+|\d+)/g;
 export function amountsIn(text: string): number[] {
   // 사업자번호·카드·날짜·시각·전화는 금액이 아니다 (사업자번호를 먼저: 날짜 꼴로 잘못 잡히지 않게)
-  const clean = text
+  const clean = text.normalize('NFKC')
     .replace(/\d{3}-\d{2}-\d{5}/g, ' ')
     .replace(/[\d*]{4}-[\d*]{2,4}-[\d*]{4}-[\d*]{3,4}/g, ' ')
     .replace(/\d{2,4}\s*[.\-/년]\s*\d{1,2}\s*[.\-/월]\s*\d{1,2}(?!\d)일?/g, ' ')

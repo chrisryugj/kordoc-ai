@@ -24,7 +24,8 @@ export function trimHistory(events: AgentEvent[], limit = HISTORY_CHARS): void {
   for (const e of events) if (e.role === "user" && "context" in e) delete (e as { context?: string }).context;
   const size = () => events.reduce((n, e) => n + JSON.stringify(e).length, 0);
   while (size() > limit) {
-    const next = events.findIndex((e, i) => i > 0 && e.role === "user");
+    // 루프가 넣은 되묻기(auto)는 요청 경계가 아니다
+    const next = events.findIndex((e, i) => i > 0 && e.role === "user" && !e.auto);
     if (next < 0) break;
     events.splice(0, next);
   }
@@ -37,13 +38,16 @@ export interface RunHooks {
   onTool(t: { name: string; summary: string; isError: boolean }): void;
 }
 
+/** cut: 일을 다 하지 못하고 루프가 끊었다 (되풀이·연속 실패·차례 상한). 부른 쪽이 "끝남"으로 그리지 않게 */
+export interface RunResult { text: string; redacted: number; cut?: boolean }
+
 export async function runAgent(opts: {
   skill: AgentSkill;
   events: AgentEvent[];
   request: string;
   signal: AbortSignal;
   hooks: RunHooks;
-}): Promise<{ text: string; redacted: number }> {
+}): Promise<RunResult> {
   const { skill, events, signal, hooks } = opts;
   const context = skill.buildContext?.() ?? "";
   trimHistory(events);
@@ -58,7 +62,7 @@ export async function runAgent(opts: {
   let lastCalls = "";
   let sameCalls = 0;
   let failedSteps = 0;
-  const steps = async (): Promise<{ text: string; redacted: number }> => {
+  const steps = async (): Promise<RunResult> => {
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
       const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events }, { signal });
@@ -69,7 +73,7 @@ export async function runAgent(opts: {
         const fix = corrected ? null : skill.verifyResponse?.(text, executed) ?? null;
         if (!fix) return { text, redacted };
         corrected = true;
-        events.push({ role: "user", text: fix });
+        events.push({ role: "user", text: fix, auto: true });
         continue;
       }
       const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
@@ -100,10 +104,12 @@ export async function runAgent(opts: {
       sameCalls = sig && sig === lastCalls ? sameCalls + 1 : 1;
       lastCalls = sig;
       failedSteps = results.every((r) => r.isError) ? failedSteps + 1 : 0;
-      if (sameCalls >= SAME_CALLS) return { text: "같은 일을 되풀이해 멈췄습니다. 요청을 조금 바꾸거나 나눠서 다시 시도하세요.", redacted };
-      if (failedSteps >= FAILED_STEPS) return { text: "도구가 계속 실패해 멈췄습니다. 위 진행 줄의 실패 까닭을 확인하고 다시 시도하세요.", redacted };
+      if (sameCalls >= SAME_CALLS) return { text: "같은 일을 되풀이해 멈췄습니다. 요청을 조금 바꾸거나 나눠서 다시 시도하세요.", redacted, cut: true };
+      if (failedSteps >= FAILED_STEPS) return { text: "도구가 계속 실패해 멈췄습니다. 위 진행 줄의 실패 까닭을 확인하고 다시 시도하세요.", redacted, cut: true };
     }
-    return { text: text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.", redacted };
+    // 모델이 도구와 함께 쓴 중간 글이 있어도 멈췄다고 알린다 (그 글만 보이면 일이 다 끝난 것처럼 읽힌다)
+    const note = "도구를 너무 여러 번 불러 멈췄습니다. 남은 일은 요청을 나눠 다시 시도하세요.";
+    return { text: text ? `${text}\n\n${note}` : note, redacted, cut: true };
   };
   try {
     return await steps();

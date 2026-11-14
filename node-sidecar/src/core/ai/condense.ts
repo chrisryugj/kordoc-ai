@@ -46,13 +46,16 @@ export async function condense(
     for (let i = 0; i < pieces.length; i++) {
       signal.throwIfAborted();
       sendProgress({ current: i, total: pieces.length, message: `긴 글 나눠 읽는 중 (${i + 1}/${pieces.length})` });
-      const r = await ask({
+      const note = (maxTokens: number) => ask({
         system: SYSTEM,
         messages: [{ role: 'user', content: `다음은 긴 문서의 ${i + 1}/${pieces.length} 부분입니다. ${focus}을(를) 중심으로 요점만 불릿으로 정리하세요.\n\n---\n\n${pieces[i]}` }],
-        maxTokens: NOTE_TOKENS,
+        maxTokens,
         signal,
         stream: false,
       });
+      let r = await note(NOTE_TOKENS);
+      // 요점이 길이 한도에서 끊기면 그 조각의 뒷부분이 빠진 채 다음 단계의 근거가 된다 — 한도를 올려 한 번 다시 받는다
+      if (r.truncated) r = await note(NOTE_TOKENS * 2);
       redacted += r.redacted;
       // 요점은 다음 질문에 다시 실려 그때 또 가려진다 — 여기서 되돌려 두어야 마지막 답의 가린 값도 되돌릴 수 있다
       notes.push(r.restore(r.text).trim());

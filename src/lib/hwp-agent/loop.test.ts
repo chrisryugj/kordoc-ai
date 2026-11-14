@@ -1,7 +1,7 @@
 /** 편집기 AI 대화 기록 덜어내기 — 지난 요청의 문서 맥락은 빼고, 길면 오래된 요청부터 통째로 */
 
 import { describe, it, expect, vi } from "vitest";
-import { runAgent, trimHistory, type AgentEvent } from "./loop";
+import { MAX_STEPS, runAgent, trimHistory, type AgentEvent } from "./loop";
 import type { AgentSkill } from "./types";
 
 const step = vi.hoisted(() => vi.fn());
@@ -27,10 +27,34 @@ describe("trimHistory", () => {
     expect(ev).toHaveLength(2);
   });
 
+  it("루프가 넣은 되묻기는 요청 경계가 아니다 (되묻기부터 남기면 사용자 요청 없이 되묻기만 남는다)", () => {
+    const ev: AgentEvent[] = [
+      ask("하나"), say("x".repeat(300)), { role: "user", text: "정말 고쳤나요?", auto: true }, say("고쳤습니다"),
+      ask("둘"), say("짧음"),
+    ];
+    trimHistory(ev, 200);
+    expect(ev[0]).toEqual(ask("둘"));
+  });
+
   it("요청이 하나뿐이면 길어도 지우지 않는다", () => {
     const ev = [ask("하나"), say("x".repeat(500))];
     trimHistory(ev, 100);
     expect(ev).toHaveLength(2);
+  });
+});
+
+describe("runAgent — 되묻기", () => {
+  it("하지 않은 편집을 했다고 답해 되물을 때 그 글에 auto 표지를 단다 (엔진이 사용자 요청으로 세지 않게)", async () => {
+    const ev: AgentEvent[] = [];
+    step.mockReset()
+      .mockResolvedValueOnce({ text: "고쳤습니다", redacted: 0, calls: [] })
+      .mockResolvedValueOnce({ text: "고치지 못했습니다", redacted: 0, calls: [] });
+    const skill = { systemPrompt: "", tools: [], executeTool: vi.fn(), verifyResponse: () => "실제로 고친 것이 없습니다. 다시 답하세요." } as unknown as AgentSkill;
+    await runAgent({ skill, events: ev, request: "주민번호를 가려 줘", signal: new AbortController().signal, hooks: { onText: vi.fn(), onTool: vi.fn() } });
+    expect(ev.filter((e) => e.role === "user")).toEqual([
+      expect.objectContaining({ text: "주민번호를 가려 줘" }),
+      { role: "user", text: "실제로 고친 것이 없습니다. 다시 답하세요.", auto: true },
+    ]);
   });
 });
 
@@ -93,5 +117,23 @@ describe("runAgent — 헛도는 모델", () => {
     const r = await runAgent({ skill: skill(async (c) => ({ output: `못 찾음 ${String(c.input.path)}`, summary: "실패", isError: true })), events: [], request: "읽어", signal: ac(), hooks: hooks() });
     expect(step).toHaveBeenCalledTimes(5);
     expect(r.text).toMatch(/계속 실패/);
+    expect(r.cut).toBe(true);
+  });
+
+  it("차례 상한에 걸리면 모델이 중간에 쓴 글이 있어도 멈췄다고 알리고 끊김으로 돌려준다", async () => {
+    let n = 0;
+    step.mockReset().mockImplementation(async () => ({ text: "다음 문서를 변환하겠습니다", redacted: 0, calls: [{ id: "1", name: "convert", input: { n: n++ } }] }));
+    const r = await runAgent({ skill: skill(async () => ({ output: "바꿈", summary: "바꿈", mutated: true })), events: [], request: "하나씩 PDF로", signal: ac(), hooks: hooks() });
+    expect(step).toHaveBeenCalledTimes(MAX_STEPS);
+    expect(r.text).toMatch(/^다음 문서를 변환하겠습니다/);
+    expect(r.text).toMatch(/너무 여러 번 불러 멈췄습니다/);
+    expect(r.cut).toBe(true);
+  });
+
+  it("도구 없이 답하고 끝난 요청은 끊김이 아니다", async () => {
+    step.mockReset().mockResolvedValue({ text: "요약입니다", redacted: 0, calls: [] });
+    const r = await runAgent({ skill: skill(vi.fn()), events: [], request: "요약해 줘", signal: ac(), hooks: hooks() });
+    expect(r.text).toBe("요약입니다");
+    expect(r.cut).toBeFalsy();
   });
 });

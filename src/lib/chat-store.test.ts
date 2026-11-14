@@ -2,11 +2,18 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { chatIdOf, deleteChat, loadChat, loadChats, saveChat } from "./chat-store";
 
 const mem = new Map<string, string>();
+/** 저장소 크기 상한 (글자 수): 넘으면 실제 저장소처럼 쓰기가 던진다 */
+let cap = Infinity;
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
     getItem: (k: string) => mem.get(k) ?? null,
-    setItem: (k: string, v: string) => void mem.set(k, String(v)),
+    setItem: (k: string, v: string) => {
+      let size = String(v).length;
+      for (const [key, val] of mem) if (key !== k) size += val.length;
+      if (size > cap) throw new Error("QuotaExceededError");
+      mem.set(k, String(v));
+    },
     removeItem: (k: string) => void mem.delete(k),
   },
 });
@@ -33,6 +40,20 @@ describe("chat-store", () => {
     deleteChat("a");
     expect(loadChats()).toEqual([]);
     expect(loadChat("a")).toBeNull();
+  });
+
+  it("저장소가 가득 차 오래된 대화를 지웠으면 몇 개를 지웠는지 돌려준다", () => {
+    const big = (startedAt: number) => ({ ...turn(startedAt), text: "가".repeat(3_000) });
+    expect(saveChat({ id: "a", title: "가", createdAt: 1, updatedAt: 1 }, { paths: [], turns: [big(1)], events: [] })).toBe(0);
+    expect(saveChat({ id: "b", title: "나", createdAt: 2, updatedAt: 2 }, { paths: [], turns: [big(2)], events: [] })).toBe(0);
+    cap = 8_000;
+    try {
+      expect(saveChat({ id: "c", title: "다", createdAt: 3, updatedAt: 3 }, { paths: [], turns: [big(3)], events: [] })).toBe(1);
+    } finally { cap = Infinity; }
+    // 가장 오래된 대화만 밀려난다
+    expect(loadChats().map((c) => c.id)).toEqual(["c", "b"]);
+    expect(loadChat("a")).toBeNull();
+    expect(loadChat("c")).not.toBeNull();
   });
 });
 

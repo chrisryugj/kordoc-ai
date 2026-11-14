@@ -186,10 +186,15 @@ export async function draftDocument(params: DraftParams, signal: AbortSignal): P
     if (lintErrors(fixed, preset).length < errors.length) markdown = fixed;
   }
   sendProgress({ current: 3, total: 3, message: '초안 완료' });
+  const notes = [
+    // 답이 길이 한도에서 끊겼으면 알린다 (끝이 빠진 초안이 완성본처럼 보이지 않게)
+    first.truncated ? 'AI 답이 길이 한도에서 끊겨 초안의 끝부분이 빠졌습니다. 분량을 줄이거나 다시 만들어 보세요.' : '',
+    // 참고 문서가 길어 일부만 읽었으면 알린다 (전체를 읽고 쓴 초안처럼 보이면 빠진 내용을 모른 채 쓴다)
+    refs.partial ? `참고 문서가 길어 ${refs.partial.total}부분으로 나눈 뒤 처음부터 끝까지 고르게 ${refs.partial.read}부분만 읽고 썼습니다. 빠진 내용이 없는지 원문과 견주세요.` : '',
+  ].filter(Boolean);
   return {
     markdown: escapeLineDates(markdown), redacted,
-    // 참고 문서가 길어 일부만 읽었으면 알린다 (전체를 읽고 쓴 초안처럼 보이면 빠진 내용을 모른 채 쓴다)
-    ...(refs.partial ? { note: `참고 문서가 길어 ${refs.partial.total}부분으로 나눈 뒤 처음부터 끝까지 고르게 ${refs.partial.read}부분만 읽고 썼습니다. 빠진 내용이 없는지 원문과 견주세요.` } : {}),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
     ...(orgRef ? { org: { kind: orgRef.kind, label: orgRef.label, title: orgRef.exemplar.title, count: orgRef.count } } : {}),
   };
 }

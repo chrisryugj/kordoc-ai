@@ -14,8 +14,9 @@ export function loadMyPrompts(): MyPrompt[] {
   }
 }
 
-function save(list: MyPrompt[]) {
-  try { localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX))); } catch { /* 이번 실행 동안만 */ }
+/** 저장소에 썼으면 true (가득 차서 못 썼으면 false) */
+function save(list: MyPrompt[]): boolean {
+  try { localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX))); return true; } catch { return false; }
 }
 
 /** 첫 줄 앞부분을 이름으로 */
@@ -24,14 +25,13 @@ export function promptTitle(text: string): string {
   return one.length > 24 ? `${one.slice(0, 23)}…` : one;
 }
 
-/** 같은 글이 이미 있으면 그대로 두고 false */
-export function addMyPrompt(text: string): boolean {
+/** 같은 글이 이미 있으면 그대로 두고 "same", 저장소가 가득 차 못 넣었으면 "full" */
+export function addMyPrompt(text: string): "saved" | "same" | "full" {
   const t = text.trim();
-  if (!t) return false;
+  if (!t) return "same";
   const list = loadMyPrompts();
-  if (list.some((p) => p.text === t)) return false;
-  save([{ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: promptTitle(t), text: t, at: Date.now(), uses: 0 }, ...list]);
-  return true;
+  if (list.some((p) => p.text === t)) return "same";
+  return save([{ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: promptTitle(t), text: t, at: Date.now(), uses: 0 }, ...list]) ? "saved" : "full";
 }
 
 export function useMyPrompt(id: string) {

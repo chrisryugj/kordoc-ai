@@ -239,6 +239,8 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const saving = useRef<Promise<string | null> | null>(null);
   /** 닫으려는데 저장이 실패했다 — 버리고 닫을 길을 보인다 */
   const [closeFailed, setCloseFailed] = useState(false);
+  /** 고친 횟수 — 저장하는 사이 또 고쳤으면 그 저장으로 "저장됨"이 되지 않게 (그 고침은 파일에 안 들어갔을 수 있다) */
+  const edits = useRef(0);
   const doSave = useCallback((auto: boolean): Promise<string | null> => {
     if (saving.current) return saving.current;
     const p = saveOnce(auto).finally(() => { saving.current = null; });
@@ -250,11 +252,12 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   const saveOnce = async (auto: boolean): Promise<string | null> => {
     if (!sessionId) return null;
     setBusy("save");
+    const at = edits.current;
     try {
       // 처음 저장은 지난번 편집본을 덮지 않게 새 이름을 받는다
       const r = await sidecarCall("edit_save", { session_id: sessionId, output_path: savedPath ?? savePath, fresh: !savedPath }) as { output_path: string };
       setSavedPath(r.output_path);
-      setDirty(false);
+      if (edits.current === at) setDirty(false);
       setSavedAt(new Date());
       if (!auto) showToast(`저장했습니다: ${r.output_path}`, "success");
       return r.output_path;
@@ -266,12 +269,12 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     }
   };
 
-  // 변경 후 30초 뒤 자동저장 — dirty가 유지되는 동안 1회
+  // 변경 후 30초 뒤 자동저장 — dirty가 유지되는 동안 1회 (저장하는 사이 또 고쳐 dirty 가 남았으면 그 저장 뒤 다시 잰다)
   useEffect(() => {
     if (!dirty) return;
     const t = setTimeout(() => void doSave(true), 30_000);
     return () => clearTimeout(t);
-  }, [dirty, doSave]);
+  }, [dirty, doSave, savedAt]);
 
   // ── 패치/undo/redo ──
   const doPatch = useCallback(async () => {
@@ -290,6 +293,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
         const why = res.skipped[0]?.reason;
         showToast(why ? `넣지 못했습니다: ${why}` : "바뀐 곳이 없습니다", why ? "error" : "info");
       } else {
+        edits.current++;
         setDirty(true);
       }
       await applyState(res);
@@ -308,6 +312,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     try {
       const res = await sidecarCall(`edit_${kind}`, { session_id: sessionId }) as EditStateRes;
       if (!res.success) { showToast(res.error || (kind === "undo" ? "되돌리지 못했습니다" : "다시 실행하지 못했습니다"), "error"); return; }
+      edits.current++;
       setDirty(true);
       await applyState(res);
     } catch (e) {

@@ -113,9 +113,11 @@ export function fitBody(body: ChatBody): ChatBody {
   return out;
 }
 
-export function saveChat(meta: ChatMeta, body0: ChatBody) {
+/** 돌려주는 값: 저장소가 가득 차 자리를 내려고 지운 다른 대화의 수 (부른 쪽이 알린다) */
+export function saveChat(meta: ChatMeta, body0: ChatBody): number {
   const body = fitBody(body0);
   const write = () => localStorage.setItem(BODY(meta.id), JSON.stringify(body));
+  let dropped = 0;
   try {
     write();
   } catch {
@@ -124,12 +126,14 @@ export function saveChat(meta: ChatMeta, body0: ChatBody) {
     let ok = false;
     while (!ok && list.length) {
       removeBody(list.pop()!.id);
+      dropped++;
       try { write(); ok = true; } catch { /* 하나 더 */ }
     }
     saveIndex(list);
     if (!ok) try { write(); } catch { /* 이번 실행 동안만 */ }
   }
   saveIndex([meta, ...loadChats().filter((c) => c.id !== meta.id)]);
+  return dropped;
 }
 
 export function renameChat(id: string, title: string) {

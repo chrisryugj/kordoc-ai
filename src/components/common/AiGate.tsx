@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Cloud, Cpu, HardDrive, Server, Sparkles } from "lucide-react";
 import { useApp } from "../../state/app";
 import type { AiStatus } from "../../lib/contract";
+import { isThisPcUrl } from "../../lib/links";
 import { Button } from "../ui/Button";
 import { Empty } from "./Status";
 
@@ -47,6 +48,8 @@ export function AiWhere() {
   // 이름은 공급자가 아니라 실제로 PC·기관 밖으로 나가는지(is_cloud)로 정한다
   if (!ai.is_cloud) {
     if (ai.provider === "embedded") return <span className="kd-status" title={tip}><Cpu size={13} /> 이 PC에서 · 내장 AI</span>;
+    // 켜 둔 AI 프로그램의 주소가 이 PC 가 아니면 "이 PC에서"라고 하지 않는다 (문서가 그 컴퓨터로 간다)
+    if (ai.provider === "local" && settings?.ai.local.base_url.trim() && !isThisPcUrl(settings.ai.local.base_url)) return <span className="kd-status" data-tone="warn" title={tip}><Server size={13} /> 다른 컴퓨터의 AI 프로그램 · 문서가 그 컴퓨터로 갑니다</span>;
     if (ai.provider === "local") return <span className="kd-status" title={tip}><HardDrive size={13} /> 이 PC에서 · 켜 둔 AI 프로그램</span>;
     return <span className="kd-status" title={tip}><Server size={13} /> 기관 AI 서버</span>;
   }

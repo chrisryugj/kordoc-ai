@@ -19,11 +19,13 @@ const DEFAULT_COLUMNS: Array<{ header: string; field: string }> = [
 ];
 const MONEY_FIELDS = new Set(['amount', 'supply', 'vat']);
 
-/** 숫자만 (쉼표·원·₩ 빼고). 못 읽으면 0 */
+/** 숫자만 (쉼표·원·₩ 빼고, 전각 숫자는 반각으로). 공문서의 음수 표기 △·▲·(괄호)는 빼는 금액. 못 읽으면 0 */
 export const toNumber = (s: string | undefined) => {
-  const d = (s ?? '').replace(/[^\d-]/g, '');
+  const t = (s ?? '').normalize('NFKC').trim();
+  const d = t.replace(/[^\d-]/g, '');
   const n = Number(d);
-  return d && Number.isFinite(n) ? n : 0;
+  if (!d || !Number.isFinite(n)) return 0;
+  return n > 0 && /^[△▲]|^\(.*\)$/.test(t) ? -n : n;
 };
 export const comma = (n: number) => n.toLocaleString('en-US');
 

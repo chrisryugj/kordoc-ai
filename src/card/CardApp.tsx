@@ -17,7 +17,7 @@ import { ToastContainer } from "../components/ui/Toast";
 import { TipLayer } from "../components/ui/TipLayer";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { rpc, errorText, invokeCmd, isTauri } from "../lib/rpc";
-import { canQuit } from "../lib/quit";
+import { canQuit, onQuitGuard } from "../lib/quit";
 import { baseName, formatOf } from "../lib/format";
 import { isQuick } from "../lib/quick-actions";
 import type { DocInfo, VersionsResult } from "../lib/contract";
@@ -28,6 +28,7 @@ import { AiQuickSetup } from "../components/agent/AiQuickSetup";
 import { VersionsPanel } from "../components/agent/VersionsPanel";
 import { FormatBadge } from "../components/common/FormatBadge";
 import { Button } from "../components/ui/Button";
+import { askQuit, useAsk } from "../components/ui/useAsk";
 import "../components/agent/agent.css";
 import "./card.css";
 import { ReceiptCard } from "./ReceiptCard";
@@ -113,8 +114,16 @@ function Card({ input }: { input: CardInput }) {
   const [versGo, setVersGo] = useState(!input.hold);
   const [filesOpen, setFilesOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const agent = useWorkAgent({ from: "card" });
-  const { paths, setPaths } = agent;
+  const agent = useWorkAgent({ from: "card", notify: toast });
+  const { paths, setPaths, busy, stopForClose } = agent;
+  // 창 X: AI 가 일하는 중이면 묻고, 닫기로 하면 멈춘 것으로 저장한 뒤 닫는다 (말없이 닫히면 일은 끊기고 본창에는 그 대화가 도는 중으로 남을 수 있다)
+  const { ask, dialog } = useAsk();
+  useEffect(() => onQuitGuard(async () => {
+    if (!busy) return true;
+    if (!(await askQuit(ask, "AI가 일하는 중입니다", "창을 닫으면 하던 일이 멈춥니다. 끝까지 하게 두려면 취소를 누르세요.", "멈추고 닫기"))) return false;
+    stopForClose();
+    return true;
+  }), [busy, ask, stopForClose]);
   // 카드 창은 우클릭한 문서를 붙인 새 대화로 시작한다 (대화는 본창 AI 대화 목록에도 남는다)
   const [started, setStarted] = useState(false);
   useEffect(() => { agent.newChat(input.paths); setStarted(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -271,6 +280,7 @@ function Card({ input }: { input: CardInput }) {
         {single && HANGUL.has(fmt) && <Button size="sm" variant="ghost" onClick={() => void handoff("edit", [first])} data-tip="본창의 한글 편집기로 엽니다"><FilePen size={13} /> 편집기에서 고치기</Button>}
         {docs.length === 2 && <Button size="sm" variant="ghost" onClick={() => void handoff("compare", docs)} data-tip="본창에서 두 문서의 바뀐 곳을 나란히 봅니다"><GitCompareArrows size={13} /> 두 문서 비교 화면</Button>}
       </footer>
+      {dialog}
     </div>
   );
 }

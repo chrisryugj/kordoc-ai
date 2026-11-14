@@ -1,6 +1,6 @@
 /** 파일 수합 — 마크다운 병합 또는 서식 유지 수합 */
 
-import { readFile, writeFile, mkdir, rm, rmdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { dirname, basename, extname, join } from 'node:path';
 import { sendProgress } from '../../infra/progress.js';
@@ -14,7 +14,7 @@ import { concatXlsx } from './concat-xlsx.js';
 import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult, MergeFailure } from './types.js';
 import { errorText, parseFailure } from '../errors.js';
-import { resultDir, stemOf } from '../output/index.js';
+import { dropPartial, resultDir, stemOf } from '../output/index.js';
 import { checkZipSize, entryText } from '../files/zip-read.js';
 
 export type { MergeFilesParams, MergeFilesResult } from './types.js';
@@ -112,15 +112,12 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
       // 멈춘(시간 초과 포함) 뒤에는 파일을 더 쓰지 않는다
       signal.throwIfAborted();
       const out = join(output_dir, `${stem}_${String(i + 1).padStart(width, '0')}.hwpx`);
-      await writeFile(out, part);
       output_files.push(out);
+      await writeFile(out, part);
     }
   } catch (err) {
-    // 반쯤 쓴 결과는 지운다 (쓴 파일만, 폴더는 비었을 때만)
-    if (signal.aborted) {
-      await Promise.all(output_files.map((f) => rm(f, { force: true })));
-      await rmdir(output_dir).catch(() => {});
-    }
+    // 반쯤 쓴 결과는 지운다 — 멈췄을 때도, 쓰다 실패했을 때도(디스크 가득·공유 폴더 끊김)
+    await dropPartial(output_files, output_dir);
     throw err;
   }
   return { output_dir, output_files, sections: r.sections, page_breaks: r.pageBreaks };

@@ -75,7 +75,7 @@ cd src-tauri && cargo test --lib
 - 비워 둔 누름틀의 안내 글자는 rhwp 인쇄·PDF 에 찍힌다 → 출력 전에 공백으로 채운다.
 - kordoc 렌더(renderDocument)는 칸 안 줄바꿈(hp:lineBreak)을 아직 무시한다. 누름틀로 채운 여러 줄 본문 PDF 는 rhwp 로.
 - **끄기·닫기 전 묻기**: 트레이 "완전 종료"와 맥 앱 메뉴 종료(⌘Q, 앱 메뉴를 직접 만든다: 기본 메뉴의 종료는 묻지 않고 끈다)는 `request_quit` 로 화면에 먼저 묻는다(`quit-requested` → `onQuitGuard`). 답 없이 10초 안에 또 누르면 묻는 상자(`Modal` 단추 줄 `[data-modal-foot]`)가 떠 있는지 보고(`quit_still_asking`) 없을 때만 끈다. 카드 창 X 도 같은 꼴(`card-close-requested` → `card_close` 답 asking·close, `CARD_CLOSE_WAIT` 10초). Dock 의 종료·로그아웃·저장 대화 상자가 떠 있을 때는 못 막는다.
-- **엔진 멈춤 감시**(`manager.rs` `spawn_watchdog`): 호출이 걸려 있을 때만 15초마다 ping, 120초 답이 없으면 엔진을 다시 켠다(기다리던 호출은 "엔진이 멈췄습니다"). 무거운 일은 작업자 스레드에 두어 주 스레드가 ping 에 답하게 한다(주 스레드에 긴 동기 일을 넣으면 정상 작업이 죽는다). stdin 쓰기는 따로 도는 쓰기 스레드 하나로(멈춘 엔진에 큰 요청을 쓰다 막혀도 ping·cancel 이 간다).
+- **엔진 멈춤 감시**(`manager.rs` `spawn_watchdog`): 호출이 걸려 있을 때만 15초마다 ping, 120초 답이 없으면 엔진을 다시 켠다(기다리던 호출은 "엔진이 멈췄습니다"). 무거운 일은 작업자 스레드에 두어 주 스레드가 ping 에 답하게 한다(주 스레드에 긴 동기 일을 넣으면 정상 작업이 죽는다). stdin 쓰기는 따로 도는 쓰기 스레드 하나로(멈춘 엔진에 큰 요청을 쓰다 막혀도 ping·cancel 이 간다). 다시 켜면 `sidecar:restarted` 이벤트를 보내고 화면(`state/app.tsx` `rearm`)이 폴더 지켜보기를 다시 건다(지켜보기는 엔진 메모리에만 있다).
 - 사이드카 stdout 은 JSON-RPC 전용, 로그는 stderr. Rust 는 응답 id 로 oneshot 을 갈라 받는다(v1 은 전 호출 직렬화로 AI 하나에 미리보기까지 막혔다).
 - Windows NSIS 는 사용자 단위 설치(관리자 불필요). WebView2 백그라운드 통신·SmartScreen 은 창 설정에서 끈다(`tauri.windows.conf.json`). WebView2 는 `offlineInstaller` 로 설치 파일에 넣는다(기본 내려받기 방식은 폐쇄망에서 설치가 막힌다).
 - **Node 가 없는 PC 조건.** 설치본은 동봉 Node 만 쓴다(`locate_node` 의 시스템 Node 탐색은 개발 빌드 전용). 스모크는 PATH 에서 node·npm·npx 폴더와 `NODE_OPTIONS` 를 빼고 돌린다. 엔진 안에서 Node 를 부를 땐 `process.execPath`(kordoc CLI·MCP).

@@ -119,7 +119,9 @@ export function ImpactScreen({ active }: { active: boolean }) {
               <Note tone="info">기준 시간은 손으로 할 때 걸리는 시간의 가정치입니다. 기관 실정에 맞게 바꾸세요. 바꾼 값은 아낀 시간 계산에만 씁니다.</Note>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="secondary" disabled={!changed} onClick={() => void saveBase()}><Save size={14} /> 기준 시간 저장</Button>
-                {exp.busy ? <Working label="보고서를 만드는 중" /> : <Button onClick={exportHwpx}><FileDown size={14} /> 기관 보고용 HWPX로 저장</Button>}
+                {/* 고친 기준 시간을 저장하지 않았으면 보고서를 막는다: 보고서는 저장된 값으로 계산해 칸에 보이는 값과 다른 숫자가 나간다 */}
+                {exp.busy ? <Working label="보고서를 만드는 중" /> : <Button disabled={changed} onClick={exportHwpx}><FileDown size={14} /> 기관 보고용 HWPX로 저장</Button>}
+                {changed && <span className="kd-small kd-muted">고친 기준 시간을 먼저 저장하세요. 보고서는 저장한 값으로 만듭니다.</span>}
                 <span className="flex-1" />
                 <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)}><RotateCcw size={13} /> 기록 지우기</Button>
               </div>

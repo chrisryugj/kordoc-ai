@@ -26,11 +26,17 @@ fn quit_cancelled() {
     QUIT_ASKED_AT.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// force_quit_unless_asking 이 화면에 돌린 글이 부른다: 묻는 상자가 아직 떠 있다
+/// force_quit_unless_asking 이 화면에 돌린 글이 부른다: 아직 묻는 중이다 (묻는 상자가 떠 있거나, 상자 없이 저장하는 중).
+/// 가장 큰 차례만 남긴다: 연달아 누르면 뒤 차례의 답이 앞 차례의 답을 덮는데, 앞 차례의 시계가 그것을 "답 없음"으로 읽고 껐다
 #[tauri::command]
 fn quit_still_asking(app: tauri::AppHandle, n: u64) {
-    QUIT_STILL_ASKING.store(n, std::sync::atomic::Ordering::SeqCst);
+    QUIT_STILL_ASKING.fetch_max(n, std::sync::atomic::Ordering::SeqCst);
     show_main(&app);
+}
+
+/// n 번째로 본 것에 화면이 "묻는 중"이라고 답했나 — 그 뒤 차례에 답했어도 묻는 중이다
+fn answered_asking(answered: u64, n: u64) -> bool {
+    answered >= n
 }
 
 /// 완전 종료 요청 (트레이 "완전 종료"·맥 앱 메뉴의 종료 ⌘Q): 화면에 먼저 묻는다(저장 안 한 문서).
@@ -48,20 +54,25 @@ fn request_quit(app: &tauri::AppHandle) {
 
 /// 묻는 상자: 화면 `Modal`(src/components/ui/Modal.tsx)의 단추 줄. 종료 전 묻기(useAsk·편집 세션)는 모두 이 상자다 (시험이 맞춰 본다)
 const ASKING: &str = r#"[aria-modal="true"] [data-modal-foot]"#;
+/// 화면이 종료 전 묻기를 도는 동안 <html> 에 다는 표지 (src/hooks/useDeepLink.ts). 편집기는 상자 없이 저장부터 하고,
+/// 묻는 상자에서 "저장"을 고른 뒤에도 저장이 돈다: 그사이 또 누른 완전 종료가 저장 중인 엔진을 끄지 않게
+const QUIT_BUSY: &str = "data-quit-asking";
 
-/// 화면이 아직 답하지 않았다: 사용자가 고르는 중인지(묻는 상자가 떠 있나) 본다. 화면 코드를 고치지 않고 본창에 짧은 글을 돌려,
-/// 상자가 있으면 quit_still_asking 을 부르게 한다. 1.5초 안에 그 답이 없으면(상자 없음·오류 화면·화면 멈춤) 끈다
+/// 화면이 아직 답하지 않았다: 사용자가 고르는 중인지(묻는 상자가 떠 있나), 상자 없이 저장하는 중인지(QUIT_BUSY) 본다.
+/// 본창에 짧은 글을 돌려, 그렇다면 quit_still_asking 을 부르게 한다. 1.5초 안에 그 답이 없으면(오류 화면·화면 멈춤) 끈다
 fn force_quit_unless_asking(app: &tauri::AppHandle) {
     use std::sync::atomic::Ordering::SeqCst;
     let n = QUIT_PROBE.fetch_add(1, SeqCst) + 1;
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.eval(format!("document.querySelector('{ASKING}')&&window.__TAURI_INTERNALS__.invoke('quit_still_asking',{{n:{n}}})"));
+        let _ = w.eval(format!(
+            "(document.querySelector('{ASKING}')||document.documentElement.hasAttribute('{QUIT_BUSY}'))&&window.__TAURI_INTERNALS__.invoke('quit_still_asking',{{n:{n}}})"
+        ));
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         // 묻는 중이라고 답했거나, 그사이 사용자가 취소했으면(시계 0) 끄지 않는다
-        if QUIT_STILL_ASKING.load(SeqCst) != n && QUIT_ASKED_AT.load(SeqCst) != 0 {
+        if !answered_asking(QUIT_STILL_ASKING.load(SeqCst), n) && QUIT_ASKED_AT.load(SeqCst) != 0 {
             app.exit(0);
         }
     });
@@ -390,7 +401,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::ASKING;
+    use super::{answered_asking, ASKING, QUIT_BUSY};
 
     #[test]
     fn quit_probe_finds_the_ask_boxes() {
@@ -403,5 +414,23 @@ mod tests {
             assert!(src[at..].contains("footer="), "묻기 상자에 단추 줄이 없다");
         }
         assert!(ASKING.contains("aria-modal") && ASKING.contains("data-modal-foot") && !ASKING.contains('\''));
+    }
+
+    #[test]
+    fn quit_probe_sees_the_screen_still_settling() {
+        // 상자 없이 저장하는 중에도 화면이 표지를 단다 — 화면이 다는 이름과 여기서 보는 이름이 같아야 한다
+        let hook = include_str!("../../src/hooks/useDeepLink.ts");
+        assert!(hook.contains(&format!(r#"toggleAttribute("{QUIT_BUSY}""#)), "종료 전 묻는 중 표지가 바뀌면 lib.rs QUIT_BUSY 도");
+        assert!(!QUIT_BUSY.contains('\''));
+    }
+
+    #[test]
+    fn a_later_answer_still_counts_for_an_earlier_probe() {
+        // 세 번 연달아 누름: 1번째 확인에 답한 뒤 2번째 확인에도 답했다 — 1번째 시계가 깨어 2를 보고 껐었다
+        assert!(answered_asking(2, 1));
+        assert!(answered_asking(2, 2));
+        // 답한 뒤 상자가 닫혀 다음 확인에는 답이 없다 → 끈다
+        assert!(!answered_asking(2, 3));
+        assert!(!answered_asking(0, 1));
     }
 }

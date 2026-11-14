@@ -49,7 +49,11 @@ async function textToPdf(path: string, signal?: AbortSignal): Promise<Uint8Array
   return markdownToPdf(md, { preset: 'default' });
 }
 
-export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+/** 대체 렌더로 만든 PDF 에 붙이는 알림 — 표·쪽 나눔이 원본과 다를 수 있다 */
+export const FALLBACK_NOTE = '쪽을 원본대로 그리지 못해 다른 방식으로 PDF를 만들었습니다. 표·쪽 나눔이 원본과 다를 수 있습니다. 열어서 확인하세요.';
+
+/** @param note 원본대로 그리지 못해 대체 렌더로 만들었을 때 부른다 (성공에 묻히지 않게 화면에 올릴 알림) */
+export async function docToPdf(path: string, signal?: AbortSignal, note?: (warning: string) => void): Promise<Uint8Array> {
   const fmt = formatOf(path);
   if (fmt === 'pdf') return new Uint8Array(await readFile(path));
   if (fmt === 'hwp' || fmt === 'hwpx') {
@@ -64,6 +68,9 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
       if (signal?.aborted || (err instanceof Error && err.message === NO_BROWSER)) throw err;
       logger.warn(`[pdf] rhwp 경로 실패 → kordoc 렌더: ${err instanceof Error ? err.message : err}`);
     }
+    // 대체 렌더는 취소를 받지 못한다: 들어가기 전에 본다
+    signal?.throwIfAborted();
+    note?.(FALLBACK_NOTE);
     const r = await renderDocument(Buffer.from(bytes), { format: 'pdf', title: stemOf(path) });
     const pdf = r.assets.find((a) => a.format === 'pdf');
     if (!pdf || typeof pdf.data === 'string') throw new Error('PDF를 만들지 못했습니다.');
@@ -102,16 +109,17 @@ export async function loadPdf(bytes: Uint8Array, signal?: AbortSignal): Promise<
   }
 }
 
-export async function exportPdf(p: { path: string; output_path?: string; overwrite?: boolean }, signal?: AbortSignal): Promise<{ output_path: string }> {
+export async function exportPdf(p: { path: string; output_path?: string; overwrite?: boolean }, signal?: AbortSignal): Promise<{ output_path: string; warnings?: string[] }> {
   if (formatOf(p.path) === 'pdf') throw new Error('이미 PDF 문서입니다.');
   sendProgress({ current: 0, total: 1, message: 'PDF 만드는 중' });
-  const bytes = await docToPdf(p.path, signal);
+  const warnings: string[] = [];
+  const bytes = await docToPdf(p.path, signal, (w) => warnings.push(w));
   // 취소했으면 결과 파일을 남기지 않는다
   signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}.pdf`, overwrite: p.overwrite });
   // 덮어쓰기 저장이 쓰다 끊겨도 원래 PDF 는 남게 (옆에 다 쓴 뒤 바꿔 넣기)
   await atomicWriteFile(outPath, bytes);
-  return { output_path: outPath };
+  return { output_path: outPath, ...(warnings.length ? { warnings } : {}) };
 }
 
 export async function bundlePdf(

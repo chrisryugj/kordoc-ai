@@ -49,6 +49,8 @@ export function TemplateForm({ fields, initial, onFinish, finishLabel, busy, err
   const { values, source } = form;
   const [instruction, setInstruction] = useState("");
   const [refs, setRefs] = useState<string[]>([]);
+  /** AI 제안이 참고 문서를 일부만 읽었다는 알림 */
+  const [suggestNote, setSuggestNote] = useState("");
   const org = useTask<void>();
   const suggest = useTask<void>();
 
@@ -90,6 +92,7 @@ export function TemplateForm({ fields, initial, onFinish, finishLabel, busy, err
     const guides = Object.fromEntries(fields.filter((f) => f.guide).map((f) => [f.name, f.guide!]));
     const r = await rpc("ai_fill_suggest", { fields: empty, references: refs, instruction: instruction.trim() || undefined, guides });
     fill(r.values, "ai", true);
+    setSuggestNote(r.note ?? "");
   });
 
   const field = (f: FormField) => (
@@ -144,6 +147,7 @@ export function TemplateForm({ fields, initial, onFinish, finishLabel, busy, err
             <Button variant="secondary" size="sm" onClick={runSuggest} disabled={suggest.busy} data-tip="비어 있는 칸에만 제안을 넣습니다. 이미 쓴 칸은 그대로 둡니다"><Sparkles size={13} /> {suggest.busy ? "채우는 중" : "AI로 채우기"}</Button>
           </div>
           <ErrorLine message={suggest.error} />
+          {suggestNote && <p className="kd-small kd-muted" role="status">{suggestNote}</p>}
         </div>
       )}
 

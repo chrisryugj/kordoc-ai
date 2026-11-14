@@ -45,7 +45,7 @@ function groundNumbers(value: string, known: Set<number>): string {
 // 줄 머리 번호 뒤에 날짜가 이어지면("3. 14.(토)") 그 번호는 월이다 → 값 숫자로 본다. 회차는 "제1회"만 뼈대로 본다("제15회"는 값)
 const FRAME_NUMBER = /^[ \t]*(?:\d{1,2}[.)]|\(\d{1,2}\))(?=\s)(?!\s*\d{1,2}\s*(?:\.|\(|일))|(?:붙임|별첨|별지)\s*\d{1,2}(?=[.\s]|$)|제\s?1\s?(?:회|차|기)|\d{1,2}\s?(?:부|매)(?=[\s.,)]|$)/gm;
 
-export async function suggestFill(params: FillParams, signal: AbortSignal): Promise<{ values: Record<string, string>; redacted: number }> {
+export async function suggestFill(params: FillParams, signal: AbortSignal): Promise<{ values: Record<string, string>; redacted: number; note?: string }> {
   const fields = [...new Set((params.fields ?? []).map((f) => String(f).trim()).filter(Boolean))];
   if (!fields.length) throw new Error('채울 칸 이름이 없습니다.');
   const instruction = params.instruction?.trim() ?? '';
@@ -61,7 +61,7 @@ export async function suggestFill(params: FillParams, signal: AbortSignal): Prom
   const docs = params.references?.length ? await loadDocs(params.references, signal) : [];
   const budget = await contextCharBudget({ reserveTokens: maxTokens, signal });
   const room = Math.max(800, budget - SYSTEM.length - fieldList.length - instruction.length - note.length - org.length - 500);
-  const { selected } = selectPassages(docs.flatMap((d) => d.passages), [instruction, note, fieldList].join('\n'), room);
+  const { selected, whole } = selectPassages(docs.flatMap((d) => d.passages), [instruction, note, fieldList].join('\n'), room);
   const refs = selected.map((p) => `(${p.name}${p.page ? ` ${p.page}쪽` : ''})\n${p.text}`).join('\n\n');
   const received = docs.map((d) => receivedDocRef(d.text)).find(Boolean);
 
@@ -109,5 +109,6 @@ export async function suggestFill(params: FillParams, signal: AbortSignal): Prom
     values[f] = fixRelated ? fixRelatedLine(value, received) : value;
   }
   sendProgress({ current: 2, total: 2, message: '완료' });
-  return { values, redacted: r.redacted };
+  // 참고 문서가 길어 일부만 읽었으면 알린다 (빈 칸이 "문서에 없음"이 아니라 "보지 못함"일 수 있다)
+  return { values, redacted: r.redacted, ...(docs.length && !whole ? { note: '참고 문서가 길어 칸과 가까운 대목 일부만 읽고 채웠습니다. 빈 칸과 채운 값을 원문과 견주세요.' } : {}) };
 }

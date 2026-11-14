@@ -250,6 +250,32 @@ describe('ai_draft', () => {
   });
 });
 
+describe('길이 한도에서 끊긴 답', () => {
+  it('초안·요약은 끝이 빠졌다고 알린다 (완성본처럼 돌려주지 않는다)', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    reply = () => `# 체육대회 개최 알림\n\n1. 체육대회를 개최하고자 합니다.\n2. 일시는${CUT}`;
+    const d = await draftDocument({ instruction: '직원 체육대회 개최 알림을 써 줘', preset: '보고서' }, signal());
+    expect(d.note).toContain('길이 한도에서 끊겨');
+    reply = () => '# 체육대회 개최 알림\n\n□ 체육대회 개최 예정';
+    expect((await draftDocument({ instruction: '직원 체육대회 개최 알림을 써 줘', preset: '보고서' }, signal())).note).toBeUndefined();
+
+    reply = () => `## 핵심 내용\n- 민원 처리 152건\n- 다음 주에는${CUT}`;
+    const s = await summarize({ text: '이번 주 민원 처리 건수는 152건이다. 다음 주에는 200건을 처리할 계획이다.' }, signal());
+    expect(s.summary).toMatch(/^## 핵심 내용/);
+    expect(s.summary).toContain('※ AI 답이 길이 한도에서 끊겨');
+  });
+
+  it('긴 글을 나눠 읽을 때 요점이 끊긴 조각은 한도를 올려 한 번 다시 받는다 (뒷부분이 빠진 요점이 다음 단계의 근거가 되지 않게)', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    const { condense } = await import('../src/core/ai/condense.js');
+    const before = fake.chats().length;
+    reply = (b) => ((b.max_tokens ?? 0) > 700 ? '- 민원 152건\n- 계획 200건' : `- 민원 152건\n- 계획${CUT}`);
+    const r = await condense('이번 주 민원 처리 건수는 152건이다. '.repeat(40), 300, signal());
+    expect(r.text).toBe('- 민원 152건\n- 계획 200건');
+    expect(fake.chats().slice(before).map((c) => c.max_tokens)).toEqual([700, 1400]);
+  });
+});
+
 describe('ai_rewrite', () => {
   it('결과는 바꿔 넣을 글만 (머리말·따옴표 없이), 앞뒤 줄바꿈은 원문대로', async () => {
     reply = () => '다듬은 글입니다.\n\n"회의는 오늘 열립니다."';
@@ -349,5 +375,28 @@ describe('ai_review (K팀장)', () => {
     expect(r.lint.some((l) => l.rule === 'DATE_NO_SPACE' && l.severity === 'error')).toBe(true);
     expect(r.lint.some((l) => l.rule === 'BUNIM_COLON')).toBe(true);
     expect(r.redacted).toBe(0);
+  });
+
+  it('답이 길이 한도에서 끊기면 닫힌 지적까지만 싣고 다 싣지 못했다고 알린다 ("검토 사항 0건"으로 끝나지 않게)', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    const f = join(dir, '검토_끊김.md');
+    writeFileSync(f, '# 계획\n\n총 300만 원을 집행한다. 세부 합계는 250만 원이다.');
+    const one = (n: number) => ({ category: 'number', severity: 'error', location: `${n}쪽`, description: `합계가 다릅니다 {${n}}`, original: '총 "300만 원"', suggestion: '확인' });
+    const full = JSON.stringify({ summary: '문제가 많습니다.', issues: [one(1), one(2), one(3)] });
+    // 셋째 지적 가운데에서 끊김: 앞 둘은 살린다
+    reply = () => `${full.slice(0, full.indexOf('{3}'))}${CUT}`;
+    const r = await reviewDocument({ path: f }, signal());
+    expect(r.issues.map((x) => x.message)).toEqual(['합계가 다릅니다 {1}', '합계가 다릅니다 {2}']);
+    expect(r.summary).toMatch(/^검토 사항 2건/);
+    expect(r.summary).toContain('다 싣지 못했습니다');
+    // 첫 지적도 닫히기 전에 끊김: 0건이 아니라 못 했다고
+    reply = () => `${full.slice(0, 40)}${CUT}`;
+    const none = await reviewDocument({ path: f }, signal());
+    expect(none.issues).toEqual([]);
+    expect(none.summary).not.toMatch(/0건/);
+    expect(none.summary).toContain('검토하지 못했습니다');
+    // JSON 이 아닌 답도 같다
+    reply = () => '죄송하지만 검토할 수 없습니다.';
+    expect((await reviewDocument({ path: f }, signal())).summary).toContain('검토하지 못했습니다');
   });
 });

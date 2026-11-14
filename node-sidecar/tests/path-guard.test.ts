@@ -2,7 +2,7 @@
 
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { validatePath } from '../src/infra/pathGuard.js';
+import { validatePath, isBlockedSystemPath } from '../src/infra/pathGuard.js';
 
 describe('validatePath', () => {
   it('UNC 와 슬래시를 섞어 윈도에서 UNC 로 풀리는 경로를 막는다', () => {
@@ -14,5 +14,14 @@ describe('validatePath', () => {
   it('보통 절대 경로는 그대로 통과', () => {
     // Windows 에서는 드라이브가 붙은 같은 경로가 된다
     expect(validatePath('/Users/kim/Documents/a.hwpx')).toBe(resolve('/Users/kim/Documents/a.hwpx'));
+  });
+
+  it('시스템 폴더와 이름 앞머리만 같은 폴더는 막지 않는다 (Windows.old 에 남은 내 문서)', () => {
+    for (const p of ['C:\\Windows.old\\Users\\kim\\Documents\\a.hwp', 'C:\\ProgramData2\\a.hwp', 'C:\\Program Files Backup\\a.hwp']) {
+      expect(isBlockedSystemPath(p), p).toBe(false);
+    }
+    for (const p of ['C:\\Windows', 'c:\\windows\\System32\\a.dll', 'C:\\Program Files\\x\\a.hwp', 'C:\\Program Files (x86)\\x\\a.hwp', 'C:\\ProgramData\\a.hwp']) {
+      expect(isBlockedSystemPath(p), p).toBe(true);
+    }
   });
 });

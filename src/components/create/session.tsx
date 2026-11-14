@@ -185,9 +185,21 @@ export function CreateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => client.current?.destroy(), []);
 
-  const askUser = useCallback((a: Omit<Ask, "resolve">) => new Promise<string>((resolve) => {
-    setAsk({ ...a, resolve: (id) => { setAsk(null); resolve(id); } });
-  }), []);
+  // 떠 있는 물음을 닫는 함수. 새 물음이 오면 앞 물음을 취소로 닫는다 (안 닫으면 앞 물음을 기다리던 쪽이 영영 멈춘다)
+  const openAsk = useRef<((id: string) => void) | null>(null);
+  const askUser = useCallback((a: Omit<Ask, "resolve">) => {
+    openAsk.current?.("cancel");
+    return new Promise<string>((resolve) => {
+      const done = (id: string) => {
+        if (openAsk.current !== done) return;
+        openAsk.current = null;
+        setAsk(null);
+        resolve(id);
+      };
+      openAsk.current = done;
+      setAsk({ ...a, resolve: done });
+    });
+  }, []);
 
   /** 편집기를 내린다 — iframe 을 비워야 스튜디오가 하던 일(큰 문서 열기)을 멈추고 CPU 를 놓는다. 다음에 열 때 다시 띄운다 */
   const stopEditor = useCallback((message: string) => {

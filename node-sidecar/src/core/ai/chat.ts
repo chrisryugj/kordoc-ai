@@ -132,5 +132,7 @@ export async function chatWithDocs(params: ChatParams, signal: AbortSignal): Pro
   const checked = verifyCitations(answer, selected, citations, fallback);
   sendProgress({ current: 2, total: 2, message: '답변 완료' });
   // 검증은 원문 표기로 하고, 돌려줄 때만 줄 첫머리 날짜를 이스케이프(마크다운 렌더에서 순서 목록이 되지 않게)
-  return { answer: escapeLineDates(answer), citations: checked.citations, redacted: r.redacted, ...(checked.unsupported.length ? { unsupported: checked.unsupported } : {}) };
+  // 길이 한도에서 끊긴 답은 끊겼다고 알린다 (근거 검증은 알림을 붙이기 전의 답으로 했다)
+  const cut = r.truncated ? '\n\n※ 답이 길이 한도에서 끊겼습니다. 질문을 좁혀 다시 물어 보세요.' : '';
+  return { answer: escapeLineDates(answer) + cut, citations: checked.citations, redacted: r.redacted, ...(checked.unsupported.length ? { unsupported: checked.unsupported } : {}) };
 }

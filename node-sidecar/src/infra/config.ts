@@ -172,7 +172,8 @@ export function reload(): Settings {
     }
     if (text !== null) {
       try {
-        loaded = JSON.parse(text);
+        // 메모장·PowerShell 로 손본 파일은 앞머리에 BOM 이 붙는다: 그대로 넘기면 깨진 파일로 보고 옆으로 치운다
+        loaded = JSON.parse(text.replace(/^\uFEFF/, ''));
       } catch (err) {
         // 내용이 깨진 파일을 그대로 두면 다음 저장 한 번에 AI 키·기관 정보가 기본값으로 덮인다 → 옆으로 옮겨 남긴다
         const kept = `${p}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;

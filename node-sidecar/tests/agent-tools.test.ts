@@ -228,6 +228,20 @@ describe('MCP 서버', () => {
     expect((await handle({ jsonrpc: '2.0', id: 3, method: 'resources/list' }))?.error?.code).toBe(-32601);
   });
 
+  it('바깥 AI 가 멈추면(notifications/cancelled) 돌던 도구를 멈추고 답하지 않는다', async () => {
+    const slow = new RpcRouter();
+    let stopped = false;
+    slow.register('scan_paths', (_p, signal) => new Promise((_res, rej) => signal.addEventListener('abort', () => { stopped = true; rej(new DOMException('멈춤', 'AbortError')); }, { once: true })));
+    const h = createMcpHandler(slow, { version: 'test' });
+    const pending = h({ jsonrpc: '2.0', id: 'req-7', method: 'tools/call', params: { name: 'list_documents', arguments: { paths: [SAMPLES] } } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await h({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'other' } })).toBeNull();
+    expect(stopped).toBe(false);
+    expect(await h({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'req-7', reason: '사용자가 멈춤' } })).toBeNull();
+    expect(await Promise.race([pending, new Promise((r) => setTimeout(() => r('still running'), 2000))])).toBeNull();
+    expect(stopped).toBe(true);
+  });
+
   it('tools/list → tools/call', async () => {
     const l = await handle({ jsonrpc: '2.0', id: 4, method: 'tools/list' });
     const tools = (l?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools;

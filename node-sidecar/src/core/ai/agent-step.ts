@@ -11,7 +11,7 @@ import { ask, contextCharBudget, parseJsonLoose, type ChatMessage, type JsonSche
 export interface AgentToolDef { name: string; description: string; inputSchema: Record<string, unknown> }
 export interface AgentCall { id: string; name: string; input: Record<string, unknown>; inputError?: string }
 export type AgentEvent =
-  | { role: 'user'; text: string; context?: string }
+  | { role: 'user'; text: string; context?: string; auto?: boolean }
   | { role: 'assistant'; text: string; calls: Array<{ id: string; name: string; input: Record<string, unknown> }> }
   | { role: 'tool'; results: Array<{ id: string; name: string; output: string; isError?: boolean }> };
 
@@ -99,10 +99,24 @@ export function checkArgs(tool: AgentToolDef, args: unknown): string | undefined
  *  보낼 때 가린 모양과 모델이 가린 모양이 같아서, 되돌리면 "가렸습니다" 라는 답과 달리 문서에 원래 번호가 남았다 */
 const MASK_REQUEST = /(?:가려|가리|가림|감춰|감추|숨겨|숨기|마스킹|비식별|익명)/;
 const PERSONAL = /(?:개인정보|주민|전화|휴대|연락처|번호|주소|이메일|메일|이름|성명|계좌|생년월일)/;
+export const asksToMaskText = (text: string) => MASK_REQUEST.test(text) && PERSONAL.test(text);
+/** 앞 요청을 이어 시키는 말 ("아래 표도 똑같이 해 줘") — 앞 요청이 가리기였으면 이 차례도 가리기다 */
+const FOLLOW_UP = /(?:똑같이|마찬가지|같은\s*(?:식|방식|방법)|도\s*(?:해|부탁|적용|처리)|도요?\s*[.!]?\s*$)/;
+/** 마지막 사용자 글 하나만 보면 안 된다: 루프가 넣은 되묻는 글(auto)과 이어 시키는 말에는 가리기 낱말이 없어
+ *  "가렸습니다" 라는 답과 달리 도구 인자가 원래 번호로 되돌아갔다 */
 const asksToMask = (events: AgentEvent[]) => {
-  const last = [...events].reverse().find((e): e is Extract<AgentEvent, { role: 'user' }> => e.role === 'user');
-  return !!last && MASK_REQUEST.test(last.text) && PERSONAL.test(last.text);
+  const asked = events.filter((e): e is Extract<AgentEvent, { role: 'user' }> => e.role === 'user' && !e.auto);
+  for (let i = asked.length - 1; i >= 0; i--) {
+    if (asksToMaskText(asked[i].text)) return true;
+    if (!FOLLOW_UP.test(asked[i].text)) return false;
+  }
+  return false;
 };
+/** 가리는 차례에도 되돌릴 인자: 찾을 글·남길 글·경로처럼 문서의 원래 글과 맞아야 하는 값. 새로 쓰는 글(WRITES)만 모델이 쓴 ● 를 둔다.
+ *  되돌리지 않으면 가린 꼴로는 문서에서 못 찾고, 남기라던 번호(keep)까지 가려졌다 */
+const WRITES = new Set(['replace', 'text', 'texts', 'rows', 'cells', 'value', 'values', 'to']);
+const LOCATES = new Set(['find', 'from', 'keep', 'after', 'name', 'path', 'paths', 'query']);
+const READS = /^(?:find|read|list|search|get|check)_/;
 
 /** 답 형식(JSON)을 쓰려던 글인가 — 그냥 한 말과 가른다 */
 const looksLikeJson = (text: string) => /^\s*(```(?:json)?\s*)?\{/.test(text) && /"(say|calls)"/.test(text);
@@ -136,8 +150,9 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
   }
   // 외부 AI 로 보내며 가린 값이 도구 인자에 실려 오면 되돌린다 — 편집기 AI 의 고쳐 쓰기·칸 채우기가 문서의 연락처를 ● 로 바꿨다
   const keepMasks = asksToMask(p.events);
-  const unmask = (v: unknown): unknown => typeof v === 'string' ? (keepMasks ? v : r.restore(v))
-    : Array.isArray(v) ? v.map(unmask) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unmask(x)])) : v;
+  const unmask = (v: unknown, writes: boolean, keep = false): unknown => typeof v === 'string' ? (keep ? v : r.restore(v))
+    : Array.isArray(v) ? v.map((x) => unmask(x, writes, keep))
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unmask(x, writes, writes && (WRITES.has(k) || (keep && !LOCATES.has(k))))])) : v;
   const byName = new Map(p.tools.map((t) => [t.name, t]));
   const calls: AgentCall[] = (Array.isArray(reply.calls) ? reply.calls : []).map((c, i) => {
     const call = (c ?? {}) as { tool?: unknown; args?: unknown };
@@ -146,7 +161,7 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
     const tool = byName.get(name);
     if (!tool) return { id, name, input: {}, inputError: `"${name}" 라는 도구는 없습니다. 도구 목록의 이름을 쓰세요.` };
     const inputError = checkArgs(tool, call.args);
-    return { id, name, input: inputError ? {} : (unmask(call.args) as Record<string, unknown>), ...(inputError ? { inputError } : {}) };
+    return { id, name, input: inputError ? {} : (unmask(call.args, keepMasks && !READS.test(name)) as Record<string, unknown>), ...(inputError ? { inputError } : {}) };
   });
   return { text: typeof reply.say === 'string' ? r.restore(reply.say) : '', calls, redacted: r.redacted };
 }

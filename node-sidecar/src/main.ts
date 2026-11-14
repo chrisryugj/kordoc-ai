@@ -13,6 +13,7 @@ import { registerAllMethods } from './rpc/methods/index.js';
 import { logger, setLogLevel } from './infra/logger.js';
 import { getSettings } from './infra/config.js';
 import { hasSecretKey } from './infra/secret-box.js';
+import { flushUsage } from './infra/usage.js';
 import { syncOfflineEnv } from './infra/net-guard.js';
 import { APP_VERSION, seedBundledModels } from './core/system/index.js';
 import { runMcpServer } from './mcp/server.js';
@@ -128,15 +129,17 @@ async function main(): Promise<void> {
   const shutdown = () => {
     logger.info('[main] shutting down');
     rl.close();
+    flushUsage();
     process.exit(0);
   };
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  // stdin 닫히면 종료
+  // stdin 닫히면 종료 (효과 집계는 기록 2초 뒤에 저장한다: 미뤄 둔 것을 먼저 쓴다)
   rl.on('close', () => {
     logger.info('[main] stdin closed, exiting');
+    flushUsage();
     process.exit(0);
   });
 }

@@ -96,6 +96,14 @@ describe('writeFromTemplate', () => {
     expect(md).not.toContain('결론적으로');
   });
 
+  it('답이 길이 한도에서 끊기면 저장하지 않고 알린다 (뒤쪽에 견본의 옛 내용이 남은 문서가 만들어지지 않게)', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    const path = await sample();
+    const skeleton = (await parse(readFileSync(path).buffer as ArrayBuffer, { layoutTables: 'keep' }));
+    reply = () => `${(skeleton.success ? skeleton.markdown : '').slice(0, 60)}${CUT}`;
+    await expect(writeFromTemplate({ path, instruction: '경로당 냉방기 교체 계획' }, signal())).rejects.toThrow(/끝까지 쓰지 못했습니다/);
+  });
+
   it('지시도 참고 문서도 없으면 묻는다', async () => {
     await expect(writeFromTemplate({ path: await sample(), instruction: ' ' }, signal())).rejects.toThrow(/지시/);
   });

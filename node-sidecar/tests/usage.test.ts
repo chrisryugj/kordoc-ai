@@ -81,6 +81,39 @@ describe('효과 집계 달 경계', () => {
     rmSync(file, { force: true });
   });
 
+  it('저장에 실패한 몫은 버리지 않고 다음 저장에 얹는다', async () => {
+    const file = join(dir, 'usage.json');
+    const tmp = `${file}.${process.pid}.tmp`;
+    rmSync(file, { recursive: true, force: true });
+    vi.resetModules();
+    const { logger } = await import('../src/infra/logger.js');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const fresh = await import('../src/infra/usage.js');
+    mkdirSync(tmp); // 임시 파일 자리에 폴더: 쓰기가 실패한다 (다른 프로그램이 쥔 것과 같은 길)
+    fresh.recordUsage('export_pdf', { path: 'a.hwpx' }, {});
+    await vi.advanceTimersByTimeAsync(2000);
+    vi.useRealTimers();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining('저장 실패')));
+    rmSync(tmp, { recursive: true, force: true });
+    // 그사이 다른 엔진이 기록 파일을 만들었다: 다음 저장은 이 파일에 얹는다
+    writeFileSync(file, JSON.stringify({ version: 1, since: '2026-01-05T00:00:00.000Z', months: {} }));
+    fresh.recordUsage('export_pdf', { path: 'b.hwpx' }, {});
+    fresh.flushUsage();
+    const saved = JSON.parse(readFileSync(file, 'utf-8'));
+    expect(Object.values(saved.months as Record<string, Record<string, number>>)[0].pdf).toBe(2);
+    warn.mockRestore();
+    rmSync(file, { force: true });
+  });
+
+  it('엔진이 꺼지는 길마다 미뤄 둔 저장을 먼저 한다 (기록 2초 안에 꺼져도 건수가 남는다)', () => {
+    for (const src of ['../src/main.ts', '../src/mcp/server.ts']) {
+      const text = readFileSync(new URL(src, import.meta.url), 'utf-8');
+      const exits = text.match(/process\.exit\(0\)/g)?.length ?? 0;
+      expect(exits, src).toBeGreaterThan(0);
+      expect(text.match(/flushUsage\(\);\s*process\.exit\(0\)/g)?.length ?? 0, src).toBe(exits);
+    }
+  });
+
   it('도장을 찍지 못했으면(placed 0) 세지 않는다', async () => {
     await usageReset();
     recordUsage('seal', {}, { output_path: '', placed: 0 });

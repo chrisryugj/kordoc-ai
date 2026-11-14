@@ -132,12 +132,17 @@ export function MailMergeResult({ message, result }: { message: string; result: 
   const pdf = useTask<{ output_path: string; page_count: number; failed?: Array<{ path: string }> }>();
   const print = useTask<string>();
   const [printer, setPrinter] = useState<string | null>(null);
+  // 목록을 읽지 못한 것은 프린터가 없는 것과 다르다: 기본 프린터로는 보낼 수 있다
+  const [printerFailed, setPrinterFailed] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const folder = baseName(dir);
 
+  const loadPrinters = () => {
+    setPrinterFailed(false);
+    rpc("list_printers", {}).then((l) => setPrinter(l.find((p) => p.isDefault)?.name ?? l[0]?.name ?? ""), () => { setPrinter(""); setPrinterFailed(true); });
+  };
   useEffect(() => {
-    if (!outputs.length) return;
-    rpc("list_printers", {}).then((l) => setPrinter(l.find((p) => p.isDefault)?.name ?? l[0]?.name ?? ""), () => setPrinter(""));
+    if (outputs.length) loadPrinters();
   }, [outputs.length]);
 
   return (
@@ -170,9 +175,11 @@ export function MailMergeResult({ message, result }: { message: string; result: 
             <Button variant="secondary" size="sm" disabled={print.busy || printer === null || confirm} onClick={() => setConfirm(true)}><Printer size={13} /> 한꺼번에 인쇄</Button>
           </div>
           {confirm && (
-            printer === "" ? <Note tone="info">이 PC에 연결된 프린터가 없습니다. 합본 PDF로 만들어 다른 PC에서 인쇄하세요.</Note> : (
+            printer === "" && !printerFailed ? <Note tone="info">이 PC에 연결된 프린터가 없습니다. 합본 PDF로 만들어 다른 PC에서 인쇄하세요.</Note> : (
               <div className="kd-inset flex flex-wrap items-center gap-2 px-3 py-2">
-                <span className="kd-small flex-1">{outputs.length}장을 {printer}(으)로 한 부씩 보냅니다.</span>
+                {printerFailed
+                  ? <span className="kd-small flex-1">프린터 목록을 읽지 못했습니다. 보내기를 누르면 {outputs.length}장을 기본 프린터로 한 부씩 보냅니다. <button type="button" className="kd-link" onClick={loadPrinters}>다시 읽기</button></span>
+                  : <span className="kd-small flex-1">{outputs.length}장을 {printer}(으)로 한 부씩 보냅니다.</span>}
                 <Button size="sm" onClick={() => { setConfirm(false); void print.run(async () => {
                   const r = await rpc("print_files", { files: outputs, ...(printer ? { printer } : {}) });
                   if (r.failed.length && !r.queued) throw new Error(r.failed[0].reason);

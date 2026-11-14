@@ -145,6 +145,25 @@ export function isFalseWeekdayClaim(issue: Pick<ReviewIssue, 'location' | 'messa
   return pairs.size === 1 && [...pairs.values()][0];
 }
 
+/** 끊긴 답에서 끝까지 닫힌 지적만 건진다 — 지적이 많은 문서일수록 답이 길이 한도에서 끊기는데, 통째로 버리면 "0건"이 된다 */
+function closedIssues(text: string): unknown[] {
+  const at = text.indexOf('[', Math.max(0, text.indexOf('"issues"')));
+  const out: unknown[] = [];
+  let depth = 0, start = -1, quoted = false;
+  for (let i = at + 1; at >= 0 && i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '\\') i++;
+      else if (ch === '"') quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === '{') { if (!depth++) start = i; }
+    else if (ch === '}' && depth && !--depth) {
+      try { out.push(JSON.parse(text.slice(start, i + 1))); } catch { /* 깨진 지적은 건너뛴다 */ }
+    } else if (ch === ']' && !depth) break;
+  }
+  return out;
+}
+
 export async function reviewDocument(params: { path: string }, signal: AbortSignal): Promise<{ summary: string; issues: ReviewIssue[]; lint: LintFinding[]; redacted: number }> {
   sendProgress({ current: 0, total: 3, message: '문서 읽는 중' });
   const doc = await loadDoc(params.path, signal);
@@ -157,6 +176,8 @@ export async function reviewDocument(params: { path: string }, signal: AbortSign
 
   const issues: ReviewIssue[] = [];
   const summaries: string[] = [];
+  /** 답이 끊기거나 깨져 지적을 다 싣지 못한 부분 → 그 부분에서 건진 지적 수 */
+  const broken = new Map<number, number>();
   let redacted = 0;
   for (let i = 0; i < pieces.length; i++) {
     signal.throwIfAborted();
@@ -172,11 +193,16 @@ export async function reviewDocument(params: { path: string }, signal: AbortSign
     });
     redacted += r.redacted;
     try {
+      // 끊긴 답은 닫는 괄호가 우연히 맞아도 믿지 않는다 (아래에서 닫힌 지적만 건진다)
+      if (r.truncated) throw new Error('truncated');
       const parsed = parseJsonLoose<{ summary?: unknown; issues?: unknown }>(r.text);
       issues.push(...normalize(parsed.issues));
       if (str(parsed.summary)) summaries.push(str(parsed.summary));
     } catch {
-      logger.warn(`[ai_review] ${i + 1}번째 부분 JSON 해석 실패`);
+      const kept = normalize(closedIssues(r.text));
+      issues.push(...kept);
+      broken.set(i + 1, kept.length);
+      logger.warn(`[ai_review] ${i + 1}번째 부분 ${r.truncated ? '답이 길이 한도에서 끊김' : 'JSON 해석 실패'} (건진 지적 ${kept.length}건)`);
     }
   }
 
@@ -190,10 +216,17 @@ export async function reviewDocument(params: { path: string }, signal: AbortSign
 
   const count = (s: ReviewIssue['severity']) => merged.filter((x) => x.severity === s).length;
   // 뺀 지적이 있으면 모델의 한 줄 평("요일 오류가 있습니다")도 믿을 수 없다: 건수 줄로
-  const head = pieces.length === 1 && summaries[0] && !dropped
-    ? summaries[0]
-    : `검토 사항 ${merged.length}건 (오류 ${count('error')} · 주의 ${count('warning')} · 제안 ${count('info')})`;
+  // 한 부분도 읽지 못했으면 "0건"이 아니라 못 했다고 알린다 (문제가 많은 문서일수록 답이 끊겨 0건으로 보였다)
+  const unread = broken.size === pieces.length && !merged.length;
+  const head = unread
+    ? 'AI 답이 끊기거나 깨져 검토하지 못했습니다. 다시 검토하거나 설정 › AI 연결에서 다른 모델을 고르세요.'
+    : pieces.length === 1 && summaries[0] && !dropped
+      ? summaries[0]
+      : `검토 사항 ${merged.length}건 (오류 ${count('error')} · 주의 ${count('warning')} · 제안 ${count('info')})`;
+  const cut = unread || !broken.size ? ''
+    : pieces.length === 1 ? ' AI 답이 중간에서 끊겨 지적을 다 싣지 못했습니다. 한 번 더 검토해 보세요.'
+      : ` ${pieces.length}부분 가운데 ${[...broken.keys()].join('·')}번째는 AI 답이 끊겨 지적을 다 싣지 못했습니다.`;
   const tail = all.length > pieces.length ? ` 문서가 길어 앞 ${pieces.length}/${all.length} 부분만 검토했습니다.` : '';
-  sendProgress({ current: 3, total: 3, message: `검토 완료: ${merged.length}건` });
-  return { summary: `${head}${tail}`, issues: merged, lint, redacted };
+  sendProgress({ current: 3, total: 3, message: unread ? '검토하지 못했습니다' : `검토 완료: ${merged.length}건` });
+  return { summary: `${head}${cut}${tail}`, issues: merged, lint, redacted };
 }

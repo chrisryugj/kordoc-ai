@@ -135,6 +135,17 @@ describe('ai_chat', () => {
     expect(r.redacted).toBe(0);
   });
 
+  it('답이 길이 한도에서 끊기면 끊겼다고 알린다', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    const a = join(dir, '끊김.md');
+    writeFileSync(a, '# 계획\n\n행사는 2026. 4. 10.(금) 14:00에 구민체육센터에서 열린다.');
+    reply = () => `행사는 2026. 4. 10.에 열립니다[1]. 그리고 장소는${CUT}`;
+    const r = await chatWithDocs({ paths: [a], question: '언제 어디서 열려?' }, signal());
+    expect(r.answer).toMatch(/^행사는 2026\. 4\. 10\.에 열립니다\[1\]/);
+    expect(r.answer).toContain('답이 길이 한도에서 끊겼습니다');
+    expect(r.citations).toHaveLength(1);
+  });
+
   it('예산보다 큰 문서는 질문과 가까운 조각만 고른다 (BM25)', async () => {
     const big = join(dir, '긴문서.md');
     const filler = Array.from({ length: 60 }, (_, i) => `## 항목 ${i + 1}\n\n${'일반 행정 사무에 관한 내용을 적은 문단입니다. '.repeat(12)}`).join('\n\n');

@@ -45,13 +45,18 @@ export interface WorkAgent {
   send: (text: string) => Promise<void>;
   start: (text: string, paths: string[]) => Promise<void>;
   stop: () => void;
+  /** 창을 닫기 직전: 돌던 요청을 멈추고, 멈춘 것으로 바로 저장한다 (stop 은 저장이 나중이라 창이 먼저 닫힐 수 있다) */
+  stopForClose: () => void;
   newChat: (paths?: string[]) => void;
   openChat: (id: string) => void;
   rename: (id: string, title: string) => void;
   remove: (id: string) => void;
 }
 
-export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
+/** notify: 사용자에게 알릴 일이 생겼을 때 (저장소가 가득 차 대화를 지움 · 잠긴 대화에 문서를 붙이려 함). 부른 쪽이 알림으로 띄운다 */
+export function useWorkAgent({ from, notify }: { from?: "card"; notify?: (message: string, type?: "info" | "error") => void } = {}): WorkAgent {
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const store = useRef(new Map<string, Live>());
   const [viewId, setViewId] = useState(newChatId);
   const [chats, setChats] = useState<ChatMeta[]>(loadChats);
@@ -78,8 +83,20 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
     // 다른 창에서 바꾼 이름은 덮지 않는다
     const title = loadChats().find((c) => c.id === l.meta!.id)?.title ?? l.meta.title;
     l.meta = { ...l.meta, title, updatedAt: Date.now() };
-    saveChat(l.meta, l.body);
+    const dropped = saveChat(l.meta, l.body);
+    // 말없이 지우면 다음에 그 대화를 열었을 때 빈 대화만 보인다
+    if (dropped) notifyRef.current?.(`저장 공간이 가득 차 가장 오래된 대화 ${dropped}개를 지웠습니다. AI 대화 화면에서 필요 없는 대화를 지우면 자리가 납니다.`, "error");
     setChats(loadChats());
+  }, []);
+
+  /** 돌던 요청을 멈춘 것으로 남긴다 (창이 닫히는 길: 바로 저장소에 써서 다른 창이 도는 중으로 계속 보지 않게) */
+  const leave = useCallback(() => {
+    const l = running.current ? store.current.get(running.current) : undefined;
+    const ts = l?.body.turns ?? [];
+    const t = ts[ts.length - 1];
+    if (!l?.meta || l.gone || t?.state !== "running") return;
+    l.body = { ...l.body, turns: [...ts.slice(0, -1), { ...t, state: "stopped", text: t.text || "창을 닫아서 멈췄습니다.", ms: Date.now() - t.startedAt }] };
+    saveChat(l.meta, l.body);
   }, []);
 
   // 다른 창(문서 카드·본창)이 쓴 대화를 목록과 열어 둔 대화에 반영
@@ -101,27 +118,24 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
       }
       redraw();
     };
-    // 창을 닫으면 돌던 요청을 멈춘 것으로 남긴다 (다른 창이 도는 중으로 계속 보지 않게)
-    const onHide = () => {
-      const l = running.current ? store.current.get(running.current) : undefined;
-      const ts = l?.body.turns ?? [];
-      const t = ts[ts.length - 1];
-      if (!l?.meta || l.gone || t?.state !== "running") return;
-      l.body = { ...l.body, turns: [...ts.slice(0, -1), { ...t, state: "stopped", text: t.text || "창을 닫아서 멈췄습니다.", ms: Date.now() - t.startedAt }] };
-      saveChat(l.meta, l.body);
-    };
     window.addEventListener("storage", onStorage);
-    window.addEventListener("pagehide", onHide);
+    // 창을 닫으면 돌던 요청을 멈춘 것으로 남긴다
+    window.addEventListener("pagehide", leave);
     return () => {
       window.removeEventListener("storage", onStorage);
-      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pagehide", leave);
     };
-  }, []);
+  }, [leave]);
 
   const cur = live(viewId);
 
   const setPaths = useCallback((paths: string[]) => {
     const l = live(viewId);
+    // 다른 창이 이 대화의 일을 하는 중이면 받지 않는다: 그 창이 다음에 저장할 때 제 사본으로 덮어 붙인 문서가 말없이 되돌아간다
+    if (running.current !== viewId && l.body.turns[l.body.turns.length - 1]?.state === "running") {
+      notifyRef.current?.("다른 창에서 이 대화의 일을 하는 중이라 붙인 문서를 바꿀 수 없습니다. 끝난 뒤 다시 하세요.", "info");
+      return;
+    }
     l.body = { ...l.body, paths };
     redraw();
     persist(l);
@@ -165,7 +179,8 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
         },
       });
       const note = r.redacted ? `\n\n(외부 AI로 보내기 전에 개인정보 ${r.redacted}건을 가렸습니다.)` : "";
-      patch((t) => ({ ...t, text: (r.text || t.text || "끝났습니다.") + note, state: "done", ms: Date.now() - startedAt }), true);
+      // 루프가 끊은 요청(되풀이·연속 실패·차례 상한)은 끝난 것으로 그리지 않는다
+      patch((t) => ({ ...t, text: (r.text || t.text || "끝났습니다.") + note, state: r.cut ? "stopped" : "done", ms: Date.now() - startedAt }), true);
     } catch (e) {
       const aborted = isAbort(e);
       patch((t) => ({ ...t, text: aborted ? "멈췄습니다." : errorText(e), state: aborted ? "stopped" : "error", ms: Date.now() - startedAt }), true);
@@ -187,6 +202,7 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
   }, [run]);
 
   const stop = useCallback(() => ctrl.current?.abort(), []);
+  const stopForClose = useCallback(() => { leave(); ctrl.current?.abort(); }, [leave]);
 
   const newChat = useCallback((paths: string[] = []) => {
     const cur = store.current.get(viewId);
@@ -237,6 +253,7 @@ export function useWorkAgent({ from }: { from?: "card" } = {}): WorkAgent {
     send,
     start,
     stop,
+    stopForClose,
     newChat,
     openChat,
     rename,

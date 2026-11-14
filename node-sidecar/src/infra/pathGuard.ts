@@ -17,9 +17,10 @@ const BLOCKED_PREFIXES = [
   'C:\\ProgramData',
 ].map((p) => p.toLowerCase());
 
-function isBlockedSystemPath(resolved: string): boolean {
+/** 그 폴더 자체이거나 그 안일 때만 — 이름 앞머리만 같은 폴더(C:\Windows.old·C:\ProgramData2)는 시스템 폴더가 아니다 */
+export function isBlockedSystemPath(resolved: string): boolean {
   const lower = resolved.toLowerCase();
-  return BLOCKED_PREFIXES.some((prefix) => lower.startsWith(prefix));
+  return BLOCKED_PREFIXES.some((prefix) => lower === prefix || lower.startsWith(prefix + '\\'));
 }
 
 /**

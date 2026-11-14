@@ -28,7 +28,7 @@ const FILE_COL = '파일';
 export async function extractTable(
   params: { paths: string[]; columns: string[]; output_path?: string },
   signal: AbortSignal,
-): Promise<{ rows: Array<Record<string, string>>; output_path: string; failed: BatchItemResult[] }> {
+): Promise<{ rows: Array<Record<string, string>>; output_path: string; failed: BatchItemResult[]; partial?: string[] }> {
   const columns = [...new Set((params.columns ?? []).map((c) => String(c).trim()).filter(Boolean))];
   if (!params.paths?.length) throw new Error('표로 만들 문서를 하나 이상 고르세요.');
   if (!columns.length) throw new Error('뽑을 항목(열 이름)을 하나 이상 적으세요.');
@@ -46,13 +46,16 @@ export async function extractTable(
 
   const rows: Array<Record<string, string>> = [];
   const failed: BatchItemResult[] = [];
+  /** 길어서 항목과 가까운 대목만 읽은 문서 — 빈칸이 "문서에 없음"이 아니라 "보지 못함"일 수 있다 */
+  const partial: string[] = [];
   for (let i = 0; i < params.paths.length; i++) {
     const path = params.paths[i];
     signal.throwIfAborted();
     sendProgress({ current: i, total: params.paths.length, message: `${basename(path)}에서 뽑는 중 (${i + 1}/${params.paths.length})` });
     try {
       const doc = await loadDoc(path, signal);
-      const { selected } = selectPassages(doc.passages, colList, room);
+      const { selected, whole } = selectPassages(doc.passages, colList, room);
+      if (!whole) partial.push(path);
       const text = selected.map((p) => p.text).join('\n\n');
       const r = await ask({
         system: SYSTEM,
@@ -86,5 +89,6 @@ export async function extractTable(
   const data = extname(outPath).toLowerCase() === '.csv' ? writeCsv(header, table) : await writeXlsx(header, table);
   await writeFile(outPath, data);
   sendProgress({ current: params.paths.length, total: params.paths.length, message: `${rows.length}건 저장 완료` });
-  return { rows, output_path: outPath, failed };
+  const read = partial.filter((p) => !failed.some((f) => f.path === p));
+  return { rows, output_path: outPath, failed, ...(read.length ? { partial: read } : {}) };
 }

@@ -23,6 +23,13 @@ export function hrefHost(href: string): string {
   return (urlOf(href)?.hostname ?? "").toLowerCase().replace(/^www\./, "");
 }
 
+/** 주소가 이 PC 자신(127.0.0.1·localhost·::1)을 가리키는가. 다른 컴퓨터·못 읽는 주소·빈 칸은 아니다
+ *  ("켜 둔 AI 프로그램" 주소로 문서가 PC 밖에 가는지 알릴 때 쓴다) */
+export function isThisPcUrl(url: string): boolean {
+  const host = hrefHost(url.trim());
+  return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
+}
+
 /** 호스트 앞에 붙인 사용자 이름 (https://보이는곳@실제곳: 앞쪽을 갈 곳처럼 보이게 꾸민 주소). 없으면 "" */
 function userPart(href: string): string {
   const u = urlOf(href);

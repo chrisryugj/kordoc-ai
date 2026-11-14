@@ -99,6 +99,8 @@ export async function writeFromTemplate(p: TemplateWriteParams, signal: AbortSig
   ].filter(Boolean);
   const first = await ask({ system: SYSTEM, messages: [{ role: 'user', content: parts.join('\n\n') }], maxTokens, signal });
   redacted += first.redacted;
+  // 끊긴 답을 넣으면 뒤쪽에 견본의 옛 내용이 그대로 남은 문서가 된다
+  if (first.truncated) throw new Error('AI 답이 길이 한도에서 끊겨 문서를 끝까지 쓰지 못했습니다. 견본이 길면 나눠 쓰거나, 설정 › AI 연결에서 답을 더 길게 쓰는 모델을 고르세요.');
   let markdown = cleanOutput(first.restore(first.text)).trim();
   if (!markdown) throw new Error('AI가 문서를 쓰지 못했습니다. 지시를 조금 더 구체적으로 적어 다시 시도하세요.');
 

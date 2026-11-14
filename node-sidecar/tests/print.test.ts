@@ -84,6 +84,19 @@ describe('printFiles', () => {
     expect(env.KORDOC_PRINT_FILE).toMatch(/kordoc-print/);
   });
 
+  it('인쇄 명령에 제한 시간과 멈춤을 건다 (대기열이 막힌 PC 에서 그 파일에 매달려 멈춤도 안 먹지 않게)', async () => {
+    const file = join(tmp, '대기열.hwpx');
+    await writeFile(file, 'dummy');
+    mockDocToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
+    const ac = new AbortController();
+    await printFiles({ files: [file] }, ac.signal);
+    const opts = mockExecFile.mock.calls[0][2] as { timeout?: number; signal?: AbortSignal };
+    expect(opts.timeout).toBeGreaterThan(0);
+    expect(opts.signal).toBe(ac.signal);
+    await listPrinters();
+    expect((mockExecFile.mock.calls.at(-1)![2] as { timeout?: number }).timeout).toBeGreaterThan(0);
+  });
+
   it('파일 이름의 굽은 따옴표(‘ ’)가 PowerShell 명령에 들어가지 않는다', async () => {
     const file = join(tmp, '회의’;calc;#.hwpx');
     await writeFile(file, 'dummy');

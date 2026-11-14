@@ -116,6 +116,29 @@ describe('ai_fill_suggest', () => {
   });
 });
 
+describe('긴 문서를 일부만 읽었을 때', () => {
+  const filler = Array.from({ length: 60 }, (_, i) => `## 항목 ${i + 1}\n\n${'일반 행정 사무에 관한 내용을 적은 문단입니다. '.repeat(12)}`).join('\n\n');
+  it('표로 뽑기는 그 문서를 partial 로 알린다 (빈칸이 "문서에 없음"인지 "보지 못함"인지 가릴 수 있게)', async () => {
+    const big = join(dir, '긴문서.md');
+    writeFileSync(big, `# 종합 계획\n\n${filler}\n\n## 청렴 교육\n\n일시: 2026. 5. 20.`);
+    reply = () => JSON.stringify({ 일시: '2026. 5. 20.', 장소: '' });
+    const r = await extractTable({ paths: [join(dir, '계획.md'), big], columns: ['일시', '장소'], output_path: join(dir, '일부.xlsx') }, signal());
+    expect(r.partial).toEqual([big]);
+    const whole = await extractTable({ paths: [join(dir, '계획.md')], columns: ['일시', '장소'], output_path: join(dir, '전체.xlsx') }, signal());
+    expect(whole.partial).toBeUndefined();
+  });
+
+  it('칸 채우기 제안도 일부만 읽었다고 알린다', async () => {
+    const big = join(dir, '긴참고.md');
+    writeFileSync(big, `# 종합 계획\n\n${filler}`);
+    reply = () => JSON.stringify({ 제목: '종합 계획' });
+    const r = await suggestFill({ fields: ['제목'], references: [big] }, signal());
+    expect(r.note).toContain('일부만 읽고');
+    const small = await suggestFill({ fields: ['제목'], references: [join(dir, '계획.md')] }, signal());
+    expect(small.note).toBeUndefined();
+  });
+});
+
 describe('ai_extract', () => {
   it('문서마다 1회 호출, 실패한 문서는 failed 로, xlsx 저장 (파일 칸 맨 앞)', async () => {
     reply = (b) => (lastUser(b).includes('계획.md')

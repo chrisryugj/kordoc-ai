@@ -97,7 +97,9 @@ export function AgentComposer({ paths, onPaths, onSend, onStop, busy, suggestion
     fill(s.text);
   };
   const saveText = () => {
-    if (addMyPrompt(text)) { toast("내 프롬프트에 저장했습니다", "success"); setSaved((n) => n + 1); setGalleryOpen(true); }
+    const r = addMyPrompt(text);
+    if (r === "saved") { toast("내 프롬프트에 저장했습니다", "success"); setSaved((n) => n + 1); setGalleryOpen(true); }
+    else if (r === "full") toast("저장 공간이 가득 차 저장하지 못했습니다. AI 대화 화면에서 오래된 대화를 지운 뒤 다시 저장하세요.", "error");
     else toast("이미 저장한 문장입니다", "info");
   };
 

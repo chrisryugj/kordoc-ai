@@ -6,10 +6,11 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { writeFile, rename } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dataDir, getSettings } from './config.js';
 import { logger } from './logger.js';
+import { renameRetry } from './rename.js';
 
 type Params = Record<string, unknown>;
 type Counter = (params: Params, result: unknown) => number;
@@ -71,6 +72,8 @@ let saveTimer: NodeJS.Timeout | null = null;
 let pending: Record<string, Record<string, number>> = {};
 /** 기록 지우기 — 다음 저장은 파일과 합치지 않고 비운 기록으로 덮는다 */
 let cleared = false;
+/** 저장 한 번에 실은 것: 더한 건수, 기록 지우기였는지 */
+interface Unsaved { counts: Record<string, Record<string, number>>; cleared: boolean }
 
 function load(): UsageFile {
   if (data) return data;
@@ -84,19 +87,20 @@ function load(): UsageFile {
 }
 
 /** 저장할 기록 — 파일의 지금 기록(다른 엔진이 그사이 저장한 몫 포함)에 이 엔진이 더한 몫을 얹는다. 파일을 못 읽으면(다른 프로세스가 쥠)
- *  false: 이번 저장은 건너뛰고 더한 몫은 다음 저장으로. 깨진 파일·없는 파일은 이 엔진의 기록으로 쓴다 */
-function mergeDisk(): boolean {
-  if (!data) return true;
+ *  null: 이번 저장은 건너뛰고 더한 몫은 다음 저장으로. 깨진 파일·없는 파일은 이 엔진의 기록으로 쓴다.
+ *  돌려주는 것은 이번 저장에 실은 몫: 쓰기가 실패하면 keep 으로 되돌린다 */
+function mergeDisk(): Unsaved | null {
+  if (!data) return { counts: {}, cleared: false };
   if (cleared) {
     cleared = false;
     pending = {};
-    return true;
+    return { counts: {}, cleared: true };
   }
   let disk: UsageFile | null = null;
   try {
     if (existsSync(file())) disk = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
   } catch (err) {
-    if (!(err instanceof SyntaxError)) return false;
+    if (!(err instanceof SyntaxError)) return null;
   }
   if (disk?.version === 1) {
     disk.months ??= {};
@@ -107,38 +111,53 @@ function mergeDisk(): boolean {
     if (data.since < disk.since) disk.since = data.since;
     data = disk;
   }
+  const counts = pending;
   pending = {};
-  return true;
+  return { counts, cleared: false };
+}
+
+/** 쓰지 못한 몫을 다음 저장으로 넘긴다. 저장 전에 비우기만 하면, 다른 프로그램이 파일을 쥔 순간의 건수가 다음 저장 때 파일 값에 덮여 사라졌다 */
+function keep(sent: Unsaved): void {
+  for (const [mon, counts] of Object.entries(sent.counts)) {
+    const p = (pending[mon] ??= {});
+    for (const [k, v] of Object.entries(counts)) p[k] = (p[k] ?? 0) + v;
+  }
+  if (sent.cleared) cleared = true;
 }
 
 function scheduleSave(): void {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    if (!mergeDisk()) return;
+    const sent = mergeDisk();
+    if (!sent) return;
     try {
       mkdirSync(dataDir(), { recursive: true });
       // 앱 엔진과 MCP 엔진이 같이 저장할 수 있다 — 임시 이름이 같으면 덜 쓴 파일이 바꿔 넣어져 다음 읽기가 기록을 지웠다
       const tmp = `${file()}.${process.pid}.tmp`;
       await writeFile(tmp, JSON.stringify(data), 'utf-8');
-      await rename(tmp, file());
+      await renameRetry(tmp, file());
     } catch (err) {
+      keep(sent);
       logger.warn(`[usage] 저장 실패: ${err}`);
     }
   }, 2000);
   saveTimer.unref();
 }
 
-/** 미뤄 둔 저장을 기다리지 않고 지금 한다 (시험이 임시 폴더를 지우기 전: 2초 뒤 저장이 지운 폴더를 다시 만들지 않게) */
+/** 미뤄 둔 저장을 기다리지 않고 지금 한다. 엔진이 꺼지는 길에서 부른다 (기록 2초 안에 꺼지면 그 건수가 사라졌다).
+ *  시험도 임시 폴더를 지우기 전에 부른다: 2초 뒤 저장이 지운 폴더를 다시 만들지 않게 */
 export function flushUsage(): void {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = null;
-  if (!mergeDisk()) return;
+  const sent = mergeDisk();
+  if (!sent) return;
   try {
     mkdirSync(dataDir(), { recursive: true });
     writeFileSync(file(), JSON.stringify(data), 'utf-8');
   } catch (err) {
+    keep(sent);
     logger.warn(`[usage] 저장 실패: ${err}`);
   }
 }

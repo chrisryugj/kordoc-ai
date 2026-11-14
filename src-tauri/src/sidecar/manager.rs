@@ -53,9 +53,9 @@ pub enum SidecarStatus {
 }
 
 /// 응답 대기 상한(초). 묶음 변환·검색·수합처럼 파일 수만큼 늘어나는 작업이 거짓으로 끊기지 않게 기본을 넉넉히 둔다.
-/// AI·모델 내려받기·셀프테스트는 내장 모델이 CPU 에서 수 분이라 더 길게, 엔진 켜짐 확인(ping)만 짧게.
+/// AI·셀프테스트는 내장 모델이 CPU 에서 수 분이라 더 길게, 엔진 켜짐 확인(ping)만 짧게.
 fn timeout_for(method: &str) -> u64 {
-    if method.starts_with("ai_") || method == "llm_download" || method == "engine_selftest" {
+    if method.starts_with("ai_") || method == "engine_selftest" {
         return 3600;
     }
     if method == "ping" {
@@ -63,10 +63,21 @@ fn timeout_for(method: &str) -> u64 {
     }
     // 파일 수만큼 늘어나는 묶음 작업: 한글 문서 수백 개를 PDF 로 바꾸면 30분을 넘는다. 30분에 끊으면 하던 일이 날아가고
     // 처음부터 다시 해야 한다. 멈추는 것은 화면의 멈추기 단추로 (AI 도구 실행도 안에서 묶음 작업을 부른다)
-    if method.ends_with("_batch") || BATCH_METHODS.contains(&method) {
+    // 내장 AI 모델 받기(2.5~5GB)도 여기: 느린 회선에서는 1시간을 넘는다
+    if method.ends_with("_batch") || method == "llm_download" || BATCH_METHODS.contains(&method) {
         return 6 * 3600;
     }
     1800
+}
+
+/// 시간 초과로 끊었을 때 화면에 보일 문장 (할 일까지)
+fn timeout_message(method: &str) -> &'static str {
+    match method {
+        "ping" => "문서 엔진이 제때 켜지지 않았습니다. 앱을 다시 켜세요.",
+        // 받기에는 줄일 파일이 없다. 받던 조각은 엔진이 남겨 두어 다음 받기가 거기서 잇는다
+        "llm_download" => "모델 받기가 너무 오래 걸려 멈췄습니다. 다시 받기를 누르면 받은 데까지 이어서 받습니다.",
+        _ => "작업이 너무 오래 걸려 멈췄습니다. 파일 수를 줄이거나 다시 시도하세요.",
+    }
 }
 
 /// 호출이 걸려 있는 동안 엔진 주 스레드가 살아 있는지 보는 간격과, ping 답을 기다리는 한도.
@@ -80,6 +91,9 @@ const BATCH_METHODS: [&str; 15] = [
     "collect_gather", "collect_run", "search_files", "inbox_add", "style_apply", "mail_merge", "merge_files", "bundle_pdf",
     "pdf_compose", "pdf_to_images", "print_files", "receipt_read", "org_corpus_add", "template_add", "agent_tool_run",
 ];
+
+/// 엔진을 다시 켰을 때 화면에 보내는 이벤트 (화면 src/state/app.tsx 가 듣고 폴더 지켜보기를 다시 건다)
+const ENGINE_RESTARTED: &str = "sidecar:restarted";
 
 /// 엔진이 죽었거나 아직 안 켜졌을 때. 프론트(src/lib/rpc.ts DEAD)가 "프로세스 종료" 글자를 보고 엔진을 다시 켜서 한 번 더 부른다
 const ENGINE_STOPPED: &str = "문서 엔진이 멈췄습니다(프로세스 종료). 잠시 뒤 다시 시도하세요. 계속되면 앱을 다시 켜세요.";
@@ -304,6 +318,13 @@ impl SidecarManager {
                 *self.status.write().await = SidecarStatus::Ready;
                 *self.last_start.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
                 tracing::info!("Sidecar ready");
+                // 다시 켠 것이면 화면에 알린다. 폴더 지켜보기는 엔진 메모리에만 있어 화면이 기억한 목록으로 다시 거는데, 화면의 3초 주기
+                // 상태 확인은 "켜는 중"을 못 보고 지나갈 수 있다 (멈춘 엔진을 watchdog 이 다시 켰고, 걸려 있던 호출이 다시 보내지 않는 것뿐일 때)
+                if generation > 1 {
+                    if let Some(h) = handle.as_ref() {
+                        let _ = h.emit(ENGINE_RESTARTED, generation);
+                    }
+                }
                 Ok(())
             }
             Ok(_) => {
@@ -357,11 +378,7 @@ impl SidecarManager {
                 // 엔진 쪽 작업도 멈춘다 (받을 곳이 없는데 계속 돌며 차선을 막지 않게). 못 보내도 그만
                 let _ = self.write_line(&cancel_request(self.next_id.fetch_add(1, Ordering::SeqCst), id));
                 tracing::warn!("[sidecar] {} id={} {}초 시간 초과, 취소 요청", method, id, secs);
-                Err(AppError::Sidecar(if method == "ping" {
-                    "문서 엔진이 제때 켜지지 않았습니다. 앱을 다시 켜세요.".into()
-                } else {
-                    "작업이 너무 오래 걸려 멈췄습니다. 파일 수를 줄이거나 다시 시도하세요.".into()
-                }))
+                Err(AppError::Sidecar(timeout_message(method).into()))
             }
         };
         let elapsed = started.elapsed().as_secs_f32();
@@ -557,10 +574,26 @@ mod tests {
         for m in ["to_hwpx_batch", "convert_batch", "redact_batch", "bundle_pdf", "search_files", "collect_run", "collect_gather", "inbox_add", "template_add", "agent_tool_run"] {
             assert_eq!(timeout_for(m), 6 * 3600, "{m}");
         }
-        for m in ["ai_summarize", "ai_fit_lines", "llm_download", "engine_selftest"] {
+        for m in ["ai_summarize", "ai_fit_lines", "engine_selftest"] {
             assert_eq!(timeout_for(m), 3600, "{m}");
         }
         assert_eq!(timeout_for("ping"), 120);
+    }
+
+    #[test]
+    fn model_download_gets_hours_and_its_own_timeout_words() {
+        // 5GB 모델은 느린 회선에서 1시간을 넘는다. 끊겼을 때는 줄일 파일이 없으니 이어 받는다고 알린다
+        assert_eq!(timeout_for("llm_download"), 6 * 3600);
+        assert!(timeout_message("llm_download").contains("이어서 받습니다"));
+        assert!(timeout_message("convert_batch").contains("파일 수를 줄이거나"));
+        assert!(timeout_message("ping").contains("앱을 다시 켜세요"));
+    }
+
+    #[test]
+    fn restart_event_name_matches_the_screen() {
+        // 화면이 다른 이름을 들으면 엔진을 다시 켠 뒤 폴더 지켜보기가 알림 없이 멈춘다
+        let app = include_str!("../../../src/state/app.tsx");
+        assert!(app.contains(&format!("listenEvent(\"{ENGINE_RESTARTED}\"")), "app.tsx 가 {ENGINE_RESTARTED} 를 듣지 않는다");
     }
 
     #[test]

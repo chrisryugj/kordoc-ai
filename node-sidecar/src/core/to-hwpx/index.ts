@@ -55,7 +55,9 @@ export async function toHwpx(
     ...(Object.keys(images).length ? { images } : {}),
     warnings: genWarnings,
   });
-  warnings.push(...parseWarnings(r), ...genWarnings.map(cleanMessage));
+  // 일괄(quiet)에서는 "N개 페이지에 OCR 적용" 안내를 뺀다: 확인할 일이 아니라서, 결과 줄에 실으면 경고 줄·빠른 동작 "확인 필요"가 된다
+  const parsed = quiet ? { ...r, warnings: r.warnings?.filter((w) => w.code !== 'OCR_APPLIED') } : r;
+  warnings.push(...parseWarnings(parsed), ...genWarnings.map(cleanMessage));
   const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: outName });
   await writeFile(outPath, Buffer.from(buf));
   const style = preset ? `${PRESETS.find((x) => x.id === preset)?.label ?? preset} 서식` : '꾸밈 없이';
@@ -70,7 +72,7 @@ export async function toHwpxBatch(p: { paths: string[]; preset?: string; output_
     sendProgress(step);
     try {
       const r = await toHwpx({ path, preset: p.preset, output_dir: p.output_dir }, signal, true);
-      results.push({ path, ok: true, output_path: r.output_path, note: r.style });
+      results.push({ path, ok: true, output_path: r.output_path, note: r.style, ...(r.warnings.length ? { warnings: r.warnings } : {}) });
     } catch (err) {
       if (signal.aborted) throw err;
       results.push({ path, ok: false, error: errorText(err) });

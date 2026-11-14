@@ -85,6 +85,8 @@ export function BatchScreen({ active }: { active: boolean }) {
     if (!paths.length) return [];
     try {
       const r = await rpc("scan_paths", { paths });
+      // 훑는 사이(큰 폴더는 몇 초) 작업을 시작했으면 넣지 않는다: 넣으면 아래에서 도는 작업을 끊고 결과 줄을 지운다
+      if (busyRef.current) { toast("작업 중에는 파일을 넣을 수 없습니다. 끝나거나 멈춘 뒤 넣으세요.", "info"); return []; }
       // 새 파일이 들면 아래에서 앞 결과를 지운다: 고친 지출조서 표가 있으면 먼저 묻는다 (넘어온 요청(replace)은 부른 쪽이 이미 물었다).
       // 그만두면 목록·알림을 하나도 바꾸지 않는다
       if (!replace && receiptEdited.current) {

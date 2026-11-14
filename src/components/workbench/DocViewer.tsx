@@ -113,10 +113,11 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shownPages]);
 
-  // 글 보기는 처음 고를 때 한 번 읽는다
+  const readText = () => void text.run(() => rpc("convert", { path: doc.path, format: "md", save: false, ...pw }).then((r) => r.content));
+  // 글 보기는 처음 고를 때 한 번 읽는다 (실패하면 오류 줄의 다시 읽기로)
   useEffect(() => {
     if (mode !== "text" || text.result != null || text.busy || text.error || ocr.result) return;
-    void text.run(() => rpc("convert", { path: doc.path, format: "md", save: false, ...pw }).then((r) => r.content));
+    readText();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, doc.path]);
 
@@ -182,6 +183,7 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
           {pagesOff && <Note tone="info">암호가 걸린 문서라 쪽 모양은 아직 볼 수 없습니다. 글 보기로 내용을 확인하세요.</Note>}
           {text.busy && <Empty title="글을 뽑는 중" />}
           <ErrorLine message={text.error} />
+          {text.error && <div><Button variant="secondary" size="sm" onClick={readText}>다시 읽기</Button></div>}
           {/* 글자 수는 정보 탭 하나로 (여기서는 세지 않는다). 글 파일(.txt·.csv)은 마크다운으로 해석하지 않고 그대로 */}
           {markdown != null && (markdown.trim() ? <MarkdownViewer markdown={markdown} fillHeight plain={!ocr.result && (info.format === "txt" || info.format === "csv")} /> : <Empty title="뽑을 글이 없습니다">그림만 있는 문서라면 글자 읽기(OCR)를 돌려 보세요.</Empty>)}
         </div>

@@ -5,7 +5,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AiStatus, DeepPartial, DocFormat, DocInfo, Settings, SystemInfo } from "../lib/contract";
-import { rpc, errorText } from "../lib/rpc";
+import { rpc, errorText, listenEvent } from "../lib/rpc";
 import { baseName, formatOf } from "../lib/format";
 import { notifySystem } from "../lib/native";
 import { loadRecent, pushRecent, readPref, saveRecent, writePref, type RecentDoc } from "../lib/recent";
@@ -271,6 +271,8 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     window.addEventListener("kordoc:engine-restarted", on);
     return () => window.removeEventListener("kordoc:engine-restarted", on);
   }, [rearm]);
+  // 멈춘 엔진을 Rust 가 스스로 다시 켠 경우(manager.rs watchdog): 걸려 있던 호출이 다시 보내지 않는 것뿐이면 위 두 길 모두 모르고 지나간다
+  useEffect(() => listenEvent("sidecar:restarted", () => void rearm()), [rearm]);
 
   const saveSettings = useCallback(async (patch: DeepPartial<Settings>) => {
     try {

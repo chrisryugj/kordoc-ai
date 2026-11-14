@@ -59,7 +59,12 @@ async function splitPdf(env: RunEnv, f: FileEntry) {
 
 const outDirOf = (o: BatchOpts) => (o.outDir ? { output_dir: o.outDir } : {});
 
-const batchRow = (r: BatchItemResult): RowState => (r.ok ? { status: "ok", output: r.output_path, note: r.note } : { status: "fail", error: r.error });
+const batchRow = (r: BatchItemResult): RowState => {
+  if (!r.ok) return { status: "fail", error: r.error };
+  // 경고가 있으면 "완료"에 묻히지 않게 경고 줄로
+  if (r.warnings?.length) return { status: "ok", output: r.output_path, note: r.warnings.join(" "), warn: true };
+  return { status: "ok", output: r.output_path, note: r.note };
+};
 
 type RedactItem = RpcResult<"redact_batch">["results"][number];
 const redactRow = (it: RedactItem): RowState => (it.ok
@@ -82,7 +87,8 @@ function live<T extends { path: string }>(env: RunEnv, row: (item: T) => RowStat
 function applyBatch(env: RunEnv, results: BatchItemResult[]) {
   for (const r of results) env.setRow(r.path, batchRow(r));
   const ok = results.filter((r) => r.ok).length;
-  return `${ok}개 완료${results.length - ok ? `, ${results.length - ok}개 실패` : ""}`;
+  const check = results.filter((r) => r.ok && r.warnings?.length).length;
+  return `${ok}개 완료${results.length - ok ? `, ${results.length - ok}개 실패` : ""}${check ? `. ${check}개는 확인할 것이 있습니다(목록의 경고 줄)` : ""}`;
 }
 
 /** 파일마다 차례로 — 하나가 실패해도 다음으로. 저장한 폴더(고른 곳, 없으면 첫 결과가 놓인 곳)도 돌려준다 */
@@ -168,7 +174,11 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       return { kind: "files", message: `${ok}개 완료${r.results.length - ok ? `, ${r.results.length - ok}개 실패` : ""}${check ? `. ${check}개는 남은 의심 곳이 있으니 사본을 열어 확인하세요` : ""}`, dir: r.output_dir };
     }
     case "pdf":
-      return { kind: "files", ...(await eachFile(env, async (f) => ({ output: (await rpc("export_pdf", { path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.pdf`) } : {}) }, { signal })).output_path }))) };
+      return { kind: "files", ...(await eachFile(env, async (f) => {
+        const r = await rpc("export_pdf", { path: f.path, ...(opts.outDir ? { output_path: joinPath(opts.outDir, `${stem(f.name)}.pdf`) } : {}) }, { signal });
+        // 원본대로 그리지 못해 다른 방식으로 만든 PDF 는 "완료"에 묻히지 않게
+        return { output: r.output_path, ...(r.warnings?.length ? { note: r.warnings.join(" "), warn: true } : {}) };
+      })) };
     case "shrink":
       return { kind: "files", ...(await eachFile(env, async (f) => {
         const r = await rpc("pdf_shrink", { path: f.path, ...shrinkParams(opts.shrink), ...outDirOf(opts) }, { signal });
@@ -258,8 +268,10 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       const columns = opts.columns.split(",").map((s) => s.trim()).filter(Boolean);
       const r = await rpc("ai_extract", { paths, columns, ...(opts.outDir ? { output_path: joinPath(opts.outDir, "항목 뽑기.xlsx") } : {}) }, o);
       r.failed.forEach((x) => env.setRow(x.path, { status: "fail", error: x.error }));
-      files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok" }));
-      return { kind: "extract", message: `${r.rows.length}개 문서에서 뽑았습니다`, path: r.output_path, columns, rows: r.rows };
+      // 길어서 일부만 읽은 문서는 줄에 밝힌다 (빈칸이 "문서에 없음"이 아니라 "보지 못함"일 수 있다)
+      const partial = new Set(r.partial ?? []);
+      files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok", ...(partial.has(f.path) ? { note: "일부만 읽음" } : {}) }));
+      return { kind: "extract", message: `${r.rows.length}개 문서에서 뽑았습니다${partial.size ? ` (${partial.size}개는 길어서 항목과 가까운 대목만 읽음 — 빈칸은 원문에서 확인하세요)` : ""}`, path: r.output_path, columns, rows: r.rows };
     }
     case "search": {
       const r = await rpc("search_files", { paths, query: opts.query.trim(), max_hits: 20 }, o);

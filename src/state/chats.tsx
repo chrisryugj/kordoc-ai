@@ -2,11 +2,13 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import { useWorkAgent, type WorkAgent } from "../hooks/useWorkAgent";
+import { useApp } from "./app";
 
 const Ctx = createContext<WorkAgent | null>(null);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
-  const agent = useWorkAgent();
+  const { toast } = useApp();
+  const agent = useWorkAgent({ notify: toast });
   return <Ctx.Provider value={agent}>{children}</Ctx.Provider>;
 }
 

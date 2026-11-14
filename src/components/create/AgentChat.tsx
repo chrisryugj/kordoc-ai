@@ -150,7 +150,7 @@ export function AgentChat() {
     void bridge.undo(c.count, c.foreign).then(
       (r) => {
         setChat((prev) => prev.map((e, k) => (k === i && e.changes ? { ...e, changes: { ...e.changes, state: r.ok ? "reverted" : "refused" } } : e)));
-        if (r.ok) events.current.push({ role: "user", text: "(사용자가 바로 앞 요청의 변경을 모두 되돌렸습니다. 문서는 그 요청 전 상태입니다.)" });
+        if (r.ok) events.current.push({ role: "user", text: "(사용자가 바로 앞 요청의 변경을 모두 되돌렸습니다. 문서는 그 요청 전 상태입니다.)", auto: true });
       },
       (e) => setError(errorText(e)),
     ).finally(() => setReverting(false));

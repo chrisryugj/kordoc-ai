@@ -20,7 +20,7 @@ import { docToPdf, loadPdf } from '../export/index.js';
 import { stampPdf } from '../export/stamp.js';
 import { shrinkImages } from '../pdf-shrink/index.js';
 import { formatOf } from '../files/format.js';
-import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
+import { dropPartial, outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
 import { closePdfPage, isHeavyPage, openPdf, rasterPdfPage } from '../render/pdfium.js';
 import { parsePageSpec } from '../render/index.js';
 
@@ -331,14 +331,20 @@ export async function pdfToImages(
     mkdirSync(dir, { recursive: true });
     const digits = Math.max(2, String(count).length);
     const files: string[] = [];
-    for (const [i, n] of wanted.entries()) {
-      signal?.throwIfAborted();
-      sendProgress({ current: i + 1, total: wanted.length, message: `쪽을 그림으로 (${i + 1}/${wanted.length})` });
-      const page = doc.getPage(n - 1);
-      const r = await rasterPdfPage(doc, n, Math.round((page.getOriginalSize().originalWidth / 72) * dpi), jpg ? 'jpeg' : 'png', 90, page, dpi / 72);
-      const file = join(dir, `${safeFileName(stem)}_${String(n).padStart(digits, '0')}.${jpg ? 'jpg' : 'png'}`);
-      await writeFile(file, r.data);
-      files.push(file);
+    try {
+      for (const [i, n] of wanted.entries()) {
+        signal?.throwIfAborted();
+        sendProgress({ current: i + 1, total: wanted.length, message: `쪽을 그림으로 (${i + 1}/${wanted.length})` });
+        const page = doc.getPage(n - 1);
+        const r = await rasterPdfPage(doc, n, Math.round((page.getOriginalSize().originalWidth / 72) * dpi), jpg ? 'jpeg' : 'png', 90, page, dpi / 72);
+        const file = join(dir, `${safeFileName(stem)}_${String(n).padStart(digits, '0')}.${jpg ? 'jpg' : 'png'}`);
+        files.push(file);
+        await writeFile(file, r.data);
+      }
+    } catch (err) {
+      // 멈추거나 쓰다 실패하면 반쯤 만든 그림을 남기지 않는다
+      await dropPartial(files, dir);
+      throw err;
     }
     return { output_dir: dir, files };
   } finally {

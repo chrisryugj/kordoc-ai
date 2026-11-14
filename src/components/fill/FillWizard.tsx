@@ -584,6 +584,12 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
                         )}
                       </p>
                     )}
+                    {/* 원래 들어 있던 값을 지웠다: 빈 값은 문서에 넣지 못해 옛 값이 그대로 남는다 (칸이 비어 보인다고 지워진 줄 알지 않게) */}
+                    {!f.empty && f.value.trim() && !values[f.label]?.trim() && (
+                      <p className="kd-small mt-1" style={{ color: "var(--color-warning)" }}>
+                        칸을 비워도 문서에 원래 있던 값은 지워지지 않고 그대로 남습니다. 지우려면 저장한 문서를 한글 편집기에서 열어 고치세요.
+                      </p>
+                    )}
                   </div>
                 );
               })}

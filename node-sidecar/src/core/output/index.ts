@@ -6,6 +6,7 @@
  */
 
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync } from 'node:fs';
+import { rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getSettings } from '../../infra/config.js';
@@ -61,6 +62,13 @@ export function resultDir(dir: string): string {
   for (let n = 2; used(out); n++) out = join(dirname(dir), `${basename(dir)} (${n})`);
   mkdirSync(out, { recursive: true });
   return out;
+}
+
+/** 여러 파일을 쓰다 멈추거나 실패했을 때 — 이번에 쓴 파일만 지우고, 폴더는 비었을 때만 지운다.
+ *  남겨 두면 다시 할 때 resultDir·uniquePath 가 "(2)" 폴더로 보낸다 */
+export async function dropPartial(files: string[], dir: string): Promise<void> {
+  await Promise.all(files.map((f) => rm(f, { force: true }).catch(() => {})));
+  await rmdir(dir).catch(() => {});
 }
 
 /** 나누기 결과 폴더 자리 — parent 를 주면 그 안의 name 폴더(parent 이름이 이미 name 이면 그 폴더), 없으면 저장 폴더의 name */

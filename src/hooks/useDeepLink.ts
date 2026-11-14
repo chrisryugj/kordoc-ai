@@ -49,6 +49,9 @@ export function parseDeepLink(raw: string): DeepLinkPayload | null {
   return { type: "file", action, path };
 }
 
+/** 돌고 있는 종료 전 묻기 수 (10초 넘게 걸리면 다음 완전 종료가 한 번 더 묻는다) */
+let quitAsking = 0;
+
 export function useDeepLink(onLink: (p: DeepLinkPayload) => void, onOpenFiles: (paths: string[]) => void) {
   const linkRef = useRef(onLink);
   const filesRef = useRef(onOpenFiles);
@@ -70,8 +73,16 @@ export function useDeepLink(onLink: (p: DeepLinkPayload) => void, onOpenFiles: (
     void Promise.all([
       listen<string>("deep-link", (e) => onDeepLink(e.payload)),
       listen<string[]>("open-files", (e) => onFiles(e.payload)),
-      // 트레이 "완전 종료": 저장 안 한 것을 물은 뒤에만 끈다
-      listen("quit-requested", () => { void canQuit().then((ok) => invokeCmd(ok ? "quit_app" : "quit_cancelled")).catch(() => undefined); }),
+      // 트레이 "완전 종료": 저장 안 한 것을 물은 뒤에만 끈다. 묻는 동안(상자 없이 저장하는 중 포함) 표지를 단다:
+      // 그사이 완전 종료를 또 눌러도 Rust(lib.rs QUIT_BUSY)가 화면이 멈춘 것으로 보고 끄지 않게
+      listen("quit-requested", () => {
+        quitAsking += 1;
+        document.documentElement.toggleAttribute("data-quit-asking", true);
+        void canQuit().then((ok) => invokeCmd(ok ? "quit_app" : "quit_cancelled")).catch(() => undefined).finally(() => {
+          quitAsking -= 1;
+          document.documentElement.toggleAttribute("data-quit-asking", quitAsking > 0);
+        });
+      }),
     ]).then(async (fns) => {
       if (disposed) { fns.forEach((off) => off()); return; }
       offs = fns;

@@ -81,13 +81,18 @@ const PS_PRINT = [
   'Start-Process @a',
 ].join('; ');
 
-async function shellPrint(pdfPath: string, printer?: string): Promise<void> {
+/** 인쇄·프린터 목록 명령의 제한 시간 — 대기열이 막히거나 드라이버가 매달린 PC 에서 그 파일에 멈춰 다음으로 넘어가지 않았다 */
+const PRINT_CMD_MS = 60_000;
+
+async function shellPrint(pdfPath: string, printer: string | undefined, signal: AbortSignal): Promise<void> {
   const env: NodeJS.ProcessEnv = { ...process.env, KORDOC_PRINT_FILE: pdfPath };
   if (printer) env.KORDOC_PRINTER = printer;
   else delete env.KORDOC_PRINTER;
   await execFileAsync(winTool('powershell'), ['-NoProfile', '-NonInteractive', '-Command', PS_PRINT], {
     windowsHide: true,
     env,
+    timeout: PRINT_CMD_MS,
+    signal,
   });
 }
 
@@ -133,10 +138,10 @@ export async function printFiles(
       await writeFile(pdfPath, pdfBuf);
 
       if (process.platform === 'win32') {
-        await shellPrint(pdfPath, params.printer);
+        await shellPrint(pdfPath, params.printer, signal);
         jobIds.push(pdfPath);
       } else {
-        const { stdout } = await execFileAsync('lp', lpArgs(pdfPath, params.printer), { env: { ...process.env, LANG: 'C', LC_ALL: 'C' } });
+        const { stdout } = await execFileAsync('lp', lpArgs(pdfPath, params.printer), { env: { ...process.env, LANG: 'C', LC_ALL: 'C' }, timeout: PRINT_CMD_MS, signal });
         jobIds.push(/request id is (\S+)/.exec(stdout)?.[1] ?? pdfPath);
       }
       void scheduleTempCleanup(pdfPath);
@@ -191,7 +196,7 @@ export function parseLpstat(out: string): Printer[] {
 export async function listPrinters(): Promise<Printer[]> {
   if (process.platform !== 'win32') {
     // 프린터가 하나도 없으면 lpstat 이 0 이 아닌 종료 코드를 낸다 → 빈 목록
-    const r = await execFileAsync('lpstat', ['-p', '-d'], { env: { ...process.env, LANG: 'C', LC_ALL: 'C' } }).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }));
+    const r = await execFileAsync('lpstat', ['-p', '-d'], { env: { ...process.env, LANG: 'C', LC_ALL: 'C' }, timeout: PRINT_CMD_MS }).catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }));
     return parseLpstat(r.stdout);
   }
 
@@ -206,7 +211,7 @@ export async function listPrinters(): Promise<Printer[]> {
   const { stdout } = await execFileAsync(
     winTool('powershell'),
     ['-NoProfile', '-NonInteractive', '-Command', ps],
-    { windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+    { windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: PRINT_CMD_MS },
   );
 
   const trimmed = stdout.trim();

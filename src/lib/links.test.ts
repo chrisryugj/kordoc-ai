@@ -1,7 +1,7 @@
 /** 문서 속 링크 살피기 — 글이 곧 주소면 바로, 아니면 실제 주소를 보이고 묻는다. 보이는 주소와 다른 곳이면 경고 */
 
 import { describe, it, expect } from "vitest";
-import { displayHref, hrefHost, isExternalHref, linkMismatch, showsOwnHref } from "./links";
+import { displayHref, hrefHost, isExternalHref, isThisPcUrl, linkMismatch, showsOwnHref } from "./links";
 
 /** 글 방향을 뒤집는 보이지 않는 글자 (소스에 날 글자로 두지 않는다) */
 const RLO = String.fromCharCode(0x202e);
@@ -74,5 +74,21 @@ describe("hrefHost·displayHref", () => {
     const shown = displayHref(`https://a.kr/${RLO}rk.doog`);
     expect(shown.includes(RLO)).toBe(false);
     expect(shown).toContain("%E2%80%AE");
+  });
+});
+
+describe("isThisPcUrl", () => {
+  it("이 PC 자신을 가리키는 주소만 참이다", () => {
+    expect(isThisPcUrl("http://127.0.0.1:11434/v1")).toBe(true);
+    expect(isThisPcUrl(" http://localhost:1234/v1 ")).toBe(true);
+    expect(isThisPcUrl("http://[::1]:8080/v1")).toBe(true);
+  });
+
+  it("다른 컴퓨터·못 읽는 주소·빈 칸은 아니다", () => {
+    expect(isThisPcUrl("http://192.168.0.10:11434/v1")).toBe(false);
+    expect(isThisPcUrl("https://ai.example.go.kr/v1")).toBe(false);
+    expect(isThisPcUrl("http://127.0.0.1.example.com/v1")).toBe(false);
+    expect(isThisPcUrl("127.0.0.1:11434")).toBe(false);
+    expect(isThisPcUrl("")).toBe(false);
   });
 });

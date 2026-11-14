@@ -1,7 +1,7 @@
 /** 설정 저장 — 동시에 여러 구획을 저장해도 하나도 사라지지 않는다 (차례로 저장) */
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reload, updateSettings, getSettings } from '../src/infra/config.js';
@@ -93,5 +93,16 @@ describe('reloadIfChanged — 다른 프로세스가 바꾼 설정', () => {
     expect(getSettings().privacy.offline).toBe(true);
     expect(getSettings().org.name).toBe('가온시');
     expect(reloadIfChanged()).toBe(false);
+  });
+});
+
+describe('설정 파일 앞머리의 BOM', () => {
+  it('메모장·PowerShell 로 손본 파일(BOM 붙음)도 그대로 읽는다 (깨진 파일로 치우지 않는다)', () => {
+    const file = join(dir, 'settings.json');
+    writeFileSync(file, String.fromCharCode(0xfeff) + JSON.stringify({ org: { name: '가온군' }, law: { oc: 'bom' } }));
+    reload();
+    expect(getSettings().org.name).toBe('가온군');
+    expect(getSettings().law.oc).toBe('bom');
+    expect(readdirSync(dir).filter((f) => f.includes('.broken-'))).toEqual([]);
   });
 });

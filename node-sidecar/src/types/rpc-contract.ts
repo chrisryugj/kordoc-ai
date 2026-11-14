@@ -84,6 +84,8 @@ export interface BatchItemResult {
   error?: string;
   /** 결과 한 줄 (예: 한글로 바꾸기에서 고른 서식) */
   note?: string;
+  /** 만들기는 했지만 사용자가 확인할 것 (예: 서식 그대로 옮기지 못해 다시 짬) */
+  warnings?: string[];
 }
 
 // ── 메서드 표: 이름 → [params, result] ──
@@ -120,7 +122,8 @@ export interface RpcMethods {
   render_pages: [{ path: string; pages?: string; max_width?: number; password?: string }, { page_count: number; pages: PagePreview[] }];
   /** HWP·HWPX 는 조판 그대로(rhwp 쪽 SVG → Chromium 인쇄, 실패 시 kordoc 렌더), 그 밖은 글 변환 후 인쇄용 PDF. Chromium(Edge·Chrome) 필요 — 없으면 안내 오류 */
   /** overwrite: 저장 창에서 고른 경로라 있는 파일을 바꾼다. 없으면 같은 이름이 있을 때 (2) 를 붙인다 */
-  export_pdf: [{ path: string; output_path?: string; overwrite?: boolean }, { output_path: string }];
+  /** warnings: 원본대로 그리지 못해 대체 렌더로 만든 PDF (조판이 다를 수 있음) */
+  export_pdf: [{ path: string; output_path?: string; overwrite?: boolean }, { output_path: string; warnings?: string[] }];
   /** save: false 면 읽기만 하고 .md 파일을 만들지 않는다(output_path 는 빈 글) */
   ocr: [{ input_path: string; output_path?: string; pages?: string; engine?: 'local' | 'ai'; force?: boolean; save?: boolean }, { success: boolean; output_path: string; markdown: string; page_count?: number; engine: 'local' | 'ai'; warnings?: string[]; error?: string }];
   compare: [{ old_path: string; new_path: string; export?: 'html' | 'md' | 'xlsx'; output_path?: string }, CompareResult];
@@ -248,7 +251,7 @@ export interface RpcMethods {
     system: string;
     tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
     events: Array<
-      | { role: 'user'; text: string; context?: string }
+      | { role: 'user'; text: string; context?: string; /** 루프가 넣은 글(되묻기) — 사용자 요청이 아니다 */ auto?: boolean }
       | { role: 'assistant'; text: string; calls: Array<{ id: string; name: string; input: Record<string, unknown> }> }
       | { role: 'tool'; results: Array<{ id: string; name: string; output: string; isError?: boolean }> }
     >;
@@ -258,9 +261,10 @@ export interface RpcMethods {
     output_path: string; applied: number; skipped: string[]; redacted: number; converted: boolean;
     findings: Array<{ axis: '표기법' | '문체' | '윤문' | '구성'; rule: string; line: number; match: string; message: string; severity: 'error' | 'warning' | 'info'; suggest?: string }>;
   }];
-  ai_fill_suggest: [{ fields: string[]; references: string[]; note?: string; instruction?: string; guides?: Record<string, string> }, { values: Record<string, string>; redacted: number }];
-  /** 여러 문서에서 같은 항목을 뽑아 표(xlsx, output_path 가 .csv 면 csv)로. rows 맨 앞에 "파일"(문서 이름) 칸이 붙는다 */
-  ai_extract: [{ paths: string[]; columns: string[]; output_path?: string }, { rows: Array<Record<string, string>>; output_path: string; failed: BatchItemResult[] }];
+  ai_fill_suggest: [{ fields: string[]; references: string[]; note?: string; instruction?: string; guides?: Record<string, string> }, { values: Record<string, string>; redacted: number; note?: string }];
+  /** 여러 문서에서 같은 항목을 뽑아 표(xlsx, output_path 가 .csv 면 csv)로. rows 맨 앞에 "파일"(문서 이름) 칸이 붙는다.
+   *  partial = 길어서 항목과 가까운 대목만 읽은 문서(빈칸이 "보지 못함"일 수 있다) */
+  ai_extract: [{ paths: string[]; columns: string[]; output_path?: string }, { rows: Array<Record<string, string>>; output_path: string; failed: BatchItemResult[]; partial?: string[] }];
   /** 장평·자간으로도 마지막 줄이 몇 글자 넘치는 문단만 AI 가 줄여 쓴다 — generate_hwpx 와 같은 옵션 */
   ai_fit_lines: [GenerateParams, { markdown: string; changes: Array<{ before: string; after: string }>; remaining: number }];
 

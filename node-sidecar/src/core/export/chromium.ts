@@ -50,7 +50,7 @@ export function sandboxWanted(env: NodeJS.ProcessEnv = process.env, rootLinux = 
 }
 
 /** 이 브라우저가 쪽을 그릴 수 있는가 (샌드박스 렌더러가 막힌 PC 는 빈 쪽도 못 그린다) */
-async function canRender(browser: import('puppeteer-core').Browser): Promise<boolean> {
+async function canRender(browser: import('puppeteer-core').Browser, signal?: AbortSignal): Promise<boolean> {
   const probe = (async () => {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><p>.</p>', { waitUntil: 'load', timeout: 20_000 });
@@ -58,7 +58,23 @@ async function canRender(browser: import('puppeteer-core').Browser): Promise<boo
     return true;
   })().catch(() => false);
   // 렌더러가 죽지 않고 매달리는 PC 도 있다(새 쪽 만들기에는 제한 시간이 없다) → 통틀어 20초
-  return Promise.race([probe, new Promise<boolean>((done) => { setTimeout(() => done(false), 20_000).unref(); })]);
+  return Promise.race([probe, new Promise<boolean>((done) => {
+    setTimeout(() => done(false), 20_000).unref();
+    signal?.addEventListener('abort', () => done(false), { once: true });
+  })]);
+}
+
+/** 띄우는 동안(길면 90초) 멈추면 기다리지 않는다 — 뒤늦게 뜬 브라우저는 닫는다 */
+function untilAbort<T extends { close(): Promise<unknown> }>(launching: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return launching;
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => {
+      reject(signal.reason);
+      void launching.then((b) => b.close()).catch(() => undefined);
+    };
+    signal.addEventListener('abort', stop, { once: true });
+    launching.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+  });
 }
 
 /** 샌드박스를 켠 채로는 이 PC 에서 쪽을 못 그렸다 (이 실행 동안 기억) */
@@ -69,6 +85,8 @@ export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: numb
   if (!executablePath) throw new Error(NO_BROWSER);
   const puppeteer = (await import('puppeteer-core')).default;
   sweepProfiles();
+  // 띄우기 전에 멈춤을 본다 (띄우기에는 길면 90초가 든다)
+  signal?.throwIfAborted();
   const userDataDir = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
   try {
     // pipe: 엔진이 강제로 꺼져도 연결 파이프가 닫혀 브라우저가 스스로 끝난다 (웹소켓 연결이면 Chromium 이 남는다)
@@ -77,24 +95,38 @@ export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: numb
     // 샌드박스가 없으면 렌더러 결함 하나가 곧바로 사용자 권한 코드 실행이 된다.
     // 문서보안·백신이 샌드박스 렌더러를 막는 PC 에서는 빈 쪽도 못 그린다 → 그때만 끄고 다시 띄운다
     // 한 번 막힌 PC 는 이 실행 동안 계속 막힌다: 기억해 두고 다음부터는 바로 끄고 띄운다 (안 그러면 여러 파일을 바꿀 때 파일마다 실패를 되풀이한다)
-    const sandboxed = sandboxWanted() && !sandboxBlocked
-      ? await launch(true).then(async (b) => ((await canRender(b)) ? b : (await b.close().catch(() => undefined), null)), () => null)
-      : null;
-    if (!sandboxed && sandboxWanted() && !sandboxBlocked) sandboxBlocked = true;
-    const browser = sandboxed ?? await launch(false);
+    // 기억은 샌드박스 탓이 드러났을 때만 한다(띄웠는데 못 그림, 또는 끄니 뜸): 까닭 모를 띄우기 실패 한 번으로 엔진을 끌 때까지 샌드박스 없이 그리지 않게
+    let browser: import('puppeteer-core').Browser | null = null;
+    let launchFailed = false;
+    if (sandboxWanted() && !sandboxBlocked) {
+      const b = await untilAbort(launch(true), signal).catch(() => null);
+      signal?.throwIfAborted();
+      if (b && await canRender(b, signal)) browser = b;
+      else {
+        await b?.close().catch(() => undefined);
+        signal?.throwIfAborted();
+        if (b) sandboxBlocked = true;
+        else launchFailed = true;
+      }
+    }
+    if (!browser) {
+      browser = await untilAbort(launch(false), signal);
+      if (launchFailed) sandboxBlocked = true;
+    }
+    const open = browser;
     // 멈추면 브라우저를 닫는다: setContent·page.pdf 는 취소를 보지 않아(제한 시간 5·10분) 큰 묶음은 멈춘 뒤에도 PDF 를 끝까지 만들었다
-    const onAbort = () => { void browser.close().catch(() => undefined); };
+    const onAbort = () => { void open.close().catch(() => undefined); };
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
       signal?.throwIfAborted();
-      return await printPages(browser, pages, onPage);
+      return await printPages(open, pages, onPage);
     } catch (err) {
       // 닫아서 난 연결 오류(Target closed 등)는 멈춤으로 알린다
       signal?.throwIfAborted();
       throw err;
     } finally {
       signal?.removeEventListener('abort', onAbort);
-      await browser.close().catch(() => undefined);
+      await open.close().catch(() => undefined);
     }
   } finally {
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});

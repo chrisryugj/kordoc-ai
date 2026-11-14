@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import type { LocalModelServer, Settings } from "../../lib/contract";
 import { rpc } from "../../lib/rpc";
+import { isThisPcUrl } from "../../lib/links";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
 import { Field, TextField } from "../common/Field";
@@ -93,7 +94,10 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked, key
           </div>
         </div>
       </Advanced>
-      <Note tone="ok">이 PC 안(127.0.0.1)으로만 묻고 답해 문서가 PC 밖으로 나가지 않습니다. 폐쇄망 모드에서도 됩니다.</Note>
+      {/* PC 밖으로 나가지 않는다는 말은 주소가 이 PC 일 때만 (다른 컴퓨터 주소를 넣으면 문서가 그 컴퓨터로 간다) */}
+      {!value.base_url.trim() || isThisPcUrl(value.base_url)
+        ? <Note tone="ok">이 PC 안(127.0.0.1)으로만 묻고 답해 문서가 PC 밖으로 나가지 않습니다. 폐쇄망 모드에서도 됩니다.</Note>
+        : <Note tone="warn">이 PC 주소(http://127.0.0.1 또는 http://localhost 로 시작)가 아닙니다. 다른 컴퓨터의 주소라면 문서 내용이 그 컴퓨터로 갑니다. 기관이 운영하는 서버는 기관 AI 서버 갈래에 넣으세요.</Note>}
     </>
   );
 }

@@ -1,7 +1,7 @@
 /** 나누기·합치기 결과 이름 — 맥 Finder 경로는 자소가 갈라진(NFD) 이름이라, 그대로 쓰면 윈도에서 "ㅂㅗㄱㅗㅅㅓ_1.hwpx" 처럼 보인다 */
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import JSZip from 'jszip';
@@ -12,7 +12,9 @@ vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof imp
 import { splitHangul } from '../src/core/merge/index.js';
 import { splitPdf } from '../src/core/merge/concat-pdf.js';
 import { concatXlsx } from '../src/core/merge/concat-xlsx.js';
-import { sample } from './doc-helpers.js';
+import { pdfToImages } from '../src/core/pdf-pages/index.js';
+import { sendProgress } from '../src/infra/progress.js';
+import { corpus, hasCorpus, sample } from './doc-helpers.js';
 
 const nfd = (s: string) => s.normalize('NFD');
 const signal = new AbortController().signal;
@@ -61,4 +63,46 @@ describe('자소가 갈라진 이름(NFD)으로 나누고 합쳐도 결과 이�
     const wb = await (await JSZip.loadAsync(readFileSync(out))).file('xl/workbook.xml')!.async('text');
     expect([...wb.matchAll(/<sheet name="([^"]*)"/g)].map((m) => m[1])).toEqual(['총무과', '재무과']);
   });
+});
+
+describe('나누다 멈추면 반쯤 만든 결과를 남기지 않는다 (남기면 다시 할 때 "(2)" 폴더가 생긴다)', () => {
+  const pdf = async (pages: number) => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i++) doc.addPage([200, 200]).drawText(`p${i + 1}`);
+    return doc.save();
+  };
+  /** 진행 알림이 n 번째 올 때 멈춘다 */
+  const stopAt = (n: number) => {
+    const ac = new AbortController();
+    let seen = 0;
+    vi.mocked(sendProgress).mockImplementation(() => { if (++seen === n) ac.abort(); });
+    return ac.signal;
+  };
+
+  it('PDF 나누기', async () => {
+    const src = join(dir, '멈춤.pdf');
+    writeFileSync(src, await pdf(6));
+    const out = join(dir, '멈춤_나누기');
+    await expect(splitPdf({ file: src, output_dir: out }, stopAt(3))).rejects.toThrow();
+    expect(existsSync(out)).toBe(false);
+    vi.mocked(sendProgress).mockReset();
+    const again = await splitPdf({ file: src, output_dir: out }, signal);
+    expect(again.output_dir).toBe(out);
+    expect(again.output_files).toHaveLength(6);
+  });
+
+  it('PDF 를 그림으로', async () => {
+    const src = join(dir, '그림멈춤.pdf');
+    writeFileSync(src, await pdf(5));
+    await expect(pdfToImages({ path: src, output_dir: join(dir, 'img') }, stopAt(3))).rejects.toThrow();
+    vi.mocked(sendProgress).mockReset();
+    expect(existsSync(join(dir, 'img', '그림멈춤_그림'))).toBe(false);
+  }, 60_000);
+
+  const SECURED = 'licbyl2/8536495_쌀가공산업 육성 및 쌀 이용 촉진에 관한 법률 시행규칙_전문인력 양성기관 지정신청서.pdf';
+  it.skipIf(!hasCorpus(SECURED))('보안 설정만 걸린 PDF 도 나눈다 (암호를 넣을 자리가 없는 메뉴에서 "암호를 넣으세요"로 막히지 않게)', async () => {
+    const r = await splitPdf({ file: corpus(SECURED), output_dir: join(dir, '지정신청서_나누기') }, signal);
+    expect(r.output_files.length).toBeGreaterThan(0);
+    expect((await PDFDocument.load(readFileSync(r.output_files[0]))).getPageCount()).toBe(1);
+  }, 120_000);
 });

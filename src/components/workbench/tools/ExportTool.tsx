@@ -53,7 +53,11 @@ export function ExportTool({ doc, info }: ToolProps) {
     const pw = doc.password ? { password: doc.password } : {};
     // 쉬운 화면은 쪽 범위·그림 칸을 숨기므로 전체 화면에서 넣어 둔 값을 쓰지 않는다 (전체 쪽·그림 함께)
     const easy = uiMode === "easy";
-    if (target === "pdf") return (await rpc("export_pdf", { path: doc.path, output_path: joinPath(outDir, `${stem(doc.name)}.pdf`) }, { signal, onProgress })).output_path;
+    if (target === "pdf") {
+      const r = await rpc("export_pdf", { path: doc.path, output_path: joinPath(outDir, `${stem(doc.name)}.pdf`) }, { signal, onProgress });
+      setWarns(r.warnings ?? []);
+      return r.output_path;
+    }
     if (target === "hwpx") {
       // 서식은 문서 모양을 보고 엔진이 고른다 (공문은 기안문, □○ 항목은 보고서 …, 애매하면 꾸밈 없이)
       const r = await rpc("to_hwpx", { path: doc.path, ocr, preset: "auto", output_path: joinPath(outDir, `${stem(doc.name)}.hwpx`) }, { signal, onProgress });

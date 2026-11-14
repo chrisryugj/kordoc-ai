@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { amountsIn, brnValid, dateIn, findItems, linesFromMarkdown, linesFromOcr, looksRefund, maskCardLines, parseReceipt, purposeOf, type ReceiptLine } from '../src/core/receipt/parse.js';
-import { dateText } from '../src/core/receipt/report.js';
+import { dateText, toNumber } from '../src/core/receipt/report.js';
 import { fieldOf } from '../src/core/receipt/template.js';
 import { ocrModelsReady } from '../src/core/system/index.js';
 import { call, setupEnv } from './doc-helpers.js';
@@ -39,6 +39,17 @@ describe('값 뽑기 규칙', () => {
     expect(amountsIn('2026-10-28 14:32 5,300')).toEqual([5300]);
     expect(amountsIn('카드 4518-****-****-2201')).toEqual([]);
     expect(amountsIn('사업자 129-33-00668')).toEqual([]);
+  });
+
+  it('금액 칸의 음수 표기(△·▲·괄호)와 전각 숫자', () => {
+    expect(toNumber('△11,000')).toBe(-11000);
+    expect(toNumber('▲ 11,000원')).toBe(-11000);
+    expect(toNumber('(11,000)')).toBe(-11000);
+    expect(toNumber('-11,000')).toBe(-11000);
+    expect(toNumber('１１，０００')).toBe(11000);
+    expect(toNumber('51,700원')).toBe(51700);
+    expect(toNumber('')).toBe(0);
+    expect(amountsIn('합계 １１，０００원')).toEqual([11000]);
   });
 
   it('사업자등록번호 검증 숫자 (가짜 시험 번호는 틀리게 만든다)', () => {
@@ -389,6 +400,54 @@ describe('기관 서식 학습·채우기', () => {
     expect(t[3]).toBe('| 3 | 2026. 11. 3. | 한결인쇄 | 현수막 제작 | 36,000 |  |');
     expect(t[4]).toBe('| 합계 |  |  |  | 132,800 |  |');
     expect(t[5]).toMatch(/^\|(\s+\|)+$/);
+    await call('receipt_template_clear');
+  });
+
+  it('서식 D: 빈 줄이 없는 서식(다 채운 지난 지출조서) → 적혀 있던 줄을 지우고 채움, 줄이 남거나 겹치지 않음', async () => {
+    const { parse } = await import('kordoc');
+    const path = await makeTemplate('지출조서_라.hwpx', `# 지출조서\n\n| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 비고 |\n| --- | --- | --- | --- | --- | --- |\n| 1 | 2026. 10. 1. | 옛가게가 | 지난달 다과 | 10,000 | 지난달 |\n| 2 | 2026. 10. 2. | 옛가게나 | 지난달 문구 | 20,000 |  |\n| 합계 |  |  |  | 30,000 |  |\n`);
+    expect(await call('receipt_template_learn', { path, save: true })).toMatchObject({ rows: 0, total_row: true });
+    const body = async (n: number) => {
+      const r = await call('receipt_report', { rows: rows.slice(0, n), output_dir: env.out });
+      const md = (await parse(readFileSync(r.output_path))).markdown;
+      return { r, md, t: md.split('\n').filter((l: string) => l.startsWith('| ') && !l.startsWith('| ---')) };
+    };
+    // 줄이 모자라면 더하고, 옛 줄은 남지 않는다 (옛 줄 2 + 새 줄 3 + 복제 1 이 되고 합계는 새 줄만 더했다)
+    const three = await body(3);
+    expect(three.md).not.toMatch(/옛가게|지난달/);
+    expect(three.t.slice(1)).toEqual([
+      '| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |',
+      '| 2 | 2026. 11. 2. | 가온문구 | 복사지 | 45,100 |  |',
+      '| 3 | 2026. 11. 3. | 한결인쇄 | 현수막 제작 | 36,000 |  |',
+      '| 합계 |  |  |  | 132,800 |  |',
+    ]);
+    expect(three.r.warnings.join(' ')).toContain('적혀 있던');
+    // 미리보기·복사 표도 저장 파일처럼 합계가 맨 아래
+    expect(three.r.tsv.split('\r\n')[4]).toBe('합계\t\t\t\t132,800\t');
+    // 줄이 남으면 남은 옛 줄은 비운다
+    const one = await body(1);
+    expect(one.md).not.toMatch(/옛가게|지난달/);
+    expect(one.t[1]).toBe('| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |');
+    expect(one.t[2]).toMatch(/^\|(\s+\|)+$/);
+    expect(one.t[3]).toBe('| 합계 |  |  |  | 51,700 |  |');
+    await call('receipt_template_clear');
+  });
+
+  it('서식 E: 머리줄과 합계 줄뿐인 서식 → 머리줄을 본뜬 줄을 영수증 수만큼만 더하고 못 맞춘 칸은 비움', async () => {
+    const { parse } = await import('kordoc');
+    const path = await makeTemplate('지출조서_마.hwpx', `# 지출조서\n\n| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 확인 |\n| --- | --- | --- | --- | --- | --- |\n| 합계 |  |  |  |  |  |\n`);
+    await call('receipt_template_learn', { path, save: true });
+    const r = await call('receipt_report', { rows: rows.slice(0, 2), output_dir: env.out });
+    const t = (await parse(readFileSync(r.output_path))).markdown.split('\n').filter((l: string) => l.startsWith('| ') && !l.startsWith('| ---'));
+    expect(t).toEqual([
+      '| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 확인 |',
+      '| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |',
+      '| 2 | 2026. 11. 2. | 가온문구 | 복사지 | 45,100 |  |',
+      '| 합계 |  |  |  | 96,800 |  |',
+    ]);
+    expect(r.warnings).toEqual([]);
+    // 미리보기·복사 표도 합계가 맨 아래 (못 맞춘 칸은 표에 없다)
+    expect(r.tsv.split('\r\n')[3]).toBe('합계\t\t\t\t96,800');
     await call('receipt_template_clear');
   });
 
