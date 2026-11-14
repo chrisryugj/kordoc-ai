@@ -64,7 +64,7 @@ async function canRender(browser: import('puppeteer-core').Browser): Promise<boo
 /** 샌드박스를 켠 채로는 이 PC 에서 쪽을 못 그렸다 (이 실행 동안 기억) */
 let sandboxBlocked = false;
 
-export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: number; height: number }>, onPage?: (n: number) => void): Promise<Uint8Array> {
+export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: number; height: number }>, onPage?: (n: number) => void, signal?: AbortSignal): Promise<Uint8Array> {
   const executablePath = findBrowser();
   if (!executablePath) throw new Error(NO_BROWSER);
   const puppeteer = (await import('puppeteer-core')).default;
@@ -82,10 +82,19 @@ export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: numb
       : null;
     if (!sandboxed && sandboxWanted() && !sandboxBlocked) sandboxBlocked = true;
     const browser = sandboxed ?? await launch(false);
+    // 멈추면 브라우저를 닫는다: setContent·page.pdf 는 취소를 보지 않아(제한 시간 5·10분) 큰 묶음은 멈춘 뒤에도 PDF 를 끝까지 만들었다
+    const onAbort = () => { void browser.close().catch(() => undefined); };
+    signal?.addEventListener('abort', onAbort, { once: true });
     try {
+      signal?.throwIfAborted();
       return await printPages(browser, pages, onPage);
+    } catch (err) {
+      // 닫아서 난 연결 오류(Target closed 등)는 멈춤으로 알린다
+      signal?.throwIfAborted();
+      throw err;
     } finally {
-      await browser.close();
+      signal?.removeEventListener('abort', onAbort);
+      await browser.close().catch(() => undefined);
     }
   } finally {
     await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
@@ -130,12 +139,11 @@ async function printPages(browser: import('puppeteer-core').Browser, pages: Asyn
 export function scopeSvgIds(svg: string, prefix: string): string {
   const ids = new Set([...svg.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
   if (!ids.size) return svg;
-  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const alt = [...ids].sort((a, b) => b.length - a.length).map(esc).join('|');
+  // 자리는 꼴 하나로 찾고 id 모음으로 가린다. 모든 id 를 정규식 하나에 | 로 묶으면 자리마다 id 들과 견줘 id 가 많은 쪽에서 느려진다(서로 다른 id 10만 개 4.7초, 지금 0.2초)
   return svg
-    .replace(new RegExp(`\\bid="(${alt})"`, 'g'), (_m, v: string) => `id="${prefix}${v}"`)
-    .replace(new RegExp(`url\\(\\s*(['"]?)#(${alt})\\1\\s*\\)`, 'g'), (_m, q: string, v: string) => `url(${q}#${prefix}${v}${q})`)
-    .replace(new RegExp(`(\\b(?:xlink:)?href)="#(${alt})"`, 'g'), (_m, a: string, v: string) => `${a}="#${prefix}${v}"`);
+    .replace(/\bid="([^"]+)"/g, (_m, v: string) => `id="${prefix}${v}"`)
+    .replace(/url\(\s*(['"]?)#([^'"()\s]+)\1\s*\)/g, (m, q: string, v: string) => (ids.has(v) ? `url(${q}#${prefix}${v}${q})` : m))
+    .replace(/(\b(?:xlink:)?href)="#([^"]+)"/g, (m, a: string, v: string) => (ids.has(v) ? `${a}="#${prefix}${v}"` : m));
 }
 
 /** 쪽 SVG 들 → 쪽 크기 그대로의 인쇄용 HTML (쪽마다 크기가 다르면 이름 붙인 @page) */

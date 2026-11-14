@@ -120,11 +120,14 @@ export function registerSystem(router: RpcRouter): void {
     if (!obj || typeof obj.action !== 'string' || !Array.isArray(obj.files)) throw new Error('manifest 형식 오류 (action + files 필요)');
     // 지난 목록은 치운다 (안 치우면 우클릭할 때마다 임시 폴더에 고른 파일 경로 목록이 쌓여 남는다).
     // 방금 읽은 것은 두지만(엔진이 죽었다 켜지면 화면이 한 번 더 읽는다) 다음 우클릭 때 치워진다
+    // 앱(Rust)이 쓰는 TMP 도 본다: TEMP 만 보면 둘이 다른 PC 에서 목록이 안 치워졌다
     const old = Date.now() - 10 * 60_000;
-    for (const f of await readdir(tmpdir()).catch(() => [] as string[])) {
-      if (!/^kordoc-batch-\d+\.json$/.test(f) || f === name) continue;
-      const p2 = join(tmpdir(), f);
-      if (((await stat(p2).catch(() => null))?.mtimeMs ?? Infinity) < old) await rm(p2, { force: true }).catch(() => undefined);
+    for (const dir of new Set([tmpdir(), process.env.TMP, process.env.TEMP].filter((d): d is string => !!d))) {
+      for (const f of await readdir(dir).catch(() => [] as string[])) {
+        if (!/^kordoc-batch-\d+\.json$/.test(f) || f === name) continue;
+        const p2 = join(dir, f);
+        if (((await stat(p2).catch(() => null))?.mtimeMs ?? Infinity) < old) await rm(p2, { force: true }).catch(() => undefined);
+      }
     }
     return {
       action: obj.action,

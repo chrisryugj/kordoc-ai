@@ -67,6 +67,25 @@ describe('파일 오류·이름·글자 코드', () => {
     expect(safeFileName('console 보고')).toBe('console 보고');
   });
 
+  it('맥 자소 분리(NFD) 이름과 완성형(NFC) 이름을 같은 파일로 보고, 새로 짓는 결과 이름은 완성형으로', async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { basename, join } = await import('node:path');
+    const { sameFile, outputFile } = await import('../src/core/output/index.js');
+    const dir = mkdtempSync(join(tmpdir(), 'kordoc-same-'));
+    try {
+      const nfd = join(dir, '빈양식.hwpx'.normalize('NFD'));
+      writeFileSync(nfd, 'x');
+      expect(sameFile(join(dir, '빈양식.hwpx'), nfd)).toBe(true);
+      expect(sameFile(join(dir, '없는파일.hwpx'.normalize('NFD')), join(dir, '없는파일.hwpx'))).toBe(true);
+      expect(sameFile(nfd, join(dir, '다른양식.hwpx'))).toBe(false);
+      const out = outputFile({ output_path: join(dir, '빈양식_채움.hwpx'.normalize('NFD')), name: 'x.hwpx' });
+      expect(basename(out)).toBe('빈양식_채움.hwpx'.normalize('NFC'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('긴 한글 이름에 뒷말을 붙여도 파일 이름 한도(255바이트) 안에 들고 뒷말·확장자는 남는다', async () => {
     const { fitFileName } = await import('../src/core/output/index.js');
     const fitted = fitFileName(`${'가'.repeat(84)}_용량줄임.pdf`);

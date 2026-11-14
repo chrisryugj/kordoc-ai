@@ -79,7 +79,8 @@ export function RedactTool({ doc, info, autoPreview }: ToolProps & { autoPreview
   const [opened, setOpened] = useState(true);
   const [keepText, setKeepText] = useState<string | null>(null);
   const [alsoPdf, setAlsoPdf] = useState(false);
-  const preview = useTask<RedactResult>();
+  // 찾아보기는 문서를 닫으면 끊는다. 가린 사본 만들기는 끝까지 하고 알린다(아래)
+  const preview = useTask<RedactResult>({ stopOnUnmount: true });
   const save = useTask<RedactResult>();
   const lastAuto = useRef(0);
   const savedRef = useRef<HTMLDivElement>(null);

@@ -16,6 +16,7 @@ import { registerJob, runJob } from '../../infra/worker.js';
 import { cleanMessage, errorText, parseFailure } from '../errors.js';
 import { parseCsv } from '../excel/csv.js';
 import { formatOf, TEXT_FORMATS } from '../files/format.js';
+import { zipXmlBytes } from '../files/zip-read.js';
 import { outputDir, outputFile, stemOf } from '../output/index.js';
 import { markdownToPlain } from './plain.js';
 
@@ -83,10 +84,11 @@ export function parseInWorker(buf: Uint8Array, opts: Omit<ParseOptions, 'onProgr
   return runJob<ParseResult>('parse', { buf, opts }, { signal, onMessage: (m: { current: number; total: number }) => onProgress?.(m.current, m.total) }).result;
 }
 
-/** kordoc 으로 읽기. 큰 PDF(3MB~)·아주 큰 파일(30MB~)은 작업자 스레드에서 (infra/worker: 800쪽 PDF 를 읽는 20초 동안 엔진이 멈추고 취소도 못 받았다) */
+/** kordoc 으로 읽기. 큰 PDF(3MB~)·아주 큰 파일(30MB~)은 작업자 스레드에서 (infra/worker: 800쪽 PDF 를 읽는 20초 동안 엔진이 멈추고 취소도 못 받았다).
+ *  ZIP 꼴(HWPX·DOCX·XLSX·PPTX)은 압축을 푼 XML 크기로 잰다: 200KB HWPX 의 XML 이 43MB 라 엔진 스레드에서 읽는 동안 RSS 1.26GB 였다 */
 export function parseBytes(buf: Buffer, opts: Omit<ParseOptions, 'onProgress'>, onProgress?: Progress, signal?: AbortSignal): Promise<ParseResult> {
   const pdf = buf.subarray(0, 5).toString('latin1') === '%PDF-';
-  if (buf.length >= (pdf ? 3 : 30) * 1024 * 1024) return parseInWorker(buf, opts, onProgress, signal);
+  if (buf.length >= (pdf ? 3 : 30) * 1024 * 1024 || zipXmlBytes(buf) >= 30 * 1024 * 1024) return parseInWorker(buf, opts, onProgress, signal);
   return parse(buf, { ...opts, onProgress: (current, total) => { signal?.throwIfAborted(); onProgress?.(current, total); } });
 }
 
@@ -218,7 +220,8 @@ export async function convertBatch(p: ConvertParams & { paths: string[] }, signa
   const total = p.paths.length;
   for (const [i, path] of p.paths.entries()) {
     signal.throwIfAborted();
-    sendProgress({ current: i + 1, total, message: `${basename(path)} 변환 중 (${i + 1}/${total})` });
+    const step = { current: i + 1, total, message: `${basename(path)} 변환 중 (${i + 1}/${total})` };
+    sendProgress(step);
     try {
       const r = await convert({ ...p, path, save: true }, signal, true);
       results.push({ path, ok: true, output_path: r.output_path });
@@ -226,6 +229,8 @@ export async function convertBatch(p: ConvertParams & { paths: string[] }, signa
       if (signal.aborted) throw err;
       results.push({ path, ok: false, error: errorText(err) });
     }
+    // 끝난 파일마다 결과를 알린다: 중간에 멈추면 응답이 없어, 이것이 없으면 이미 만든 파일이 화면에 "대기"로 남는다
+    sendProgress({ ...step, item: results[results.length - 1] });
   }
   return { results, output_dir: outputDir({ output_dir: p.output_dir, source: p.paths[0] }) };
 }

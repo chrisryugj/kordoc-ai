@@ -89,7 +89,8 @@ export function AiTool({ doc, autoSummary, onGoPage }: ToolProps & { autoSummary
               {!summary.busy && (
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="kd-small kd-muted">{summary.result?.redacted ? `개인정보 ${summary.result.redacted}건을 가리고 보냈습니다` : ""}</span>
-                  <Button variant="ghost" size="sm" onClick={() => void navigator.clipboard.writeText(text).then(() => toast("요약을 복사했습니다", "success"))}><Copy size={13} /> 복사</Button>
+                  {/* 멈췄거나 실패했으면 받은 데까지의 글이다 */}
+                  <Button variant="ghost" size="sm" onClick={() => void navigator.clipboard.writeText(text).then(() => toast("요약을 복사했습니다", "success"))}><Copy size={13} /> {summary.error ? "중간까지 복사" : "복사"}</Button>
                 </div>
               )}
             </div>

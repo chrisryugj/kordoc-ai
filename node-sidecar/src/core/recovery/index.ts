@@ -7,13 +7,16 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { dataDir } from '../../infra/config.js';
 import type { RecoveryEntry } from '../../types/rpc-contract.js';
+import { atomicWriteFile } from '../files/io.js';
 
-/** 14일 지난 사본은 목록을 볼 때 지운다 (잊힌 사본이 쌓이지 않게) */
+/** 처음 보여 준 뒤 14일 지난 사본은 목록을 볼 때 지운다 (잊힌 사본이 쌓이지 않게). 저장한 때부터 세면 2주 넘게 앱을 안 켠 사이
+ *  꺼진 문서가 한 번도 안 보이고 지워졌다 */
 const KEEP_MS = 14 * 24 * 60 * 60 * 1000;
+/** 쓰다 끊긴 임시 파일·메타 없이 남은 사본은 이만큼 지나면 치운다 (지금 쓰는 중인 것을 건드리지 않게 넉넉히) */
+const ORPHAN_MS = 24 * 60 * 60 * 1000;
 /** 이보다 큰 문서는 사본을 만들지 않는다 (편집기는 대개 수 MB) */
 const MAX_BYTES = 200 * 1024 * 1024;
 
@@ -29,11 +32,6 @@ const idOf = (path: string) => {
   const p = path.normalize('NFC');
   return createHash('sha256').update(process.platform === 'win32' ? p.toLowerCase() : p).digest('hex').slice(0, 24);
 };
-const atomicWrite = async (path: string, data: Buffer) => {
-  const tmp = `${path}.kordoc-tmp`;
-  await writeFile(tmp, data);
-  await rename(tmp, path);
-};
 const files = (path: string) => {
   const base = join(dir(), idOf(path));
   return { data: `${base}.bin`, meta: `${base}.json` };
@@ -45,30 +43,39 @@ export async function recoveryWrite(p: { path: string; data_b64: string; title?:
   const format: 'hwp' | 'hwpx' = /\.hwp$/i.test(p.path) ? 'hwp' : 'hwpx';
   const f = files(p.path);
   // 바이트 먼저: 꺼지는 순간이 둘 사이면 이전 메타가 새 바이트를 가리키는 것이 반대보다 낫다
-  await atomicWrite(f.data, bytes);
+  await atomicWriteFile(f.data, bytes);
   const meta: Omit<RecoveryEntry, 'exists'> = { path: p.path, name: basename(p.path), format, saved_at: Date.now(), size: bytes.length, ...(p.title ? { title: p.title } : {}), ...(p.working ? { working: true } : {}) };
-  await atomicWrite(f.meta, Buffer.from(JSON.stringify(meta)));
+  await atomicWriteFile(f.meta, JSON.stringify(meta));
   live.add(idOf(p.path));
   return { ok: true };
 }
 
+type Meta = Omit<RecoveryEntry, 'exists'> & { /** 목록으로 처음 보여 준 때 (지우기는 여기서부터 센다) */ shown_at?: number };
+
 /** path 를 주면 그 문서의 사본만 (경로 비교는 idOf 와 같은 규칙) */
-export function recoveryList(path?: string): { entries: RecoveryEntry[] } {
+export async function recoveryList(path?: string): Promise<{ entries: RecoveryEntry[] }> {
   const only = path ? idOf(path) : null;
   const entries: RecoveryEntry[] = [];
   const now = Date.now();
   for (const name of readdirSync(dir())) {
+    const full = join(dir(), name);
+    // 쓰다 끊긴 임시 파일(예전 이름 .kordoc-tmp 포함)·메타를 쓰기 전에 꺼져 혼자 남은 사본: 목록에 안 나오니 쌓이기만 한다
+    if (/\.(tmp|kordoc-tmp)$/.test(name) || (name.endsWith('.bin') && !existsSync(full.replace(/\.bin$/, '.json')))) {
+      try { if (now - statSync(full).mtimeMs > ORPHAN_MS) rmSync(full, { force: true }); } catch { /* 그새 지워짐 */ }
+      continue;
+    }
     if (!name.endsWith('.json') || live.has(name.slice(0, -5)) || (only && name.slice(0, -5) !== only)) continue;
-    const meta = join(dir(), name);
-    const data = meta.replace(/\.json$/, '.bin');
+    const data = full.replace(/\.json$/, '.bin');
     try {
-      const m = JSON.parse(readFileSync(meta, 'utf-8')) as Omit<RecoveryEntry, 'exists'>;
-      if (!existsSync(data) || now - statSync(data).mtimeMs > KEEP_MS) {
-        rmSync(meta, { force: true });
+      const m = JSON.parse(readFileSync(full, 'utf-8')) as Meta;
+      if (!existsSync(data) || (m.shown_at && now - m.shown_at > KEEP_MS)) {
+        rmSync(full, { force: true });
         rmSync(data, { force: true });
         continue;
       }
-      entries.push({ ...m, exists: existsSync(m.path) });
+      if (!m.shown_at) await atomicWriteFile(full, JSON.stringify({ ...m, shown_at: now })).catch(() => undefined);
+      const { shown_at: _shown, ...entry } = m;
+      entries.push({ ...entry, exists: existsSync(m.path) });
     } catch {
       /* 쓰는 중이던 메타는 다음에 */
     }

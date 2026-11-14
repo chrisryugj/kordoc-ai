@@ -106,7 +106,8 @@ export async function readOne(path: string, signal?: AbortSignal, warn?: (messag
     const o = ocrPages.get(p.pageNumber);
     const lines = o && !o.regionsOnly ? linesFromOcr(o) : linesFromMarkdown(p.markdown);
     if (lines.length) out.push(fromLines(path, lines, o ? 'ocr' : 'text', p.pageNumber));
-    else if (o || p.markdown.trim()) unread.push(p.pageNumber);
+    // 빈 쪽(양면 스캔의 뒷면: OCR 이 글줄을 하나도 못 찾았고 그림 자리 글 말고 글이 없음)은 말없이 넘긴다. 모델이 없으면(OCR 안 함) 빈 쪽인지 몰라 알린다
+    else if (o ? o.lines.length > 0 || linesFromMarkdown(p.markdown).length > 0 : p.markdown.trim()) unread.push(p.pageNumber);
   }
   // 그림·글이 있는데 줄을 못 뽑은 쪽(모델 없는 스캔 쪽·흐린 감열지)을 말없이 빼면 지출조서의 건수와 합계가 줄어든 채 저장된다 → 알린다
   if (unread.length && out.length) {

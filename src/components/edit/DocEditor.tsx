@@ -107,6 +107,9 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
   // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
   const rhwpRef = useRef<RhwpPreview | null>(null);
   const rhwpReady = useRef(false);   // 지금 문서가 일꾼에 열려 있다
+  // 창을 닫았다: 늦게 온 답(고치기·되돌리기)이 일꾼을 새로 만들면 끄는 곳이 없다
+  const closed = useRef(false);
+  useEffect(() => { closed.current = false; return () => { closed.current = true; }; }, []);
   const [wasmOk, setWasmOk] = useState<boolean | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -150,6 +153,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
   // ── 렌더 (프론트 WASM 우선, 실패 시 사이드카 render_preview) ──
   const renderPage = useCallback(async (pageNum: number) => {
+    if (closed.current) return;
     setRenderError("");
     try {
       if (rhwpReady.current && rhwpRef.current) {
@@ -170,6 +174,7 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
 
   /** 새 문서 바이트로 미리보기 교체. 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
+    if (closed.current) return;
     docB64Ref.current = b64;
     // 일꾼은 받은 차례대로 일한다: 여는 사이 들어온 그리기 요청도 새 문서로 그린다
     rhwpRef.current ??= new RhwpPreview();
@@ -202,7 +207,8 @@ export function DocEditor({ file, sidecarCall, outputDir, showToast, onClose, on
     (async () => {
       try {
         const res = await sidecarCall("edit_open", { input_path: file.path }) as EditStateRes;
-        if (cancelled) return;
+        // 여는 사이 창을 닫았으면 엔진 세션도 닫는다 (닫을 때는 세션 번호를 몰라 못 닫았다)
+        if (cancelled) { if (res.session_id) void sidecarCall("edit_close", { session_id: res.session_id }).catch(() => {}); return; }
         if (!res.success) { setLoadError(res.error || "문서를 열지 못했습니다"); return; }
         openedId = res.session_id;
         setSessionId(res.session_id);

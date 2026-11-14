@@ -84,7 +84,8 @@ export function AiSection() {
   const [draft, setDraft] = useState<Settings["ai"]>(s.ai);
   const [route, setRoute] = useState<Route>(routeOf(s.ai.provider));
   const [keys, setKeys] = useState(NO_KEYS);
-  const [models, setModels] = useState<string[]>([]);
+  // 목록은 그 목록을 받은 주소와 함께 둔다 — 주소를 바꾸면 이전 서버의 모델이 보이지 않게 (켜 둔 AI 프로그램 칸과 같은 방식)
+  const [models, setModels] = useState<{ url: string; items: string[] }>({ url: "", items: [] });
   const list = useTask<void>();
   // API 키 방식(Anthropic·Google)의 모델 목록: 불러오면 입력 칸 아래 고르기로 (목록에 없는 이름도 그대로 넣을 수 있다)
   const [cloudModels, setCloudModels] = useState<{ anthropic: string[]; gemini: string[] }>({ anthropic: [], gemini: [] });
@@ -148,14 +149,20 @@ export function AiSection() {
     return !!next;
   };
 
+  // 다른 갈래·공급자를 고르면 앞 시험 결과를 지운다 ("연결됐습니다"가 고르지 않은 것을 시험한 것처럼 남지 않게)
+  const { reset: resetTest } = test;
+  useEffect(() => { resetTest(); }, [provider, resetTest]);
+
   const runTest = () => void test.run(async () => {
     if (!(await save())) throw new Error("저장하지 못해 시험하지 않았습니다");
     return rpc("ai_test", {});
   });
 
+  const shownModels = models.url === draft.openai.base_url ? models.items : [];
   const loadModels = () => void list.run(async () => {
-    const r = await rpc("ai_list_models", { base_url: draft.openai.base_url, ...(keys.openai ? { api_key: keys.openai } : {}) });
-    setModels(r.models);
+    const url = draft.openai.base_url;
+    const r = await rpc("ai_list_models", { base_url: url, ...(keys.openai ? { api_key: keys.openai } : {}) });
+    setModels({ url, items: r.models });
     if (!draft.openai.model && r.models[0]) setDraft((d) => ({ ...d, openai: { ...d.openai, model: r.models[0] } }));
   });
 
@@ -242,11 +249,11 @@ export function AiSection() {
               </div>
               <Field label={lp("모델", "ai.openai.model").label}>
                 <div className="flex gap-2">
-                  {models.length ? (
+                  {shownModels.length ? (
                     <select className="kd-select" disabled={lk("ai.openai.model")} value={draft.openai.model} onChange={(e) => setDraft((d) => ({ ...d, openai: { ...d.openai, model: e.target.value } }))} aria-label="모델">
                       {/* 지금 값이 목록에 없으면 그 값도 보기로 넣는다 (없으면 화면은 첫 모델을 보이는데 저장 값은 옛 이름이다) */}
-                      {draft.openai.model && !models.includes(draft.openai.model) && <option value={draft.openai.model}>{draft.openai.model} (이 서버 목록에 없음)</option>}
-                      {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                      {draft.openai.model && !shownModels.includes(draft.openai.model) && <option value={draft.openai.model}>{draft.openai.model} (이 서버 목록에 없음)</option>}
+                      {shownModels.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   ) : (
                     <input className="kd-input" disabled={lk("ai.openai.model")} value={draft.openai.model} onChange={(e) => setDraft((d) => ({ ...d, openai: { ...d.openai, model: e.target.value } }))} placeholder="예: gemma4" aria-label="모델" />

@@ -13,6 +13,7 @@ import JSZip from 'jszip';
 import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
 import { ensureVersionXml, readManifest, sectionHrefs } from './hwpx-merge.js';
 import { blankPng } from '../redact/preview.js';
+import { entryBytes, entryText } from '../files/zip-read.js';
 
 type El = Element;
 
@@ -56,23 +57,37 @@ const textOf = (el: El) => [...(el.getElementsByTagName('hp:t') as unknown as El
 /** HWPX 바이트 → 구역·강제 쪽 나눔마다 나눈 HWPX 바이트들 */
 export type SplitMode = 'auto' | 'section' | 'pagebreak';
 
-export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Promise<SplitHwpxResult> {
+export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto', signal?: AbortSignal): Promise<SplitHwpxResult> {
   const src = await JSZip.loadAsync(bytes);
   const hpfPath = Object.keys(src.files).find((n) => /content\.hpf$/i.test(n));
   if (!hpfPath || !src.file('Contents/header.xml')) throw new Error('HWPX 구조가 아니어서 나눌 수 없습니다.');
-  const manifest = readManifest(await src.file(hpfPath)!.async('string'));
+  const hpfText = (await entryText(src, hpfPath))!;
+  const manifest = readManifest(hpfText);
   const hrefs = sectionHrefs(manifest);
   const parser = new DOMParser();
+  const serializer = new XMLSerializer();
   const atBreaks = mode === 'pagebreak' || (mode === 'auto' && hrefs.length < 2);
 
   // 조각: [구역 경로, 그 구역 문서, 문단들, 구역의 첫 조각인지]
   const pieces: Array<{ href: string; doc: Document; paras: El[]; first: boolean }> = [];
+  // 구역마다 한 번: 문단을 뺀 뿌리(속성·이름공간 선언 그대로)와 구역 첫 문단의 쪽 설정.
+  // 조각마다 구역 전체를 다시 쓰고 읽은 뒤 문단을 하나씩 지우면(removeChild) 쪽 나눔 6만 개 문서(59KB)에 13분·RSS 1.9GB 였다.
+  // 뿌리 바로 아래 문단 아닌 것(주석·빈칸)은 그 구역의 첫 조각에만 (조각마다 넣으면 그것이 많은 문서에서 다시 제곱)
+  const shells = new Map<string, { first: string; rest: string; carrier: El | null }>();
   let pageBreaks = 0;
   for (const href of hrefs) {
-    const xml = await src.file(href)?.async('string');
+    signal?.throwIfAborted();
+    const xml = await entryText(src, href);
     if (!xml) continue;
     const doc = parser.parseFromString(xml, 'text/xml');
-    const tops = kids(doc.documentElement as unknown as El);
+    const srcRoot = doc.documentElement as unknown as El;
+    const tops = kids(srcRoot);
+    let prolog = '';
+    for (let n = doc.firstChild; n && n !== doc.documentElement; n = n.nextSibling) prolog += serializer.serializeToString(n);
+    const bare = srcRoot.cloneNode(false);
+    const withOthers = srcRoot.cloneNode(false);
+    for (let n = srcRoot.firstChild; n; n = n.nextSibling) if (n.nodeType !== 1) withOthers.appendChild(n.cloneNode(true));
+    shells.set(href, { first: prolog + serializer.serializeToString(withOthers), rest: prolog + serializer.serializeToString(bare), carrier: tops[0] ? settingsCarrier(tops[0]) : null });
     let cur: El[] = [];
     let first = true;
     for (const [i, p] of tops.entries()) {
@@ -88,30 +103,52 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
   }
   if (pieces.length < 2) throw new Error(atBreaks ? '나눌 곳이 없습니다. 구역이 하나이고 강제 쪽 나눔(Ctrl+Enter)도 없는 문서입니다.' : '나눌 곳이 없습니다. 구역이 하나뿐인 문서입니다. 강제 쪽 나눔마다 나누기를 고르세요.');
 
+  // 구역 밖 XML(머리·바탕쪽·차트·설정)은 조각마다 같다: 한 번만 풀고 그 안의 차트·그림 참조도 한 번만 찾는다
+  // (조각마다 모든 XML 을 한꺼번에 풀면 조각 수 × 머리 크기만큼 푼다)
+  const binItems = manifest.items.filter((it) => /^BinData\//i.test(it.href) && it.id);
+  const usesBins = (t: string) => new Set(binItems.filter((it) => t.includes(`"${it.id}"`)).map((it) => it.id));
+  const chartRefs = (t: string) => [...t.matchAll(/\bchartIDRef="([^"]*)"/g)].map((m) => m[1]);
+  const fixed = new Map<string, { charts: string[]; bins: Set<string> }>();
+  for (const name of Object.keys(src.files)) {
+    if (src.files[name].dir || !/\.xml$/i.test(name) || hrefs.includes(name) || name === 'Contents/section0.xml') continue;
+    signal?.throwIfAborted();
+    const t = (await entryText(src, name)) ?? '';
+    fixed.set(name, { charts: /^Chart\//i.test(name) ? [] : chartRefs(t), bins: usesBins(t) });
+  }
+  const header = parser.parseFromString((await entryText(src, 'Contents/header.xml'))!, 'text/xml');
+  // 이미 구역 하나(secCnt="1")라고 적힌 머리는 원본 그대로 둔다: 조각마다 다시 쓰면 머리(87KB)를 조각 수만큼 다시 압축한다(조각 1천 개에 10초)
+  let headerXml: string | null = null;
+  if (header.documentElement?.getAttribute('secCnt') !== '1') {
+    header.documentElement?.setAttribute('secCnt', '1');
+    headerXml = serializer.serializeToString(header);
+  }
+  const mimetype = await entryBytes(src, 'mimetype');
+  let blank: Buffer | undefined;
+
   const parts: Uint8Array[] = [];
   const titles: string[] = [];
   for (const [index, piece] of pieces.entries()) {
+    signal?.throwIfAborted();
     const zip = await JSZip.loadAsync(bytes);
-    const doc = parser.parseFromString(new XMLSerializer().serializeToString(piece.doc), 'text/xml');
+    const shell = shells.get(piece.href)!;
+    const doc = parser.parseFromString(piece.first ? shell.first : shell.rest, 'text/xml');
     const root = doc.documentElement as unknown as El;
-    for (const c of kids(root)) root.removeChild(c);
-    const sectionFirst = kids(piece.doc.documentElement as unknown as El)[0];
-    if (!piece.first) {
-      const carrier = settingsCarrier(sectionFirst);
-      if (carrier) root.appendChild(doc.importNode(carrier as never, true));
-    }
-    piece.paras.forEach((p, i) => {
+    if (!piece.first && shell.carrier) root.appendChild(doc.importNode(shell.carrier as never, true));
+    for (const [i, p] of piece.paras.entries()) {
+      // 문단이 아주 많은 조각(6만 개 12초)도 엔진이 다른 요청·멈춤을 받게 사이사이 숨을 돌린다
+      if (i % 2000 === 1999) { await new Promise((r) => setImmediate(r)); signal?.throwIfAborted(); }
       const c = doc.importNode(p as never, true) as unknown as El;
       if (i === 0) c.setAttribute('pageBreak', '0');
       root.appendChild(c as never);
-    });
+    }
     dropLineseg(root);
     titles.push(piece.paras.map(textOf).find(Boolean)?.slice(0, 40) ?? '');
 
     // 구역 하나만 남긴다: 이 조각의 구역을 section0 으로 (항목 id 도. 원래 id 를 두면 조각을 차례를 바꿔 다시 합칠 때 같은 id 가 둘이 된다)
     for (const href of hrefs) zip.remove(href);
-    zip.file('Contents/section0.xml', new XMLSerializer().serializeToString(doc));
-    let hpf = await zip.file(hpfPath)!.async('string');
+    const sectionXml = serializer.serializeToString(doc);
+    zip.file('Contents/section0.xml', sectionXml);
+    let hpf = hpfText;
     const keepItem = manifest.items.find((i) => i.href === piece.href);
     for (const it of manifest.items.filter((i) => hrefs.includes(i.href))) {
       const re = new RegExp(`<opf:item\\s${it.attrs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/>`);
@@ -133,15 +170,15 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
     for (const name of Object.keys(zip.files).filter((n) => /^Contents\/masterpage[^/]*\.xml$/i.test(n))) {
       if (!masters.has(manifest.items.find((i) => i.href === name)?.id ?? name.replace(/^.*\/|\.xml$/gi, ''))) drop(name);
     }
-    const xmls = await Promise.all(Object.keys(zip.files).filter((n) => /\.xml$/i.test(n) && !/^Chart\//i.test(n)).map((n) => zip.file(n)!.async('string')));
-    const charts = new Set(xmls.flatMap((t) => [...t.matchAll(/\bchartIDRef="([^"]*)"/g)].map((m) => m[1])));
+    const kept = () => Object.keys(zip.files).filter((n) => fixed.has(n)).map((n) => fixed.get(n)!);
+    const charts = new Set([...chartRefs(sectionXml), ...kept().flatMap((f) => f.charts)]);
     for (const name of Object.keys(zip.files).filter((n) => /^Chart\/[^/]+$/i.test(n) && !charts.has(n))) drop(name);
 
     // 그림: 이 조각(과 머리·바탕쪽)이 쓰지 않는 것은 뺀다. 두면 조각 하나만 보내도 다른 조각의 그림이 모두 딸려 가고,
     // 조각 수만큼 용량이 불어난다
-    const texts = await Promise.all(Object.keys(zip.files).filter((n) => /\.xml$/i.test(n)).map((n) => zip.file(n)!.async('string')));
+    const bins = new Set([...usesBins(sectionXml), ...kept().flatMap((f) => [...f.bins])]);
     for (const it of manifest.items) {
-      if (!/^BinData\//i.test(it.href) || !it.id || texts.some((t) => t.includes(`"${it.id}"`))) continue;
+      if (!/^BinData\//i.test(it.href) || !it.id || bins.has(it.id)) continue;
       zip.remove(it.href);
       hpf = hpf.replace(new RegExp(`<opf:item\\s${it.attrs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/>`), '');
     }
@@ -151,12 +188,9 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto'): Pr
     // (조각은 쪽이 바뀌는 곳에서 나뉘므로 첫 쪽 그림은 첫 조각의 내용이다)
     const preview = piece.paras.map(textOf).filter(Boolean).join('\r\n').slice(0, 1000);
     for (const f of zip.file(/^Preview\/PrvText\.txt$/i)) zip.file(f.name, preview);
-    if (index > 0) for (const f of zip.file(/^Preview\/PrvImage\./i)) zip.file(f.name, await blankPng(), { compression: 'STORE' });
-    const header = parser.parseFromString(await zip.file('Contents/header.xml')!.async('string'), 'text/xml');
-    header.documentElement?.setAttribute('secCnt', '1');
-    zip.file('Contents/header.xml', new XMLSerializer().serializeToString(header));
+    if (index > 0) for (const f of zip.file(/^Preview\/PrvImage\./i)) zip.file(f.name, blank ??= await blankPng(), { compression: 'STORE' });
+    if (headerXml !== null) zip.file('Contents/header.xml', headerXml);
     ensureVersionXml(zip);
-    const mimetype = await zip.file('mimetype')?.async('uint8array');
     if (mimetype) zip.file('mimetype', mimetype, { compression: 'STORE' });
     parts.push(await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } }));
   }

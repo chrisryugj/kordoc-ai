@@ -257,6 +257,21 @@ describe('collect_gather', () => {
     expect(existsSync(numbered.output_path)).toBe(true);
   }, 60_000);
 
+  it('같은 파일 바꾸기: 앞서 만든 엑셀을 엑셀에서 고쳐 저장했으면 .bak 을 남기고, 우리가 쓴 그대로면 남기지 않는다', async () => {
+    const a = await call('collect_gather', { paths: files, roster: ROSTER, output_path: join(env.base, '수합 백업', '수합.xlsx') });
+    const b = await call('collect_gather', { paths: files, roster: ROSTER, output_path: a.output_path, overwrite: true });
+    expect(b.backup_path).toBeUndefined();
+    expect(existsSync(`${a.output_path}.bak`)).toBe(false);
+    // 담당자가 엑셀에서 열어 고치고 저장
+    writeFileSync(a.output_path, Buffer.concat([readFileSync(a.output_path), Buffer.from('담당자 고침')]));
+    const edited = readFileSync(a.output_path);
+    const c = await call('collect_gather', { paths: files, roster: ROSTER, output_path: a.output_path, overwrite: true });
+    expect(c.output_path).toBe(a.output_path);
+    expect(c.backup_path).toBe(`${a.output_path}.bak`);
+    expect(readFileSync(c.backup_path)).toEqual(edited);
+    expect(readFileSync(a.output_path)).not.toEqual(edited);
+  }, 90_000);
+
   it('명단 없이: 부서는 부서 칸·파일 이름에서, 미제출은 모름', async () => {
     const r = await call('collect_gather', { paths: files.slice(0, 5) });
     expect(r.missing).toEqual([]);

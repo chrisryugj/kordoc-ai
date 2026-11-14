@@ -17,6 +17,8 @@ export interface Progress {
   current: number;
   total: number;
   message: string;
+  /** 일괄 작업에서 방금 끝난 한 파일의 결과 (엔진이 실어 보낼 때만). 멈춰도 끝난 파일을 화면이 안다 */
+  item?: unknown;
 }
 
 export interface RpcOptions {
@@ -130,7 +132,7 @@ export async function rpc<M extends RpcMethod>(method: M, params: RpcParams<M>, 
     payload.__stream = stream;
     streamHandlers.set(stream, (n) => {
       if (n.method === "progress" && onProgress) {
-        onProgress({ current: Number(n.params.current ?? 0), total: Number(n.params.total ?? 0), message: String(n.params.message ?? "") });
+        onProgress({ current: Number(n.params.current ?? 0), total: Number(n.params.total ?? 0), message: String(n.params.message ?? ""), ...(n.params.item ? { item: n.params.item } : {}) });
       } else if (n.method === "ai_token" && onToken) {
         onToken(String(n.params.text ?? ""));
       }

@@ -148,6 +148,50 @@ fn exe_mark(exe: &str) -> String {
     exe.trim_start_matches(r"\\?\").to_lowercase().bytes().map(|b| format!("{b:02x}")).collect()
 }
 
+/// exe_mark 를 경로(소문자)로 되돌린다
+#[cfg_attr(not(windows), allow(dead_code))]
+fn exe_of_mark(mark: &str) -> Option<String> {
+    if !mark.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = (0..mark.len()).step_by(2).map(|i| u8::from_str_radix(mark.get(i..i + 2)?, 16).ok()).collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
+/// 이 앱 판. 우클릭 메뉴·kordoc:// 주소 키에 적어 두고, 켤 때 더 새 판이 건 것인지 견준다 (tauri.conf.json 판과 같다: 시험이 맞춰 본다)
+#[cfg_attr(not(windows), allow(dead_code))]
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// 메뉴·주소 키에 적는 값: 건 실행 파일 표지와 판
+#[cfg_attr(not(windows), allow(dead_code))]
+fn owner_values(exe: &str) -> String {
+    format!("\"KorDocExe\"=\"{}\"\r\n\"KorDocApp\"=\"{APP_VERSION}\"\r\n", exe_mark(exe))
+}
+
+/// a 가 b 보다 새 판인가 (점으로 나눈 숫자를 앞에서부터)
+#[cfg_attr(not(windows), allow(dead_code))]
+fn version_newer(a: &str, b: &str) -> bool {
+    let parts = |v: &str| v.split('.').map(|x| x.chars().take_while(char::is_ascii_digit).collect::<String>().parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    parts(a) > parts(b)
+}
+
+/// `reg query <키>` 출력에서 문자열 값 하나 (값에 빈칸이 없는 것만: 판·표지)
+#[cfg_attr(not(windows), allow(dead_code))]
+fn reg_sz(reg_query_out: &str, name: &str) -> Option<String> {
+    reg_query_out.lines().find_map(|l| {
+        let mut w = l.split_whitespace();
+        (w.next() == Some(name) && w.next() == Some("REG_SZ")).then(|| w.next().unwrap_or_default().to_string())
+    })
+}
+
+/// 이 메뉴·주소를 건 판이 이 앱보다 새 판이고 그 실행 파일이 아직 있는가 (그러면 옛 판이 덮지 않는다: 남아 있던 옛 exe 를 한 번 켜면
+/// 메뉴·주소가 그 exe 로 다시 걸렸다). 새 판을 지운 뒤 남은 것이면(실행 파일 없음) 덮는다: 안 덮으면 없는 exe 를 가리킨 채 남는다
+#[cfg_attr(not(windows), allow(dead_code))]
+fn newer_owner(reg_query_out: &str, ours: &str, exists: impl Fn(&str) -> bool) -> bool {
+    let Some(ver) = reg_sz(reg_query_out, "KorDocApp") else { return false };
+    version_newer(&ver, ours) && reg_sz(reg_query_out, "KorDocExe").and_then(|m| exe_of_mark(&m)).is_some_and(|p| exists(&p))
+}
+
 /// 메뉴를 지우고 새로 넣는 .reg 글. reg add 를 항목마다 부르면 수백 번이라 10초 넘게 걸려 reg import 한 번으로 깐다.
 /// 계단식 메뉴: 부모(이름·아이콘·여러 개 골라도 보이게·판) + 항목마다 하위 키 (이름 앞 두 자리 숫자로 차례, 묶음 사이 구분선은 CommandFlags)
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -157,7 +201,7 @@ fn reg_script(exe: &str) -> String {
         let root = reg_root(base);
         out += &format!("[-{root}]\r\n\r\n[{root}]\r\n\"MUIVerb\"=\"KorDoc AI\"\r\n\"Icon\"=\"{}\"\r\n\"SubCommands\"=\"\"\r\n", reg_q(&format!("\"{exe}\",0")));
         // 기본(Document)은 15개 넘게 고르면 메뉴를 숨긴다
-        out += &format!("\"MultiSelectModel\"=\"Player\"\r\n\"KorDocMenu\"=\"{MENU_VERSION}\"\r\n\"KorDocExe\"=\"{}\"\r\n\r\n", exe_mark(exe));
+        out += &format!("\"MultiSelectModel\"=\"Player\"\r\n\"KorDocMenu\"=\"{MENU_VERSION}\"\r\n{}\r\n", owner_values(exe));
         for (i, (a, label)) in items.iter().enumerate() {
             let sub = format!(r"{root}\shell\{:02}{}", i + 1, a.id);
             out += &format!("[{sub}]\r\n@=\"{}\"\r\n\"MultiSelectModel\"=\"Player\"\r\n", reg_q(label));
@@ -306,6 +350,8 @@ pub fn shell_quick_done(app: AppHandle, collector: tauri::State<'_, ShellCollect
 #[derive(Default)]
 pub struct ShellCollector {
     queue: Mutex<Vec<(String, String)>>,
+    /// 이번 묶음에서 링크(주소)로 온 문서 카드 파일: 카드는 띄우기만 하고 일은 사용자가 누를 때 시작한다
+    held: Mutex<Vec<String>>,
     /// 이번 묶음의 첫 도착·마지막 도착 (묶는 중이면 Some)
     timing: Mutex<Option<(Instant, Instant)>>,
     inbox: Mutex<Inbox>,
@@ -332,7 +378,16 @@ pub struct Delivery {
 }
 
 impl ShellCollector {
+    /// 주소(링크)로 온 동작. 웹·메일·문서 속 링크일 수 있어 문서 카드는 띄우기만 하고 일(영수증 읽기·다른 판 찾기)은 누를 때 시작한다
+    pub fn push_link(&self, app: &AppHandle, action: &str, paths: Vec<String>) {
+        self.push_from(app, action, paths, true);
+    }
+
     pub fn push(&self, app: &AppHandle, action: &str, paths: Vec<String>) {
+        self.push_from(app, action, paths, false);
+    }
+
+    fn push_from(&self, app: &AppHandle, action: &str, paths: Vec<String>, link: bool) {
         // 빈 경로(kordoc://pdf?path= 같은 주소)는 버린다: 받으면 화면이 처리할 것이 없어 끝났다는 신호도 오지 않고 숨은 앱이 남는다
         let paths: Vec<String> = paths.into_iter().filter(|p| !p.trim().is_empty()).collect();
         if paths.is_empty() {
@@ -346,6 +401,10 @@ impl ShellCollector {
         }
         {
             let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+            // 표시는 묶음과 같은 잠금 안에서 (넘기는 쪽이 묶음과 표시를 따로 가져가면 다음 묶음의 카드가 표시 없이 뜰 수 있다)
+            if link && is_card(action) {
+                self.held.lock().unwrap_or_else(|e| e.into_inner()).extend(paths.iter().cloned());
+            }
             q.extend(paths.into_iter().map(|p| (action.to_string(), p)));
         }
         let now = Instant::now();
@@ -379,12 +438,14 @@ impl ShellCollector {
                     None => break,
                 }
             }
-            let items = {
+            let (items, held) = {
                 let mut t = me.timing.lock().unwrap_or_else(|e| e.into_inner());
                 *t = None;
-                std::mem::take(&mut *me.queue.lock().unwrap_or_else(|e| e.into_inner()))
+                let mut q = me.queue.lock().unwrap_or_else(|e| e.into_inner());
+                let held = std::mem::take(&mut *me.held.lock().unwrap_or_else(|e| e.into_inner()));
+                (std::mem::take(&mut *q), held)
             };
-            flush(&app, items);
+            flush(&app, items, &held);
         });
     }
 
@@ -459,20 +520,21 @@ pub fn is_card(a: &str) -> bool {
 static CARD_COLD: AtomicBool = AtomicBool::new(false);
 static CARD_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// 문서 카드 창 — 화면은 같은 index.html 을 ?card=<동작·경로 JSON> 으로 연다 (src/card)
-pub fn open_card(app: &AppHandle, action: &str, paths: &[String]) {
+/// 문서 카드 창 — 화면은 같은 index.html 을 ?card=<동작·경로 JSON> 으로 연다 (src/card).
+/// hold: 링크로 온 카드라 일(영수증 읽기·다른 판 찾기)을 사용자가 누를 때 시작한다
+pub fn open_card(app: &AppHandle, action: &str, paths: &[String], hold: bool) {
     if !SHOWN.load(Ordering::SeqCst) {
         CARD_COLD.store(true, Ordering::SeqCst);
     }
     let label = format!("card-{}", CARD_SEQ.fetch_add(1, Ordering::SeqCst));
-    build_card(app.clone(), label, action.to_string(), paths.to_vec(), 0);
+    build_card(app.clone(), label, action.to_string(), paths.to_vec(), hold, 0);
 }
 
 /// 카드 창 설정: 본창 설정(tauri.conf)을 그대로 복제해 크기·주소·제목만 바꾼다.
 /// 웹뷰 옵션이 본창과 하나라도 다르면 WebView2 가 같은 데이터 폴더의 다른 설정 환경으로 보고
 /// 0x8007139F("올바른 상태가 아님")로 거부한다 (실측: 2.2.0 설치본에서 카드가 한 번도 안 뜨고 본창으로 넘어감)
-fn card_config(app: &AppHandle, label: &str, action: &str, paths: &[String]) -> tauri::utils::config::WindowConfig {
-    let q = serde_json::json!({ "action": action, "paths": paths }).to_string();
+fn card_config(app: &AppHandle, label: &str, action: &str, paths: &[String], hold: bool) -> tauri::utils::config::WindowConfig {
+    let q = serde_json::json!({ "action": action, "paths": paths, "hold": hold }).to_string();
     let first = paths
         .first()
         .and_then(|p| std::path::Path::new(p).file_name())
@@ -496,9 +558,9 @@ fn card_config(app: &AppHandle, label: &str, action: &str, paths: &[String]) -> 
 }
 
 /// 카드 창 만들기. 웹뷰가 막 뜨는 중이면 잠깐 뒤 다시(최대 4번), 끝내 못 띄우면 본창의 같은 일로 (앱에서 열기)
-fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>, attempt: u64) {
+fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>, hold: bool, attempt: u64) {
     use tauri::WebviewWindowBuilder;
-    let cfg = card_config(&app, &label, &action, &paths);
+    let cfg = card_config(&app, &label, &action, &paths, hold);
     match WebviewWindowBuilder::from_config(&app, &cfg).and_then(|b| b.build()) {
         Ok(w) => {
             let _ = w.set_focus();
@@ -507,7 +569,7 @@ fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>,
             tracing::warn!("문서 카드 창 다시 시도 {}: {}", attempt + 1, e);
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(400 * (attempt + 1))).await;
-                build_card(app, label, action, paths, attempt + 1);
+                build_card(app, label, action, paths, hold, attempt + 1);
             });
         }
         Err(e) => {
@@ -521,6 +583,84 @@ fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>,
 /// 카드 창이 닫혔다: 앱이 우클릭으로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드도 도는 빠른 동작도 없으면 끈다
 pub fn card_closed(app: &AppHandle) {
     exit_if_idle(app);
+}
+
+/// 닫기를 물어 둔 카드 창: (창 이름, 물은 때, 화면이 물음을 받았다고 답했는가)
+type Closing = Vec<(String, Instant, bool)>;
+static CARD_CLOSING: Mutex<Closing> = Mutex::new(Vec::new());
+/// 카드 화면이 닫기 물음을 받았다는 답을 기다리는 시간. 답 없이 그 안에 X 를 또 누르면 화면이 멈춘 것으로 보고 닫는다
+const CARD_CLOSE_WAIT: Duration = Duration::from_secs(10);
+
+#[derive(Debug, PartialEq)]
+enum CloseStep {
+    /// 카드 화면에 묻는다 (card-close-requested)
+    Ask,
+    /// 화면이 묻는 중이다 (상자가 떠 있을 수 있다): 닫지 않고 창만 앞으로
+    Wait,
+    /// 그대로 닫는다
+    Close,
+}
+
+/// 카드 창 X 를 누른 때 할 일. 처음이면 묻고, 화면이 받았으면 기다리고, 받았다는 답 없이 곧 또 누르면 닫는다
+fn card_close_step(closing: &mut Closing, label: &str, now: Instant) -> CloseStep {
+    match closing.iter().position(|(l, _, _)| l == label) {
+        Some(i) if closing[i].2 => CloseStep::Wait,
+        Some(i) if now.saturating_duration_since(closing[i].1) < CARD_CLOSE_WAIT => {
+            closing.remove(i);
+            CloseStep::Close
+        }
+        Some(i) => {
+            closing[i].1 = now;
+            CloseStep::Ask
+        }
+        None => {
+            closing.push((label.to_string(), now, false));
+            CloseStep::Ask
+        }
+    }
+}
+
+/// 카드 화면의 답 (asking: 물음을 받았다 · close: 닫아도 된다 · 그 밖: 사용자가 취소). true 면 창을 닫는다
+fn card_close_answer(closing: &mut Closing, label: &str, answer: &str) -> bool {
+    if answer == "asking" {
+        if let Some(c) = closing.iter_mut().find(|(l, _, _)| l == label) {
+            c.2 = true;
+        }
+        return false;
+    }
+    closing.retain(|(l, _, _)| l != label);
+    answer == "close"
+}
+
+/// 카드 창 X(맥 ⌘W): 닫지 않고 그 창에 먼저 묻는다(영수증 카드에서 고치던 표가 말없이 사라지지 않게). 화면이 card_close 로 답한다.
+/// true 면 그대로 닫는다
+pub fn card_close_requested(app: &AppHandle, label: &str) -> bool {
+    use tauri::Manager;
+    match card_close_step(&mut CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()), label, Instant::now()) {
+        CloseStep::Close => return true,
+        CloseStep::Wait => {
+            if let Some(w) = app.get_webview_window(label) {
+                let _ = w.set_focus();
+            }
+        }
+        // 그 카드 창에만 (다른 카드가 같이 닫히지 않게)
+        CloseStep::Ask => {
+            let _ = app.emit_to(label, "card-close-requested", ());
+        }
+    }
+    false
+}
+
+/// 카드 화면: 닫기 물음의 답 (src/card/CardApp.tsx)
+#[tauri::command]
+pub fn card_close(window: tauri::WebviewWindow, answer: String) {
+    let label = window.label().to_string();
+    if !label.starts_with("card-") {
+        return;
+    }
+    if card_close_answer(&mut CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()), &label, &answer) {
+        let _ = window.destroy();
+    }
 }
 
 /// 카드 → 본창: "앱에서 이어서"·비교·편집기 등 본창의 동작으로 넘긴다 (우클릭 동작과 같은 길)
@@ -540,14 +680,30 @@ pub fn card_handoff(app: AppHandle, action: String, paths: Vec<String>) -> Resul
     Ok(())
 }
 
-fn flush(app: &AppHandle, items: Vec<(String, String)>) {
+/// 문서 카드 동작을 동작마다 창 하나로: (동작, 파일, 일을 누를 때 시작할지). 같은 파일은 한 번만
+/// (macOS 는 같은 주소가 두 길로 올 수 있었다), 링크로 온 파일(held)이 섞였으면 누를 때 시작
+fn card_groups(cards: &[(String, String)], held: &[String]) -> Vec<(&'static str, Vec<String>, bool)> {
+    let mut out = Vec::new();
+    for action in ["ask", "versions", "receipt"] {
+        let mut paths: Vec<String> = Vec::new();
+        for (_, p) in cards.iter().filter(|(a, _)| a == action) {
+            if !paths.contains(p) {
+                paths.push(p.clone());
+            }
+        }
+        if !paths.is_empty() {
+            let hold = paths.iter().any(|p| held.contains(p));
+            out.push((action, paths, hold));
+        }
+    }
+    out
+}
+
+fn flush(app: &AppHandle, items: Vec<(String, String)>, held: &[String]) {
     // 문서 카드 동작은 묶음마다 작은 창 하나 (본창은 띄우지 않는다)
     let (cards, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|(a, _)| is_card(a));
-    for action in ["ask", "versions", "receipt"] {
-        let paths: Vec<String> = cards.iter().filter(|(a, _)| a == action).map(|(_, p)| p.clone()).collect();
-        if !paths.is_empty() {
-            open_card(app, action, &paths);
-        }
+    for (action, paths, hold) in card_groups(&cards, held) {
+        open_card(app, action, &paths, hold);
     }
     if items.is_empty() {
         return;
@@ -701,6 +857,37 @@ pub fn is_batch_url(url: &str) -> bool {
     tauri::Url::parse(url).map(|u| u.scheme() == "kordoc" && url_action(&u) == "batch").unwrap_or(false)
 }
 
+/// 밖에서 온 묶음 주소(Windows MSIX 우클릭 런처가 여러 파일을 고르면 만든다)를 (동작, 파일들)로. 링크로도 올 수 있어
+/// 한 파일 주소(`routed_action`)와 같이 빠른 동작·문서 수합은 "여러 파일" 화면에 올리기만 한다. 화면에 주소를 그대로 넘기면
+/// 화면이 목록의 동작을 그대로 돌린다. 목록은 엔진(read_batch_manifest)이 받는 곳·이름 꼴만: 임시 폴더의 kordoc-batch-<숫자>.json.
+/// 그 밖의 경로(네트워크 경로 등)는 열어 보지도 않는다 (여는 것만으로 그 서버로 접속·계정 인증이 나간다). 못 읽으면 None
+pub fn routed_batch(url: &str) -> Option<(String, Vec<String>)> {
+    let u = tauri::Url::parse(url).ok()?;
+    let manifest = u.query_pairs().find(|(k, _)| k == "manifest").map(|(_, v)| v.into_owned())?;
+    let path = std::path::Path::new(&manifest);
+    let name = path.file_name()?.to_str()?;
+    let digits = name.strip_prefix("kordoc-batch-")?.strip_suffix(".json")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let norm = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
+    let parent = norm(path.parent()?);
+    let temps = [Some(std::env::temp_dir()), std::env::var_os("TMP").map(PathBuf::from), std::env::var_os("TEMP").map(PathBuf::from)];
+    if parent.is_empty() || !temps.iter().flatten().any(|t| norm(t) == parent) {
+        return None;
+    }
+    if std::fs::metadata(path).ok()?.len() > 1024 * 1024 {
+        return None;
+    }
+    let body: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let files: Vec<String> = body["files"].as_array()?.iter().filter_map(|f| f.as_str().map(String::from)).collect();
+    let action = body["action"].as_str().filter(|a| is_action(a)).unwrap_or("open");
+    if (is_quick(action) || action == "collect") && !from_quick_action(url) {
+        return Some(("tools".into(), files));
+    }
+    Some((action.to_string(), files))
+}
+
 /// 주소(kordoc://…)로 온 동작을 어떻게 돌릴지. 빠른 동작(창 없이 바로 처리)과 문서 수합은 그대로 돌리지 않고
 /// "여러 파일 한꺼번에" 화면에 파일만 올려 둔다: 주소는 웹·메일·문서 속 링크로도 올 수 있어, 누른 사람이 모르는 사이
 /// 폴더 안 문서 수천 개를 바꾸거나 글 사본·수합 엑셀을 만들 수 있다. 탐색기 우클릭은 실행 인자(--shell)로 오므로 그대로 바로 돈다.
@@ -714,7 +901,7 @@ pub fn routed_action(url: &str) -> Option<(String, String)> {
 }
 
 /// 이 PC 의 Finder 빠른 동작이 보낸 주소인가 (링크를 만든 쪽은 표지를 모른다)
-fn from_quick_action(url: &str) -> bool {
+pub fn from_quick_action(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(token) = platform::quick_token() {
         return tauri::Url::parse(url).map(|u| u.query_pairs().any(|(k, v)| k == "k" && v == token.as_str())).unwrap_or(false);
@@ -770,6 +957,9 @@ mod platform {
         let _lock = MENU_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let base = key(".hwpx");
         let Ok(out) = reg_out(&["query", &base]) else { return };
+        if newer_owner(&out, APP_VERSION, |p| std::path::Path::new(p).exists()) {
+            return;
+        }
         let current = out.lines().any(|l| l.contains("KorDocMenu") && l.split_whitespace().last() == Some(MENU_VERSION));
         // 다른 폴더에 다시 깔았거나 설치 방식을 바꿨으면 메뉴가 없어진 옛 실행 파일을 가리킨다. 깔 때 적어 둔 실행 파일 표지(KorDocExe)와 견준다:
         // 경로 글자를 그대로 견주면 reg 출력이 윈도 코드 페이지라 사용자 이름이 한글인 PC 에서 늘 다르다고 나와 켤 때마다 메뉴를 다시 깔았다.
@@ -832,6 +1022,22 @@ mod platform {
     pub fn uninstall() -> Result<(), String> {
         let _lock = MENU_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         import(&reg_remove_script())
+    }
+
+    /// kordoc:// 주소 키 (deep-link 플러그인 register_all 이 쓰는 곳)
+    const LINK_KEY: &str = r"HKCU\Software\Classes\kordoc";
+
+    pub fn may_claim_links() -> bool {
+        // 키가 없거나 못 읽으면 건다
+        reg_out(&["query", LINK_KEY]).map(|out| !newer_owner(&out, APP_VERSION, |p| std::path::Path::new(p).exists())).unwrap_or(true)
+    }
+
+    pub fn mark_links_claimed() {
+        let Ok(exe) = std::env::current_exe() else { return };
+        let script = format!("Windows Registry Editor Version 5.00\r\n\r\n[{}]\r\n{}\r\n", reg_root(LINK_KEY), owner_values(&exe.to_string_lossy()));
+        if let Err(e) = import(&script) {
+            tracing::warn!("kordoc:// 주소 판 표지 쓰기 실패: {}", e);
+        }
     }
 }
 
@@ -993,6 +1199,10 @@ mod platform {
     pub fn toasts_enabled() -> bool {
         true
     }
+    pub fn may_claim_links() -> bool {
+        true
+    }
+    pub fn mark_links_claimed() {}
 }
 
 /// tauri.conf.json 의 identifier (윈도 알림 설정이 이 이름으로 남는다)
@@ -1015,6 +1225,18 @@ fn reg_value_is_one(reg_query_out: &str) -> bool {
 #[tauri::command]
 pub fn shell_toast_ok() -> bool {
     platform::toasts_enabled()
+}
+
+/// 켤 때 kordoc:// 를 이 실행 파일로 걸어도 되는가 (더 새 판이 걸어 두었고 그 exe 가 있으면 아니다). 레지스트리를 읽으니 뒤에서 부른다
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn may_claim_links() -> bool {
+    platform::may_claim_links()
+}
+
+/// kordoc:// 를 이 실행 파일로 건 뒤 판·실행 파일 표지를 적는다
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn mark_links_claimed() {
+    platform::mark_links_claimed()
 }
 
 /// 켤 때: 깔린 메뉴가 옛 판이면 새 항목으로 다시 깐다 (뒤에서)
@@ -1401,6 +1623,91 @@ mod tests {
         assert!(!all_quick(&[it("pdfmerge"), it("pdfwork")]));
         assert!(!all_quick(&[it("open")]));
         assert!(!all_quick(&[]));
+    }
+
+    #[test]
+    fn card_windows_dedupe_and_hold_link_files() {
+        let it = |a: &str, p: &str| (a.to_string(), p.to_string());
+        // macOS 는 같은 주소가 두 길로 와서 카드가 [p, p] 로 떴다: 같은 파일은 한 번만
+        let cards = [it("versions", "/a.hwpx"), it("versions", "/a.hwpx"), it("receipt", "/r.png"), it("receipt", "/s.png")];
+        let g = card_groups(&cards, &[]);
+        assert_eq!(g, vec![("versions", vec!["/a.hwpx".to_string()], false), ("receipt", vec!["/r.png".to_string(), "/s.png".to_string()], false)]);
+        // 링크로 온 파일이 섞인 카드는 일을 누를 때 시작한다
+        let g = card_groups(&cards, &["/s.png".to_string()]);
+        assert_eq!((g[0].2, g[1].2), (false, true));
+    }
+
+    #[test]
+    fn card_close_asks_the_card_first() {
+        let t0 = Instant::now();
+        let s = Duration::from_secs;
+        let mut c: Closing = Vec::new();
+        // 처음 X: 묻는다. 화면이 받았다고 답하면(상자가 떠 있을 수 있다) 또 눌러도 닫지 않는다
+        assert_eq!(card_close_step(&mut c, "card-0", t0), CloseStep::Ask);
+        assert!(!card_close_answer(&mut c, "card-0", "asking"));
+        assert_eq!(card_close_step(&mut c, "card-0", t0 + s(1)), CloseStep::Wait);
+        assert_eq!(card_close_step(&mut c, "card-0", t0 + s(60)), CloseStep::Wait);
+        // 사용자가 취소: 다음 X 는 다시 묻는다. 닫아도 된다는 답이면 닫는다
+        assert!(!card_close_answer(&mut c, "card-0", "stay"));
+        assert_eq!(card_close_step(&mut c, "card-0", t0 + s(61)), CloseStep::Ask);
+        assert!(card_close_answer(&mut c, "card-0", "close"));
+        assert!(c.is_empty());
+        // 화면이 답하지 않는다(멈춤·아직 안 뜸): 10초 안에 또 누르면 닫고, 오래 지난 물음이면 다시 묻는다
+        assert_eq!(card_close_step(&mut c, "card-1", t0), CloseStep::Ask);
+        assert_eq!(card_close_step(&mut c, "card-2", t0), CloseStep::Ask);
+        assert_eq!(card_close_step(&mut c, "card-1", t0 + s(2)), CloseStep::Close);
+        assert_eq!(card_close_step(&mut c, "card-2", t0 + s(30)), CloseStep::Ask);
+        // 다른 카드의 답은 이 카드에 안 닿는다
+        assert!(!card_close_answer(&mut c, "card-9", "asking"));
+        assert_eq!(card_close_step(&mut c, "card-2", t0 + s(31)), CloseStep::Close);
+    }
+
+    #[test]
+    fn outside_batch_links_only_stage_quick_actions() {
+        // MSIX 런처·링크가 넘긴 묶음 주소: 빠른 동작·수합은 한 파일 주소처럼 "여러 파일" 화면에 올리기만, 화면 동작은 그대로
+        let url = |p: &std::path::Path| format!("kordoc://batch?manifest={}", urlencoding::encode(&p.to_string_lossy()));
+        let files = vec!["C:\\a.hwp".to_string(), "C:\\b.hwp".to_string()];
+        for (action, want) in [("pdf", "tools"), ("redact", "tools"), ("collect", "tools"), ("compare", "compare"), ("receipt", "receipt"), ("evil", "open")] {
+            let m = write_manifest(action, &files).unwrap();
+            assert_eq!(routed_batch(&url(&m)), Some((want.to_string(), files.clone())), "{action}");
+            let _ = std::fs::remove_file(&m);
+        }
+        // 임시 폴더 밖·다른 이름의 목록은 열어 보지도 않는다 (네트워크 경로면 여는 것만으로 접속이 나간다)
+        let outside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("kordoc-batch-1.json");
+        std::fs::write(&outside, r#"{"action":"open","files":["a"]}"#).unwrap();
+        assert_eq!(routed_batch(&url(&outside)), None);
+        let _ = std::fs::remove_file(&outside);
+        let renamed = std::env::temp_dir().join("kordoc-batch-x1.json");
+        std::fs::write(&renamed, r#"{"action":"open","files":["a"]}"#).unwrap();
+        assert_eq!(routed_batch(&url(&renamed)), None);
+        let _ = std::fs::remove_file(&renamed);
+        assert_eq!(routed_batch("kordoc://batch?manifest=%5C%5C192.0.2.1%5Cs%5Ckordoc-batch-1.json"), None);
+    }
+
+    #[test]
+    fn older_build_does_not_take_over_newer_menu_or_links() {
+        let exe = r"C:\Users\홍길동\AppData\Local\KorDoc AI\kordoc-ai.exe";
+        assert_eq!(exe_of_mark(&exe_mark(exe)).as_deref(), Some(exe.to_lowercase().as_str()));
+        assert_eq!(exe_of_mark("6"), None);
+        assert!(version_newer("2.4.0", "2.3.2") && version_newer("2.3.10", "2.3.9") && !version_newer("2.3.2", "2.3.2") && !version_newer("2.3.1", "2.3.2"));
+        let out = |ver: &str| {
+            format!(
+                "\r\nHKEY_CURRENT_USER\\Software\\Classes\\kordoc\r\n    (기본값)    REG_SZ    URL:com.kordoc-ai.app protocol\r\n    URL Protocol    REG_SZ    \r\n    KorDocExe    REG_SZ    {}\r\n    KorDocApp    REG_SZ    {ver}\r\n",
+                exe_mark(exe)
+            )
+        };
+        let there = |p: &str| p == exe.to_lowercase();
+        // 더 새 판이 걸었고 그 exe 가 있으면 덮지 않는다
+        assert!(newer_owner(&out("9.0.0"), "2.3.2", there));
+        // 같은 판·옛 판이 건 것, 표지가 없는 것(이 판 전에 건 것), 지운 새 판이 남긴 것(exe 없음)은 덮는다
+        assert!(!newer_owner(&out("2.3.2"), "2.3.2", there) && !newer_owner(&out("2.3.1"), "2.3.2", there));
+        assert!(!newer_owner("    KorDocMenu    REG_SZ    11\r\n", "2.3.2", there));
+        assert!(!newer_owner(&out("9.0.0"), "2.3.2", |_| false));
+        // 메뉴에도 판을 적는다
+        assert!(reg_script(exe).contains(&format!("\"KorDocApp\"=\"{APP_VERSION}\"")));
+        // 적는 판은 앱 판(tauri.conf.json)과 같다
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["version"].as_str(), Some(APP_VERSION));
     }
 
     #[test]

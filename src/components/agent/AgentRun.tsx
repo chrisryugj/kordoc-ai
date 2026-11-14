@@ -33,6 +33,18 @@ const IN_CARD = typeof window !== "undefined" && new URLSearchParams(window.loca
 const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/^#{1,6}\s+/gm, "");
 const LAYOUT = new Set(["hwp", "hwpx", "pdf"]);
 
+/** 첫 쪽 그림은 둘씩만 그린다: 대화를 열면 만든 파일 카드마다 한꺼번에 그려 달라고 해 엔진이 문서 수십 개를 한 번에 읽었다
+ *  (쪽 그리기는 엔진 동시 실행 상한을 거치지 않는다) */
+const THUMB_AT_ONCE = 2;
+let thumbsRunning = 0;
+const thumbsWaiting: Array<() => void> = [];
+function thumbTurn(): Promise<void> {
+  if (thumbsRunning < THUMB_AT_ONCE) { thumbsRunning++; return Promise.resolve(); }
+  return new Promise((r) => thumbsWaiting.push(r));
+}
+/** 끝난 자리는 기다리는 카드에 그대로 넘긴다 */
+const thumbDone = () => { const next = thumbsWaiting.shift(); if (next) next(); else thumbsRunning--; };
+
 function Thumb({ path }: { path: string }) {
   const fmt = formatOf(path);
   // null: 첫 쪽 그림을 그리는 중 (뼈대), "": 그림 없음 (형식 표시)
@@ -41,7 +53,18 @@ function Thumb({ path }: { path: string }) {
     if (!LAYOUT.has(fmt)) { setSrc(""); return; }
     let alive = true;
     setSrc(null);
-    void rpc("render_pages", { path, pages: "1", max_width: 132 }).then((r) => { if (alive) setSrc(r.pages[0]?.data_url ?? ""); }, () => { if (alive) setSrc(""); });
+    void (async () => {
+      await thumbTurn();
+      try {
+        if (!alive) return; // 기다리는 사이 카드가 내려갔으면(다른 대화를 엶) 그리지 않는다
+        const r = await rpc("render_pages", { path, pages: "1", max_width: 132 });
+        if (alive) setSrc(r.pages[0]?.data_url ?? "");
+      } catch {
+        if (alive) setSrc("");
+      } finally {
+        thumbDone();
+      }
+    })();
     return () => { alive = false; };
   }, [path, fmt]);
   return (

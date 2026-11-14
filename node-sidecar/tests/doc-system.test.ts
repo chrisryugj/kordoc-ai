@@ -166,6 +166,19 @@ describe('watch_start·watch_stop·watch_list', () => {
     await expect(call('watch_start', { dir, out_dir: dir })).rejects.toThrow(/바깥\(위\) 폴더/);
     expect((await call('watch_list')).some((w: { dir: string }) => w.dir === dir)).toBe(false);
   });
+
+  // 맥은 끌어 놓은 경로가 자소 분리(NFD), Windows 는 대소문자를 가리지 않는다: 같은 폴더를 다른 글자열로 두 번 걸면 두 감시가 같은 결과 파일에 쓴다
+  const variant = (d: string) => (process.platform === 'darwin' ? d.normalize('NFD') : process.platform === 'win32' ? d.toUpperCase() : null);
+  it.skipIf(!variant('가'))('같은 폴더를 자소 분리·대소문자만 다른 경로로 또 걸면 거절', async () => {
+    const dir = join(env.base, '감시 폴더 Inbox');
+    mkdirSync(dir, { recursive: true });
+    const { id } = await call('watch_start', { dir, out_dir: join(env.base, '감시 결과') });
+    try {
+      await expect(call('watch_start', { dir: variant(dir)!, out_dir: join(env.base, '감시 결과 2') })).rejects.toThrow(/이미 지켜보는/);
+    } finally {
+      await call('watch_stop', { id });
+    }
+  });
 });
 
 describe('ocr (리드 구현) — 계약 모양으로 등록', () => {

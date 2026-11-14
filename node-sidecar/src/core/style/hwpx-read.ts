@@ -6,6 +6,7 @@
 
 import JSZip from 'jszip';
 import { DOMParser, type Element, type Node } from '@xmldom/xmldom';
+import { entryText } from '../files/zip-read.js';
 
 export const HWPUNIT_PER_MM = 7200 / 25.4;
 
@@ -136,7 +137,8 @@ export async function readHwpx(bytes: Uint8Array | ArrayBuffer): Promise<HwpxDoc
   const zip = await JSZip.loadAsync(bytes);
   const headerFile = zip.file('Contents/header.xml');
   if (!headerFile) throw new Error('HWPX 구조가 아닙니다. 한글에서 HWPX로 다시 저장해 넣으세요.');
-  const { chars, paras: paraShapes, fills } = readHeader(await headerFile.async('string'));
+  // 받은 문서 항목은 크기 상한을 세며 푼다 (files/zip-read)
+  const { chars, paras: paraShapes, fills } = readHeader((await entryText(zip, headerFile))!);
   const sections = Object.keys(zip.files).filter((n) => /^Contents\/section\d+\.xml$/.test(n)).sort((a, b) => num(/\d+/.exec(a)?.[0]) - num(/\d+/.exec(b)?.[0]));
   const fallbackChar: CharShape = { pt: 10, font: '', bold: false };
   const fallbackPara: ParaShape = { align: 'JUSTIFY', left: 0, indent: 0 };
@@ -213,7 +215,7 @@ export async function readHwpx(bytes: Uint8Array | ArrayBuffer): Promise<HwpxDoc
 
   for (const [i, name] of sections.entries()) {
     if (i > 0) page++;
-    const doc = new DOMParser().parseFromString(await zip.file(name)!.async('string'), 'text/xml');
+    const doc = new DOMParser().parseFromString((await entryText(zip, name))!, 'text/xml');
     for (const p of kids(doc.documentElement as unknown as Element, 'p')) walkPara(p, 0);
   }
   return out;

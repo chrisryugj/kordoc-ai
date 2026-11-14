@@ -250,7 +250,9 @@ export function BatchScreen({ active }: { active: boolean }) {
             {task !== "watch" && (
               <>
                 {hasResult && (
-                  <section className="kd-panel kd-batch-result" aria-label="결과" aria-live="polite">
+                  // 한 번 더 하기가 도는 동안 앞 결과는 만질 수 없다: 고친 지출조서 표는 새 결과가 오면 묻지도 않고 새로 그려지고,
+                  // "늦게 온 파일 더 넣기"는 돌던 수합 다시 만들기를 말없이 끊었다 (고친 표는 시작할 때 묻는다)
+                  <section className="kd-panel kd-batch-result" aria-label="결과" aria-live="polite" aria-busy={run.busy} inert={run.busy}>
                     {lateNote && (
                       <div id="gather-late"><Note tone="info">
                         <p>늦게 온 파일 {num(late)}개를 넣었습니다. 앞서 만든 엑셀({baseName(gatherPrev)})을 다시 만듭니다.</p>

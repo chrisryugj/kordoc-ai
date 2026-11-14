@@ -8,13 +8,14 @@
  * Phase B 제약: 채우기/패치는 HWPX 전용 (HWP5 빈 셀 채우기는 Phase E R&D).
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, basename, resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   parse, extractFormSchema, fillHwpx, fillWithUniqueGuard, patchHwpxBlocks, compare,
   type FormFieldSchema, type BlockEdit, type DiffResult,
 } from 'kordoc';
-import { outputFile, stemOf } from '../output/index.js';
+import { outputFile, sameFile, stemOf } from '../output/index.js';
+import { atomicWriteFile } from '../files/io.js';
 import { withVersionXml } from '../merge/hwpx-merge.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
@@ -165,10 +166,10 @@ export async function formFill(params: FormFillParams, signal?: AbortSignal): Pr
   let outPath = '';
   if (!dry_run) {
     // 덮어쓰기는 저장 창에서 확인받은 자리만. 양식 원본 자리는 덮지 않는다 (빈 양식을 잃는다)
-    const sameFile = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
     const overwrite = params.overwrite === true && !!output_path && !sameFile(output_path, input_path);
     outPath = outputFile({ output_path, source: input_path, name: `${stemOf(input_path)}_채움.hwpx`, overwrite });
-    await writeFile(outPath, filledBuf);
+    // 덮어쓰기를 확인받은 자리도 옆에 다 쓴 뒤 바꿔 넣는다 (쓰다 끊기면 덮던 파일까지 잃는다)
+    await atomicWriteFile(outPath, filledBuf);
   }
 
   sendProgress({ current: 3, total: 3, message: `칸 ${fill.filled.length}개를 채웠습니다${outPath ? ` → ${basename(outPath)}` : ''}` });
@@ -230,8 +231,8 @@ export async function patchBlocks(params: PatchBlocksParams, signal?: AbortSigna
   const patched = Buffer.from(result.data);
   let outPath = '';
   if (output_path) {
-    outPath = output_path;
-    await mkdir(dirname(outPath), { recursive: true });
+    // 계약대로 있는 파일은 덮지 않는다(같은 이름이면 (2)) — 원본 경로를 주면 원본을 제자리에서 덮어썼다
+    outPath = outputFile({ output_path, name: basename(output_path) });
     await writeFile(outPath, patched);
   }
 

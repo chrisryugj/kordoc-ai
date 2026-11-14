@@ -174,9 +174,9 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
           {!manual && !item.due && <span className="kd-muted">기한이 있으면 날짜를 고르세요</span>}
         </span>
         <label className="kd-label mt-2" htmlFor={`note-${item.id}`}>메모</label>
-        <textarea id={`note-${item.id}`} className="kd-textarea" rows={2} value={note} placeholder="담당자, 진행 상황 등"
+        <textarea id={`note-${item.id}`} className="kd-textarea" rows={2} value={note} placeholder="담당자, 진행 상황 등" maxLength={2000}
           onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note.trim() !== (item.note ?? "")) onUpdate({ note }); }} />
-        <span className="kd-field-hint">칸을 벗어나면 저장합니다.</span>
+        <span className="kd-field-hint">칸을 벗어나면 저장합니다. 2,000자까지 적습니다.</span>
       </section>
 
       <div className="kd-inbox-acts">

@@ -5,7 +5,7 @@
  * 긴 칸은 그 숫자만 "○○" 로 바꾼다.
  */
 
-import { ask, contextCharBudget, parseJsonLoose, restoreMasked, type JsonSchema } from '../../infra/llm/index.js';
+import { ask, contextCharBudget, maskTable, parseJsonLoose, restoreWith, type JsonSchema } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { loadDocs, selectPassages, unescapeMd } from './docs.js';
 import { GREETING_RULE } from './draft-guides.js';
@@ -98,11 +98,12 @@ export async function suggestFill(params: FillParams, signal: AbortSignal): Prom
   const fixRelated = received && !DOC_NO.test(asked);
   const keepGreeting = /인사|기원/.test(asked);
   const values: Record<string, string> = {};
+  const table = r.redacted ? maskTable(content) : [];
   for (const f of fields) {
     const v = raw[f];
     const s = typeof v === 'string' ? v : v == null ? '' : Array.isArray(v) ? v.join('\n') : String(v);
     // 보내기 전에 가린 값(기관 전화·전자우편)은 답에서 원래 값으로 되돌린 뒤 본다
-    const got = r.redacted ? restoreMasked(content, s) : s;
+    const got = restoreWith(table, s);
     let value = groundNumbers(unescapeMd(got.replace(/\r\n/g, '\n')).trim(), known);
     if (!keepGreeting) value = dropGreeting(value);
     values[f] = fixRelated ? fixRelatedLine(value, received) : value;

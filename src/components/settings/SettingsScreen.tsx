@@ -13,17 +13,21 @@ import { SecuritySection } from "./SecuritySection";
 import { EngineSection, StorageSection, AboutSection } from "./SystemSections";
 import { LawSection } from "./LawSection";
 import { Modal } from "../ui/Modal";
+import { askQuit, useAsk } from "../ui/useAsk";
+import { onQuitGuard } from "../../lib/quit";
 import { DirtyContext, type DirtyEntry } from "./dirty";
 import { INDEX, sectionMark } from "./marks";
 
 export function SettingsScreen({ active }: { active: boolean }) {
-  const { settings, ready, engine, go, setLeaveGuard, settingsIntent, uiMode, setUiMode } = useApp();
+  const { settings, ready, engine, setLeaveGuard, settingsIntent, uiMode, setUiMode } = useApp();
   const [current, setCurrent] = useState(INDEX[0].id);
   // 저장 안 한 구획 (구획 id → 이름·저장·되돌리기)
   const [dirty, setDirty] = useState<Record<string, DirtyEntry>>({});
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const [leaving, setLeaving] = useState<Screen | null>(null);
+  /** 떠나기로 하면 할 일 (가려던 화면과 그 화면으로 가며 하려던 일: 연 파일·넘겨줄 일). 묻는 사이 더 온 것도 차례로 */
+  const proceeds = useRef<Array<() => void>>([]);
   const [savingAll, setSavingAll] = useState(false);
   const markDirty = useCallback((id: string, e: DirtyEntry | null) => {
     setDirty((prev) => {
@@ -37,17 +41,19 @@ export function SettingsScreen({ active }: { active: boolean }) {
   // 설정을 떠나려는데 저장 안 한 구획이 있으면 멈추고 묻는다
   useEffect(() => {
     if (!active) return;
-    setLeaveGuard((next) => {
+    setLeaveGuard((next, proceed) => {
       if (next === "settings" || !Object.keys(dirtyRef.current).length) return true;
+      proceeds.current.push(proceed);
       setLeaving(next);
       return false;
     });
     return () => setLeaveGuard(null);
   }, [active, setLeaveGuard]);
 
+  /** 머물러 고친다 (가려던 화면·하려던 일은 하지 않는다) */
+  const stay = () => { proceeds.current = []; setLeaving(null); };
   const leave = async (save: boolean) => {
-    const target = leaving;
-    if (!target) return;
+    if (!leaving) return;
     const entries = Object.values(dirtyRef.current);
     if (save) {
       setSavingAll(true);
@@ -55,12 +61,21 @@ export function SettingsScreen({ active }: { active: boolean }) {
       let ok = true;
       for (const e of entries) ok = (await e.save()) && ok;
       setSavingAll(false);
-      if (!ok) { setLeaving(null); return; } // 저장 실패 안내는 구획이 띄운다. 머물러 고치게
+      if (!ok) { stay(); return; } // 저장 실패 안내는 구획이 띄운다. 머물러 고치게
     } else entries.forEach((e) => e.reset());
     setLeaving(null);
     setLeaveGuard(null);
-    go(target);
+    const todo = proceeds.current;
+    proceeds.current = [];
+    todo.forEach((f) => f());
   };
+
+  // 트레이 "완전 종료" 전에도 묻는다 (떠날 때만 묻고 끄기는 말없이 고친 것을 버렸다)
+  const { ask, dialog } = useAsk();
+  useEffect(() => onQuitGuard(async () => {
+    const titles = Object.values(dirtyRef.current).map((e) => e.title);
+    return !titles.length || askQuit(ask, "저장하지 않은 설정", `설정의 ${titles.join(", ")}에서 고친 내용을 아직 저장하지 않았습니다. 앱을 끄면 고친 내용은 사라집니다.`);
+  }), [ask]);
   const scrollRef = useRef<HTMLDivElement>(null);
   // 목차로 옮겨 가는 동안은 누른 구획 표시를 지킨다 (지나가는 구획으로 바뀌지 않게)
   const jumping = useRef(false);
@@ -181,10 +196,10 @@ export function SettingsScreen({ active }: { active: boolean }) {
           </div>
         </div>
       </div>
-      <Modal isOpen={!!leaving} onClose={() => setLeaving(null)} title="저장하지 않은 설정이 있습니다" size="sm" closable={!savingAll}
+      <Modal isOpen={!!leaving} onClose={stay} title="저장하지 않은 설정이 있습니다" size="sm" closable={!savingAll}
         footer={(
           <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="ghost" onClick={() => setLeaving(null)} disabled={savingAll}>계속 고치기</Button>
+            <Button variant="ghost" onClick={stay} disabled={savingAll}>계속 고치기</Button>
             <Button variant="secondary" onClick={() => void leave(false)} disabled={savingAll}>저장하지 않고 나가기</Button>
             <Button onClick={() => void leave(true)} disabled={savingAll}>{savingAll ? "저장하는 중" : "저장하고 나가기"}</Button>
           </div>
@@ -194,6 +209,7 @@ export function SettingsScreen({ active }: { active: boolean }) {
           {Object.values(dirty).map((e) => <li key={e.title}>{e.title}</li>)}
         </ul>
       </Modal>
+      {dialog}
     </div>
   );
 }

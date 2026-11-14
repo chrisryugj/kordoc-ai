@@ -87,11 +87,11 @@ export async function contextCharBudget(opts: { reserveTokens?: number; signal?:
   return Math.max(1500, Math.floor((tokens - (opts.reserveTokens ?? 2048)) * CHARS_PER_TOKEN));
 }
 
-/** 외부 AI 로 보낼 때 가린 값("02-●●●-7114")이 답에 그대로 실려 오면 원래 값으로 되돌린다. source 는 보낸 글(가리기 전).
- *  고쳐 쓴 글·칸 값은 문서에 그대로 들어가므로, 되돌리지 않으면 전화·전자우편·주소가 ● 로 바뀐 문서가 만들어진다.
- *  같은 가림 모양이 서로 다른 값에서 나왔으면(끝자리가 같은 전화 둘) 어느 값인지 알 수 없어 그 모양은 그대로 둔다 */
-export function restoreMasked(source: string, answer: string): string {
-  if (!answer.includes('●')) return answer;
+/** 가린 모양 → 원래 값 대응표 — 외부 AI 로 보낼 때 가린 값("02-●●●-7114")이 답에 그대로 실려 오면 원래 값으로 되돌리는 데 쓴다.
+ *  source 는 보낸 글(가리기 전). 고쳐 쓴 글·칸 값은 문서에 그대로 들어가므로, 되돌리지 않으면 전화·전자우편·주소가 ● 로 바뀐 문서가 만들어진다.
+ *  같은 가림 모양이 서로 다른 값에서 나왔거나(끝자리가 같은 전화 둘) literal 에 그 모양이 글자 그대로 있었으면(사용자가 이미 가려 둔 자리)
+ *  어느 값인지 알 수 없어 뺀다. 긴 모양부터 (짧은 모양이 긴 모양 안을 먼저 바꾸지 않게) */
+export function maskTable(source: string, literal = source): Array<[string, string]> {
   const r = redactMarkdown(source, { rules: CLOUD_RULES });
   const byMask = new Map<string, Set<string>>();
   for (const h of r.hits) {
@@ -99,15 +99,24 @@ export function restoreMasked(source: string, answer: string): string {
     if (!byMask.has(h.masked)) byMask.set(h.masked, new Set());
     byMask.get(h.masked)!.add(source.slice(h.index, h.index + h.length));
   }
+  return [...byMask]
+    .filter(([masked, originals]) => originals.size === 1 && !literal.includes(masked))
+    .map(([masked, originals]): [string, string] => [masked, [...originals][0]])
+    .sort((a, b) => b[0].length - a[0].length);
+}
+
+/** 대응표로 답의 가린 값을 되돌린다 */
+export function restoreWith(table: Array<[string, string]>, answer: string): string {
+  if (!answer.includes('●')) return answer;
   let out = answer;
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  for (const [masked, originals] of [...byMask].sort((a, b) => b[0].length - a[0].length)) {
-    // 같은 모양이 서로 다른 값에서 나왔거나, 원문에 그 모양이 글자 그대로 있었으면(사용자가 이미 가려 둔 자리) 어느 값인지 알 수 없다
-    if (originals.size !== 1 || source.includes(masked)) continue;
-    // 더 긴 가림 모양의 일부로 든 것은 바꾸지 않는다("●●● ●●●" 안의 "●●● ●●"): 앞뒤가 가림 글자가 아닌 자리만
-    out = out.replace(new RegExp(`(?<!●)${esc(masked)}(?!●)`, 'g'), () => [...originals][0]);
-  }
+  // 더 긴 가림 모양의 일부로 든 것은 바꾸지 않는다("●●● ●●●" 안의 "●●● ●●"): 앞뒤가 가림 글자가 아닌 자리만
+  for (const [masked, original] of table) out = out.replace(new RegExp(`(?<!●)${esc(masked)}(?!●)`, 'g'), () => original);
   return out;
+}
+
+export function restoreMasked(source: string, answer: string): string {
+  return answer.includes('●') ? restoreWith(maskTable(source), answer) : answer;
 }
 
 export interface AskOptions {
@@ -177,7 +186,11 @@ export async function ask(opts: AskOptions): Promise<{ text: string; redacted: n
   if (over || text.length > cap) throw new Error(ANSWER_TOO_LONG);
   // 가린 값("02-●●●-7114")을 답에서 되돌리는 함수 — 답을 문서·표에 넣는 쪽이 쓴다(가린 채 넣으면 연락처가 ● 로 바뀐 문서가 나온다)
   const source = [opts.system ?? '', ...opts.messages.map((m) => m.content)].join('\n');
-  const restore = (answer: string) => (redacted ? restoreMasked(source, answer) : answer);
+  // 사용자가 이미 가려 둔 자리 판정은 시스템·사용자 글에서만 — 다시 받기에 실은 앞 답(모델이 쓴 가린 꼴)까지 보면 되돌리기가 통째로 꺼졌다.
+  // 대응표는 한 번만 만든다(도구 인자마다 대화 전체를 다시 가리면 30만 자 기록에서 50번에 5초, 그동안 엔진이 멈췄다)
+  const literal = [opts.system ?? '', ...opts.messages.filter((m) => m.role !== 'assistant').map((m) => m.content)].join('\n');
+  let table: Array<[string, string]> | undefined;
+  const restore = (answer: string) => (redacted && answer.includes('●') ? restoreWith((table ??= maskTable(source, literal)), answer) : answer);
   return { text, redacted, restore, ...(truncated ? { truncated: true } : {}) };
 }
 

@@ -9,6 +9,7 @@ import type { BatchItemResult } from '../../types/rpc-contract.js';
 import { ask, contextCharBudget, parseJsonLoose, type JsonSchema } from '../../infra/llm/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { errorText } from '../errors.js';
 import { loadDoc, selectPassages, unescapeMd } from './docs.js';
 import { stemOf } from '../output/index.js';
 import { resolveOutputPath } from './output.js';
@@ -70,9 +71,9 @@ export async function extractTable(
       rows.push(row);
     } catch (err) {
       if (signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[ai_extract] ${basename(path)}: ${msg}`);
-      failed.push({ path, ok: false, error: msg });
+      logger.warn(`[ai_extract] ${basename(path)}: ${err instanceof Error ? err.message : String(err)}`);
+      // 파일 오류(ENOENT·EBUSY …)는 영어 원문 대신 할 일을 적은 한국어로 (다른 일괄 작업과 같은 errorText)
+      failed.push({ path, ok: false, error: errorText(err) });
     }
   }
   if (!rows.length) throw new Error(`어느 문서에서도 뽑지 못했습니다: ${failed[0]?.error ?? '알 수 없는 오류'}`);

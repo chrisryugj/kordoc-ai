@@ -142,6 +142,10 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   const docB64Ref = useRef<string | null>(null);          // 사이드카 폴백용
   const originalB64 = useRef<string | null>(null);         // 값을 모두 지우면 원본으로 되돌린다
   const previewSeq = useRef(0);                            // 늦게 온 앞 미리보기가 새 것을 덮지 않게
+  const renderSeq = useRef(0);                             // 쪽을 빨리 넘길 때 늦게 온 앞 쪽이 지금 쪽을 덮지 않게
+  // 창을 닫았다: 늦게 온 답(미리보기 반영·저장)이 일꾼을 새로 만들면 끄는 곳이 없다
+  const closed = useRef(false);
+  useEffect(() => { closed.current = false; return () => { closed.current = true; }; }, []);
   // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
   const rhwpRef = useRef<RhwpPreview | null>(null);
   const rhwpReady = useRef(false);                         // 지금 문서가 일꾼에 열려 있다
@@ -160,11 +164,13 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
   // ── 렌더 (프론트 WASM 우선, 실패 시 사이드카 RPC) ──
   const renderPage = useCallback(async (pageNum: number) => {
+    if (closed.current) return;
+    const my = ++renderSeq.current;
     setRenderError("");
     try {
       if (rhwpReady.current && rhwpRef.current) {
         const raw = await (await rhwpRef.current.render(pageNum)).text();
-        setSvg(annotate(raw));
+        if (my === renderSeq.current) setSvg(annotate(raw));
         return;
       }
       // 사이드카 폴백
@@ -172,17 +178,19 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
         ...(docB64Ref.current ? { doc_b64: docB64Ref.current } : { input_path: file.path }),
         pages: [pageNum],
       }) as { success: boolean; page_count: number; pages: Array<{ page: number; svg: string }> };
+      if (my !== renderSeq.current) return;
       if (res.success && res.pages[0]) {
         setPageCount(res.page_count);
         setSvg(annotate(res.pages[0].svg));
       }
     } catch (e) {
-      setRenderError(`미리보기를 그리지 못했습니다(${errorText(e)}). 값 넣기와 저장은 그대로 됩니다.`);
+      if (my === renderSeq.current) setRenderError(`미리보기를 그리지 못했습니다(${errorText(e)}). 값 넣기와 저장은 그대로 됩니다.`);
     }
   }, [annotate, sidecarCall, file.path]);
 
   /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신). 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
+    if (closed.current) return;
     docB64Ref.current = b64;
     const bytes = b64ToBytes(b64);
     // 일꾼은 받은 차례대로 일한다: 여는 사이 들어온 그리기 요청도 새 문서로 그린다
@@ -291,9 +299,9 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   const setValue = useCallback((label: string, value: string, source: ValueSource = { kind: "manual" }) => {
     setValues((v) => ({ ...v, [label]: value }));
     setSources((s) => ({ ...s, [label]: source }));
-    if (source.kind === "manual") setUnsaved(true);
+    if (source.kind !== "existing") setUnsaved(true);
   }, []);
-  /** 손으로 넣은 값이 저장 전이다 (닫기·Esc 에서 한 번 묻는다) */
+  /** 넣은 값(손으로 넣은 것·명부에서 가져온 것)이 저장 전이다 (닫기·Esc·완전 종료에서 한 번 묻는다) */
   const [unsaved, setUnsaved] = useState(false);
   const [askClose, setAskClose] = useState(false);
   const requestClose = useCallback(() => { if (unsaved) setAskClose(true); else onClose(); }, [unsaved, onClose]);
@@ -408,7 +416,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     setBusy("save");
     previewSeq.current++; // 저장 결과가 미리보기의 주인
     try {
-      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target, overwrite: true }) as FormFillRes;
+      const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target.path, overwrite: target.overwrite }) as FormFillRes;
       setFillResult(res);
       shown.current = res.filled.map((f) => ({ label: f.label, value: f.value }));
       if (res.doc_b64) {

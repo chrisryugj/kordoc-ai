@@ -7,6 +7,7 @@ import { patchHwp, patchHwpx, placeSealHwpx, scanSectionXml, validateHwpx, type 
 import { formatOf } from '../files/format.js';
 import { outputFile, stemOf } from '../output/index.js';
 import { withVersionXml } from '../merge/hwpx-merge.js';
+import { entryText } from '../files/zip-read.js';
 
 const toAB = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 const SEAL_EXT = new Set(['png', 'jpg', 'jpeg', 'bmp', 'gif']);
@@ -19,7 +20,8 @@ async function sealTexts(doc: Buffer): Promise<string[]> {
     .sort((a, b) => Number(a.match(/(\d+)\.xml$/i)?.[1] ?? 0) - Number(b.match(/(\d+)\.xml$/i)?.[1] ?? 0));
   const out: string[] = [];
   for (const [si, name] of sections.entries()) {
-    const scan = scanSectionXml(await zip.file(name)!.async('text'), si);
+    // 받은 문서 항목은 크기 상한을 세며 푼다 (files/zip-read)
+    const scan = scanSectionXml((await entryText(zip, name))!, si);
     const paras = [...scan.bodyParagraphs];
     const walk = (tables: ScanTable[], depth: number) => {
       if (depth > 16) return;

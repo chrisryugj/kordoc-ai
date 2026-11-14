@@ -9,7 +9,7 @@ import { renderDocument } from 'kordoc';
 import type { PagePreview } from '../../types/rpc-contract.js';
 import { logger } from '../../infra/logger.js';
 import { formatOf } from '../files/format.js';
-import { openPdf, rasterPdfPage } from './pdfium.js';
+import { isHeavyPage, openPdf, rasterPdfPage } from './pdfium.js';
 
 const DEFAULT_PAGES = 5;
 const MAX_PAGES = 20;
@@ -77,8 +77,13 @@ async function renderPdf(path: string, spec: string | undefined, maxW: number, p
     const pages: PagePreview[] = [];
     for (const n of wanted.slice(0, MAX_PAGES)) {
       signal?.throwIfAborted();
-      const r = await rasterPdfPage(doc, n, maxW);
-      pages.push({ page: n, width: pt(r.width), height: pt(r.height), data_url: dataUrl('image/png', r.data) });
+      // 그림이 너무 큰 쪽은 비워 둔다 (화면은 받지 못한 쪽을 빈 자리로 두고 다시 묻지 않는다)
+      const r = await rasterPdfPage(doc, n, maxW).catch((err: unknown) => {
+        if (!isHeavyPage(err)) throw err;
+        logger.warn(`[render_pages] ${err instanceof Error ? err.message : err}`);
+        return null;
+      });
+      if (r) pages.push({ page: n, width: pt(r.width), height: pt(r.height), data_url: dataUrl('image/png', r.data) });
     }
     return { page_count: count, pages };
   } finally {

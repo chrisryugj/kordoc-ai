@@ -169,9 +169,9 @@ export function OutputStep({ active }: { active: boolean }) {
       // 저장하면 지금 문서 경로가 저장한 파일로 바뀐다: 같은 문서이니 파일 이름 칸을 제안 이름으로 되돌리지 않는다
       // 저장이 실패하면 되돌린다 (그대로 두면 다음 문서 상태 변화 때 적어 둔 이름이 제안 이름으로 바뀐다)
       const before = lastSession.current;
-      lastSession.current = target;
+      lastSession.current = target.path;
       try {
-        const out = await saveTo(target, format);
+        const out = await saveTo(target.path, format, target.overwrite);
         lastSession.current = out;
         return out;
       } catch (e) {
@@ -190,7 +190,7 @@ export function OutputStep({ active }: { active: boolean }) {
     if (!target) return;
     void pdf.run(async ({ signal }) => {
       const path = await latest(p);
-      return (await rpc("export_pdf", { path, output_path: target, overwrite: true }, { signal })).output_path;
+      return (await rpc("export_pdf", { path, output_path: target.path, overwrite: target.overwrite }, { signal })).output_path;
     });
   })();
 
@@ -214,7 +214,7 @@ export function OutputStep({ active }: { active: boolean }) {
   })();
 
   /** 사본 저장 자리 — 출력 폴더·사용자 파일 옆이 있으면 거기(같은 이름은 (2)), 초안이면 저장 창 */
-  const copyTarget = async (suffix: string, ext: string) => (near ? joinPath(near, `${name}_${suffix}.${ext}`) : askTarget(`${name}_${suffix}.${ext}`, { name: ext.toUpperCase(), extensions: [ext] }));
+  const copyTarget = async (suffix: string, ext: string) => (near ? joinPath(near, `${name}_${suffix}.${ext}`) : (await askTarget(`${name}_${suffix}.${ext}`, { name: ext.toUpperCase(), extensions: [ext] }))?.path ?? null);
 
   const doSeal = () => void (async () => {
     const p = await askGuides();
@@ -232,7 +232,7 @@ export function OutputStep({ active }: { active: boolean }) {
     const p = await askGuides();
     if (!p) return;
     const ext = session?.format ?? "hwpx";
-    const target = near ? null : await askTarget(`${name}_공개용.${ext}`, { name: ext.toUpperCase(), extensions: [ext] });
+    const target = near ? null : (await askTarget(`${name}_공개용.${ext}`, { name: ext.toUpperCase(), extensions: [ext] }))?.path ?? null;
     if (!near && !target) return;
     void redact.run(async () => {
       const path = await latest(p);
@@ -249,7 +249,7 @@ export function OutputStep({ active }: { active: boolean }) {
     void bundle.run(async ({ signal }) => {
       const path = await latest(p);
       // 저장 창이 덮어쓰기를 물어 확인받은 자리 (export_pdf 와 같다)
-      return rpc("bundle_pdf", { paths: [path, ...attach], output_path: target, overwrite: true, page_numbers: pageNums, ...(watermark ? { watermark } : {}) }, { signal });
+      return rpc("bundle_pdf", { paths: [path, ...attach], output_path: target.path, overwrite: target.overwrite, page_numbers: pageNums, ...(watermark ? { watermark } : {}) }, { signal });
     });
   })();
 

@@ -1,10 +1,11 @@
 /** 이 PC 안 AI — 추천 모델 받기·가진 파일 가져오기·고르기·미리 올려 두기 */
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileUp, Flame, Trash2 } from "lucide-react";
+import { Download, FileUp, Flame, Square, Trash2 } from "lucide-react";
 import type { LlmCatalogItem } from "../../lib/contract";
 import { useApp } from "../../state/app";
-import { rpc, errorText, type Progress } from "../../lib/rpc";
+import { rpc, errorText, isAbort } from "../../lib/rpc";
+import { downloadModel, stopModelDownload, useModelDownload } from "../../lib/model-download";
 import { FILTERS, pickFiles } from "../../lib/native";
 import { baseName, fileSize, num } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
@@ -26,7 +27,8 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
   const offline = settings?.privacy.offline;
   const [catalog, setCatalog] = useState<LlmCatalogItem[]>([]);
   const [files, setFiles] = useState<Array<{ path: string; name: string; size: number }>>([]);
-  const [down, setDown] = useState<{ id: string; p: Progress | null } | null>(null);
+  // 받는 중인 것은 화면 밖에 둔다: 다른 갈래를 골랐다 돌아와도 진행이 보이고 멈출 수 있게
+  const down = useModelDownload();
   const [error, setError] = useState("");
   const warm = useTask<{ gpu: string | false; context_size: number }>();
 
@@ -37,20 +39,22 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
       setFiles(l);
     } catch (e) { setError(errorText(e)); }
   }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  // 처음 열 때, 받기가 시작·끝날 때마다 (이 칸이 내려간 사이에 끝났거나 다른 곳에서 받은 것도 목록에 보이게)
+  const downId = down?.id;
+  useEffect(() => { void refresh(); }, [refresh, downId]);
 
   const pathOf = (item: LlmCatalogItem) => files.find((f) => f.name === item.file)?.path;
 
   const download = async (item: LlmCatalogItem) => {
-    setDown({ id: item.id, p: null });
     setError("");
     try {
-      const r = await rpc("llm_download", { id: item.id }, { onProgress: (p) => setDown({ id: item.id, p }) });
+      const r = await downloadModel(item.id);
       onChange({ model_path: r.path });
       toast(`${item.name} 모델을 받았습니다. 저장을 누르면 이 모델을 씁니다.`, "success");
-      void refresh();
-    } catch (e) { setError(errorText(e)); }
-    setDown(null);
+    } catch (e) {
+      if (isAbort(e)) toast("받기를 멈췄습니다. 다시 받기를 누르면 받은 데까지 이어서 받습니다.", "info");
+      else setError(errorText(e));
+    }
   };
 
   const importFile = async () => {
@@ -92,6 +96,8 @@ export function EmbeddedModels({ modelPath, contextSize, gpu, onChange }: Props)
               <span className="kd-row-aside">
                 {have ? (
                   using ? null : <Button size="sm" variant="secondary" onClick={() => onChange({ model_path: have })}>이 모델 쓰기</Button>
+                ) : busy ? (
+                  <Button size="sm" variant="ghost" onClick={stopModelDownload} data-tip="받은 데까지 남겨 두고 멈춥니다. 다시 받으면 이어서 받습니다"><Square size={13} /> 멈추기</Button>
                 ) : (
                   <Button size="sm" variant="secondary" disabled={!!down || offline} title={offline ? "폐쇄망 모드에서는 받지 않습니다" : undefined} onClick={() => void download(item)} data-tip={offline ? undefined : `${item.size_gb}GB를 한 번 받습니다`}>
                     <Download size={13} /> 받기

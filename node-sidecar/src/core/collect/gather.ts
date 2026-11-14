@@ -7,7 +7,7 @@
  * 열 이름은 띄어쓰기·괄호 설명을 지우고 맞춘다(희망 인원(명) = 희망인원). 부서·담당자·연락처는 흔한 다른 이름도 같은 열로 친다.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { BatchItemResult, CollectGatherParams, CollectGatherResult } from '../../types/rpc-contract.js';
@@ -20,7 +20,9 @@ import { parseCsv } from '../excel/csv.js';
 import { tableGrid } from '../excel/index.js';
 import { buildXlsx } from '../excel/xlsx.js';
 import { readFormDoc } from '../extract/index.js';
+import { writeWithBackup } from '../files/backup.js';
 import { formatOf } from '../files/format.js';
+import { atomicWriteFile } from '../files/io.js';
 import { outputFile, safeFileName, stemOf } from '../output/index.js';
 import { buildBook, buildStatus, reminderText, type Column, type GatherRow } from './book.js';
 import { matchDept, norm, rosterFromFile, rosterFromText } from './dept.js';
@@ -260,12 +262,15 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   const title = mostCommon(same.map((d) => d.title)) || mostCommon(docs.map((d) => d.title));
   const name = `${safeFileName(title || stemOf(p.paths[0]), '문서')}_수합.xlsx`;
   const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.paths[0], name, overwrite: p.overwrite });
-  await writeFile(outPath, await buildXlsx(book.sheets));
+  // "같은 파일 바꾸기"(overwrite)는 앞서 만든 엑셀을 덮는다: 그 뒤 엑셀에서 고쳐 저장했으면(크기·수정 시각이 우리가 쓴 것과 다름) 백업을 남긴다
+  const xlsx = await buildXlsx(book.sheets);
+  const backup = await writeWithBackup(outPath, () => atomicWriteFile(outPath, xlsx));
   sendProgress({ current: total, total, message: `${rows.length}줄을 모았습니다` });
 
   const missing = status.filter((s) => s.in_roster && !s.submitted).map((s) => s.dept);
   return {
     output_path: outPath,
+    ...(backup ? { backup_path: backup } : {}),
     rows: rows.length,
     columns: columns.map((c) => ({ label: c.label, required: c.required, ...(book.totals.has(c.key) ? { total: book.totals.get(c.key) } : {}) })),
     by_kind: { form: same.length, excel: excels.length, ai: aiCount },

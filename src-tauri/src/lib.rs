@@ -8,8 +8,11 @@ use shell::ShellCollector;
 use sidecar::manager::SidecarManager;
 use std::sync::Arc;
 
-/** 트레이 "완전 종료"를 마지막으로 누른 때(초) — 화면이 답하지 않을 때 두 번째 누름은 바로 끈다 */
+/** 완전 종료(트레이 "완전 종료"·맥 ⌘Q)를 마지막으로 누른 때(초). 화면이 답하면(quit_app·quit_cancelled) 끝난다 */
 static QUIT_ASKED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/** 화면에 묻는 상자가 떠 있는지 본 차례와, 떠 있다고 답한 차례 */
+static QUIT_PROBE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static QUIT_STILL_ASKING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 화면이 저장 안 한 것을 다 물은 뒤 부르는 완전 종료
 #[tauri::command]
@@ -22,6 +25,106 @@ fn quit_app(app: tauri::AppHandle) {
 fn quit_cancelled() {
     QUIT_ASKED_AT.store(0, std::sync::atomic::Ordering::SeqCst);
 }
+
+/// force_quit_unless_asking 이 화면에 돌린 글이 부른다: 묻는 상자가 아직 떠 있다
+#[tauri::command]
+fn quit_still_asking(app: tauri::AppHandle, n: u64) {
+    QUIT_STILL_ASKING.store(n, std::sync::atomic::Ordering::SeqCst);
+    show_main(&app);
+}
+
+/// 완전 종료 요청 (트레이 "완전 종료"·맥 앱 메뉴의 종료 ⌘Q): 화면에 먼저 묻는다(저장 안 한 문서).
+/// 화면이 답하기 전에 10초 안에 또 누르면 화면이 멈춘 것일 수 있다: 묻는 상자가 떠 있으면 끄지 않고 창만 앞으로, 아니면 끈다
+fn request_quit(app: &tauri::AppHandle) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let last = QUIT_ASKED_AT.swap(now, std::sync::atomic::Ordering::SeqCst);
+    if last != 0 && now.saturating_sub(last) < 10 {
+        force_quit_unless_asking(app);
+    } else {
+        show_main(app);
+        let _ = app.emit("quit-requested", ());
+    }
+}
+
+/// 묻는 상자: 화면 `Modal`(src/components/ui/Modal.tsx)의 단추 줄. 종료 전 묻기(useAsk·편집 세션)는 모두 이 상자다 (시험이 맞춰 본다)
+const ASKING: &str = r#"[aria-modal="true"] [data-modal-foot]"#;
+
+/// 화면이 아직 답하지 않았다: 사용자가 고르는 중인지(묻는 상자가 떠 있나) 본다. 화면 코드를 고치지 않고 본창에 짧은 글을 돌려,
+/// 상자가 있으면 quit_still_asking 을 부르게 한다. 1.5초 안에 그 답이 없으면(상자 없음·오류 화면·화면 멈춤) 끈다
+fn force_quit_unless_asking(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let n = QUIT_PROBE.fetch_add(1, SeqCst) + 1;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(format!("document.querySelector('{ASKING}')&&window.__TAURI_INTERNALS__.invoke('quit_still_asking',{{n:{n}}})"));
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // 묻는 중이라고 답했거나, 그사이 사용자가 취소했으면(시계 0) 끄지 않는다
+        if QUIT_STILL_ASKING.load(SeqCst) != n && QUIT_ASKED_AT.load(SeqCst) != 0 {
+            app.exit(0);
+        }
+    });
+}
+
+/// macOS 앱 메뉴: Tauri 기본 메뉴와 같되 "종료"(⌘Q)만 우리 것. 기본 메뉴의 종료는 바로 앱을 꺼서 저장 안 한 것을 묻지 않았다.
+/// 편집 메뉴(실행 취소·오려두기·복사·붙여넣기·모두 선택)는 그대로 둔다: 빠지면 맥에서 ⌘C·⌘V 가 안 된다
+#[cfg(target_os = "macos")]
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID};
+    let info = app.package_info();
+    let about = AboutMetadata { name: Some(info.name.clone()), version: Some(info.version.to_string()), copyright: app.config().bundle.copyright.clone(), ..Default::default() };
+    let name = info.name.clone();
+    let quit = MenuItem::with_id(app, "app-quit", format!("{name} 종료"), true, Some("CmdOrCtrl+Q"))?;
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                &name,
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, Some(&format!("{name}에 관하여")), Some(about))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, Some("서비스"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, Some(&format!("{name} 가리기")))?,
+                    &PredefinedMenuItem::hide_others(app, Some("기타 가리기"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit,
+                ],
+            )?,
+            &Submenu::with_items(app, "파일", true, &[&PredefinedMenuItem::close_window(app, Some("윈도우 닫기"))?])?,
+            &Submenu::with_items(
+                app,
+                "편집",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, Some("실행 취소"))?,
+                    &PredefinedMenuItem::redo(app, Some("실행 복귀"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, Some("오려두기"))?,
+                    &PredefinedMenuItem::copy(app, Some("복사하기"))?,
+                    &PredefinedMenuItem::paste(app, Some("붙여넣기"))?,
+                    &PredefinedMenuItem::select_all(app, Some("모두 선택"))?,
+                ],
+            )?,
+            &Submenu::with_items(app, "보기", true, &[&PredefinedMenuItem::fullscreen(app, Some("전체 화면"))?])?,
+            &Submenu::with_id_and_items(
+                app,
+                WINDOW_SUBMENU_ID,
+                "윈도우",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, Some("최소화"))?,
+                    &PredefinedMenuItem::maximize(app, Some("확대/축소"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, Some("윈도우 닫기"))?,
+                ],
+            )?,
+        ],
+    )
+}
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -31,18 +134,26 @@ use tauri_plugin_deep_link::DeepLinkExt;
 
 use shell::show_main;
 
-/// kordoc:// 주소 하나 처리 — 동작 주소(우클릭 메뉴 동작)는 묶음 수집기로, 그 밖(batch 매니페스트 등)은 그대로 프론트로
+/// kordoc:// 주소 하나 처리 — 동작 주소(우클릭 메뉴 동작)·묶음 주소는 묶음 수집기로, 그 밖은 창만 연다
 fn route_url(app: &tauri::AppHandle, url: &str) {
-    match shell::routed_action(url) {
-        Some((action, path)) => app.state::<ShellCollector>().push(app, &action, vec![path]),
-        None => {
-            // 동작으로 읽지 못한 주소는 묶음 주소만 화면에 넘긴다. 그 밖의 것을 그대로 넘기면 화면이 다시 풀어 동작으로 읽을 수 있다
-            // (Rust 와 화면의 풀이가 어긋나는 꼴이 곧 확인 없이 도는 길이 된다)
-            if shell::is_batch_url(url) {
-                shell::deliver(app, "deep-link", url.into());
-            }
-            show_main(app);
+    // 이 PC 의 Finder 빠른 동작(표지)이 아니면 링크일 수 있다: 문서 카드는 띄우기만 하고 일은 누를 때 시작
+    let push = |action: &str, paths: Vec<String>| {
+        let c = app.state::<ShellCollector>();
+        if shell::from_quick_action(url) {
+            c.push(app, action, paths)
+        } else {
+            c.push_link(app, action, paths)
         }
+    };
+    if let Some((action, path)) = shell::routed_action(url) {
+        push(&action, vec![path]);
+        return;
+    }
+    // 묶음 주소는 목록을 여기서 읽어 한 파일 주소와 같은 규칙으로 돌린다. 화면에 주소를 그대로 넘기면 목록의 빠른 동작이 확인 없이 돈다.
+    // 동작으로 읽지 못한 주소를 화면에 넘기지 않는 것도 같은 까닭 (Rust 와 화면의 풀이가 어긋나는 꼴이 곧 확인 없이 도는 길이 된다)
+    match shell::is_batch_url(url).then(|| shell::routed_batch(url)).flatten() {
+        Some((action, files)) if !files.is_empty() => push(&action, files),
+        _ => show_main(app),
     }
 }
 
@@ -55,7 +166,15 @@ pub fn run() {
     let mgr_for_setup = Arc::clone(&manager);
     let mgr_for_exit = Arc::clone(&manager);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // macOS 는 앱 메뉴를 정하지 않으면 Tauri 기본 메뉴가 깔리고, 그 "종료"(⌘Q)는 묻지 않고 바로 끈다
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu).on_menu_event(|app, event| {
+        if event.id().as_ref() == "app-quit" {
+            request_quit(app);
+        }
+    });
+    builder
         // 두 번째 실행(우클릭 메뉴·파일 더블클릭) → 첫 인스턴스로 인자 전달.
         // features=["deep-link"] 라 kordoc:// 인자는 deep-link 플러그인 on_open_url 로 간다.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -97,8 +216,10 @@ pub fn run() {
             shell::shell_quick_done,
             shell::shell_toast_ok,
             shell::card_handoff,
+            shell::card_close,
             quit_app,
             quit_cancelled,
+            quit_still_asking,
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").ok_or("main 윈도우를 찾을 수 없습니다")?;
@@ -110,20 +231,30 @@ pub fn run() {
             // 붙여 넣은 글·그림의 임시 파일 가운데 오래된 것을 치운다
             commands::clipboard::sweep_old();
 
-            // 비-MSIX 설치본·개발 실행은 OS 에 kordoc:// 가 등록돼 있지 않을 수 있어 런타임 등록
+            // 비-MSIX 설치본·개발 실행은 OS 에 kordoc:// 가 등록돼 있지 않을 수 있어 런타임 등록.
+            // 더 새 판이 걸어 둔 것이면 덮지 않는다 (남아 있던 옛 판 exe 를 한 번 켜면 주소가 그 exe 로 다시 걸렸다). 레지스트리 조회는 뒤에서
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            if let Err(e) = app.deep_link().register_all() {
-                tracing::warn!("deep-link register_all 실패 (무시 가능): {}", e);
+            {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    if !shell::may_claim_links() {
+                        return;
+                    }
+                    match h.deep_link().register_all() {
+                        Ok(()) => shell::mark_links_claimed(),
+                        Err(e) => tracing::warn!("deep-link register_all 실패 (무시 가능): {}", e),
+                    }
+                });
             }
 
             // 첫 실행 인자 (우클릭 메뉴 `--shell <동작> <파일>` · 파일을 앱으로 열기).
             // 빠른 동작(창 없이 돌고 알림만)으로 켜졌으면 창을 띄우지 않는다
             let args: Vec<String> = std::env::args().collect();
             let first = shell::parse_args(&args, &std::env::current_dir().unwrap_or_default());
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            let first_urls: Vec<String> = app.deep_link().get_current().ok().flatten().unwrap_or_default().iter().map(|u| u.to_string()).collect();
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-            let first_urls: Vec<String> = Vec::new();
+            // macOS: 주소는 RunEvent::Opened 로 오고 플러그인이 그것을 아래 on_open_url 로 다시 쏜다. 구독을 걸기 전에 Opened 가 먼저 왔으면
+            // 그 알림은 사라지고 get_current 에만 남는다 → 여기서 꺼낸다 (구독 뒤에 온 것은 여기서 비어 있어 두 번 돌지 않는다. 파일은 Opened 가 맡는다)
+            let first_urls: Vec<String> =
+                app.deep_link().get_current().ok().flatten().unwrap_or_default().iter().filter(|u| u.scheme() == "kordoc").map(|u| u.to_string()).collect();
             let quick_start = first.as_ref().map(|(a, _)| shell::is_quick(a)).unwrap_or(false)
                 || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::routed_action(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
             // 문서 카드(우클릭 "KorDoc AI에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
@@ -160,8 +291,7 @@ pub fn run() {
                 }
             });
 
-            // 꺼진 앱이 kordoc:// 로 켜졌을 때: 플러그인은 실행 인자의 주소를 위 구독보다 먼저 알려서 그 알림은 사라진다 → 직접 꺼낸다.
-            // (macOS 는 같은 주소가 RunEvent::Opened 로 따로 와서 아래 run 에서 받는다. 여기서도 꺼내면 두 번 처리된다)
+            // 꺼진 앱이 kordoc:// 로 켜졌을 때: 플러그인은 실행 인자의 주소를 위 구독보다 먼저 알려서 그 알림은 사라진다 → 직접 꺼낸다
             for url in first_urls {
                 tracing::info!("deep-link 첫 실행: {}", url);
                 route_url(&handle, &url);
@@ -184,17 +314,8 @@ pub fn run() {
                             let _ = w.hide();
                         }
                     }
-                    // 화면에 먼저 묻는다(저장 안 한 문서). 화면이 답하지 못하는 경우를 위해 10초 안에 한 번 더 누르면 바로 끈다
-                    "tray-quit" => {
-                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                        let last = QUIT_ASKED_AT.swap(now, std::sync::atomic::Ordering::SeqCst);
-                        if last != 0 && now.saturating_sub(last) < 10 {
-                            app.exit(0);
-                        } else {
-                            show_main(app);
-                            let _ = app.emit("quit-requested", ());
-                        }
-                    }
+                    // 화면에 먼저 묻는다(저장 안 한 문서)
+                    "tray-quit" => request_quit(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray: &tauri::tray::TrayIcon<tauri::Wry>, event: TrayIconEvent| {
@@ -211,6 +332,8 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // 엔진 주 스레드가 막히면 다시 켠다 (호출이 걸려 있을 때만 본다)
+            mgr_for_setup.spawn_watchdog();
             tauri::async_runtime::spawn(async move {
                 mgr_for_setup.set_app_handle(handle.clone()).await;
                 if let Err(e) = mgr_for_setup.start().await {
@@ -239,7 +362,14 @@ pub fn run() {
                     let _ = w.hide();
                 }
             }
-            // macOS Finder "다음으로 열기"·Dock 끌어다 놓기
+            // 카드 창 X(맥 ⌘W): 그 창에 먼저 묻는다 (영수증 카드에서 고치던 표)
+            tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { api, .. }, .. } if label.starts_with("card-") => {
+                if !shell::card_close_requested(app, &label) {
+                    api.prevent_close();
+                }
+            }
+            // macOS Finder "다음으로 열기"·Dock 끌어다 놓기. kordoc:// 주소는 여기서 다루지 않는다: deep-link 플러그인이 같은 Opened 를
+            // on_open_url 로 다시 쏘아서, 여기서도 받으면 한 주소가 두 번 돌았다(카드가 [p, p], 묶음 동작이 두 번)
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Opened { urls } => {
                 let paths: Vec<String> = urls
@@ -247,12 +377,8 @@ pub fn run() {
                     .filter_map(|u| u.to_file_path().ok())
                     .map(|p| p.to_string_lossy().into_owned())
                     .collect();
-                let others: Vec<String> = urls.iter().filter(|u| u.scheme() == "kordoc").map(|u| u.to_string()).collect();
                 if !paths.is_empty() {
                     app.state::<ShellCollector>().push(app, "open", paths);
-                }
-                for u in others {
-                    route_url(app, &u);
                 }
             }
             // macOS Dock 아이콘 누름: 창을 X 로 닫아(숨겨) 둔 뒤에도 다시 연다
@@ -260,4 +386,22 @@ pub fn run() {
             tauri::RunEvent::Reopen { .. } => show_main(app),
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ASKING;
+
+    #[test]
+    fn quit_probe_finds_the_ask_boxes() {
+        // 종료 전 묻기 상자(useAsk·편집 세션)는 Modal 이고, Modal 은 대화상자 안에 단추 줄(data-modal-foot)을 그린다
+        let modal = include_str!("../../src/components/ui/Modal.tsx");
+        let dialog = modal.find(r#"role="dialog" aria-modal="true""#).expect("Modal 대화상자");
+        assert!(modal[dialog..].contains("data-modal-foot"), "Modal 단추 줄 표지가 바뀌면 lib.rs ASKING 도");
+        for src in [include_str!("../../src/components/ui/useAsk.tsx"), include_str!("../../src/components/create/session.tsx")] {
+            let at = src.find("<Modal").expect("묻기 상자가 Modal 이 아니다");
+            assert!(src[at..].contains("footer="), "묻기 상자에 단추 줄이 없다");
+        }
+        assert!(ASKING.contains("aria-modal") && ASKING.contains("data-modal-foot") && !ASKING.contains('\''));
+    }
 }

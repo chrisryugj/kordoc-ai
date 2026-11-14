@@ -1,8 +1,9 @@
 /** 바이트 저장·읽기 (write_file·read_file_b64) — 편집기 내보내기 등. 확장자 허용 목록 + 크기 상한 */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname } from 'node:path';
+import { chmod, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
+import { renameRetry } from '../../infra/rename.js';
 import { showFieldGuides } from '../render/guides.js';
 
 const MAX_BYTES = 200 * 1024 * 1024;
@@ -16,15 +17,25 @@ function checkExt(path: string, allowed: Set<string>, verb: string): void {
 
 let tmpSeq = 0;
 /** 옆에 다 쓴 뒤 바꿔 넣는다 — 제자리로 쓰다 끊기면(매핑 드라이브 끊김·디스크 참) 원래 파일까지 잃는다. 임시 이름은 호출마다 달라
- *  같은 파일을 잇달아 저장해도(검토 받기 → PDF 로 저장) 두 쓰기가 한 임시 파일에 섞이지 않는다. 못 바꿔 넣으면 임시 파일을 남기지 않는다 */
+ *  같은 파일을 잇달아 저장해도(검토 받기 → PDF 로 저장) 두 쓰기가 한 임시 파일에 섞이지 않는다. 못 바꿔 넣으면 임시 파일을 남기지 않는다.
+ *  임시 이름은 파일 이름에 꼬리로 붙이지 않고 짧게 따로 짓는다: 한도에 맞춘 긴 이름(240바이트)에 19바이트를 붙이면 255바이트를 넘어
+ *  저장이 실패했다(SMB NAS 등). 덮는 파일의 권한(0600 등)은 그대로 두고, 심볼릭 링크면 가리키는 파일 자리에 쓴다(링크가 일반 파일이 되지 않게) */
 export async function atomicWriteFile(path: string, data: Uint8Array | string): Promise<void> {
-  const tmp = `${path}.kordoc-tmp-${process.pid}-${++tmpSeq}`;
+  const link = await lstat(path).then((s) => s.isSymbolicLink(), () => false);
+  const target = link ? await realpath(path).catch(() => path) : path;
+  const mode = await stat(target).then((s) => s.mode & 0o777, () => undefined);
+  const tmp = join(dirname(target), `.kordoc-${process.pid}-${++tmpSeq}.tmp`);
   try {
-    await writeFile(tmp, data);
-    await rename(tmp, path);
+    await writeFile(tmp, data, mode === undefined ? undefined : { mode });
+    // 만들 때 준 권한은 umask 가 깎는다 (0664 → 0644)
+    if (mode !== undefined) await chmod(tmp, mode);
+    await renameRetry(tmp, target);
   } catch (err) {
     // 바꿔치기를 못 하면(파일이 한글에서 열려 있음 등) 임시 파일을 폴더에 남기지 않는다
     await rm(tmp, { force: true }).catch(() => undefined);
+    // 오류 안내에는 임시 이름 대신 사용자가 아는 파일 이름이 보이게
+    const e = err as NodeJS.ErrnoException;
+    if (e?.path === tmp) e.path = path;
     throw err;
   }
 }

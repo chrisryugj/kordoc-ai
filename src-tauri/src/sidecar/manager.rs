@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Mutex, RwLock};
@@ -14,6 +15,8 @@ use super::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::error::{AppError, AppResult};
 
 type Pending = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>;
+/// 엔진 입력으로 보낼 줄을 받는 곳 (엔진 세대, 보내기). 세대는 옛 엔진의 stdout 스레드가 새 엔진의 입력을 닫지 않게
+type Input = Arc<std::sync::Mutex<Option<(u64, Sender<Vec<u8>>)>>>;
 
 /// Node 사이드카 프로세스 관리 + JSON-RPC 다중 호출.
 ///
@@ -24,9 +27,11 @@ type Pending = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse
 ///
 /// stdout 은 tokio async pipe 대신 OS 스레드 blocking 읽기 — Windows 에서 async reader 가
 /// 몇 번 읽은 뒤 깨어나지 않던 문제(v1 실측) 때문에 유지.
+/// stdin 쓰기도 전용 OS 스레드(`spawn_writer`)가 한다: 엔진이 멈춰 안 읽으면 파이프가 차서 쓰기가 끝없이 막히는데,
+/// 그것을 async 작업 스레드에서 잠금을 쥐고 하면 다른 호출과 앱 끄기(stop)까지 그 잠금을 기다리며 같이 멈췄다.
 pub struct SidecarManager {
     child: std::sync::Mutex<Option<std::process::Child>>,
-    stdin: Arc<std::sync::Mutex<Option<std::process::ChildStdin>>>,
+    stdin: Input,
     pending: Pending,
     start_lock: Mutex<()>,
     status: Arc<RwLock<SidecarStatus>>,
@@ -64,6 +69,12 @@ fn timeout_for(method: &str) -> u64 {
     1800
 }
 
+/// 호출이 걸려 있는 동안 엔진 주 스레드가 살아 있는지 보는 간격과, ping 답을 기다리는 한도.
+/// 무거운 일(pdf.js·rhwp·OCR)은 작업자 스레드에서 돌아 주 스레드는 그동안에도 ping 에 답한다. 주 스레드에 남은 동기 일
+/// (실측: 800쪽 PDF 읽기 20초, 작업자로 옮기기 전)이 정상적으로 길어져도 죽이지 않게 한도를 넉넉히 둔다
+const WATCH_EVERY: Duration = Duration::from_secs(15);
+const HUNG_AFTER: Duration = Duration::from_secs(120);
+
 /// 넣은 파일 수만큼 오래 걸리는 메서드 (이름이 _batch 로 끝나는 것 말고)
 const BATCH_METHODS: [&str; 15] = [
     "collect_gather", "collect_run", "search_files", "inbox_add", "style_apply", "mail_merge", "merge_files", "bundle_pdf",
@@ -91,6 +102,21 @@ fn read_line_lossy(reader: &mut impl std::io::BufRead) -> Option<String> {
             Some(String::from_utf8(buf).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
         }
     }
+}
+
+/// 엔진 입력을 쓰는 스레드. 보내기(Sender)가 버려지면 남은 줄을 다 쓰고 stdin 을 닫는다(엔진은 스스로 끝난다).
+/// 쓰다 실패하면(엔진 종료) 받는 쪽을 버려 그 뒤의 보내기는 바로 실패한다
+fn spawn_writer(mut stdin: impl Write + Send + 'static) -> std::io::Result<Sender<Vec<u8>>> {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::Builder::new().name("sidecar-stdin".into()).spawn(move || {
+        while let Ok(line) = rx.recv() {
+            if let Err(e) = stdin.write_all(&line).and_then(|_| stdin.flush()) {
+                tracing::warn!("[sidecar] stdin 쓰기 실패: {}", e);
+                return;
+            }
+        }
+    })?;
+    Ok(tx)
 }
 
 /// Windows resource_dir 이 `\\?\C:\…` 로 오면 Node 가 import.meta.url 을 이상하게 만든다 — 접두어만 뗀다
@@ -209,6 +235,7 @@ impl SidecarManager {
         let pending = Arc::clone(&self.pending);
         let status = Arc::clone(&self.status);
         let current = Arc::clone(&self.generation);
+        let input = Arc::clone(&self.stdin);
         let h = handle.clone();
         std::thread::Builder::new()
             .name("sidecar-stdout".into())
@@ -252,7 +279,14 @@ impl SidecarManager {
                     tracing::info!("stdout reader thread exiting (옛 엔진)");
                     return;
                 }
-                // 프로세스 종료: 기다리던 호출을 전부 깨운다 (sender drop → 수신 측 오류)
+                // 프로세스 종료: 입력부터 막고(뒤에 온 호출이 바로 "엔진이 멈췄습니다"를 받게) 기다리던 호출을 전부 깨운다 (sender drop → 수신 측 오류).
+                // 거꾸로 하면 그 틈에 들어온 호출은 깨워 줄 이가 없어 시간 초과(30분)까지 기다린다
+                {
+                    let mut input = input.lock().unwrap_or_else(|e| e.into_inner());
+                    if input.as_ref().is_some_and(|(g, _)| *g == generation) {
+                        *input = None;
+                    }
+                }
                 pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 if let Ok(mut s) = status.try_write() {
                     if *s == SidecarStatus::Ready || *s == SidecarStatus::Starting {
@@ -262,7 +296,7 @@ impl SidecarManager {
                 tracing::info!("stdout reader thread exiting");
             })?;
 
-        *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = Some(stdin);
+        *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = Some((generation, spawn_writer(stdin)?));
         *self.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
 
         match self.call("ping", None).await {
@@ -284,19 +318,13 @@ impl SidecarManager {
         }
     }
 
+    /// 쓰기 스레드에 넘기기만 한다 (엔진이 안 읽어도 여기서 막히지 않는다)
     fn write_line(&self, request: &JsonRpcRequest) -> AppResult<()> {
         let mut line = serde_json::to_string(request)?;
         line.push('\n');
-        let mut guard = self.stdin.lock().map_err(|e| {
-            tracing::warn!("[sidecar] stdin lock poisoned: {}", e);
-            AppError::Sidecar(ENGINE_STOPPED.into())
-        })?;
-        let stdin = guard.as_mut().ok_or_else(|| AppError::Sidecar(ENGINE_STOPPED.into()))?;
-        stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush()).map_err(|e| {
-            tracing::warn!("[sidecar] stdin 쓰기 실패: {}", e);
-            AppError::Sidecar(ENGINE_STOPPED.into())
-        })?;
-        Ok(())
+        let guard = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
+        let (_, tx) = guard.as_ref().ok_or_else(|| AppError::Sidecar(ENGINE_STOPPED.into()))?;
+        tx.send(line.into_bytes()).map_err(|_| AppError::Sidecar(ENGINE_STOPPED.into()))
     }
 
     pub async fn call(&self, method: &str, params: Option<serde_json::Value>) -> AppResult<JsonRpcResponse> {
@@ -344,6 +372,42 @@ impl SidecarManager {
         result
     }
 
+    /// 엔진 주 스레드가 막혔으면(큰 문서 정규식·그림 풀기처럼 끝나지 않는 동기 일) 죽이고 다시 켠다. 예전에는 시간 초과 때 cancel 만 보내고
+    /// 다시 켜기는 프로세스가 죽었을 때만이라, 앱을 다시 켤 때까지 모든 호출이 30분씩 기다렸다.
+    /// 호출이 걸려 있을 때만 ping 을 보내고, HUNG_AFTER 동안 답이 없을 때만 다시 켠다 (기다리던 호출은 "엔진이 멈췄습니다"로 끝나고
+    /// 화면은 읽기만 하는 호출을 한 번 더 보낸다). ping 은 쓰기 스레드로 가서, 멈춘 엔진에 큰 요청을 쓰다 막혀 있어도 이것까지 막히지 않는다
+    pub fn spawn_watchdog(self: &Arc<Self>) {
+        let me = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(WATCH_EVERY).await;
+                if !me.busy() || *me.status.read().await != SidecarStatus::Ready {
+                    continue;
+                }
+                let generation = me.generation.load(Ordering::SeqCst);
+                if me.answers_ping(HUNG_AFTER).await || me.generation.load(Ordering::SeqCst) != generation || !me.child_alive() {
+                    continue;
+                }
+                tracing::warn!("[sidecar] {}초 동안 ping 에 답하지 않아 엔진을 다시 켭니다", HUNG_AFTER.as_secs());
+                me.emit_runtime_log(format!("[sidecar] 엔진이 {}초 동안 답하지 않아 다시 켭니다", HUNG_AFTER.as_secs())).await;
+                if let Err(e) = me.start().await {
+                    tracing::error!("엔진 다시 켜기 실패: {}", e);
+                }
+            }
+        });
+    }
+
+    /// 주 스레드가 wait 안에 ping 에 답하는가. 답 없이 시간만 지났을 때만 false (엔진이 죽었거나 그새 다시 켜졌으면 true: 그건 다른 길이 맡는다).
+    /// 실행 기록에는 남기지 않는다 (긴 일 동안 15초마다 줄이 쌓인다)
+    async fn answers_ping(&self, wait: Duration) -> bool {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
+        let answered = self.write_line(&JsonRpcRequest::new(id, "ping", None)).is_err() || timeout(wait, rx).await.is_ok();
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        answered
+    }
+
     pub async fn status(&self) -> SidecarStatus {
         let mut status_guard = self.status.write().await;
         if *status_guard == SidecarStatus::Ready {
@@ -379,6 +443,7 @@ impl SidecarManager {
 
     pub async fn stop(&self) {
         // stdin 을 닫으면 사이드카가 스스로 종료한다 (rl close → exit). 3초 안에 안 끝나면 kill.
+        // (쓰기 스레드가 멈춘 엔진에 쓰다 막혀 있으면 닫히지 않는다: kill 하면 그 쓰기도 실패로 풀린다)
         *self.stdin.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
@@ -502,6 +567,53 @@ mod tests {
     fn timeout_cancel_names_only_that_call() {
         let v = serde_json::to_value(cancel_request(8, 7)).unwrap();
         assert_eq!(v, serde_json::json!({ "jsonrpc": "2.0", "id": 8, "method": "cancel", "params": { "id": 7 } }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_kills_engine_even_while_a_write_is_stuck() {
+        // 엔진이 멈춰 stdin 을 안 읽는다: 파이프(수십 KB)보다 큰 요청은 쓰다 막힌다. 그래도 호출은 막히지 않고, 앱 끄기는 엔진을 죽이고 끝난다
+        let mgr = SidecarManager::new();
+        let mut child = std::process::Command::new("sleep").arg("30").stdin(std::process::Stdio::piped()).spawn().unwrap();
+        let pid = child.id().to_string();
+        let stdin = child.stdin.take().unwrap();
+        *mgr.child.lock().unwrap() = Some(child);
+        *mgr.stdin.lock().unwrap() = Some((1, spawn_writer(stdin).unwrap()));
+        let big = JsonRpcRequest::new(1, "write_file", Some(serde_json::json!({ "data": "x".repeat(4 << 20) })));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let m = Arc::clone(&mgr);
+        std::thread::spawn(move || {
+            let r = m.write_line(&big).and_then(|_| m.write_line(&cancel_request(2, 1)));
+            let _ = tx.send(r.is_ok());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(true), "엔진이 안 읽는 동안 호출이 쓰기에서 막혔다");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let m = Arc::clone(&mgr);
+        std::thread::spawn(move || {
+            tauri::async_runtime::block_on(m.stop());
+            let _ = tx.send(());
+        });
+        assert!(rx.recv_timeout(Duration::from_secs(8)).is_ok(), "엔진이 요청을 안 읽는 사이 앱 끄기가 멈췄다");
+        let alive = std::process::Command::new("kill").args(["-0", &pid]).status().map(|s| s.success()).unwrap_or(false);
+        assert!(!alive, "엔진이 살아 있다");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hung_engine_fails_the_ping_check_only() {
+        tauri::async_runtime::block_on(async {
+            // 주 스레드가 막힌 엔진 (stdin 을 안 읽고 답도 없다): ping 확인이 실패하고, 확인에 쓴 대기 표 줄은 남지 않는다
+            let mgr = SidecarManager::new();
+            let mut child = std::process::Command::new("sleep").arg("30").stdin(std::process::Stdio::piped()).spawn().unwrap();
+            let stdin = child.stdin.take().unwrap();
+            *mgr.child.lock().unwrap() = Some(child);
+            *mgr.stdin.lock().unwrap() = Some((1, spawn_writer(stdin).unwrap()));
+            assert!(!mgr.answers_ping(Duration::from_millis(300)).await);
+            assert!(!mgr.busy());
+            // 엔진이 이미 죽었으면(입력이 닫힘) 막힌 것으로 보지 않는다: 죽은 엔진은 기존 길(상태 오류 → 다시 켜기)이 맡는다
+            mgr.kill_child();
+            assert!(mgr.answers_ping(Duration::from_millis(300)).await);
+        });
     }
 
     #[test]

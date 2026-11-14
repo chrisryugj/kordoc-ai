@@ -333,6 +333,8 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
               {draftOrg && !draft.busy && markdown.trim() && <StatusLine tone="ok">우리 기관 {draftOrg.label} {draftOrg.count}건의 구성을 따라 썼습니다</StatusLine>}
               {draftNote && !draft.busy && markdown.trim() && <StatusLine tone="warn">{draftNote}</StatusLine>}
               <ErrorLine message={draft.error} />
+              {/* 멈췄거나 실패했으면 받은 데까지의 글이다 (멈추고 바로 고쳐 쓰는 것은 되므로 막지 않고 밝힌다) */}
+              {draft.error && markdown.trim() && <StatusLine tone="warn">아래 초안은 중간까지 받은 글입니다. 끝부분이 빠졌을 수 있으니 읽고 고친 뒤 한글 문서로 만드세요.</StatusLine>}
             </>
           )}
         </section>

@@ -19,12 +19,13 @@
 import { execFile } from 'node:child_process';
 import { writeFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { PrintPreset } from 'kordoc';
 import { docToPdf } from '../export/index.js';
 import { validatePath } from '../../infra/pathGuard.js';
 import { logger } from '../../infra/logger.js';
+import { sendProgress } from '../../infra/progress.js';
 import { errorText } from '../errors.js';
 import { winTool } from '../../infra/win-tools.js';
 
@@ -110,19 +111,25 @@ export async function printFiles(
 
   for (let i = 0; i < params.files.length; i++) {
     signal.throwIfAborted();
+    // 끝난 파일마다 결과를 알린다: 중간에 멈추면 응답이 없어, 이것이 없으면 이미 프린터로 간 문서가 화면에 "대기"로 남아 또 보내게 된다
+    const step = { current: i + 1, total: params.files.length, message: `${basename(params.files[i])} 프린터로 보내는 중 (${i + 1}/${params.files.length})` };
+    const done = (reason?: string) => sendProgress({ ...step, item: { path: params.files[i], ok: !reason, ...(reason ? { error: reason } : {}) } });
+    sendProgress(step);
     let safePath: string;
     try {
       safePath = validatePath(params.files[i]);
     } catch (e) {
       failed.push({ file: params.files[i], reason: e instanceof Error ? e.message : String(e) });
+      done(failed[failed.length - 1].reason);
       continue;
     }
 
+    let pdfPath: string | undefined;
     try {
       const pdfBuf = await docToPdf(safePath, signal);
       // 임시 이름은 ASCII 로만 — 원래 이름은 인쇄 대기열에 보일 필요가 없다
       const pdfName = `print-${Date.now()}-${i}.pdf`;
-      const pdfPath = join(PRINT_TEMP_DIR, pdfName);
+      pdfPath = join(PRINT_TEMP_DIR, pdfName);
       await writeFile(pdfPath, pdfBuf);
 
       if (process.platform === 'win32') {
@@ -133,10 +140,16 @@ export async function printFiles(
         jobIds.push(/request id is (\S+)/.exec(stdout)?.[1] ?? pdfPath);
       }
       void scheduleTempCleanup(pdfPath);
+      done();
     } catch (e) {
+      // 못 보낸 인쇄의 임시 PDF(문서 내용 그대로)를 다음 인쇄 때까지 임시 폴더에 남기지 않는다
+      if (pdfPath) await unlink(pdfPath).catch(() => undefined);
+      // 멈춘 것은 실패가 아니다
+      if (signal.aborted) throw e;
       logger.warn(`[print_files] 실패 ${safePath}: ${e instanceof Error ? e.message : String(e)}`);
       // 화면엔 명령줄 원문 대신 할 일을 (기본 PDF 프로그램이 인쇄를 못 받는 PC 가 많다)
       failed.push({ file: safePath, reason: /Command failed|powershell|Start-Process|lp:/i.test(String(e)) ? '프린터로 보내지 못했습니다. PDF로 저장한 뒤 PDF 프로그램에서 인쇄하세요.' : errorText(e) });
+      done(failed[failed.length - 1].reason);
     }
   }
 

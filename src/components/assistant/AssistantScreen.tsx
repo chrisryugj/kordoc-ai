@@ -151,10 +151,11 @@ function Rewrite() {
         <div className="kd-inset kd-rewrite-out" aria-live="polite">
           {result ? <p className="kd-text kd-pre">{result}</p> : <p className="kd-small kd-muted">다듬은 글이 여기에 나옵니다.</p>}
         </div>
+        {/* 멈췄거나 실패했으면 받은 데까지의 글이다: 복사는 "중간까지"로 밝히고, 새로 쓰기로는 보내지 않는다 */}
         {result && !task.busy && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(result).then(() => toast("복사했습니다", "success"))}><Copy size={14} /> 복사</Button>
-            <Button variant="secondary" onClick={() => startCreate({ route: "ai", markdown: result })}><FilePen size={14} /> 새로 쓰기로 보내기</Button>
+            <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(result).then(() => toast("복사했습니다", "success"))}><Copy size={14} /> {task.error ? "중간까지 복사" : "복사"}</Button>
+            {!task.error && <Button variant="secondary" onClick={() => startCreate({ route: "ai", markdown: result })}><FilePen size={14} /> 새로 쓰기로 보내기</Button>}
             {!!task.result?.redacted && <span className="kd-small kd-muted self-center">개인정보 {task.result.redacted}건을 가리고 보냈습니다</span>}
           </div>
         )}

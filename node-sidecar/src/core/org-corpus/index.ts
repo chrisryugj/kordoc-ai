@@ -6,7 +6,7 @@
  * AI 로 가는 글(뼈대·표현)에는 사람·연락처 줄을 넣지 않는다.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -16,6 +16,7 @@ import { logger } from '../../infra/logger.js';
 import { sendProgress } from '../../infra/progress.js';
 import { errorText } from '../errors.js';
 import { scanPaths } from '../files/index.js';
+import { atomicWriteFile } from '../files/io.js';
 import { levelsFrom, PRESETS } from '../gongmun/index.js';
 import { tooBigForRhwp } from '../render/rhwp.js';
 import { extractStyle } from '../style/extract.js';
@@ -101,9 +102,7 @@ async function load(): Promise<OrgCorpus> {
 
 async function save(c: OrgCorpus): Promise<void> {
   mkdirSync(root(), { recursive: true });
-  const tmp = `${indexPath()}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-  await writeFile(tmp, JSON.stringify(c, null, 1));
-  await rename(tmp, indexPath());
+  await atomicWriteFile(indexPath(), JSON.stringify(c, null, 1));
   brokenNotice = '';
 }
 

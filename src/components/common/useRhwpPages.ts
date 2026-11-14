@@ -9,8 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PagePreview } from "../../lib/contract";
 import { RhwpPreview, type RhwpMeta } from "../../lib/rhwp-preview";
-
-const BUDGET = 64 * 1024 * 1024;
+import { PAGE_BUDGET as BUDGET } from "./page-budget";
 
 interface Held { url: string; size: number; gen: number; width: number; height: number }
 

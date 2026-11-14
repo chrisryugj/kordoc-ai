@@ -45,6 +45,8 @@ export interface ShrinkParams {
 export type ShrinkResult = PdfShrinkResult;
 
 const MB = 1024 * 1024;
+/** 다시 압축할 그림을 풀어 둘 크기 상한(256MB: 9000×9000 RGB). 더 크면 그대로 둔다 */
+const MAX_RAW_BYTES = 256 * MB;
 const name = (o: PDFObject | undefined): string | undefined => (o instanceof PDFName ? o.decodeText() : undefined);
 const num = (o: PDFObject | undefined): number | undefined => (o instanceof PDFNumber ? o.asNumber() : undefined);
 
@@ -117,7 +119,6 @@ async function shrinkImage(doc: PDFDocument, ref: PDFRef, s: PDFRawStream, lvl: 
     // 적힌 색 공간과 JPEG 의 실제 채널이 다르면(CMYK JPEG 에 DeviceRGB 등) 손대지 않는다
     if ((await input.metadata()).channels !== ch) return null;
   } else if (filter === 'FlateDecode') {
-    let px: Buffer | null = inflateSync(Buffer.from(s.contents));
     let parms = d.lookup(PDFName.of('DecodeParms'));
     // 필터가 배열일 때만 해독 인자도 배열로 짝을 이룬다(이름 하나에 배열은 규격 밖이라 뷰어마다 다르게 그린다)
     if (parms instanceof PDFArray) parms = filterArray && parms.size() === 1 ? d.context.lookup(parms.get(0)) : undefined;
@@ -127,8 +128,13 @@ async function shrinkImage(doc: PDFDocument, ref: PDFRef, s: PDFRawStream, lvl: 
       const cols = parms instanceof PDFDict ? num(parms.get(PDFName.of('Columns'))) ?? w : w;
       const colors = parms instanceof PDFDict ? num(parms.get(PDFName.of('Colors'))) ?? ch : ch;
       if (cols !== w || colors !== ch) return null;
-      px = unpredictPng(px, w, ch);
     } else if (pred !== 1) return null; // TIFF 예측자 등
+    // 풀 크기를 먼저 정한다(줄마다 예측자 1바이트): 다 풀고 크기를 보면 압축 2.6MB 그림 한 장에 RSS 5.3GB 였다.
+    // 적힌 크기보다 많이 풀리는 것(그림이 아닌 것)·너무 큰 것은 손대지 않는다
+    const want = pred >= 10 ? h * (w * ch + 1) : w * h * ch;
+    if (want > MAX_RAW_BYTES) return null;
+    let px: Buffer | null = inflateSync(Buffer.from(s.contents), { maxOutputLength: want });
+    if (pred >= 10) px = unpredictPng(px, w, ch);
     if (!px || px.length !== w * h * ch) return null;
     input = sharp(px, { raw: { width: w, height: h, channels: ch } });
   } else return null;

@@ -252,11 +252,12 @@ function RewriteTab() {
       <ErrorLine message={rewrite.error} />
       {out && (
         <div className="kd-inset flex flex-col gap-2 p-3">
-          <span className="kd-label">미리보기</span>
+          <span className="kd-label">{rewrite.error ? "중간까지 받은 글" : "미리보기"}</span>
           <p className="kd-text kd-pre" aria-live="polite">{out}</p>
           {!rewrite.busy && (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={put} disabled={replace.busy || editorState !== "ready"} data-tip="편집기의 그 글을 이 글로 바꿉니다. 되돌리기로 돌아갈 수 있습니다"><Replace size={13} /> 바꿔 넣기</Button>
+              {/* 멈췄거나 실패했으면 받은 데까지의 글이라 편집기 글을 바꾸지 않는다 */}
+              {!rewrite.error && <Button size="sm" onClick={put} disabled={replace.busy || editorState !== "ready"} data-tip="편집기의 그 글을 이 글로 바꿉니다. 되돌리기로 돌아갈 수 있습니다"><Replace size={13} /> 바꿔 넣기</Button>}
               {replaced !== null && <Button size="sm" variant="secondary" onClick={undo} disabled={replace.busy}><Undo2 size={13} /> 되돌리기</Button>}
             </div>
           )}

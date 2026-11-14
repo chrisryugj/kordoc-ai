@@ -7,7 +7,8 @@
 import { useEffect, useState } from "react";
 import { Cloud, Cpu, Server } from "lucide-react";
 import { useApp } from "../../state/app";
-import { errorText, rpc, type Progress } from "../../lib/rpc";
+import { errorText, isAbort, rpc } from "../../lib/rpc";
+import { downloadModel, stopModelDownload, useModelDownload } from "../../lib/model-download";
 import type { LlmCatalogItem, LocalModelServer } from "../../lib/contract";
 import { firstChatModel } from "../settings/LocalServerPanel";
 import { Button } from "../ui/Button";
@@ -21,7 +22,9 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
   const [server, setServer] = useState<LocalModelServer | null>(null);
   const [model, setModel] = useState<LlmCatalogItem | null>(null);
   const [have, setHave] = useState<string>("");
-  const [down, setDown] = useState<Progress | null>(null);
+  // 받는 중인 것은 화면 밖에 둔다: 설정을 다녀와도 진행이 보이고, 또 눌러도 같은 받기를 기다린다
+  const dl = useModelDownload();
+  const down = dl && dl.id === model?.id ? dl : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const offline = !!settings?.privacy.offline;
@@ -50,14 +53,13 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
     setError("");
     try {
       let path = have;
-      if (!path) path = (await rpc("llm_download", { id: model.id }, { onProgress: setDown })).path;
+      if (!path) path = (await downloadModel(model.id)).path;
       await saveSettings({ ai: { provider: "embedded", embedded: { ...settings.ai.embedded, model_path: path } } });
-    } catch (e) { setError(errorText(e)); }
-    setDown(null);
+    } catch (e) { if (!isAbort(e)) setError(errorText(e)); }
     setBusy(false);
   };
 
-  const pct = down && down.total ? Math.round((down.current / down.total) * 100) : 0;
+  const pct = down?.p && down.p.total ? Math.round((down.p.current / down.p.total) * 100) : 0;
   // 세부는 작은 글 한 줄: 찾은 프로그램의 모델, 없으면 내장 AI 크기
   const detail = server ? `이 PC에서 · ${firstChatModel(server.models)}`
     : model ? `이 PC에서 · ${model.name}${have ? "" : ` (${model.size_gb}GB, 메모리 ${model.ram_gb}GB 이상)`}` : "";
@@ -85,7 +87,7 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
           {down ? (
             <>
               <span className="kd-aion-bar" aria-label={`받는 중 ${pct}%`}><i style={{ width: `${pct}%` }} /></span>
-              <span className="kd-aiq-detail">받는 중 {pct}%</span>
+              <span className="kd-aiq-detail">받는 중 {pct}% <button type="button" className="kd-link" onClick={stopModelDownload} data-tip="받은 데까지 남겨 두고 멈춥니다. 다시 받으면 이어서 받습니다">멈추기</button></span>
             </>
           ) : detail && <span className="kd-aiq-detail">{detail}</span>}
         </div>

@@ -1,8 +1,8 @@
 /** 쪽 미리보기·PDF — render_pages·render_preview(rhwp 0.8.6)·export_pdf·bundle_pdf·pdf_stamp·PDF 나누기·합치기 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { fillHwpx, readBuiltinTemplate, resolveBuiltinTemplate } from 'kordoc';
 import { call, corpus, hasCorpus, makePng, sample, setupEnv } from './doc-helpers.js';
@@ -225,5 +225,22 @@ describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
     const r = await call('merge_files', { files: [LETTER_HWPX, FORM] });
     expect(r.output_path).toMatch(/_외1건_합본\.md$/);
     expect(readFileSync(r.output_path, 'utf-8')).toContain('총무과');
+  });
+
+  it('같은 첫 파일의 합치기 둘이 겹쳐도 이름이 갈려 앞 합본을 덮지 않고, 못 합치면 잡아 둔 이름도 남기지 않는다', async () => {
+    const dir = join(env.base, '겹친 합치기');
+    mkdirSync(dir, { recursive: true });
+    const out = join(dir, '합본.md');
+    const [a, b] = await Promise.all([
+      call('merge_files', { files: [LETTER_HWPX, FORM], output_path: out }),
+      call('merge_files', { files: [LETTER_HWPX], output_path: out }),
+    ]);
+    expect(a.output_path).not.toBe(b.output_path);
+    expect(readFileSync(a.output_path, 'utf-8')).toContain('총무과');
+    expect(readFileSync(b.output_path, 'utf-8')).not.toContain('총무과');
+    const bad = join(env.work, '못 읽음.hwpx');
+    writeFileSync(bad, 'not a document');
+    await expect(call('merge_files', { files: [bad], output_path: join(dir, '실패.md') })).rejects.toThrow(/합칠 수 있는 문서가 없습니다/);
+    expect(readdirSync(dir).sort()).toEqual([basename(a.output_path), basename(b.output_path)].sort());
   });
 });

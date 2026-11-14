@@ -95,6 +95,15 @@ export function checkArgs(tool: AgentToolDef, args: unknown): string | undefined
   return undefined;
 }
 
+/** 사용자가 개인정보를 가리라고 시킨 차례 — 모델이 ● 로 쓴 자리는 일부러 가린 것일 수 있어 도구 인자를 되돌리지 않는다.
+ *  보낼 때 가린 모양과 모델이 가린 모양이 같아서, 되돌리면 "가렸습니다" 라는 답과 달리 문서에 원래 번호가 남았다 */
+const MASK_REQUEST = /(?:가려|가리|가림|감춰|감추|숨겨|숨기|마스킹|비식별|익명)/;
+const PERSONAL = /(?:개인정보|주민|전화|휴대|연락처|번호|주소|이메일|메일|이름|성명|계좌|생년월일)/;
+const asksToMask = (events: AgentEvent[]) => {
+  const last = [...events].reverse().find((e): e is Extract<AgentEvent, { role: 'user' }> => e.role === 'user');
+  return !!last && MASK_REQUEST.test(last.text) && PERSONAL.test(last.text);
+};
+
 /** 답 형식(JSON)을 쓰려던 글인가 — 그냥 한 말과 가른다 */
 const looksLikeJson = (text: string) => /^\s*(```(?:json)?\s*)?\{/.test(text) && /"(say|calls)"/.test(text);
 
@@ -109,7 +118,7 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
     reply = parseJsonLoose(r.text);
   } catch {
     // JSON 을 쓰려다 깨진 답(잘림·따옴표 빠짐)은 한 번만 다시 받는다: 그대로 "한 말"로 내면 깨진 JSON 이 화면에 뜨고 편집은 안 된 채 끝난다
-    if (!looksLikeJson(r.text)) return { text: r.text.trim(), calls: [], redacted: r.redacted };
+    if (!looksLikeJson(r.text)) return { text: r.restore(r.text.trim()), calls: [], redacted: r.redacted };
     const first = r.redacted;
     r = await ask({
       system,
@@ -122,11 +131,12 @@ export async function agentStep(p: { system: string; tools: AgentToolDef[]; even
     } catch {
       if (looksLikeJson(r.text)) throw new Error('AI 답의 형식이 깨져 읽지 못했습니다. 다시 시도하거나 설정 › AI 연결에서 다른 모델을 고르세요.');
       // JSON 이 아니면 한 말로 본다 (도구 없이 끝)
-      return { text: r.text.trim(), calls: [], redacted: r.redacted };
+      return { text: r.restore(r.text.trim()), calls: [], redacted: r.redacted };
     }
   }
   // 외부 AI 로 보내며 가린 값이 도구 인자에 실려 오면 되돌린다 — 편집기 AI 의 고쳐 쓰기·칸 채우기가 문서의 연락처를 ● 로 바꿨다
-  const unmask = (v: unknown): unknown => typeof v === 'string' ? r.restore(v)
+  const keepMasks = asksToMask(p.events);
+  const unmask = (v: unknown): unknown => typeof v === 'string' ? (keepMasks ? v : r.restore(v))
     : Array.isArray(v) ? v.map(unmask) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unmask(x)])) : v;
   const byName = new Map(p.tools.map((t) => [t.name, t]));
   const calls: AgentCall[] = (Array.isArray(reply.calls) ? reply.calls : []).map((c, i) => {

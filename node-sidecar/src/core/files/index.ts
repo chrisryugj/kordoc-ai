@@ -2,10 +2,9 @@
 
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { parse } from 'kordoc';
 import type { DocInfo, FileEntry } from '../../types/rpc-contract.js';
 import { DAMAGED, parseFailure } from '../errors.js';
-import { parseWarnings } from '../converter/index.js';
+import { parseBytes, parseWarnings } from '../converter/index.js';
 import { openPdf } from '../render/pdfium.js';
 import { estimatePages } from '../render/rhwp.js';
 import { formatOf, isJunkName, LAYOUT_FORMATS, PARSEABLE } from './format.js';
@@ -99,7 +98,8 @@ export async function docInfo(path: string, password?: string): Promise<DocInfo>
       if (/암호/.test(msg)) return locked(msg);
     }
   }
-  const r = await parse(buf, { filePath: path, password, pages, images: false, ocr: false });
+  // 큰 문서(압축을 푼 XML 30MB~ 등)는 작업자 스레드에서 (parseBytes): 엔진 스레드에서 바로 읽으면 200KB HWPX 하나에 RSS 1.26GB
+  const r = await parseBytes(buf, { filePath: path, password, pages, images: false, ocr: false });
   if (!r.success) {
     if (r.code === 'ENCRYPTED') {
       return locked(password ? '암호가 맞지 않습니다. 다시 확인하세요.' : '암호가 걸린 문서입니다. 암호를 넣으면 열 수 있습니다.');

@@ -1,7 +1,8 @@
 /** print 모듈 + read_batch_manifest RPC — Phase 2 W2 */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, utimes } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -112,6 +113,19 @@ describe('printFiles', () => {
     expect(result.failed[0].reason).toContain('깨진');
   });
 
+  it('프린터로 못 보내면 문서가 든 임시 PDF 를 바로 지운다 (다음 인쇄까지 남기지 않는다)', async () => {
+    const file = join(tmp, '개인정보.hwpx');
+    await writeFile(file, 'x');
+    mockDocToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
+    mockExecFile.mockImplementationOnce(() => { throw new Error('Command failed: powershell Start-Process'); });
+    const result = await printFiles({ files: [file] }, new AbortController().signal);
+    expect(result.queued).toBe(0);
+    expect(result.failed[0].reason).toMatch(/PDF로 저장한 뒤/);
+    const pdf = (mockExecFile.mock.calls[0][2] as { env: NodeJS.ProcessEnv }).env.KORDOC_PRINT_FILE!;
+    expect(pdf).toMatch(/kordoc-print/);
+    expect(existsSync(pdf)).toBe(false);
+  });
+
   it('파일이 없으면 안내 오류', async () => {
     await expect(
       printFiles({ files: [] }, new AbortController().signal),
@@ -167,6 +181,30 @@ describe('read_batch_manifest (RPC)', () => {
       }));
     } finally {
       await rm(manifestPath, { force: true });
+    }
+  });
+
+  it('지난 목록은 TEMP 만이 아니라 앱(Rust)이 쓰는 TMP 에서도 치운다', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'kordoc-tmp-env-'));
+    const stale = join(other, 'kordoc-batch-1.json');
+    await writeFile(stale, '{"action":"x","files":[]}');
+    const old = new Date(Date.now() - 60 * 60_000);
+    await utimes(stale, old, old);
+    const manifestPath = join(tmpdir(), `kordoc-batch-${Date.now()}.json`);
+    await writeFile(manifestPath, JSON.stringify({ action: 'convert_md', files: [] }));
+    const prev = process.env.TMP;
+    process.env.TMP = other;
+    try {
+      const { RpcRouter } = await import('../src/rpc/router.js');
+      const { registerAllMethods } = await import('../src/rpc/methods/index.js');
+      const router = new RpcRouter();
+      registerAllMethods(router);
+      expect((await router.dispatch('read_batch_manifest', { path: manifestPath })).error).toBeUndefined();
+      expect(existsSync(stale)).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.TMP; else process.env.TMP = prev;
+      await rm(manifestPath, { force: true });
+      await rm(other, { recursive: true, force: true });
     }
   });
 

@@ -5,10 +5,10 @@
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dataDir } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
+import { atomicWriteFile } from '../files/io.js';
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 /** 조문 목록은 큰 법령이 수십 KB 라 파일이 끝없이 커지지 않게 */
@@ -61,9 +61,7 @@ export async function cacheSave(): Promise<void> {
   dirty = false;
   try {
     mkdirSync(dataDir(), { recursive: true });
-    const tmp = `${file()}.tmp`;
-    await writeFile(tmp, JSON.stringify({ version: 1, entries: Object.fromEntries(mem) }), 'utf-8');
-    await rename(tmp, file());
+    await atomicWriteFile(file(), JSON.stringify({ version: 1, entries: Object.fromEntries(mem) }));
   } catch (err) {
     logger.warn(`[law] 캐시를 저장하지 못했습니다: ${err}`);
   }

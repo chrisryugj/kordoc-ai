@@ -27,6 +27,7 @@ import { editOpen, editPatch, editUndo, editRedo, editSave, editClose } from '..
 import { outputFile, splitDirOf, stemOf } from '../../core/output/index.js';
 import { bool, num, oneOf, optPath, registrar, reqPath, reqPaths, str, strList } from './params.js';
 import { registerDocumentWork } from './documents-work.js';
+import { rm } from 'node:fs/promises';
 import { extname } from 'node:path';
 
 const REDACT_RULES: readonly RedactRule[] = ['rrn', 'phone', 'email', 'card', 'account', 'passport', 'driver', 'brn', 'crn', 'ip', 'name', 'address'];
@@ -118,8 +119,12 @@ export function registerDocuments(router: RpcRouter): void {
     const files = reqPaths(p.files);
     const mode = oneOf(p.mode, ['native', 'markdown'] as const) ?? 'markdown';
     const ext = mode === 'native' ? extname(files[0]).toLowerCase() : '.md';
-    const output_path = outputFile({ output_path: optPath(p.output_path), source: files[0], name: `${stemOf(files[0])}${files.length > 1 ? `_외${files.length - 1}건` : ''}_합본${ext}` });
-    return mergeFiles({ files, output_path, mode }, signal);
+    // 합치기 전에 정한 이름은 빈 파일로 잡아 둔다: 같은 첫 파일의 합치기 둘이 겹치면(문서 작업은 동시에 둘까지) 뒤가 앞 합본을 덮었다
+    const output_path = outputFile({ output_path: optPath(p.output_path), source: files[0], name: `${stemOf(files[0])}${files.length > 1 ? `_외${files.length - 1}건` : ''}_합본${ext}`, claim: true });
+    return mergeFiles({ files, output_path, mode }, signal).catch(async (err) => {
+      await rm(output_path, { force: true }).catch(() => undefined);
+      throw err;
+    });
   }, { heavy: true });
   reg('split_pdf', (p, signal) => {
     const file = reqPath(p.input_path);

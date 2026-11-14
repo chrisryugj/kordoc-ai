@@ -80,4 +80,6 @@ export interface ProgressData {
   current: number;
   total: number;
   message: string;
+  /** 일괄 작업에서 방금 끝난 한 파일의 결과. 사용자가 중간에 멈춰도 화면이 끝난 파일(만든 파일 경로)을 안다 */
+  item?: { path: string; ok: boolean; output_path?: string; error?: string; note?: string };
 }

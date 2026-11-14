@@ -95,9 +95,9 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
   const unsaved = changed && savedRows !== rows;
   useEffect(() => { onEdited?.(unsaved); }, [unsaved, onEdited]);
   useEffect(() => () => onEdited?.(false), [onEdited]);
-  // 트레이 "완전 종료" 전: 고친 표가 저장 전이면 묻는다
+  // 트레이 "완전 종료" 전: 고친 표가 저장 전이면 묻는다. 카드 창(autoCopy)은 창 X 가 묻고, 닫히는 것은 그 창이다
   const { ask, dialog } = useAsk();
-  useEffect(() => onQuitGuard(async () => !unsaved || askQuit(ask, "저장하지 않은 지출조서 표", "고친 지출조서 표를 아직 저장하지 않았습니다. 앱을 끄면 고친 값은 사라집니다.")), [unsaved, ask]);
+  useEffect(() => onQuitGuard(async () => !unsaved || askQuit(ask, "저장하지 않은 지출조서 표", `고친 지출조서 표를 아직 저장하지 않았습니다. ${autoCopy ? "창을 닫으면" : "앱을 끄면"} 고친 값은 사라집니다.`, autoCopy ? "버리고 닫기" : undefined)), [unsaved, ask, autoCopy]);
 
   // 고칠 때마다 (잠깐 멈추면) 미리보기·복사 글을 다시
   useEffect(() => {

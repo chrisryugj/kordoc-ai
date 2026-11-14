@@ -30,7 +30,7 @@ function when(iso?: string) {
 }
 
 export function InfoTool({ doc, info }: ToolProps) {
-  const stats = useTask<ReturnType<typeof charStats>>();
+  const stats = useTask<ReturnType<typeof charStats>>({ stopOnUnmount: true });
   // 스캔한 쪽이 있으면 세면서 글자 읽기(OCR)까지 돌아 오래 걸리니 단추로
   const auto = !info.needs_ocr && (info.page_count ? info.page_count <= AUTO_PAGES : info.size <= AUTO_BYTES);
 

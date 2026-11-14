@@ -7,7 +7,9 @@ import JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
-import type { MergeFilesParams, MergeFilesResult } from './types.js';
+import type { MergeFailure, MergeFilesParams, MergeFilesResult } from './types.js';
+import { entryBytes, entryText } from '../files/zip-read.js';
+import { replaceSpans, xmlSpans } from '../files/xml-scan.js';
 
 // xmldom 반환 타입은 DOM spec이지만 tsconfig에 lib dom이 없으므로 any 사용
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,7 +88,7 @@ async function bring(from: string, c: Carry): Promise<string | null> {
   let to = from;
   for (let n = 2; c.base.file(to); n++) to = `${dir}/${name.slice(0, name.length - ext.length)}_${n}${ext}`;
   c.moved.set(from, to);
-  c.base.file(to, await file.async('uint8array'));
+  c.base.file(to, (await entryBytes(c.zip, file))!);
   // 종류 표: 원본이 부품별로 적었으면 그대로, 아니면 확장자 기본값을 (첫 문서에 없던 그림 형식이면 워드가 문서를 못 연다)
   const own = c.types.overrides.get(`/${from}`);
   const key = ext.slice(1).toLowerCase();
@@ -99,7 +101,7 @@ async function bring(from: string, c: Carry): Promise<string | null> {
   const relsFile = c.zip.file(`${dir}/_rels/${name}.rels`);
   if (relsFile) {
     const out: Rel[] = [];
-    for (const rel of parseRels(await relsFile.async('text'))) {
+    for (const rel of parseRels((await entryText(c.zip, relsFile))!)) {
       if (rel.mode === 'External') { out.push(rel); continue; }
       const next = await bring(rel.target.startsWith('/') ? rel.target.slice(1) : posix.normalize(posix.join(dir, rel.target)), c);
       if (next) out.push({ ...rel, target: posix.relative(posix.dirname(to), next) });
@@ -137,14 +139,13 @@ function rewire(root: any, ids: Map<string, string | null>): boolean {
 
 // ─── styles.xml 병합 ─────────��────────────────────────
 
-/** styles.xml에서 모든 w:style 추출 → styleId → XML 조각 */
+/** styles.xml에서 모든 w:style 추출 → styleId → XML 조각.
+ *  정규식(`<w:style…>[\s\S]*?</w:style>`)은 닫히지 않는 서식 머리마다 글 끝까지 훑어(제곱 시간) 받은 문서 하나로 엔진이 멈춘다 → xmlSpans */
 function parseDocxStyles(xml: string): Map<string, string> {
   const map = new Map<string, string>();
   // self-closing 또는 children
-  const re = /<w:style\b[^>]*w:styleId="([^"]*)"[^>]*(?:\/>|>[\s\S]*?<\/w:style>)/g;
-  let m;
-  while ((m = re.exec(xml))) {
-    map.set(m[1], m[0]);
+  for (const m of xmlSpans(xml, '<w:style', '</w:style>', (h) => /w:styleId="[^"]*"/.test(h))) {
+    map.set(/w:styleId="([^"]*)"/.exec(m.head)![1], xml.slice(m.start, m.end));
   }
   return map;
 }
@@ -250,12 +251,58 @@ const PPR_ORDER = ['pStyle', 'keepNext', 'keepLines', 'pageBreakBefore', 'frameP
   'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap', 'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl',
   'divId', 'cnfStyle', 'rPr', 'sectPr', 'pPrChange'];
 
+/** open 정규식이 처음 맞는 자리부터 처음 나오는 close 까지의 안쪽 — `open([\s\S]*?)close` 의 첫 조각과 같다.
+ *  그 정규식은 닫는 것이 없는 여는 자리마다 끝까지 다시 훑는다: 첫 여는 자리 뒤에 닫는 것이 없으면 그 뒤 자리에도 없으니 한 번씩만 찾는다 */
+function firstInner(xml: string, open: RegExp, close: RegExp): string | undefined {
+  const o = new RegExp(open.source, 'g');
+  const m = o.exec(xml);
+  if (!m) return undefined;
+  const c = new RegExp(close.source, 'g');
+  c.lastIndex = m.index + m[0].length;
+  const e = c.exec(xml);
+  return e ? xml.slice(m.index + m[0].length, e.index) : undefined;
+}
+
+/** s 에서 처음 나오는 open 부터 그 뒤 처음 나오는 close 까지: [조각, 안쪽] (`open([\s\S]*?)close` 의 첫 조각과 같다) */
+function firstPart(s: string, open: string, close: string): [string, string] | null {
+  const a = s.indexOf(open);
+  const z = a < 0 ? -1 : s.indexOf(close, a + open.length);
+  return z < 0 ? null : [s.slice(a, z + close.length), s.slice(a + open.length, z)];
+}
+
 const docDefaults = (stylesXml: string) => ({
-  rPr: stylesXml.match(/<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>/)?.[1] ?? '',
-  pPr: stylesXml.match(/<w:pPrDefault>\s*<w:pPr>([\s\S]*?)<\/w:pPr>\s*<\/w:pPrDefault>/)?.[1] ?? '',
+  rPr: firstInner(stylesXml, /<w:rPrDefault>\s*<w:rPr>/, /<\/w:rPr>\s*<\/w:rPrDefault>/) ?? '',
+  pPr: firstInner(stylesXml, /<w:pPrDefault>\s*<w:pPr>/, /<\/w:pPr>\s*<\/w:pPrDefault>/) ?? '',
 });
-/** 속성 묶음의 맨 위 요소들 (같은 이름이 안에 겹쳐 들지 않는 묶음에만 쓴다) */
-const topLevel = (inner: string) => [...inner.matchAll(/<w:(\w+)\b[^>]*?(?:\/>|>[\s\S]*?<\/w:\1>)/g)].map((m) => ({ tag: m[1], xml: m[0] }));
+/** 속성 묶음의 맨 위 요소들 (같은 이름이 안에 겹쳐 들지 않는 묶음에만 쓴다).
+ *  `/<w:(\w+)\b[^>]*?(?:\/>|>[\s\S]*?<\/w:\1>)/g` 와 같은 조각을 글 길이에 비례한 시간에 (그 정규식은 닫히지 않는 여는 태그마다 끝까지 훑었다) */
+function topLevel(inner: string): Array<{ tag: string; xml: string }> {
+  // 이름마다 닫는 태그 자리(오름차순)를 한 번에 모아 두고 앞으로만 간다
+  const closes = new Map<string, { at: number[]; i: number }>();
+  for (const m of inner.matchAll(/<\/w:(\w+)>/g)) {
+    const c = closes.get(m[1]) ?? { at: [], i: 0 };
+    closes.set(m[1], c);
+    c.at.push(m.index);
+  }
+  const out: Array<{ tag: string; xml: string }> = [];
+  const open = /<w:(\w+)\b/g;
+  let gt = -1;
+  for (let m = open.exec(inner); m; m = open.exec(inner)) {
+    const q = m.index + m[0].length;
+    if (gt < q) gt = inner.indexOf('>', q);
+    if (gt < 0) break;
+    let end = gt + 1;
+    if (inner[gt - 1] !== '/') {
+      const c = closes.get(m[1]);
+      while (c && c.i < c.at.length && c.at[c.i] <= gt) c.i++;
+      if (!c || c.i >= c.at.length) { open.lastIndex = m.index + 1; continue; }
+      end = c.at[c.i] + m[1].length + 5;
+    }
+    out.push({ tag: m[1], xml: inner.slice(m.index, end) });
+    open.lastIndex = end;
+  }
+  return out;
+}
 
 /** 뒤 문서의 문서 기본값이 합본과 다르면, 기대는 서식이 없는 문단 서식(뿌리 서식)에 그 기본값을 적어 넣은 styles.xml 을 돌려준다.
  *  서식에 이미 적힌 속성은 그대로 둔다(서식이 기본값을 이긴다). 같으면 그대로 */
@@ -270,22 +317,28 @@ export function withDocDefaults(donorStylesXml: string, baseStylesXml: string): 
     sz: '<w:sz w:val="20"/>', szCs: '<w:szCs w:val="20"/>',
     spacing: '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>',
   };
-  const withSpec = (mine: string, theirs: string) => mine + topLevel(theirs).filter((b) => SPEC[b.tag] && !topLevel(mine).some((o) => o.tag === b.tag)).map((b) => SPEC[b.tag]).join('');
+  // 이름 모음으로 견준다 (요소마다 다른 쪽을 다시 훑으면 요소가 수만 개인 받은 문서에서 제곱 시간)
+  const withSpec = (mine: string, theirs: string) => {
+    const have = new Set(topLevel(mine).map((o) => o.tag));
+    return mine + topLevel(theirs).filter((b) => SPEC[b.tag] && !have.has(b.tag)).map((b) => SPEC[b.tag]).join('');
+  };
   own.rPr = withSpec(own.rPr, base.rPr);
   own.pPr = withSpec(own.pPr, base.pPr);
   const fill = (have: string, defaults: string, order?: string[]) => {
     const kids = topLevel(have);
-    const merged = [...topLevel(defaults).filter((d) => !kids.some((k) => k.tag === d.tag)), ...kids];
+    const tags = new Set(kids.map((k) => k.tag));
+    const merged = [...topLevel(defaults).filter((d) => !tags.has(d.tag)), ...kids];
     if (order) merged.sort((a, b) => (order.indexOf(a.tag) + 1 || 99) - (order.indexOf(b.tag) + 1 || 99));
     return merged.map((k) => k.xml).join('');
   };
-  return donorStylesXml.replace(/<w:style\b[^>]*w:type="paragraph"[^>]*(?<!\/)>[\s\S]*?<\/w:style>/g, (whole) => {
+  const paragraphStyles = xmlSpans(donorStylesXml, '<w:style', '</w:style>', (h) => /w:type="paragraph"/.test(h) && !h.endsWith('/>'));
+  return replaceSpans(donorStylesXml, paragraphStyles, (whole) => {
     if (/<w:basedOn\b/.test(whole)) return whole;
     const style = whole.replace(/<w:(?:pPr|rPr)\/>/g, '');
     // 문단 속성과 그 밖을 가른다 (서식의 글자 속성은 문단 속성 밖에 있다)
-    const pPr = style.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+    const pPr = firstPart(style, '<w:pPr>', '</w:pPr>');
     const rest = pPr ? style.replace(pPr[0], '\u0000') : style;
-    const rPr = rest.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+    const rPr = firstPart(rest, '<w:rPr>', '</w:rPr>');
     const nextP = own.pPr ? `<w:pPr>${fill(pPr?.[1] ?? '', own.pPr, PPR_ORDER)}</w:pPr>` : pPr?.[0] ?? '';
     const nextR = own.rPr ? `<w:rPr>${fill(rPr?.[1] ?? '', own.rPr)}</w:rPr>` : rPr?.[0] ?? '';
     // 서식 안 차례: … pPr, rPr, (tblPr …) → 있던 자리에 넣고, 없었으면 닫는 표시 앞(표 속성이 있으면 그 앞)에
@@ -347,12 +400,12 @@ function mergeNumbering(
 
   // donor의 abstractNum 추출 + 리매핑
   const abstractNums: string[] = [];
-  const anExtractRe = /<w:abstractNum\s+w:abstractNumId="(\d+)"[\s\S]*?<\/w:abstractNum>/g;
-  while ((m = anExtractRe.exec(donorXml))) {
-    const oldId = parseInt(m[1], 10);
+  // 정규식(`<w:abstractNum…>[\s\S]*?</w:abstractNum>`)은 닫히지 않는 여는 태그마다 끝까지 훑는다(제곱 시간) → xmlSpans
+  for (const an of xmlSpans(donorXml, '<w:abstractNum', '</w:abstractNum>', (h) => /^<w:abstractNum\s+w:abstractNumId="\d+"/.test(h))) {
+    const oldId = parseInt(/w:abstractNumId="(\d+)"/.exec(an.head)![1], 10);
     const newId = oldId + abstractNumOffset;
     abstractNumRemap.set(oldId, newId);
-    let fragment = m[0].replace(
+    let fragment = donorXml.slice(an.start, an.end).replace(
       `w:abstractNumId="${oldId}"`,
       `w:abstractNumId="${newId}"`,
     );
@@ -369,12 +422,11 @@ function mergeNumbering(
 
   // donor의 num 추출 + 리매핑
   const nums: string[] = [];
-  const numExtractRe = /<w:num\s+w:numId="(\d+)"[\s\S]*?<\/w:num>/g;
-  while ((m = numExtractRe.exec(donorXml))) {
-    const oldId = parseInt(m[1], 10);
+  for (const num of xmlSpans(donorXml, '<w:num', '</w:num>', (h) => /^<w:num\s+w:numId="\d+"/.test(h))) {
+    const oldId = parseInt(/w:numId="(\d+)"/.exec(num.head)![1], 10);
     const newId = oldId + numIdOffset;
     numIdRemap.set(oldId, newId);
-    let fragment = m[0]
+    let fragment = donorXml.slice(num.start, num.end)
       .replace(`w:numId="${oldId}"`, `w:numId="${newId}"`)
       // 목록의 고유 번호도 문서마다 같을 수 있다 (겹치면 안 된다. 없으면 워드가 새로 매긴다)
       .replace(/^(<w:num\b[^>]*?)\s+w16cid:durableId="[^"]*"/, '$1');
@@ -425,6 +477,7 @@ export async function concatDocx(
 ): Promise<MergeFilesResult> {
   const { files, output_path } = params;
   const failedFiles: string[] = [];
+  const failures: MergeFailure[] = [];
   let baseZip: JSZip | null = null;
   let baseDoc: any = null;
   let baseBody: any = null;
@@ -458,7 +511,7 @@ export async function concatDocx(
 
       const docFile = zip.file('word/document.xml');
       if (!docFile) throw new Error('word/document.xml 없음');
-      const docXml = await docFile.async('text');
+      const docXml = (await entryText(zip, docFile))!;
 
       if (!baseZip) {
         // 본문이 있는지 본 뒤에 첫 문서로 삼는다 (본문 없는 파일을 첫 문서로 잡으면 뒤 문서가 모두 실패한다)
@@ -477,15 +530,15 @@ export async function concatDocx(
         }
         // 뒤 문서의 관계 id 는 첫 문서가 쓰는 번호 뒤부터 매긴다
         const baseRels = zip.file('word/_rels/document.xml.rels');
-        if (baseRels) for (const rel of parseRels(await baseRels.async('text'))) nextRelId = Math.max(nextRelId, (parseInt(rel.id.replace(/\D/g, ''), 10) || 0) + 1);
+        if (baseRels) for (const rel of parseRels((await entryText(zip, baseRels))!)) nextRelId = Math.max(nextRelId, (parseInt(rel.id.replace(/\D/g, ''), 10) || 0) + 1);
         const baseTypesFile = zip.file('[Content_Types].xml');
-        if (baseTypesFile) baseTypes = parseTypes(await baseTypesFile.async('text'));
+        if (baseTypesFile) baseTypes = parseTypes((await entryText(zip, baseTypesFile))!);
 
         // base styles/numbering 읽기
         const stylesFile = zip.file('word/styles.xml');
-        if (stylesFile) mergedStylesXml = await stylesFile.async('text');
+        if (stylesFile) mergedStylesXml = (await entryText(zip, stylesFile))!;
         const numFile = zip.file('word/numbering.xml');
-        if (numFile) mergedNumberingXml = await numFile.async('text');
+        if (numFile) mergedNumberingXml = (await entryText(zip, numFile))!;
 
         continue;
       }
@@ -508,7 +561,7 @@ export async function concatDocx(
       if (donorStylesFile && mergedStylesXml) {
         // 문서 기본값(글꼴·크기·문단 간격)이 첫 문서와 다르면 이 문서의 뿌리 서식에 적어 넣는다
         // (기본값은 합본에 하나뿐이라, 안 적으면 이 문서 본문 전체가 첫 문서의 글꼴·크기로 바뀐다)
-        const donorStylesXml = withDocDefaults(await donorStylesFile.async('text'), mergedStylesXml);
+        const donorStylesXml = withDocDefaults((await entryText(zip, donorStylesFile))!, mergedStylesXml);
         const result = mergeDocxStyles(mergedStylesXml, donorStylesXml, i + 1);
         addedStyles = result.added;
         styleRemap = result.remap;
@@ -521,7 +574,7 @@ export async function concatDocx(
       let numIdRemap = new Map<number, number>();
       const donorNumFile = zip.file('word/numbering.xml');
       if (donorNumFile) {
-        const donorNumXml = remapDocxStyleRefs(await donorNumFile.async('text'), styleRemap);
+        const donorNumXml = remapDocxStyleRefs((await entryText(zip, donorNumFile))!, styleRemap);
         const result = mergeNumbering(mergedNumberingXml, donorNumXml, i);
         mergedNumberingXml = result.mergedXml;
         numIdRemap = result.numIdRemap;
@@ -537,11 +590,11 @@ export async function concatDocx(
       // 이 문서의 관계: 바깥 링크는 그대로, 그림·차트·삽입 개체는 부품째 옮기고, 나머지(머리글·각주…)는 옮기지 않는다.
       // 관계 id 는 이 문서 것만 새로 매긴다 (앞 문서의 관계까지 건드리면 같은 이름 그림이 뒤바뀐다)
       const typesFile = zip.file('[Content_Types].xml');
-      const carry: Carry = { zip, base: baseZip, moved: new Map(), types: typesFile ? parseTypes(await typesFile.async('text')) : { defaults: new Map(), overrides: new Map() }, baseTypes, addedTypes };
+      const carry: Carry = { zip, base: baseZip, moved: new Map(), types: typesFile ? parseTypes((await entryText(zip, typesFile))!) : { defaults: new Map(), overrides: new Map() }, baseTypes, addedTypes };
       const ids = new Map<string, string | null>();
       const mine: Rel[] = [];
       const relsFile = zip.file('word/_rels/document.xml.rels');
-      for (const rel of relsFile ? parseRels(await relsFile.async('text')) : []) {
+      for (const rel of relsFile ? parseRels((await entryText(zip, relsFile))!) : []) {
         let target: string | null = rel.target;
         if (rel.mode !== 'External') {
           if (SINGLETON.test(rel.type)) target = null;
@@ -599,6 +652,8 @@ export async function concatDocx(
       if (headers) warnings.push(`${name}: 머리글·바닥글은 옮기지 않았습니다. 합본은 첫 문서의 머리글·바닥글을 씁니다.`);
     } catch (err) {
       failedFiles.push(files[i]);
+      // 너무 커서 풀지 않은 것(files/zip-read)은 그 까닭을 그대로, 나머지는 합치기 공통 문장
+      failures.push({ path: files[i], error: (err as { code?: unknown })?.code === 'ZIP_TOO_BIG' ? (err as Error).message : '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.' });
       logger.warn(`[concat-docx] 실패: ${files[i]} — ${err instanceof Error ? err.message : err}`);
     }
   }
@@ -625,14 +680,14 @@ export async function concatDocx(
   if (additionalRels.length > 0) {
     const relsFile = baseZip.file('word/_rels/document.xml.rels');
     const relsXml = relsFile
-      ? await relsFile.async('text')
+      ? (await entryText(baseZip, relsFile))!
       : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
     baseZip.file('word/_rels/document.xml.rels', relsXml.replace(/<\/Relationships>\s*$/, () => `${additionalRels.map(relXml).join('\n')}\n</Relationships>`));
   }
 
   if (addedTypes.length > 0) {
     const typesFile = baseZip.file('[Content_Types].xml');
-    if (typesFile) baseZip.file('[Content_Types].xml', (await typesFile.async('text')).replace(/<\/Types>\s*$/, () => `${addedTypes.join('')}</Types>`));
+    if (typesFile) baseZip.file('[Content_Types].xml', (await entryText(baseZip, typesFile))!.replace(/<\/Types>\s*$/, () => `${addedTypes.join('')}</Types>`));
   }
 
   // 병합된 styles.xml ��기
@@ -664,6 +719,7 @@ export async function concatDocx(
     file_count: files.length,
     total_length: outputBuffer.length,
     failed_files: failedFiles,
+    failed: failures,
     ...(warnings.length ? { warnings } : {}),
   };
 }

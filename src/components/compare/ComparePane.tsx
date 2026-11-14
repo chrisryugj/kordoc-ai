@@ -11,6 +11,7 @@ import { readBytes, rhwpWorth } from "../../lib/rhwp-preview";
 import { useApp } from "../../state/app";
 import { PageStack } from "../common/PageStack";
 import { useRhwpPages } from "../common/useRhwpPages";
+import { pagesToDrop } from "../common/page-budget";
 import { FormatBadge } from "../common/FormatBadge";
 import { Note } from "../common/Status";
 
@@ -61,7 +62,10 @@ export function ComparePane({ id, label, path, side, active, onPick, scrollTo, f
   }, [path]);
   useEffect(() => { if (rh.error) setEngine("kordoc"); }, [rh.error]);
 
+  /** 지금 보이는 쪽 (가까운 순) — 들고 있는 쪽 그림이 상한을 넘으면 여기서 먼 쪽부터 버린다 */
+  const wanted = useRef<number[]>([]);
   const need = useCallback(async (nums: number[]) => {
+    wanted.current = nums;
     const todo = nums.filter((n) => !inflight.current.has(n));
     if (!todo.length) return;
     todo.forEach((n) => inflight.current.add(n));
@@ -74,6 +78,8 @@ export function ComparePane({ id, label, path, side, active, onPick, scrollTo, f
         setPages((prev) => {
           const next = { ...prev };
           for (const p of r.pages) next[p.page] = p;
+          // 버린 쪽은 다시 보이면 또 그려 달라고 한다
+          for (const n of pagesToDrop(new Map(Object.values(next).map((p) => [p.page, p.data_url.length])), wanted.current)) { delete next[n]; inflight.current.delete(n); }
           return next;
         });
       } catch (e) {

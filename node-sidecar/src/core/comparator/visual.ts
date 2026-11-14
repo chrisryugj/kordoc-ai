@@ -64,13 +64,16 @@ export function svgGlyphs(svg: string, page: number): Glyph[] {
   return out.map(({ c, p, x, y, w, h }) => ({ c, p, x, y, w, h }));
 }
 
-async function hangulLayout(bytes: Uint8Array, hwpx: boolean, signal?: AbortSignal): Promise<Layout> {
+async function hangulLayout(bytes: Uint8Array, hwpx: boolean, signal?: AbortSignal): Promise<Layout | string> {
   const shown = hwpx ? await showFieldGuides(bytes) : bytes;
   const pages: Layout['pages'] = [];
   const glyphs: Glyph[] = [];
   for await (const pg of rhwpPages(shown, undefined, signal)) {
     signal?.throwIfAborted();
-    glyphs.push(...svgGlyphs(pg.svg, pages.length));
+    const g = svgGlyphs(pg.svg, pages.length);
+    if (glyphs.length + g.length > MAX_GLYPHS) return TOO_MANY_GLYPHS;
+    // 펼쳐 넣으면(push(...g)) 글자가 수십만 개인 쪽에서 RangeError
+    for (const x of g) glyphs.push(x);
     pages.push({ width: pg.width, height: pg.height });
   }
   return { pages, glyphs };
@@ -92,6 +95,10 @@ interface PdfMod {
 
 /** PDF 글자 상자를 읽는 쪽 수 한도 (엔진 스레드에서 돈다. 넘으면 대조표로) */
 const PDF_MAX_PAGES = 600;
+/** 한 문서의 글자 상자 수 한도 — 글자마다 객체 하나라, 한 쪽에 글자 수백만 개를 적은 PDF 하나로 엔진 메모리가 바닥난다. 넘으면 대조표로
+ *  (빽빽한 600쪽도 쪽당 3천 자면 180만) */
+const MAX_GLYPHS = 2_000_000;
+const TOO_MANY_GLYPHS = '글자가 아주 많은 문서라 나란히 보기를 만들지 않았습니다. 대조표로 보세요.';
 /** 이만큼 쪽마다 한 번 숨을 돌린다 (멈추기·진행 알림·다른 요청이 끼어들게) */
 const PDF_YIELD_EVERY = 8;
 
@@ -123,6 +130,7 @@ async function pdfLayout(bytes: Uint8Array, signal?: AbortSignal): Promise<Layou
       };
       try {
         const total = mod._FPDFText_CountChars(tp);
+        if (glyphs.length + total > MAX_GLYPHS) return TOO_MANY_GLYPHS;
         for (let i = 0; i < total; i++) {
           const c = String.fromCodePoint(mod._FPDFText_GetUnicode(tp, i) || 32);
           if (SPACE.test(c) || c < ' ') continue;
@@ -148,7 +156,7 @@ async function pdfLayout(bytes: Uint8Array, signal?: AbortSignal): Promise<Layou
 }
 
 /** 쪽 모양이 있는 형식만 (화면이 쪽을 그리는 형식과 같다). 없으면 그 까닭 */
-async function layoutOf(path: string, signal?: AbortSignal): Promise<Layout | string> {
+export async function layoutOf(path: string, signal?: AbortSignal): Promise<Layout | string> {
   const fmt = formatOf(path);
   if (fmt !== 'hwp' && fmt !== 'hwpx' && fmt !== 'pdf') return '이 형식은 쪽 모양이 없어 대조표로만 볼 수 있습니다.';
   const bytes = new Uint8Array(await readFile(path));

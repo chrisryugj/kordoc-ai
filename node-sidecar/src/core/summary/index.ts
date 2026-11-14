@@ -145,5 +145,6 @@ export async function summarize(params: SummarizeParams, signal: AbortSignal): P
   if (!summary) throw new Error('요약 결과가 비어 있습니다. 다시 시도하세요.');
   sendProgress({ current: 3, total: 3, message: '요약 완료' });
   const note = c.partial ? `\n\n※ 문서가 길어 ${c.partial.total}부분으로 나눈 뒤 처음부터 끝까지 고르게 ${c.partial.read}부분만 읽고 요약했습니다.` : '';
-  return { summary: escapeLineDates(summary) + note, redacted: c.redacted + r.redacted };
+  // 줄인 요점은 나눠 읽을 때 가린 값을 되돌려 두었다가 마지막 질문에서 다시 가린다 — 더하면 같은 값을 두 번 세어 건수가 두 배로 나왔다
+  return { summary: escapeLineDates(summary) + note, redacted: c.text !== text ? Math.max(c.redacted, r.redacted) : r.redacted };
 }

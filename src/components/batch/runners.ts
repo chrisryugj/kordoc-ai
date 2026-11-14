@@ -3,7 +3,7 @@
 import type { BatchItemResult, FileEntry, RpcResult } from "../../lib/contract";
 import type { BatchTaskId } from "../../state/app";
 import type { TaskCtx } from "../../hooks/useTask";
-import { rpc, errorText, isAbort } from "../../lib/rpc";
+import { rpc, errorText, isAbort, type Progress } from "../../lib/rpc";
 import { dirName, joinPath, stem } from "../../lib/format";
 import { joinTo, type BatchOpts } from "./tasks";
 import { shrinkParams, shrinkSummary } from "../workbench/tools/ShrinkTool";
@@ -59,8 +59,28 @@ async function splitPdf(env: RunEnv, f: FileEntry) {
 
 const outDirOf = (o: BatchOpts) => (o.outDir ? { output_dir: o.outDir } : {});
 
+const batchRow = (r: BatchItemResult): RowState => (r.ok ? { status: "ok", output: r.output_path, note: r.note } : { status: "fail", error: r.error });
+
+type RedactItem = RpcResult<"redact_batch">["results"][number];
+const redactRow = (it: RedactItem): RowState => (it.ok
+  ? { status: "ok", output: it.output_path, note: `${it.total ?? 0}건 가림${it.residual ? `, 남은 의심 ${it.residual}곳 확인 필요` : ""}`, ...(it.residual ? { warn: true } : {}) }
+  : { status: "fail", error: it.error });
+
+/** 일괄 메서드가 한 파일을 끝낼 때마다 그 줄을 바로 채운다. 중간에 멈추면 응답이 오지 않으니, 이것이 없으면
+ *  이미 만든 파일(이미 프린터로 간 문서)이 "대기"로 돌아가 어디까지 됐는지 모르고 같은 일을 또 하게 된다 */
+function live<T extends { path: string }>(env: RunEnv, row: (item: T) => RowState) {
+  return {
+    signal: env.signal,
+    onProgress: (p: Progress) => {
+      env.onProgress(p);
+      const item = p.item as T | undefined;
+      if (item && typeof item.path === "string") env.setRow(item.path, row(item));
+    },
+  };
+}
+
 function applyBatch(env: RunEnv, results: BatchItemResult[]) {
-  for (const r of results) env.setRow(r.path, r.ok ? { status: "ok", output: r.output_path, note: r.note } : { status: "fail", error: r.error });
+  for (const r of results) env.setRow(r.path, batchRow(r));
   const ok = results.filter((r) => r.ok).length;
   return `${ok}개 완료${results.length - ok ? `, ${results.length - ok}개 실패` : ""}`;
 }
@@ -124,28 +144,24 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
   switch (task) {
     case "convert": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("convert_batch", { paths, format: opts.convertFormat, ...outDirOf(opts) }, o);
+      const r = await rpc("convert_batch", { paths, format: opts.convertFormat, ...outDirOf(opts) }, live(env, batchRow));
       return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
     }
     case "hwpx": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("to_hwpx_batch", { paths, preset: "auto", ...outDirOf(opts) }, o);
+      const r = await rpc("to_hwpx_batch", { paths, preset: "auto", ...outDirOf(opts) }, live(env, batchRow));
       return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
     }
     case "stylecopy": {
       if (!opts.styleId) throw new Error("맞출 서식을 먼저 고르세요. 새로 쓰기 › 우리 서식으로 맞추기에서 서식을 저장할 수 있습니다.");
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("style_apply", { source_paths: paths, style_id: opts.styleId, ...outDirOf(opts) }, o);
+      const r = await rpc("style_apply", { source_paths: paths, style_id: opts.styleId, ...outDirOf(opts) }, live(env, batchRow));
       return { kind: "files", message: applyBatch(env, r.results), dir: r.output_dir };
     }
     case "redact": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("redact_batch", { paths, rules: opts.rules, keep: env.keep ?? [], ...outDirOf(opts) }, o);
-      for (const it of r.results) {
-        env.setRow(it.path, it.ok
-          ? { status: "ok", output: it.output_path, note: `${it.total ?? 0}건 가림${it.residual ? `, 남은 의심 ${it.residual}곳 확인 필요` : ""}`, ...(it.residual ? { warn: true } : {}) }
-          : { status: "fail", error: it.error });
-      }
+      const r = await rpc("redact_batch", { paths, rules: opts.rules, keep: env.keep ?? [], ...outDirOf(opts) }, live(env, redactRow));
+      for (const it of r.results) env.setRow(it.path, redactRow(it));
       const ok = r.results.filter((x) => x.ok).length;
       // 덜 가려졌을 수 있는 사본은 "완료"에 묻히지 않게 따로 센다 (그대로 공개하면 개인정보가 나간다)
       const check = r.results.filter((x) => x.ok && x.residual).length;
@@ -231,7 +247,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
     }
     case "print": {
       paths.forEach((p) => env.setRow(p, { status: "run" }));
-      const r = await rpc("print_files", { files: paths, ...(opts.printer ? { printer: opts.printer } : {}) }, o);
+      const r = await rpc("print_files", { files: paths, ...(opts.printer ? { printer: opts.printer } : {}) }, live(env, (it: BatchItemResult) => (it.ok ? { status: "ok", note: "보냄" } : { status: "fail", error: it.error })));
       for (const f of files) {
         const bad = r.failed.find((x) => x.file === f.path);
         env.setRow(f.path, bad ? { status: "fail", error: bad.reason } : { status: "ok", note: "보냄" });

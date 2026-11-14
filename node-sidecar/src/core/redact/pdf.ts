@@ -9,7 +9,7 @@ import type { IRBlock, ParseResult, RedactHit, RedactRule } from 'kordoc';
 import { countRead, joinBroken, redactMarkdown, redactText, tighten } from './rules.js';
 import { PDFDocument } from 'pdf-lib';
 import type { PDFiumDocument, PDFiumPage } from '@hyzyla/pdfium';
-import { openPdf } from '../render/pdfium.js';
+import { checkPageImages, fitScale, MAX_PAGE_PIXELS, openPdf } from '../render/pdfium.js';
 import { sendProgress } from '../../infra/progress.js';
 import { parseBytes } from '../converter/index.js';
 
@@ -257,14 +257,19 @@ function paint(data: Uint8Array, w: number, h: number, boxes: Array<[number, num
   }
 }
 
-/** 그림(PNG·JPG·WEBP) → 한 쪽짜리 PDF (150dpi 로 보고 쪽 크기를 정한다) */
+/** 그림(PNG·JPG·WEBP) → 한 쪽짜리 PDF (150dpi 로 보고 쪽 크기를 정한다).
+ *  큰 그림(4백만 화소 넘게)은 JPEG 로 싣는다: PNG 는 pdf-lib 이 엔진 스레드에서 다 풀어 다시 압축한다(8000px 정사각 1.1초·RSS +715MB).
+ *  쪽 그림은 어차피 화소 상한(MAX_PAGE_PIXELS)까지만 그리고 가린 사본도 JPEG 라, 그보다 큰 그림은 상한까지 줄여 싣는다 */
 export async function imageToPdf(bytes: Uint8Array): Promise<Uint8Array> {
   const sharp = (await import('sharp')).default;
-  const img = sharp(Buffer.from(bytes)).rotate();
+  let img = sharp(Buffer.from(bytes)).rotate();
   const meta = await img.metadata();
-  const png = await img.png().toBuffer();
+  const pw = meta.autoOrient?.width ?? meta.width ?? 0;
+  const ph = meta.autoOrient?.height ?? meta.height ?? 0;
+  if (pw * ph > MAX_PAGE_PIXELS) img = img.resize({ width: Math.floor(pw * Math.sqrt(MAX_PAGE_PIXELS / (pw * ph))) });
+  const big = pw * ph > 4_000_000;
   const pdf = await PDFDocument.create();
-  const image = await pdf.embedPng(png);
+  const image = big ? await pdf.embedJpg(await img.flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toBuffer()) : await pdf.embedPng(await img.png().toBuffer());
   const w = ((meta.autoOrient?.width ?? meta.width ?? image.width) * 72) / 150;
   const h = ((meta.autoOrient?.height ?? meta.height ?? image.height) * 72) / 150;
   pdf.addPage([w, h]).drawImage(image, { x: 0, y: 0, width: w, height: h });
@@ -391,9 +396,12 @@ export async function redactPdf(
       const page = doc.getPage(i);
       const { module: M, pageIdx } = internals(page);
       const { originalWidth, originalHeight } = page.getOriginalSize();
+      // 그림이 너무 큰 쪽은 그리지 않고 멈춘다(그 쪽을 빼고 가린 사본을 내면 안 된다), 아주 큰 쪽은 화소 상한까지 배율을 낮춘다 (render/pdfium)
+      checkPageImages(page, i + 1);
+      const s = fitScale(originalWidth, originalHeight, scale);
       // render 가 쪽을 닫으므로 상자 → 장치 좌표는 먼저 (render 와 같은 크기 계산: 내림한 pt × 배율, 다시 내림)
-      const width = Math.floor(Math.floor(originalWidth) * scale);
-      const height = Math.floor(Math.floor(originalHeight) * scale);
+      const width = Math.floor(Math.floor(originalWidth) * s);
+      const height = Math.floor(Math.floor(originalHeight) * s);
       const ip = M.wasmExports.malloc(16);
       const dev: Array<[number, number, number, number]> = [];
       try {
@@ -412,11 +420,11 @@ export async function redactPdf(
         M.wasmExports.free(ip);
       }
       // 양식 칸에 적어 넣은 값도 그린다 (안 그리면 칸의 글이 사라진 PDF 가 되고, 그 글의 개인정보는 검사도 못 한다)
-      const r = await page.render({ scale, renderFormFields: true, render: async ({ data }) => data });
+      const r = await page.render({ scale: s, renderFormFields: true, render: async ({ data }) => data });
       const data = new Uint8Array(r.data);
       // 글자 읽기로 잡은 자리는 보이는 쪽 그림 기준이다 (돌려진 쪽·잘린 쪽은 PDF 쪽 좌표와 다르다) → 쪽 좌표 변환 없이 화소로 바로
       for (const b of pageBoxes[i]) {
-        if (b.view) dev.push([(b.x0 - PAD) * scale, r.height - (b.y1 + PAD) * scale, (b.x1 + PAD) * scale, r.height - (b.y0 - PAD) * scale]);
+        if (b.view) dev.push([(b.x0 - PAD) * s, r.height - (b.y1 + PAD) * s, (b.x1 + PAD) * s, r.height - (b.y0 - PAD) * s]);
       }
       paint(data, r.width, r.height, dev);
       const jpg = await sharp(Buffer.from(data), { raw: { width: r.width, height: r.height, channels: 4 } }).flatten({ background: '#ffffff' }).jpeg({ quality: 82 }).toBuffer();

@@ -6,11 +6,12 @@
  * 결과·로그에는 원본 개인정보를 싣지 않는다 — samples 는 가려진 문자열, 파일 이름 속 개인정보도 가린다.
  */
 
-import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { DEFAULT_REDACT_RULES, parse, type RedactHit } from 'kordoc';
 import type { BatchItemResult, RedactResult, RedactRule } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
+import { renameRetry } from '../../infra/rename.js';
 import { errorText } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
 import { formatOf } from '../files/format.js';
@@ -149,7 +150,7 @@ async function patchInPlace(path: string, markdown: string, format: 'hwp' | 'hwp
   const tmp = join(dirname(path), `.${Date.now()}_가림.${format}`);
   try {
     await patchDocument({ path, markdown, output_path: tmp });
-    await rename(tmp, path);
+    await renameRetry(tmp, path);
   } finally {
     await rm(tmp, { force: true });
   }
@@ -158,9 +159,17 @@ async function patchInPlace(path: string, markdown: string, format: 'hwp' | 'hwp
 async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskChar: string, stem: string, signal?: AbortSignal): Promise<RedactResult> {
   const format = formatOf(p.path) as 'hwp' | 'hwpx';
   const keep = keepMatcher(p.keep);
-  const outPath = p.dry_run ? undefined : outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.${format}` });
+  // 이름은 엔진(CLI)이 도는 동안 빈 파일로 잡아 둔다(claim): 같은 원본을 둘이 가리면 둘이 같은 이름을 골라, 뒤 작업이 앞 사본을 덮거나
+  // 실패해 지우면서 앞 작업의 사본을 지웠다. 엔진이 사본을 안 만들면(가릴 것 없음) 아래에서 잡은 빈 파일을 지운다
+  const outPath = p.dry_run ? undefined : outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stem}_${p.suffix || '가림'}.${format}`, claim: true });
   const args = ['redact', p.path, '--json', '--silent', `--rules=${rules.join(',')}`, `--mask-char=${maskChar}`, ...(outPath ? [`--output=${outPath}`] : ['--dry-run'])];
-  const report = parseCliJson<CliReport>(await runKordocCli(args, { signal }), '개인정보를 가리지 못했습니다.');
+  let report: CliReport;
+  try {
+    report = parseCliJson<CliReport>(await runKordocCli(args, { signal }), '개인정보를 가리지 못했습니다.');
+  } catch (err) {
+    if (outPath) await rm(outPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
   let listed = report.fileHits.length ? report.fileHits : report.hits;
   let keptCount = 0;
   const more: string[] = [];
@@ -263,9 +272,11 @@ async function redactHangul(p: RedactParams, rules: readonly RedactRule[], maskC
     // 원본을 복사만 한 사본, 그림을 보지 않은 사본이 "가림" 이름으로 폴더에 남는다 → 그 파일(과 PDF)을 지우고 실패를 알린다
     // (가리지 않은 파일을 가린 것으로 알고 내보내지 않게)
     if (report.output && !p.dry_run) await rm(report.output, { force: true }).catch(() => undefined);
+    if (outPath) await rm(outPath, { force: true }).catch(() => undefined);
     if (pdfPath) await rm(pdfPath, { force: true }).catch(() => undefined);
     throw err;
   }
+  if (outPath && !report.output) await rm(outPath, { force: true }).catch(() => undefined);
   const picNotes = pics ? pictureNotes(pics) : [];
   const notes = [...picNotes, ...blind.notes, ...more];
   const unseen = report.unscanned.length + blind.count + (pics?.unread ?? 0);
@@ -339,7 +350,8 @@ export async function redactBatch(
   const results: Array<BatchItemResult & { total?: number; residual?: number }> = [];
   for (const [i, path] of p.paths.entries()) {
     signal.throwIfAborted();
-    sendProgress({ current: i + 1, total: p.paths.length, message: `${i + 1}/${p.paths.length} 가리는 중` });
+    const step = { current: i + 1, total: p.paths.length, message: `${i + 1}/${p.paths.length} 가리는 중` };
+    sendProgress(step);
     try {
       const r = await redact({ path, rules: p.rules, mask_char: p.mask_char, output_dir: p.output_dir, keep: p.keep }, signal);
       results.push({ path, ok: true, output_path: r.output_path, total: r.total, residual: r.residual });
@@ -347,6 +359,8 @@ export async function redactBatch(
       if (signal.aborted) throw err;
       results.push({ path, ok: false, error: errorText(err) });
     }
+    // 끝난 파일마다 결과를 알린다 (멈춰도 화면이 만든 사본과 남은 의심 곳 수를 안다)
+    sendProgress({ ...step, item: results[results.length - 1] });
   }
   return { results, output_dir: outputDir({ output_dir: p.output_dir, source: p.paths[0] }) };
 }

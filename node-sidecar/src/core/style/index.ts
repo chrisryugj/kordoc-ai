@@ -3,12 +3,13 @@
  * 저장: 앱 데이터 폴더 styles/index.json (서식 JSON 만, 견본 파일은 복사하지 않는다 — 견본에 든 이름·연락처가 앱 폴더에 남지 않게).
  */
 
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { BatchItemResult, StyleEntry, StyleFormat } from '../../types/rpc-contract.js';
 import { dataDir } from '../../infra/config.js';
-import { readListFile } from '../../infra/list-file.js';
+import { readListFile, serial } from '../../infra/list-file.js';
+import { atomicWriteFile } from '../files/io.js';
 import { applyStyle, generateStyled } from './apply.js';
 import { extractStyle, styleSummary } from './extract.js';
 
@@ -25,10 +26,10 @@ async function readIndex(forWrite = false): Promise<StyleEntry[]> {
 
 async function writeIndex(styles: StyleEntry[]): Promise<void> {
   await mkdir(dir(), { recursive: true });
-  const tmp = `${indexPath()}.tmp`;
-  await writeFile(tmp, JSON.stringify({ version: 1, styles }, null, 2), 'utf-8');
-  await rename(tmp, indexPath());
+  await atomicWriteFile(indexPath(), JSON.stringify({ version: 1, styles }, null, 2));
 }
+/** 저장·지우기가 겹치면 한쪽이 사라졌다(같은 임시 이름이면 늦은 쪽은 ENOENT) */
+const changing = serial();
 
 /** 화면이 보낸 서식은 모양만 확인한다 (저장·적용 전에) */
 function checkFormat(f: unknown): StyleFormat {
@@ -53,18 +54,22 @@ export async function styleSave(p: { name: string; format: unknown }): Promise<S
   if (!name) throw new Error('서식 이름을 적으세요.');
   if (name.length > 40) throw new Error('서식 이름은 40자까지 됩니다.');
   const format = checkFormat(p.format);
-  const list = await readIndex(true);
-  // 같은 이름이면 새 서식으로 바꾼다 (같은 서식을 다시 읽어 저장하는 일이 흔하다)
-  const entry: StyleEntry = { id: randomUUID().slice(0, 8), name, summary: styleSummary(format), created_at: new Date().toISOString(), format };
-  await writeIndex([...list.filter((s) => s.name !== name), entry]);
-  return entry;
+  return changing(async () => {
+    const list = await readIndex(true);
+    // 같은 이름이면 새 서식으로 바꾼다 (같은 서식을 다시 읽어 저장하는 일이 흔하다)
+    const entry: StyleEntry = { id: randomUUID().slice(0, 8), name, summary: styleSummary(format), created_at: new Date().toISOString(), format };
+    await writeIndex([...list.filter((s) => s.name !== name), entry]);
+    return entry;
+  });
 }
 
-export async function styleDelete(id: string): Promise<boolean> {
-  const list = await readIndex(true);
-  if (!list.some((s) => s.id === id)) return false;
-  await writeIndex(list.filter((s) => s.id !== id));
-  return true;
+export function styleDelete(id: string): Promise<boolean> {
+  return changing(async () => {
+    const list = await readIndex(true);
+    if (!list.some((s) => s.id === id)) return false;
+    await writeIndex(list.filter((s) => s.id !== id));
+    return true;
+  });
 }
 
 async function resolveFormat(p: { style_id?: string; format?: unknown; sample_path?: string }, signal?: AbortSignal): Promise<StyleFormat> {

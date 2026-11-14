@@ -7,6 +7,7 @@ import { markdownToHwpx, parse, validateHwpx } from 'kordoc';
 import { call, corpus, hasCorpus, makePng, sample, setupEnv, SAMPLES } from './doc-helpers.js';
 import { estimatePages } from '../src/core/render/rhwp.js';
 import { guessPreset } from '../src/core/gongmun/index.js';
+import { sendProgress } from '../src/infra/progress.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -81,11 +82,14 @@ describe('convert_batch', () => {
   it('여러 파일 + 실패는 결과 안에', async () => {
     const bad = join(env.work, 'broken.hwpx');
     writeFileSync(bad, 'not a document');
+    vi.mocked(sendProgress).mockClear();
     const r = await call('convert_batch', { paths: [LETTER_HWPX, bad, LETTER_PDF], format: 'txt' });
     expect(r.results.map((x: { ok: boolean }) => x.ok)).toEqual([true, false, true]);
     expect(r.results[1].error).toBeTruthy();
     expect(existsSync(r.results[0].output_path)).toBe(true);
     expect(r.output_dir).toBe(env.out);
+    // 끝난 파일마다 결과를 실어 알린다: 중간에 멈추면 응답이 없어 화면이 이것으로 끝난 파일을 안다
+    expect(vi.mocked(sendProgress).mock.calls.map(([d]) => d.item).filter(Boolean)).toEqual(r.results);
   });
 });
 

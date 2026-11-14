@@ -111,6 +111,27 @@ describe('redact', () => {
     expect(existsSync(a.output_path) && existsSync(b.output_path)).toBe(true);
   });
 
+  it('같은 원본을 둘이 동시에 가려도 사본 이름이 갈린다 (뒤 작업이 앞 사본을 덮거나 지우지 않게)', async () => {
+    const dir = join(env.base, '동시 가림');
+    const [a, b] = await Promise.all([call('redact', { path: CLAIM, output_dir: dir }), call('redact', { path: CLAIM, output_dir: dir })]);
+    expect(a.output_path).not.toBe(b.output_path);
+    for (const r of [a, b]) {
+      const back = await parse(readFileSync(r.output_path));
+      if (!back.success) throw new Error(back.error);
+      for (const v of raw) expect(back.markdown).not.toContain(v);
+    }
+  }, 60_000);
+
+  it('가릴 것이 없어 사본을 안 만들면 잡아 둔 빈 이름도 남지 않는다', async () => {
+    const dir = join(env.base, '가릴 것 없음');
+    mkdirSync(dir, { recursive: true });
+    const src = join(dir, '안내문.hwpx');
+    writeFileSync(src, Buffer.from(await markdownToHwpx('# 안내\n\n다음 주 회의는 3층 회의실에서 합니다.')));
+    const r = await call('redact', { path: src });
+    expect(r.output_path).toBeUndefined();
+    expect(readdirSync(dir)).toEqual(['안내문.hwpx']);
+  }, 60_000);
+
   it('PDF — 검은 상자를 칠한 쪽 그림 PDF, 글자층이 없어 원문을 뽑을 수 없다', async () => {
     const src = await parse(readFileSync(LETTER_PDF));
     if (!src.success) throw new Error(src.error);

@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { atomicWriteFile } from '../files/io.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,12 +15,13 @@ import { PDFDocument, degrees, type PDFEmbeddedPage, type PDFPage } from 'pdf-li
 import type { PDFiumDocument } from '@hyzyla/pdfium';
 import type { PdfComposePage, PdfComposeParams, PdfComposeResult, PdfWorkSource } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
+import { logger } from '../../infra/logger.js';
 import { docToPdf, loadPdf } from '../export/index.js';
 import { stampPdf } from '../export/stamp.js';
 import { shrinkImages } from '../pdf-shrink/index.js';
 import { formatOf } from '../files/format.js';
 import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
-import { closePdfPage, openPdf, rasterPdfPage } from '../render/pdfium.js';
+import { closePdfPage, isHeavyPage, openPdf, rasterPdfPage } from '../render/pdfium.js';
 import { parsePageSpec } from '../render/index.js';
 
 const WORK_DIR = join(tmpdir(), 'kordoc-pdf-work');
@@ -54,9 +55,7 @@ async function convertedPdf(path: string, signal?: AbortSignal): Promise<string>
   } catch { /* 없으면 만든다 */ }
   const bytes = await docToPdf(path, signal);
   mkdirSync(WORK_DIR, { recursive: true });
-  const part = `${out}.${process.pid}.part`;
-  await writeFile(part, bytes);
-  await rename(part, out);
+  await atomicWriteFile(out, bytes);
   return out;
 }
 
@@ -160,8 +159,13 @@ export async function pdfThumbs(p: { path: string; pages?: string; width?: numbe
     const pages: Array<{ page: number; data_url: string }> = [];
     for (const n of wanted) {
       signal?.throwIfAborted();
-      const r = await rasterPdfPage(h.doc, n, width, 'jpeg', 78);
-      pages.push({ page: n, data_url: `data:image/jpeg;base64,${r.data.toString('base64')}` });
+      // 그림이 너무 큰 쪽은 빈 자리로 (화면은 받지 못한 쪽을 다시 묻지 않는다). 쪽 조립은 그리지 않고 옮겨서 그대로 된다
+      const r = await rasterPdfPage(h.doc, n, width, 'jpeg', 78).catch((err: unknown) => {
+        if (!isHeavyPage(err)) throw err;
+        logger.warn(`[pdf_thumbs] ${err instanceof Error ? err.message : err}`);
+        return null;
+      });
+      if (r) pages.push({ page: n, data_url: `data:image/jpeg;base64,${r.data.toString('base64')}` });
     }
     return { page_count: count, pages };
   } finally {
@@ -171,8 +175,8 @@ export async function pdfThumbs(p: { path: string; pages?: string; width?: numbe
 
 // ── 쪽 조립 ──
 
-/** 원본마다 한 번만 연다 (보안 PDF 는 쪽 그림으로 다시 만든 것) */
-function sources() {
+/** 원본마다 한 번만 연다 (보안 PDF 는 쪽 그림으로 다시 만든 것, 멈추면 그만 그린다) */
+function sources(signal?: AbortSignal) {
   const docs = new Map<string, Promise<PDFDocument>>();
   const secured: string[] = [];
   const open = (path: string) => {
@@ -185,7 +189,7 @@ function sources() {
         } catch (err) {
           if (!isEncrypted(err)) throw err;
           secured.push(path);
-          return loadPdf(bytes);
+          return loadPdf(bytes, signal);
         }
       });
       docs.set(path, d);
@@ -275,7 +279,7 @@ async function buildFitted(out: PDFDocument, pages: PdfComposePage[], src: Retur
 
 export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Promise<PdfComposeResult> {
   if (!p.outputs.length || p.outputs.some((o) => !o.pages.length)) throw new Error('저장할 쪽이 없습니다. 쪽을 하나 이상 남기세요.');
-  const src = sources();
+  const src = sources(signal);
   const dir = p.output_dir ? outputDir({ output_dir: p.output_dir }) : undefined;
   const results: PdfComposeResult['outputs'] = [];
   for (const [i, o] of p.outputs.entries()) {
@@ -309,7 +313,7 @@ export async function pdfToImages(
   const original = p.source ?? p.path;
   if (!original) throw new Error('그림으로 바꿀 문서를 고르세요.');
   let bytes: Uint8Array;
-  if (p.items?.length) bytes = await (await buildPdf(p.items, sources())).save();
+  if (p.items?.length) bytes = await (await buildPdf(p.items, sources(signal))).save();
   else if (p.path) bytes = new Uint8Array(await readFile(formatOf(p.path) === 'pdf' ? p.path : await convertedPdf(p.path, signal)));
   else throw new Error('그림으로 바꿀 쪽이 없습니다.');
   const doc = await openPdf(bytes).catch((err: unknown) => {

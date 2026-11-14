@@ -83,7 +83,8 @@ interface CreateValue {
   openInEditor: (path: string, opts?: OpenOpts) => Promise<boolean>;
   call: HwpEditorClient["call"];
   focusEditor: () => void;
-  saveTo: (path: string, format?: "hwp" | "hwpx") => Promise<string>;
+  /** overwrite: 저장 창이 덮어쓰기를 확인한 자리인가 (아니면 있는 파일을 덮지 않고 실패로 알린다) */
+  saveTo: (path: string, format?: "hwp" | "hwpx", overwrite?: boolean) => Promise<string>;
   /** 저장된 최신 파일 경로 — 고친 게 있으면 저장 대화상자부터 */
   ensureSaved: () => Promise<string | null>;
   /** 출력(PDF·인쇄 등)에 쓸 지금 문서 파일 — 사용자 파일을 덮지 않고 저장 창도 띄우지 않는다.
@@ -254,7 +255,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     return true;
   }, [session, editorState]);
 
-  const saveTo = useCallback(async (path: string, format?: "hwp" | "hwpx") => {
+  const saveTo = useCallback(async (path: string, format?: "hwp" | "hwpx", overwrite = true) => {
     const fmt = format ?? (extOf(path) === "hwp" ? "hwp" : "hwpx");
     if (!session) throw new Error("저장할 문서가 없습니다. 작성 단계에서 시작점을 고르세요.");
     const ed = client.current;
@@ -267,7 +268,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       const data_b64 = bytesToB64(bytes.buffer as ArrayBuffer);
       // 앱 작업 사본(새로 쓰기 초안)을 다시 쓸 때는 .bak 을 남기지 않는다
       const backup = !(session.working && path === session.path);
-      const r = await rpc("editor_write", { path, data_b64, overwrite: true, backup, ...(session.token ? { token: session.token } : {}) });
+      const r = await rpc("editor_write", { path, data_b64, overwrite, backup, ...(session.token ? { token: session.token } : {}) });
       if (r.backup_path) toast(`덮어쓰기 전 파일을 ${baseName(r.backup_path)} 이름으로 남겼습니다`, "info");
       if (r.tails_lost) toast("바탕쪽이나 메모 일부를 옮기지 못했습니다. 한글에서 열어 확인하세요.", "error");
       await ed.call("saved", { name: baseName(r.path) }).catch(() => undefined);
@@ -287,7 +288,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     if ((editorState === "unavailable" || editorState === "error") && !session.withFields) {
       const src = extOf(session.path);
       if (src !== fmt) throw new Error(`한글 편집기가 열리지 않아 ${fmt.toUpperCase()}로 바꿔 저장할 수 없습니다. ${src.toUpperCase()}로 저장하세요.`);
-      const r = path === session.path ? { path } : await rpc("write_file", { path, data_b64: (await rpc("read_file_b64", { path: session.path })).data_b64, overwrite: true });
+      const r = path === session.path ? { path } : await rpc("write_file", { path, data_b64: (await rpc("read_file_b64", { path: session.path })).data_b64, overwrite });
       setSession((s) => (s ? { ...s, path: r.path, name: baseName(r.path), dirty: false, ...(s.working && r.path === s.path ? {} : { working: false, parked: false, savedAt: Date.now() }) } : s));
       return r.path;
     }
@@ -308,7 +309,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     const name = `${session.existing ? `${stem(session.name)}_수정` : suggestedName || stem(session.name)}.${session.format}`;
     const target = await pickSavePath(saveDir ? joinPath(saveDir, name) : name, [{ name: "한글 문서", extensions: [session.format] }]);
     if (!target) return null;
-    return saveTo(target);
+    return saveTo(target.path, undefined, target.overwrite);
   }, [session, suggestedName, saveTo, syncDirty, saveDir]);
 
   const outputFile = useCallback(async () => {

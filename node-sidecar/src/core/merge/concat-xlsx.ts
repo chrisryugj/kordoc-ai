@@ -8,6 +8,8 @@ import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFailure, MergeFilesParams, MergeFilesResult } from './types.js';
 import { stemOf } from '../output/index.js';
+import { entryText } from '../files/zip-read.js';
+import { replaceSpans, xmlSpans, type XmlSpan } from '../files/xml-scan.js';
 
 const RESAVE = '통합 문서의 시트 목록을 읽지 못했습니다. 엑셀에서 열어 다른 이름으로 저장(xlsx)한 뒤 다시 넣으세요.';
 
@@ -77,8 +79,13 @@ function parseRels(xml: string): Map<string, string> {
 }
 
 function resolveSharedStrings(sheetXml: string, strings: string[]): string {
-  // 칸 하나씩 본다 (값 없는 t="s" 칸에서 다음 칸의 <v> 까지 먹으면 시트가 깨진다)
-  return sheetXml.replace(/<c\b([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g, (full, attrs: string, tail: string, body: string | undefined) => {
+  // 칸 하나씩 본다 (값 없는 t="s" 칸에서 다음 칸의 <v> 까지 먹으면 시트가 깨진다).
+  // 정규식(`<c…>[\s\S]*?</c>`)은 닫히지 않는 칸마다 시트 끝까지 훑어(제곱 시간) 받은 파일 하나로 엔진이 멈춘다 → xmlSpans
+  return replaceSpans(sheetXml, xmlSpans(sheetXml, '<c', '</c>'), (full, cell) => {
+    const empty = cell.head.endsWith('/>');
+    const attrs = cell.head.slice(2, empty ? -2 : -1);
+    const tail = empty ? '/>' : `>${cell.inner}</c>`;
+    const body = empty ? undefined : cell.inner;
     if (!/\bt="s"/.test(attrs)) return full;
     const index = body?.match(/<v>(\d+)<\/v>/)?.[1];
     if (index === undefined) return `<c${attrs.replace(/\s*\bt="s"/, '')}${tail === '/>' ? '/>' : `>${body ?? ''}</c>`}`;
@@ -178,9 +185,9 @@ function dropParts(sheetXml: string, relsXml: string | null): { xml: string; rel
   });
   if (!gone.size) return { xml: sheetXml, rels: relsXml, dropped: [] };
   const refs = (s: string) => [...s.matchAll(/\br:id="([^"]*)"/g)].some((m) => gone.has(m[1]));
-  const xml = sheetXml
-    .replace(/<mc:AlternateContent\b[\s\S]*?<\/mc:AlternateContent>/g, (b) => (refs(b) ? '' : b))
-    .replace(/<(tableParts|oleObjects|controls|customProperties|webPublishItems)\b[^>]*>[\s\S]*?<\/\1>/g, (b) => (refs(b) ? '' : b))
+  // 묶음 찾기는 xmlSpans (`<태그…>[\s\S]*?</태그>` 정규식은 닫히지 않는 여는 태그마다 끝까지 훑는다)
+  const cut = (x: string, tag: string) => replaceSpans(x, xmlSpans(x, `<${tag}`, `</${tag}>`, (h) => !h.endsWith('/>')), (b) => (refs(b) ? '' : b));
+  const xml = ['mc:AlternateContent', 'tableParts', 'oleObjects', 'controls', 'customProperties', 'webPublishItems'].reduce(cut, sheetXml)
     .replace(/<pageSetup\b[^>]*\/>/g, (el) => el.replace(/\s+r:id="([^"]*)"/, (a, id) => (gone.has(id) ? '' : a)))
     .replace(/<[\w:]+\b[^>]*\br:id="([^"]*)"[^>]*\/>/g, (el, id) => (gone.has(id) ? '' : el));
   return { xml, rels: kept ? rels : null, dropped: [...dropped] };
@@ -190,7 +197,7 @@ function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; 
   const sheetsContent = sheetEntries.map(s =>
     `<sheet name="${xmlAttr(s.name)}" sheetId="${s.sheetId}"${s.state ? ` state="${xmlAttr(s.state)}"` : ''} r:id="${s.rId}"/>`,
   ).join('');
-  let xml = originalXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/, () => `<sheets>${sheetsContent}</sheets>`);
+  let xml = replaceFirst(originalXml, 'sheets', () => `<sheets>${sheetsContent}</sheets>`);
   // 시트 줄이 쓰는 r:id 의 이름공간을 뿌리에 둔다. 파이썬(openpyxl·pandas)이 만든 파일은 이 선언이 뿌리가 아니라 <sheet> 줄마다 있어,
   // 시트 줄을 새로 쓰면 선언이 사라지고 합본이 열리지 않는다
   xml = xml.replace(/<workbook\b[^>]*>/, (tag) => (/\bxmlns:r=/.test(tag) ? tag : tag.replace(/>$/, ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">')));
@@ -199,7 +206,7 @@ function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; 
   xml = xml.replace(/(<workbookView\b[^>]*?)\s+activeTab="\d+"/g, '$1').replace(/<workbookView\b/, `<workbookView activeTab="${firstShown}"`);
   // 이름 정의(인쇄 영역·인쇄 제목 포함)는 시트 번호와 시트 이름이 바뀐 대로 다시 적는다
   const block = definedNames.length ? `<definedNames>${definedNames.join('')}</definedNames>` : '';
-  if (/<definedNames\b/.test(xml)) xml = xml.replace(/<definedNames\b[^>]*>[\s\S]*?<\/definedNames>|<definedNames\b[^>]*\/>/, () => block);
+  if (/<definedNames\b/.test(xml)) xml = replaceFirst(xml, 'definedNames', () => block);
   else if (block) xml = xml.replace(xml.includes('</externalReferences>') ? '</externalReferences>' : '</sheets>', (m) => m + block);
   return xml;
 }
@@ -243,26 +250,32 @@ interface ParsedStyles {
 
 /** 부모 블록 안에서만 자식 요소 추출 (dxfs 등과의 혼동 방지) */
 function extractFromBlock(xml: string, blockTag: string, childTag: string): string[] {
-  const blockRe = new RegExp(`<${blockTag}\\b[^>]*>([\\s\\S]*?)<\\/${blockTag}>`);
-  const blockMatch = xml.match(blockRe);
-  if (!blockMatch) return [];
-  const block = blockMatch[1];
-  const items: string[] = [];
-  const re = new RegExp(`<${childTag}\\b(?:[^>]*/>|[\\s\\S]*?<\\/${childTag}>)`, 'g');
-  let m;
-  while ((m = re.exec(block))) items.push(m[0]);
-  return items;
+  const block = firstEl(xml, blockTag)?.inner;
+  if (!block) return [];
+  return [...xmlSpans(block, `<${childTag}`, `</${childTag}>`)].map((m) => block.slice(m.start, m.end));
+}
+
+/** xml 의 첫 <tag …/> 또는 <tag …>…</tag> (정규식 `<tag\b[^>]*>[\s\S]*?</tag>` 은 닫히지 않는 여는 태그마다 끝까지 훑는다) */
+function firstEl(xml: string, tag: string): XmlSpan | undefined {
+  for (const m of xmlSpans(xml, `<${tag}`, `</${tag}>`)) return m;
+  return undefined;
+}
+
+/** 첫 <tag> 묶음을 바꾼다 (없으면 그대로) */
+function replaceFirst(xml: string, tag: string, fn: (whole: string) => string): string {
+  const m = firstEl(xml, tag);
+  return m ? xml.slice(0, m.start) + fn(xml.slice(m.start, m.end)) + xml.slice(m.end) : xml;
 }
 
 /** styles.xml 전체 파싱 — 각 블록 범위 제한 */
 function parseStylesXmlFull(xml: string): ParsedStyles {
   // numFmts
   const numFmts: Array<{ id: number; xml: string }> = [];
-  const nfBlock = xml.match(/<numFmts\b[^>]*>([\s\S]*?)<\/numFmts>/);
+  const nfBlock = firstEl(xml, 'numFmts')?.inner;
   if (nfBlock) {
     const nfRe = /<numFmt\b[^>]*numFmtId="(\d+)"[^>]*\/?>/g;
     let nfm;
-    while ((nfm = nfRe.exec(nfBlock[1]))) {
+    while ((nfm = nfRe.exec(nfBlock))) {
       numFmts.push({ id: parseInt(nfm[1], 10), xml: nfm[0] });
     }
   }
@@ -477,13 +490,12 @@ function patchStylesXml(originalXml: string, merged: ParsedStyles): string {
   // 바꿔 넣을 글은 함수로 준다: 글로 주면 표시 형식의 "$" 가 바꾸기 표지로 읽혀 "$$" 가 "$" 로 줄거나 "$1" 이 사라진다.
   // 묶음 태그는 빈 꼴(<dxfs count="0"/>)도 본다: 엑셀 기본값이 그 꼴이라, 닫는 태그만 찾으면 뒤 파일의 것이 하나도 안 들어간다
   const block = (tag: string, items: string[]) => `<${tag} count="${items.length}">${items.join('')}</${tag}>`;
-  const whole = (tag: string) => new RegExp(`<${tag}\\b[^>]*/>|<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`);
-  const put = (tag: string, items: string[]) => { xml = xml.replace(whole(tag), () => block(tag, items)); };
+  const put = (tag: string, items: string[]) => { xml = replaceFirst(xml, tag, () => block(tag, items)); };
 
   // numFmts
   if (merged.numFmts.length > 0) {
     const items = merged.numFmts.map((n) => n.xml);
-    if (whole('numFmts').test(xml)) put('numFmts', items);
+    if (firstEl(xml, 'numFmts')) put('numFmts', items);
     else xml = xml.replace(/<fonts\b/, () => `${block('numFmts', items)}<fonts`); // 없으면 fonts 앞에
   }
   put('fonts', merged.fonts);
@@ -494,8 +506,8 @@ function patchStylesXml(originalXml: string, merged: ParsedStyles): string {
 
   // dxfs (조건부 서식). 없으면 규격 자리에: cellStyles 뒤, 그것도 없으면 cellXfs 뒤
   if (merged.dxfs.length > 0) {
-    if (whole('dxfs').test(xml)) put('dxfs', merged.dxfs);
-    else if (whole('cellStyles').test(xml)) xml = xml.replace(whole('cellStyles'), (m) => `${m}${block('dxfs', merged.dxfs)}`);
+    if (firstEl(xml, 'dxfs')) put('dxfs', merged.dxfs);
+    else if (firstEl(xml, 'cellStyles')) xml = replaceFirst(xml, 'cellStyles', (m) => `${m}${block('dxfs', merged.dxfs)}`);
     else xml = xml.replace(/<\/cellXfs>/, () => `</cellXfs>${block('dxfs', merged.dxfs)}`);
   }
 
@@ -548,7 +560,7 @@ export async function concatXlsx(
     try {
       const buffer = await readFile(files[fi]);
       const zip = await JSZip.loadAsync(buffer);
-      const workbookXml = (await zip.file('xl/workbook.xml')?.async('text')) ?? '';
+      const workbookXml = (await entryText(zip, 'xl/workbook.xml')) ?? '';
       const sheets = workbookXml ? parseWorkbook(workbookXml) : [];
       // 시트 목록을 못 읽는 꼴(이름 앞에 접두사가 붙은 통합 문서 등)은 넣지 않는다.
       // 그대로 두면 뒤 파일은 시트가 말없이 빠지고, 첫 파일이면 깨진 합본이 성공으로 나간다
@@ -559,13 +571,13 @@ export async function concatXlsx(
         baseZip = zip;
         baseWorkbookXml = workbookXml;
         const relsFile = zip.file('xl/_rels/workbook.xml.rels');
-        if (relsFile) baseRelsXml = await relsFile.async('text');
+        if (relsFile) baseRelsXml = (await entryText(zip, relsFile))!;
         const ctFile = zip.file('[Content_Types].xml');
-        if (ctFile) baseContentTypesXml = await ctFile.async('text');
+        if (ctFile) baseContentTypesXml = (await entryText(zip, ctFile))!;
         // 스타일 파싱
         const stylesFile = zip.file('xl/styles.xml');
         if (stylesFile) {
-          baseStylesXml = await stylesFile.async('text');
+          baseStylesXml = (await entryText(zip, stylesFile))!;
           mergedStyles = parseStylesXmlFull(baseStylesXml);
         }
       }
@@ -578,13 +590,13 @@ export async function concatXlsx(
       if (!isFirst) {
         const ssFile = zip.file('xl/sharedStrings.xml');
         if (ssFile) {
-          sharedStrings = parseSharedStringsText(await ssFile.async('text'));
+          sharedStrings = parseSharedStringsText((await entryText(zip, ssFile))!);
         }
 
         // 스타일 병합
         const stylesFile = zip.file('xl/styles.xml');
         if (stylesFile && mergedStyles) {
-          const donorStylesXml = await stylesFile.async('text');
+          const donorStylesXml = (await entryText(zip, stylesFile))!;
           const donorStyles = parseStylesXmlFull(donorStylesXml);
           const result = mergeXlsxStyles(mergedStyles, donorStyles);
           mergedStyles = result.merged;
@@ -594,7 +606,7 @@ export async function concatXlsx(
       }
 
       const relsFile = zip.file('xl/_rels/workbook.xml.rels');
-      const relsMap = relsFile ? parseRels(await relsFile.async('text')) : new Map<string, string>();
+      const relsMap = relsFile ? parseRels((await entryText(zip, relsFile))!) : new Map<string, string>();
 
       const fileBaseName = stemOf(files[fi]); // 맥 경로의 자소 갈라진 이름은 완성형으로 (시트 이름이 윈도에서 갈라져 보이지 않게)
       // 이 파일의 시트가 합본에서 받을 이름을 먼저 정한다 (같은 파일 안의 수식이 서로의 새 이름을 알아야 한다)
@@ -633,7 +645,7 @@ export async function concatXlsx(
         const sheetFile = zip.file(target);
         if (!sheetFile) continue;
 
-        let sheetXml = renameInSheet(await sheetFile.async('text'), renames, nameRenames);
+        let sheetXml = renameInSheet((await entryText(zip, sheetFile))!, renames, nameRenames);
 
         // 첫 파일: 원본 그대로, 추가 파일: shared string → 인라인 + 스타일 리매핑
         if (!isFirst) {
@@ -650,7 +662,7 @@ export async function concatXlsx(
 
         const sheetRelsPath = target.replace(/([^/]+)$/, '_rels/$1.rels');
         const sheetRelsFile = zip.file(sheetRelsPath);
-        let sheetRelsContent = sheetRelsFile ? await sheetRelsFile.async('text') : null;
+        let sheetRelsContent = sheetRelsFile ? (await entryText(zip, sheetRelsFile))! : null;
         if (!isFirst) {
           const cut = dropParts(sheetXml, sheetRelsContent);
           sheetXml = cut.xml;
@@ -692,7 +704,9 @@ export async function concatXlsx(
       const is1904 = (xml: string) => /<workbookPr\b[^>]*\bdate1904="(?:1|true)"/.test(xml);
       if (!isFirst && is1904(workbookXml) !== is1904(baseWorkbookXml)) warnings.push(`${fileName}: 날짜 기준(1904 날짜 체계)이 첫 파일과 달라 이 파일의 날짜가 4년쯤 어긋나 보입니다. 날짜 칸을 확인하세요.`);
     } catch (err) {
-      failures.push({ path: files[fi], error: err instanceof Error && err.message === RESAVE ? RESAVE : '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.' });
+      // 시트 목록을 못 읽은 것·너무 커서 풀지 않은 것(files/zip-read)은 그 까닭을 그대로
+      const known = err instanceof Error && (err.message === RESAVE || (err as { code?: unknown }).code === 'ZIP_TOO_BIG');
+      failures.push({ path: files[fi], error: known ? err.message : '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.' });
       failedFiles.push(files[fi]);
       logger.warn(`[concat-xlsx] 실패: ${files[fi]} — ${err instanceof Error ? err.message : err}`);
     }
@@ -708,11 +722,11 @@ export async function concatXlsx(
   if (baseRenames.size) {
     for (const path of Object.keys(baseZip.files)) {
       if (/^xl\/charts\/[^/]+\.xml$/.test(path)) {
-        const xml = await baseZip.file(path)!.async('text');
+        const xml = (await entryText(baseZip, path))!;
         const next = xml.replace(/(<c:f>)([^<]*)(<\/c:f>)/g, (_, a, body, z) => a + renameSheetRefs(body, baseRenames) + z);
         if (next !== xml) baseZip.file(path, next);
       } else if (/^xl\/pivotCache\/pivotCacheDefinition\d*\.xml$/.test(path)) {
-        const xml = await baseZip.file(path)!.async('text');
+        const xml = (await entryText(baseZip, path))!;
         const plain = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
         const next = xml.replace(/(<worksheetSource\b[^>]*\bsheet=")([^"]*)(")/g, (_, a, name, z) => a + xmlAttr(baseRenames.get(plain(name)) ?? plain(name)) + z);
         if (next !== xml) baseZip.file(path, next);

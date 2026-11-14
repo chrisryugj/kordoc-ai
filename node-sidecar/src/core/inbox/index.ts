@@ -4,9 +4,9 @@
  * id 는 경로 해시(맥 끌어 놓기 경로의 NFD·고르기 창의 NFC 를 같은 파일로 친다).
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { IRBlock } from 'kordoc';
 import type { InboxItem } from '../../types/rpc-contract.js';
@@ -34,6 +34,31 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** 앱 엔진과 MCP 엔진(inbox_add)도 같은 파일을 고친다 — 읽고 고쳐 쓰는 동안 잠금 파일을 쥔다(두 엔진이 겹치면 한쪽이 고친 것이
+ *  말없이 사라졌다). 10초 넘은 잠금은 죽은 엔진이 남긴 것으로 본다 */
+async function locked<T>(fn: () => Promise<T>): Promise<T> {
+  await mkdir(dataDir(), { recursive: true });
+  const lock = `${file()}.lock`;
+  for (let i = 0; ; i++) {
+    try {
+      await writeFile(lock, String(process.pid), { flag: 'wx' });
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      const since = await stat(lock).then((st) => Date.now() - st.mtimeMs, () => 0);
+      if (since > 10_000) { await unlink(lock).catch(() => undefined); continue; }
+      if (i >= 100) throw new Error('받은 공문 목록을 다른 곳(AI 연결)에서 고치는 중입니다. 잠시 뒤 다시 시도하세요.');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await unlink(lock).catch(() => undefined);
+  }
+}
+const mutate = <T>(fn: () => Promise<T>) => serial(() => locked(fn));
+
 async function load(): Promise<Stored[]> {
   if (!existsSync(file())) return [];
   // 잠깐 못 읽은 것(백신이 쥠·바꿔 넣는 중)은 깨진 것이 아니다: 그대로 알린다. 여기서 "깨진 파일"로 옮기고 빈 목록으로 시작하면
@@ -55,9 +80,15 @@ async function load(): Promise<Stored[]> {
 
 async function save(items: Stored[]): Promise<void> {
   await mkdir(dataDir(), { recursive: true });
-  const tmp = `${file()}.tmp`;
-  await writeFile(tmp, JSON.stringify({ version: 1, items }, null, 2), 'utf-8');
-  await rename(tmp, file());
+  // 임시 이름이 같으면 두 엔진의 쓰기가 한 임시 파일에 섞이고 늦은 쪽의 바꿔 넣기가 ENOENT 로 실패했다
+  const tmp = `${file()}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify({ version: 1, items }, null, 2), 'utf-8');
+    await rename(tmp, file());
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
 }
 
 export function inboxId(path: string): string {
@@ -124,7 +155,7 @@ export async function inboxAdd(paths: string[], signal?: AbortSignal): Promise<{
     sendProgress({ current: i + 1, total: paths.length, message: `${basename(path)} 읽는 중 (${i + 1}/${paths.length})` });
     try {
       const ex = await readOne(path, signal);
-      items.push(await serial(async () => {
+      items.push(await mutate(async () => {
         const list = await load();
         const id = inboxId(path);
         const prev = list.find((x) => x.id === id);
@@ -153,7 +184,7 @@ export async function inboxList(): Promise<{ items: InboxItem[] }> {
 /** 상태·메모·기한 고치기 — due: null 이면 뽑은 기한으로, '' 이면 기한 없음 */
 export function inboxUpdate(p: { id: string; status?: 'todo' | 'done'; due?: string | null; note?: string }): Promise<InboxItem> {
   if (typeof p.due === 'string' && p.due !== '' && !isIsoDate(p.due)) throw new Error('기한은 2026-10-23처럼 연-월-일로 넣으세요.');
-  return serial(async () => {
+  return mutate(async () => {
     const list = await load();
     const cur = list.find((x) => x.id === p.id);
     if (!cur) throw new Error('목록에 없는 공문입니다. 받은 공문 화면을 다시 열어 목록을 확인하세요.');
@@ -172,7 +203,7 @@ export function inboxUpdate(p: { id: string; status?: 'todo' | 'done'; due?: str
 }
 
 export function inboxRemove(id: string): Promise<boolean> {
-  return serial(async () => {
+  return mutate(async () => {
     const list = await load();
     const next = list.filter((x) => x.id !== id);
     if (next.length === list.length) return false;

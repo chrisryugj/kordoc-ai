@@ -12,6 +12,7 @@
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
 import { VERSION } from 'kordoc';
+import { entryBytes, entryText } from '../files/zip-read.js';
 
 /** OWPML 필수 항목 version.xml 이 없으면 넣는다. 예전 판으로 만든 문서에는 이 항목이 없어, 그런 문서를 합치거나 나눈 결과를
  *  엄격한 판독기가 거부한다. 내용은 엔진이 새 문서에 쓰는 것과 같다 */
@@ -23,7 +24,7 @@ export async function withVersionXml<T extends Uint8Array>(bytes: T): Promise<T 
   if (zip.file('version.xml') || !zip.file('mimetype') || !zip.file('Contents/header.xml')) return bytes;
   ensureVersionXml(zip);
   // HWPX 규칙: mimetype 은 맨 앞·압축 없음
-  zip.file('mimetype', await zip.file('mimetype')!.async('uint8array'), { compression: 'STORE' });
+  zip.file('mimetype', (await entryBytes(zip, 'mimetype'))!, { compression: 'STORE' });
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }
 
@@ -251,19 +252,21 @@ export interface MergeHwpxResult {
 }
 
 /** HWPX 바이트 여러 개 → 서식 유지 합본 HWPX */
-export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> {
+export async function mergeHwpx(inputs: Uint8Array[], signal?: AbortSignal): Promise<MergeHwpxResult> {
   if (inputs.length < 2) throw new Error('합칠 문서를 두 개 이상 고르세요.');
   const warnings: string[] = [];
   const zip = await JSZip.loadAsync(inputs[0]);
   const headerPath = 'Contents/header.xml';
   const hpfPath = Object.keys(zip.files).find((n) => /content\.hpf$/i.test(n)) ?? 'Contents/content.hpf';
   const parser = new DOMParser();
-  const header = parser.parseFromString(await zip.file(headerPath)!.async('string'), 'text/xml');
-  let hpf = await zip.file(hpfPath)!.async('string');
+  // 받은 문서 항목은 크기 상한을 세며 푼다 (files/zip-read)
+  const header = parser.parseFromString((await entryText(zip, headerPath))!, 'text/xml');
+  let hpf = (await entryText(zip, hpfPath))!;
   let manifest = readManifest(hpf);
   let sectionNo = sectionHrefs(manifest).length;
 
   for (let k = 1; k < inputs.length; k++) {
+    signal?.throwIfAborted();
     const add = await JSZip.loadAsync(inputs[k]);
     const addHpfPath = Object.keys(add.files).find((n) => /content\.hpf$/i.test(n));
     const addHeader = add.file(headerPath);
@@ -271,7 +274,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
       warnings.push(`${k + 1}번째 문서는 HWPX 구조가 아니어서 건너뛰었습니다.`);
       continue;
     }
-    const addManifest = readManifest(await add.file(addHpfPath)!.async('string'));
+    const addManifest = readManifest((await entryText(add, addHpfPath))!);
 
     // 그림: 이름 바꿔 옮기고 대응표
     const bin: IdMap = new Map();
@@ -286,12 +289,12 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
       if (!file) continue;
       const newId = `m${tagNo}_${it.id}`;
       const newHref = it.href.replace(/^BinData\//i, `BinData/m${tagNo}_`);
-      zip.file(newHref, await file.async('uint8array'));
+      zip.file(newHref, (await entryBytes(add, file))!);
       bin.set(it.id, newId);
       newItems.push(`<opf:item ${it.attrs.replace(/\bid="[^"]*"/, `id="${newId}"`).replace(/\bhref="[^"]*"/, `href="${newHref}"`)}/>`);
     }
 
-    const maps = mergeHeader(header, parser.parseFromString(await addHeader.async('string'), 'text/xml'), bin);
+    const maps = mergeHeader(header, parser.parseFromString((await entryText(add, addHeader))!, 'text/xml'), bin);
 
     // 차트·바탕쪽: 문서마다 Chart/chart1·masterpage0 부터 매겨서(한컴 문서·kordoc 변환본), 그대로 두면 뒤 문서 구역이 첫 문서의 차트·바탕쪽을
     // 가리킨다. 바탕에 없는 번호로 옮기고 이 문서 구역의 참조를 바꾼다. 이름 꼴은 그대로 둔다: kordoc 은 Contents/masterpage*.xml 만 바탕쪽으로 읽는다
@@ -299,7 +302,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
     for (const name of Object.keys(add.files).filter((n) => /^Chart\/[^/]+\.xml$/i.test(n))) {
       const no = freeNo(1, (n) => !!zip.file(`Chart/chart${n}.xml`) || manifest.items.some((i) => i.id === `chart${n}`));
       const to = `Chart/chart${no}.xml`;
-      zip.file(to, await add.file(name)!.async('uint8array'));
+      zip.file(to, (await entryBytes(add, name))!);
       maps.chart.set(name, to);
       // 차트를 manifest 에 올린 문서(kordoc 마크다운 변환본)면 항목도. 한컴 문서·HWP 변환본은 올리지 않는다
       const item = addManifest.items.find((i) => i.href === name);
@@ -307,7 +310,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
     }
     maps.master = new Map();
     for (const it of addManifest.items.filter((i) => /^Contents\/masterpage[^/]*\.xml$/i.test(i.href))) {
-      const xml = await add.file(it.href)?.async('string');
+      const xml = await entryText(add, it.href);
       if (xml == null) continue;
       const id = `masterpage${freeNo(0, (n) => !!zip.file(`Contents/masterpage${n}.xml`) || manifest.items.some((i) => i.id === `masterpage${n}`))}`;
       const href = `Contents/${id}.xml`;
@@ -319,10 +322,10 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
 
     // 메모 답글 관계(memoExtended): 메모 id 는 그대로 옮기므로 바탕 것에 항목만 이어 붙인다
     const exItem = addManifest.items.find((i) => /memoExtended\.xml$/i.test(i.href));
-    const exXml = exItem && (await add.file(exItem.href)?.async('string'));
+    const exXml = exItem && (await entryText(add, exItem.href));
     if (exItem && exXml) {
       const baseItem = manifest.items.find((i) => /memoExtended\.xml$/i.test(i.href));
-      const baseXml = baseItem && (await zip.file(baseItem.href)?.async('string'));
+      const baseXml = baseItem && (await entryText(zip, baseItem.href));
       if (baseItem && baseXml) {
         const into = parser.parseFromString(baseXml, 'text/xml');
         for (const memo of kids(parser.parseFromString(exXml, 'text/xml').documentElement!, 'memo')) into.documentElement!.appendChild(into.importNode(memo, true));
@@ -336,7 +339,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
     // 구역
     const newRefs: string[] = [];
     for (const href of sectionHrefs(addManifest)) {
-      const xml = await add.file(href)?.async('string');
+      const xml = await entryText(add, href);
       if (!xml) continue;
       // 이름은 바탕에 없는 번호로: 옛 판으로 나눈 조각은 Contents/section0.xml 의 id 가 section1 일 수 있어, 구역 수로만 매기면
       // 같은 id 가 둘이 되고 한 조각이 두 번 나오고 다른 조각은 빠진다
@@ -356,7 +359,7 @@ export async function mergeHwpx(inputs: Uint8Array[]): Promise<MergeHwpxResult> 
   zip.file(hpfPath, hpf);
   ensureVersionXml(zip);
   // HWPX 규칙: mimetype 은 맨 앞·압축 없음
-  const mimetype = await zip.file('mimetype')?.async('uint8array');
+  const mimetype = await entryBytes(zip, 'mimetype');
   if (mimetype) zip.file('mimetype', mimetype, { compression: 'STORE' });
   const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   return { bytes, sections: sectionNo, warnings };

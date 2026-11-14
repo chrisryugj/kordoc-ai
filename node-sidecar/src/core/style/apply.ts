@@ -234,7 +234,8 @@ export async function applyStyle(
   const results: BatchItemResult[] = [];
   for (const [i, path] of p.source_paths.entries()) {
     signal?.throwIfAborted();
-    sendProgress({ current: i + 1, total: p.source_paths.length, message: `${basename(path)} 서식 맞추는 중 (${i + 1}/${p.source_paths.length})` });
+    const step = { current: i + 1, total: p.source_paths.length, message: `${basename(path)} 서식 맞추는 중 (${i + 1}/${p.source_paths.length})` };
+    sendProgress(step);
     try {
       const r = await restyle(path, p.format, signal);
       const out = outputFile({ output_dir: p.output_dir, source: path, name: `${safeFileName(stemOf(path))}_우리서식.hwpx` });
@@ -244,6 +245,8 @@ export async function applyStyle(
       if (signal?.aborted) throw err;
       results.push({ path, ok: false, error: errorText(err) });
     }
+    // 끝난 파일마다 결과를 알린다 (멈춰도 화면이 만든 파일을 안다)
+    sendProgress({ ...step, item: results[results.length - 1] });
   }
   return { results, output_dir: outputDir({ output_dir: p.output_dir, source: p.source_paths[0] }) };
 }

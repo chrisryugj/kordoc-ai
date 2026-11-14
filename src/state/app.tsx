@@ -100,8 +100,9 @@ interface AppValue {
   /** 설정의 한 구획으로 바로 (예: "set-ai") */
   settingsIntent: Intent<string> | null;
   openSettings: (section: string) => void;
-  /** 화면을 떠나기 전에 묻는 문지기 (설정의 저장 안 한 변경). false 를 돌려주면 go 가 멈춘다 */
-  setLeaveGuard: (guard: ((next: Screen) => boolean) | null) => void;
+  /** 화면을 떠나기 전에 묻는 문지기 (설정의 저장 안 한 변경). false 를 돌려주면 화면을 바꾸지 않는다.
+   *  그때 받은 proceed 를 들고 있다가 사용자가 떠나기로 하면 부른다 (그 화면으로 가며 하려던 일: 연 파일·넘겨줄 일까지) */
+  setLeaveGuard: (guard: ((next: Screen, proceed: () => void) => boolean) | null) => void;
   /** 폴더 지켜보기 화면이 지금 걸린 목록을 알려 둔다 (엔진이 다시 켜지면 이 목록으로 다시 건다) */
   noteWatches: (list: WatchRef[]) => void;
 }
@@ -144,12 +145,16 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
   const [firstRun, setFirstRun] = useState(false);
   const [settingsIntent, setSettingsIntent] = useState<Intent<string> | null>(null);
   const drops = useRef(new Map<string, (paths: string[]) => void>());
-  const leaveGuard = useRef<((next: Screen) => boolean) | null>(null);
-  const go = useCallback((next: Screen) => {
-    if (leaveGuard.current && !leaveGuard.current(next)) return;
-    setScreen(next);
+  const leaveGuard = useRef<((next: Screen, proceed: () => void) => boolean) | null>(null);
+  /** 화면 바꾸기는 모두 여기로: 문지기가 멈추면 하려던 일(run)째 넘겨 두고, 사용자가 떠나기로 하면 그때 한다.
+   *  Ctrl+O·창에 파일 놓기·우클릭 주소가 화면을 바로 바꾸면 설정의 저장 안 한 변경을 묻지 않고 지나갔다 */
+  const move = useCallback((next: Screen, run?: () => void) => {
+    const act = () => { run?.(); setScreen(next); };
+    if (leaveGuard.current && !leaveGuard.current(next, act)) return;
+    act();
   }, []);
-  const setLeaveGuard = useCallback((g: ((next: Screen) => boolean) | null) => { leaveGuard.current = g; }, []);
+  const go = useCallback((next: Screen) => move(next), [move]);
+  const setLeaveGuard = useCallback((g: ((next: Screen, proceed: () => void) => boolean) | null) => { leaveGuard.current = g; }, []);
 
   // 화면 테마
   useEffect(() => {
@@ -289,19 +294,20 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     }
     const clean = given.filter((p) => formatOf(p) !== "unknown");
     if (!clean.length) return;
-    setDocs((prev) => {
-      const have = new Set(prev.map((d) => d.path));
-      return [...prev, ...clean.filter((p) => !have.has(p)).map((p) => ({ path: p, name: baseName(p), format: formatOf(p) }))];
+    move("workbench", () => {
+      setDocs((prev) => {
+        const have = new Set(prev.map((d) => d.path));
+        return [...prev, ...clean.filter((p) => !have.has(p)).map((p) => ({ path: p, name: baseName(p), format: formatOf(p) }))];
+      });
+      setActivePath(clean[0]);
+      setRecent((prev) => {
+        const next = pushRecent(prev, clean.map((p) => ({ path: p, name: baseName(p), format: formatOf(p), at: Date.now() })));
+        saveRecent(next);
+        return next;
+      });
+      if (f && (f.page || f.tool || f.run)) setFocus(intent({ path: clean[0], ...f }));
     });
-    setActivePath(clean[0]);
-    setRecent((prev) => {
-      const next = pushRecent(prev, clean.map((p) => ({ path: p, name: baseName(p), format: formatOf(p), at: Date.now() })));
-      saveRecent(next);
-      return next;
-    });
-    if (f && (f.page || f.tool || f.run)) setFocus(intent({ path: clean[0], ...f }));
-    setScreen("workbench");
-  }, [toast]);
+  }, [toast, move]);
 
   const docsRef = useRef(docs);
   docsRef.current = docs;
@@ -337,14 +343,14 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     docs, activePath, setActive: setActivePath, openDocs, closeDoc, updateDoc, focus,
     batchIntent, startBatch: (b) => {
       // 목록에서 뺀 옛 할 일(옛 주소 호환): 한글 나누기는 나누기로, PDF 쪽 다루기는 PDF 작업 화면으로
-      if (b.task === "pdftools") { setPdfIntent(intent({ paths: b.paths })); setScreen("pdf"); return; }
-      setBatchIntent(intent(b.task === "hwpsplit" ? { ...b, task: "split" } : b)); setScreen("batch");
+      if (b.task === "pdftools") { move("pdf", () => setPdfIntent(intent({ paths: b.paths }))); return; }
+      move("batch", () => setBatchIntent(intent(b.task === "hwpsplit" ? { ...b, task: "split" } : b)));
     },
-    compareIntent, startCompare: (o, n) => { setCompareIntent(intent({ old: o, new: n })); setScreen("compare"); },
-    assistantIntent, askAbout: (a) => { setAssistantIntent(intent(a)); setScreen("assistant"); },
-    workIntent, askWork: (w) => { setWorkIntent(intent(w)); setScreen("chat"); },
-    createIntent, startCreate: (c) => { setCreateIntent(intent(c)); setScreen("create"); },
-    pdfIntent, startPdf: (p) => { setPdfIntent(intent(p)); setScreen("pdf"); },
+    compareIntent, startCompare: (o, n) => move("compare", () => setCompareIntent(intent({ old: o, new: n }))),
+    assistantIntent, askAbout: (a) => move("assistant", () => setAssistantIntent(intent(a))),
+    workIntent, askWork: (w) => move("chat", () => setWorkIntent(intent(w))),
+    createIntent, startCreate: (c) => move("create", () => setCreateIntent(intent(c))),
+    pdfIntent, startPdf: (p) => move("pdf", () => setPdfIntent(intent(p))),
     recent, clearRecent: () => { setRecent([]); saveRecent([]); },
     removeRecent: (path) => setRecent((prev) => { const next = prev.filter((d) => d.path !== path); saveRecent(next); return next; }),
     theme, setTheme: (t) => { setThemeState(t); writePref("kordoc-theme", t); },
@@ -352,7 +358,7 @@ export function AppProvider({ toast, children }: { toast: (msg: string, type?: T
     dragTarget, setDragTarget, registerDrop, dropHandler: (name) => drops.current.get(name),
     badges, setBadge, firstRun, setFirstRun,
     settingsIntent, openSettings: (section) => { setSettingsIntent(intent(section)); go("settings"); }, setLeaveGuard, noteWatches,
-  }), [screen, go, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
+  }), [screen, go, move, engine.status, engine.errorMessage, engine.restart, ready, settings, saveSettings, ai, refreshAi, system, toast,
     docs, activePath, openDocs, closeDoc, updateDoc, focus, batchIntent, compareIntent, assistantIntent, workIntent, createIntent, pdfIntent, recent,
     theme, uiMode, dragTarget, registerDrop, badges, setBadge, firstRun, settingsIntent, setLeaveGuard, noteWatches]);
 

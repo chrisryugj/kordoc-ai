@@ -66,39 +66,48 @@ interface UsageFile {
 const file = () => join(dataDir(), 'usage.json');
 let data: UsageFile | null = null;
 let saveTimer: NodeJS.Timeout | null = null;
-/** 기록 파일을 잠깐 못 읽은 채(다른 프로세스가 쥠) 빈 기록으로 시작했다 — 그대로 저장하면 지난 기록이 지워지니 저장 전에 다시 읽어 합친다 */
-let unread = false;
+/** 마지막 저장 뒤 이 엔진이 더한 건수 — 저장할 때 파일의 지금 기록에 얹는다. 앱 엔진과 MCP 엔진이 같은 파일에 저장해서, 통째로 쓰면
+ *  서로의 건수를 지웠다(기록 파일을 잠깐 못 읽고 빈 기록으로 시작한 때도 같다) */
+let pending: Record<string, Record<string, number>> = {};
+/** 기록 지우기 — 다음 저장은 파일과 합치지 않고 비운 기록으로 덮는다 */
+let cleared = false;
 
 function load(): UsageFile {
   if (data) return data;
   try {
     if (existsSync(file())) data = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
   } catch (err) {
-    unread = !(err instanceof SyntaxError);
     logger.warn(`[usage] 기록 파일을 못 읽어 새로 시작: ${err}`);
   }
   if (!data || data.version !== 1) data = { version: 1, since: new Date().toISOString(), months: {} };
   return data;
 }
 
-/** 못 읽고 시작한 기록을 파일의 기록과 합친다. 아직도 못 읽으면 false (이번 저장은 건너뛴다) */
-function mergeUnread(): boolean {
-  if (!unread || !data) return true;
+/** 저장할 기록 — 파일의 지금 기록(다른 엔진이 그사이 저장한 몫 포함)에 이 엔진이 더한 몫을 얹는다. 파일을 못 읽으면(다른 프로세스가 쥠)
+ *  false: 이번 저장은 건너뛰고 더한 몫은 다음 저장으로. 깨진 파일·없는 파일은 이 엔진의 기록으로 쓴다 */
+function mergeDisk(): boolean {
+  if (!data) return true;
+  if (cleared) {
+    cleared = false;
+    pending = {};
+    return true;
+  }
+  let disk: UsageFile | null = null;
   try {
-    if (existsSync(file())) {
-      const old = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
-      if (old?.version === 1) {
-        for (const [mon, counts] of Object.entries(old.months ?? {})) {
-          const m = (data.months[mon] ??= {});
-          for (const [k, v] of Object.entries(counts)) m[k] = (m[k] ?? 0) + v;
-        }
-        if (old.since < data.since) data.since = old.since;
-      }
-    }
+    if (existsSync(file())) disk = JSON.parse(readFileSync(file(), 'utf-8')) as UsageFile;
   } catch (err) {
     if (!(err instanceof SyntaxError)) return false;
   }
-  unread = false;
+  if (disk?.version === 1) {
+    disk.months ??= {};
+    for (const [mon, counts] of Object.entries(pending)) {
+      const m = (disk.months[mon] ??= {});
+      for (const [k, v] of Object.entries(counts)) m[k] = (m[k] ?? 0) + v;
+    }
+    if (data.since < disk.since) disk.since = data.since;
+    data = disk;
+  }
+  pending = {};
   return true;
 }
 
@@ -106,7 +115,7 @@ function scheduleSave(): void {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    if (!mergeUnread()) return;
+    if (!mergeDisk()) return;
     try {
       mkdirSync(dataDir(), { recursive: true });
       // 앱 엔진과 MCP 엔진이 같이 저장할 수 있다 — 임시 이름이 같으면 덜 쓴 파일이 바꿔 넣어져 다음 읽기가 기록을 지웠다
@@ -125,7 +134,7 @@ export function flushUsage(): void {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = null;
-  if (!mergeUnread()) return;
+  if (!mergeDisk()) return;
   try {
     mkdirSync(dataDir(), { recursive: true });
     writeFileSync(file(), JSON.stringify(data), 'utf-8');
@@ -144,6 +153,8 @@ export function recordUsage(method: string, params: Params, result: unknown): vo
   const month = localMonth();
   const m = (d.months[month] ??= {});
   m[task.key] = (m[task.key] ?? 0) + n;
+  const p = (pending[month] ??= {});
+  p[task.key] = (p[task.key] ?? 0) + n;
   scheduleSave();
 }
 
@@ -197,6 +208,7 @@ export function usageReport(range: 'month' | 'all' = 'month'): { range: string; 
 
 export async function usageReset(): Promise<void> {
   data = { version: 1, since: new Date().toISOString(), months: {} };
-  unread = false;
+  pending = {};
+  cleared = true;
   scheduleSave();
 }

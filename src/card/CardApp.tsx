@@ -4,7 +4,9 @@
  * AI 가 꺼져 있으면 문서 갈래에 맞는 일을 바로 실행 단추로 보인다 (우클릭 동작 id 를 card_handoff 로 본창에 넘김).
  * 본창이 필요한 일(앱에서 열기·편집기·비교)도 card_handoff 로 우클릭 동작과 같은 길로 넘긴다.
  * "영수증으로 지출조서 만들기"(action 'receipt')는 같은 창에 영수증 값 표·지출조서 미리보기(ReceiptCard).
- * 창 주소: index.html?card=<{ action: 'ask'|'versions'|'receipt', paths: string[] } JSON>
+ * 창 주소: index.html?card=<{ action: 'ask'|'versions'|'receipt', paths: string[], hold?: boolean } JSON>
+ * hold: 링크(kordoc:// 주소)로 연 카드. 웹·메일 링크일 수 있어 일(영수증 읽기·다른 판 찾기)은 사용자가 누를 때 시작한다.
+ * 창 X(맥 ⌘W)는 Rust 가 닫지 않고 먼저 묻는다(card-close-requested): 저장 안 한 것을 물은 뒤 card_close 로 답한다.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +15,9 @@ import { AppProvider, useApp } from "../state/app";
 import { useToast } from "../hooks/useToast";
 import { ToastContainer } from "../components/ui/Toast";
 import { TipLayer } from "../components/ui/TipLayer";
-import { rpc, errorText, invokeCmd } from "../lib/rpc";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { rpc, errorText, invokeCmd, isTauri } from "../lib/rpc";
+import { canQuit } from "../lib/quit";
 import { baseName, formatOf } from "../lib/format";
 import { isQuick } from "../lib/quick-actions";
 import type { DocInfo, VersionsResult } from "../lib/contract";
@@ -28,12 +32,12 @@ import "../components/agent/agent.css";
 import "./card.css";
 import { ReceiptCard } from "./ReceiptCard";
 
-interface CardInput { action: "ask" | "versions" | "receipt"; paths: string[] }
+interface CardInput { action: "ask" | "versions" | "receipt"; paths: string[]; hold: boolean }
 
 export function parseCard(raw: string): CardInput | null {
   try {
     const v = JSON.parse(raw) as CardInput;
-    return Array.isArray(v.paths) && v.paths.every((p) => typeof p === "string") && v.paths.length ? { action: v.action === "versions" || v.action === "receipt" ? v.action : "ask", paths: v.paths } : null;
+    return Array.isArray(v.paths) && v.paths.every((p) => typeof p === "string") && v.paths.length ? { action: v.action === "versions" || v.action === "receipt" ? v.action : "ask", paths: v.paths, hold: v.hold === true } : null;
   } catch { return null; }
 }
 
@@ -105,6 +109,8 @@ function Card({ input }: { input: CardInput }) {
   const [vers, setVers] = useState<VersionsResult | null>(null);
   const [versBusy, setVersBusy] = useState(false);
   const [versOpen, setVersOpen] = useState(input.action === "versions");
+  // 링크로 연 카드는 다른 판 찾기(같은 폴더 문서 읽기)를 누를 때 시작한다
+  const [versGo, setVersGo] = useState(!input.hold);
   const [filesOpen, setFilesOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const agent = useWorkAgent({ from: "card" });
@@ -128,10 +134,12 @@ function Card({ input }: { input: CardInput }) {
   useEffect(() => {
     if (!ready || !single) return;
     void rpc("doc_info", { path: first }).then(setInfo, () => undefined);
-    if (!VERSIONABLE.has(fmt)) return;
+  }, [ready, single, first]);
+  useEffect(() => {
+    if (!ready || !single || !versGo || !VERSIONABLE.has(fmt)) return;
     setVersBusy(true);
     void rpc("find_versions", { path: first }).then(setVers, (e) => toast(errorText(e), "error")).finally(() => setVersBusy(false));
-  }, [ready, single, first, fmt, toast]);
+  }, [ready, single, versGo, first, fmt, toast]);
 
   const handoff = (action: string, ps: string[]) => invokeCmd("card_handoff", { action, paths: ps }).then(() => true, (e) => { toast(errorText(e), "error"); return false; });
   const runDirect = async (d: Direct) => {
@@ -184,10 +192,10 @@ function Card({ input }: { input: CardInput }) {
       <main className="kd-card-body">
         {single && VERSIONABLE.has(fmt) && (
           <section className="kd-card-vers" aria-label="같은 문서의 다른 판">
-            <button type="button" onClick={() => setVersOpen((o) => !o)} aria-expanded={versOpen} disabled={versBusy || !vers}>
+            <button type="button" onClick={() => { if (versGo) setVersOpen((o) => !o); else { setVersGo(true); setVersOpen(true); } }} aria-expanded={versOpen} disabled={versBusy || (versGo && !vers)}>
               {versBusy ? <Loader2 size={16} className="kd-spin" /> : <History size={16} />}
               <span className="min-w-0 flex-1">
-                {versBusy ? "같은 문서의 다른 판을 찾는 중" : !vers ? "다른 판을 찾지 못했습니다" : others === 0 ? "다른 판 없음 · 이 문서가 하나뿐입니다" : <>다른 판 {others}개 · 최종으로 보이는 것 <b>{vers.latest === first ? "이 문서" : latestName}</b></>}
+                {!versGo ? "같은 문서의 다른 판 찾기" : versBusy ? "같은 문서의 다른 판을 찾는 중" : !vers ? "다른 판을 찾지 못했습니다" : others === 0 ? "다른 판 없음 · 이 문서가 하나뿐입니다" : <>다른 판 {others}개 · 최종으로 보이는 것 <b>{vers.latest === first ? "이 문서" : latestName}</b></>}
               </span>
               {vers && others > 0 && (versOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
             </button>
@@ -267,12 +275,30 @@ function Card({ input }: { input: CardInput }) {
   );
 }
 
+/** 창 X: 저장 안 한 것(영수증 카드에서 고치던 표)을 물은 뒤 Rust 에 답한다. 받았다는 답(asking)을 먼저 보내야
+ *  묻는 상자가 떠 있는 동안 X 를 또 눌러도 Rust 가 닫지 않는다 (답이 없으면 화면이 멈춘 것으로 보고 닫는다) */
+function useCloseGuard() {
+  useEffect(() => {
+    if (!isTauri) return;
+    let off: (() => void) | undefined;
+    let disposed = false;
+    // 이 창에 온 것만 (다른 카드 창의 닫기 물음에 답하지 않게)
+    void getCurrentWebviewWindow().listen("card-close-requested", async () => {
+      await invokeCmd("card_close", { answer: "asking" }).catch(() => undefined);
+      const ok = await canQuit();
+      await invokeCmd("card_close", { answer: ok ? "close" : "stay" }).catch(() => undefined);
+    }).then((fn) => { if (disposed) fn(); else off = fn; });
+    return () => { disposed = true; off?.(); };
+  }, []);
+}
+
 export function CardApp({ raw }: { raw: string }) {
   const { toasts, showToast, dismissToast } = useToast();
   const input = useMemo(() => parseCard(raw), [raw]);
+  useCloseGuard();
   return (
     <AppProvider toast={showToast}>
-      {input?.action === "receipt" ? <ReceiptCard paths={input.paths} /> : input ? <Card input={input} /> : <p className="kd-text p-6">문서 정보를 읽지 못했습니다. 탐색기에서 다시 우클릭하세요.</p>}
+      {input?.action === "receipt" ? <ReceiptCard paths={input.paths} hold={input.hold} /> : input ? <Card input={input} /> : <p className="kd-text p-6">문서 정보를 읽지 못했습니다. 탐색기에서 다시 우클릭하세요.</p>}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <TipLayer />
     </AppProvider>

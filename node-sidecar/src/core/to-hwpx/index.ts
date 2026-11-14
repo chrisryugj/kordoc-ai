@@ -66,7 +66,8 @@ export async function toHwpxBatch(p: { paths: string[]; preset?: string; output_
   const results: BatchItemResult[] = [];
   for (const [i, path] of p.paths.entries()) {
     signal.throwIfAborted();
-    sendProgress({ current: i + 1, total: p.paths.length, message: `${basename(path)} 한글로 바꾸는 중 (${i + 1}/${p.paths.length})` });
+    const step = { current: i + 1, total: p.paths.length, message: `${basename(path)} 한글로 바꾸는 중 (${i + 1}/${p.paths.length})` };
+    sendProgress(step);
     try {
       const r = await toHwpx({ path, preset: p.preset, output_dir: p.output_dir }, signal, true);
       results.push({ path, ok: true, output_path: r.output_path, note: r.style });
@@ -74,6 +75,8 @@ export async function toHwpxBatch(p: { paths: string[]; preset?: string; output_
       if (signal.aborted) throw err;
       results.push({ path, ok: false, error: errorText(err) });
     }
+    // 끝난 파일마다 결과를 알린다 (멈춰도 화면이 만든 파일을 안다)
+    sendProgress({ ...step, item: results[results.length - 1] });
   }
   return { results, output_dir: outputDir({ output_dir: p.output_dir, source: p.paths[0] }) };
 }

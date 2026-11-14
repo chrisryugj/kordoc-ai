@@ -316,11 +316,12 @@ export interface RpcMethods {
   /** 내장 편집기로 열 바이트. token 은 editor_write 에 넘겨 HWP 저장 때 rhwp 가 빠뜨린 것을 원본에서 메운다(core/hwp-save).
    *  tracked: 변경 추적 문서 (rhwp 는 검토 기록이 섞인 화면용 본문을 읽는다. 저장하면 보이는 그대로 본문이 되고 추적 기록은 남지 않으며, 저장 보정을 하지 않는다). recover: 그 경로의 복구 사본을 연다 */
   editor_open: [{ path: string; recover?: boolean }, { data_b64: string; name: string; size: number; token: string; tracked: boolean }];
-  /** 편집기 내보내기 저장 — HWP 는 token 의 원본으로 구역 끝 묶음·필드 글자 종류·새 탭 폭을 메우고, 처음 덮어쓰는 파일은 `.bak` 을 남긴다.
+  /** 편집기 내보내기 저장 — HWP 는 token 의 원본으로 구역 끝 묶음·필드 글자 종류·새 탭 폭을 메우고, 편집기가 쓴 판이 아닌 파일을 덮기 전엔
+   *  `.bak`(이미 있으면 날짜 백업)을 남긴다(token 이 없어도, core/files/backup).
    *  tails_lost: 되붙이지 못한 묶음이 있다 (한글에서 열어 확인하라고 알린다). backup: false 면 .bak 을 만들지 않는다 (앱 작업 사본) */
   editor_write: [{ path: string; data_b64: string; token?: string; overwrite?: boolean; backup?: boolean }, { path: string; backup_path?: string; tails_lost?: boolean }];
   /** 한글 편집기 복구 사본 (앱 데이터 폴더 recovery/, 문서 경로마다 하나) — 저장하지 않은 채 앱이 꺼져도 다음에 되살린다.
-   *  되살리기는 editor_open recover. 지우는 건 저장했거나 사용자가 버렸을 때(recovery_discard). 14일 지난 사본은 목록에서 지운다 */
+   *  되살리기는 editor_open recover. 지우는 건 저장했거나 사용자가 버렸을 때(recovery_discard). 목록으로 처음 보여 준 뒤 14일 지난 사본은 목록에서 지운다 */
   recovery_write: [{ path: string; data_b64: string; title?: string; working?: boolean }, { ok: boolean }];
   /** path: 그 문서의 사본만 (한글 이름 조합 방식·Windows 대소문자는 같은 파일로 본다) */
   recovery_list: [{ path?: string }, { entries: RecoveryEntry[] }];
@@ -606,6 +607,8 @@ export interface CollectGatherParams {
 
 export interface CollectGatherResult {
   output_path: string;
+  /** 덮은 엑셀을 그 뒤 고쳐 저장했었으면 남긴 백업 (overwrite) */
+  backup_path?: string;
   /** 첫 시트 자료 행 수 (합계 행 빼고) */
   rows: number;
   /** 엑셀 열 (제출 파일·부서 빼고). required 는 빈칸을 세는 열 */

@@ -1,7 +1,7 @@
 /** 받은 공문 — 예제 공문(HWPX·PDF) 뽑기, 여러 날짜 꼴, 기한 아닌 날짜(행사 일시), 저장·다시 넣기·상태 유지·정렬·실패 */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { call, corpus, hasCorpus, sample, setupEnv } from './doc-helpers.js';
 import { extractInbox } from '../src/core/inbox/extract.js';
@@ -153,6 +153,27 @@ describe('저장·다시 넣기·상태 유지', () => {
     writeFileSync(p, letter(body));
     return p;
   };
+
+  it('다른 엔진(MCP)이 고치는 중이면 잠금이 풀린 뒤 고치고, 죽은 엔진이 남긴 잠금은 넘는다', async () => {
+    const a = write('잠금.txt', '1. 신청서를 10. 23.(금)까지 제출하여 주시기 바랍니다.');
+    const first = (await call('inbox_add', { paths: [a] })).items[0];
+    const lock = join(env.data, 'inbox.json.lock');
+    writeFileSync(lock, '99999');
+    let done = false;
+    const upd = call('inbox_update', { id: first.id, note: '잠금 뒤' }).then((r) => { done = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(done).toBe(false);
+    rmSync(lock);
+    expect((await upd).note).toBe('잠금 뒤');
+    // 10초 넘은 잠금은 기다리지 않는다
+    writeFileSync(lock, '99999');
+    const old = (Date.now() - 60_000) / 1000;
+    utimesSync(lock, old, old);
+    expect((await call('inbox_update', { id: first.id, note: '낡은 잠금' })).note).toBe('낡은 잠금');
+    expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(env.data).filter((f) => f.startsWith('inbox.json.') && f.endsWith('.tmp'))).toEqual([]);
+    await call('inbox_remove', { id: first.id });
+  });
 
   it('고친 기한·상태·메모는 다시 넣어도 그대로, 뽑은 값만 갱신', async () => {
     const a = write('가.txt', '1. 신청서를 10. 23.(금)까지 제출하여 주시기 바랍니다.');

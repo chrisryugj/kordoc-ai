@@ -9,6 +9,16 @@
 import { readFile, rename } from 'node:fs/promises';
 import { logger } from './logger.js';
 
+/** 목록 파일 하나를 고치는 줄 — 읽고 고쳐 쓰는 사이 다른 요청이 끼면 한쪽 변경이 사라진다(같은 엔진 안에서 둘이 겹칠 때). 목록마다 하나씩 */
+export function serial(): <T>(fn: () => Promise<T>) => Promise<T> {
+  let chain: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>) => {
+    const run = chain.then(fn, fn);
+    chain = run.catch(() => undefined);
+    return run;
+  };
+}
+
 export async function readListFile(path: string, what: string, forWrite: boolean): Promise<unknown> {
   let text: string;
   try {

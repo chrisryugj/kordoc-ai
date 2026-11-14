@@ -55,6 +55,32 @@ describe('효과 집계 달 경계', () => {
     rmSync(file, { force: true });
   });
 
+  it('다른 엔진(MCP)이 그사이 저장한 건수를 덮어 지우지 않는다 — 더한 몫만 얹는다', async () => {
+    vi.useRealTimers();
+    const file = join(dir, 'usage.json');
+    rmSync(file, { recursive: true, force: true });
+    vi.resetModules();
+    const app = await import('../src/infra/usage.js');
+    app.recordUsage('export_pdf', { path: 'a.hwpx' }, {});
+    app.flushUsage();
+    const month = Object.keys(JSON.parse(readFileSync(file, 'utf-8')).months)[0];
+    // 다른 엔진이 같은 파일에 PDF 5건·OCR 3쪽을 더해 저장했다
+    const other = JSON.parse(readFileSync(file, 'utf-8'));
+    other.months[month].pdf += 5;
+    other.months[month].ocr = 3;
+    writeFileSync(file, JSON.stringify(other));
+    app.recordUsage('export_pdf', { path: 'b.hwpx' }, {});
+    app.flushUsage();
+    const saved = JSON.parse(readFileSync(file, 'utf-8'));
+    expect(saved.months[month].pdf).toBe(7);
+    expect(saved.months[month].ocr).toBe(3);
+    // 지우기는 합치지 않고 비운다
+    await app.usageReset();
+    app.flushUsage();
+    expect(JSON.parse(readFileSync(file, 'utf-8')).months).toEqual({});
+    rmSync(file, { force: true });
+  });
+
   it('도장을 찍지 못했으면(placed 0) 세지 않는다', async () => {
     await usageReset();
     recordUsage('seal', {}, { output_path: '', placed: 0 });

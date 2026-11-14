@@ -15,6 +15,7 @@ import { Button } from "../ui/Button";
 import { MarkdownViewer } from "../ui/MarkdownViewer";
 import { PageStack } from "../common/PageStack";
 import { useRhwpPages } from "../common/useRhwpPages";
+import { pagesToDrop } from "../common/page-budget";
 import { readBytes, rhwpWorth } from "../../lib/rhwp-preview";
 import { Seg } from "../common/Field";
 import { Empty, ErrorLine, Note, Working } from "../common/Status";
@@ -39,11 +40,15 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
   const inflight = useRef(new Set<number>());
   /** 쪽 그림을 놓을 때마다 올린다 — 그 전에 보낸 엔진 렌더 결과는 버린다 */
   const gen = useRef(0);
-  const text = useTask<string>();
-  const ocr = useTask<string>();
+  // 읽어 보기만 하는 일: 문서를 닫으면 끊는다
+  const text = useTask<string>({ stopOnUnmount: true });
+  const ocr = useTask<string>({ stopOnUnmount: true });
   const pw = doc.password ? { password: doc.password } : {};
 
+  /** 지금 보이는 쪽 (가까운 순) — 들고 있는 쪽 그림이 상한을 넘으면 여기서 먼 쪽부터 버린다 */
+  const wanted = useRef<number[]>([]);
   const need = useCallback(async (nums: number[]) => {
+    wanted.current = nums;
     const todo = nums.filter((n) => !inflight.current.has(n));
     if (!todo.length) return;
     todo.forEach((n) => inflight.current.add(n));
@@ -58,6 +63,8 @@ export function DocViewer({ doc, info, scrollTo, live, onPageCount }: {
         setPages((prev) => {
           const next = { ...prev };
           for (const p of r.pages) next[p.page] = p;
+          // 버린 쪽은 다시 보이면 또 그려 달라고 한다
+          for (const n of pagesToDrop(new Map(Object.values(next).map((p) => [p.page, p.data_url.length])), wanted.current)) { delete next[n]; inflight.current.delete(n); }
           return next;
         });
       } catch (e) {

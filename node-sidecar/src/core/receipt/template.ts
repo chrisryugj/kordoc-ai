@@ -7,7 +7,7 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import JSZip from 'jszip';
 import { buildParagraphSplices, applySplices, scanSectionXml, type ScanCell, type ScanTable, type SpliceEdit } from 'kordoc';
@@ -16,6 +16,7 @@ import { dataDir, getSettings, updateSettings } from '../../infra/config.js';
 import { aiConfigured, ask, parseJsonLoose } from '../../infra/llm/index.js';
 import { logger } from '../../infra/logger.js';
 import { errorText } from '../errors.js';
+import { atomicWriteFile } from '../files/io.js';
 import { sampleBytes } from '../style/extract.js';
 
 export const FIELDS: ReceiptColumn[] = ['seq', 'date', 'vendor', 'brn', 'purpose', 'amount', 'supply', 'vat', 'payment', 'approval', 'owner', 'address', 'note'];
@@ -159,7 +160,8 @@ export async function templateLearn(p: { path: string; save?: boolean; ai?: bool
   if (p.save) {
     mkdirSync(templateDir(), { recursive: true });
     const dest = join(templateDir(), 'template.hwpx');
-    await writeFile(dest, bytes);
+    // 앞서 넣은 서식을 바꿀 때 덮는다: 쓰다 끊기면 앞 서식까지 잃지 않게
+    await atomicWriteFile(dest, bytes);
     await updateSettings({ receipt: { template_path: dest, template_name: info.name, columns: info.columns } });
     info.saved = true;
     info.template_path = dest;

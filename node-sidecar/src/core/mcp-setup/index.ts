@@ -8,13 +8,14 @@
  */
 
 import { existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { McpEnv } from '../../types/rpc-contract.js';
 import { getSettings } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
+import { renameRetry } from '../../infra/rename.js';
 import { kordocMcpPath } from '../kordoc-cli.js';
 import { modelCacheDir } from '../system/index.js';
 
@@ -169,7 +170,7 @@ async function writeWhole(path: string, text: string): Promise<void> {
   try {
     await writeFile(tmp, text, { encoding: 'utf-8', mode });
     await chmod(tmp, mode);
-    await rename(tmp, path);
+    await renameRetry(tmp, path);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => undefined);
     throw err;

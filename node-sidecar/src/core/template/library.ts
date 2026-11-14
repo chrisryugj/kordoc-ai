@@ -5,17 +5,18 @@
  */
 
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { BUILTIN_TEMPLATES, extractClickHereFields, extractFormSchema, markdownToHwpx, readBuiltinTemplate, type GongmunOptions, type GongmunPreset } from 'kordoc';
 import { rhwpCompat } from '../gongmun/rhwp-compat.js';
 import type { TemplateAnalysis, TemplateEntry } from '../../types/rpc-contract.js';
 import { dataDir, getSettings } from '../../infra/config.js';
-import { readListFile } from '../../infra/list-file.js';
+import { readListFile, serial } from '../../infra/list-file.js';
 import { cleanMessage } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
 import { formatOf } from '../files/format.js';
+import { atomicWriteFile } from '../files/io.js';
 import { checkAgency, levelsFrom, presetOf, PRESETS } from '../gongmun/index.js';
 import { outputFile, stemOf } from '../output/index.js';
 import { gongmunDate, orgDocFoot } from './org.js';
@@ -33,10 +34,10 @@ async function readIndex(forWrite = false): Promise<StoredEntry[]> {
 
 async function writeIndex(templates: StoredEntry[]): Promise<void> {
   await mkdir(libDir(), { recursive: true });
-  const tmp = `${indexPath()}.tmp`;
-  await writeFile(tmp, JSON.stringify({ version: 1, templates }, null, 2), 'utf-8');
-  await rename(tmp, indexPath());
+  await atomicWriteFile(indexPath(), JSON.stringify({ version: 1, templates }, null, 2));
 }
+/** 등록·지우기가 겹치면 한쪽이 사라졌다(같은 임시 이름이면 늦은 쪽은 ENOENT) */
+const changing = serial();
 
 let builtinCache: Promise<TemplateEntry[]> | null = null;
 
@@ -103,29 +104,35 @@ export async function templateAnalyze(path: string, signal?: AbortSignal): Promi
 
 export async function templateAdd(p: { path: string; name?: string; category?: string }, signal?: AbortSignal): Promise<TemplateEntry> {
   const analysis = await templateAnalyze(p.path, signal);
-  const list = await readIndex(true);
-  const id = randomUUID().slice(0, 8);
-  await mkdir(libDir(), { recursive: true });
-  const dest = join(libDir(), `${id}${extname(p.path).toLowerCase()}`);
-  await copyFile(p.path, dest);
-  const name = p.name?.trim() || stemOf(p.path);
-  const entry: StoredEntry = {
-    id: `user:${id}`, name, category: p.category?.trim() || guessCategory(name), source: 'user', path: dest, format: analysis.format,
-    has_fields: analysis.fields.length > 0, field_count: analysis.fields.length || analysis.label_fields.length,
-    description: STRATEGY_TEXT[analysis.strategy], added_at: new Date().toISOString(), analysis,
-  };
-  await writeIndex([...list, entry]);
-  return entry;
+  return changing(async () => {
+    const list = await readIndex(true);
+    const id = randomUUID().slice(0, 8);
+    await mkdir(libDir(), { recursive: true });
+    const dest = join(libDir(), `${id}${extname(p.path).toLowerCase()}`);
+    await copyFile(p.path, dest);
+    const name = p.name?.trim() || stemOf(p.path);
+    const entry: StoredEntry = {
+      id: `user:${id}`, name, category: p.category?.trim() || guessCategory(name), source: 'user', path: dest, format: analysis.format,
+      has_fields: analysis.fields.length > 0, field_count: analysis.fields.length || analysis.label_fields.length,
+      description: STRATEGY_TEXT[analysis.strategy], added_at: new Date().toISOString(), analysis,
+    };
+    await writeIndex([...list, entry]);
+    return entry;
+  });
 }
 
 export async function templateRemove(id: string): Promise<boolean> {
   if (!id.startsWith('user:')) throw new Error('내장 서식은 지울 수 없습니다.');
-  const list = await readIndex(true);
-  const hit = list.find((t) => t.id === id);
-  if (!hit) return false;
-  await unlink(hit.path!).catch(() => undefined);
-  await writeIndex(list.filter((t) => t.id !== id));
-  return true;
+  return changing(async () => {
+    const list = await readIndex(true);
+    const hit = list.find((t) => t.id === id);
+    if (!hit) return false;
+    // 지우는 건 서식함 폴더에 둔 사본뿐: 목록 파일을 손으로 고쳐(또는 깨져) 사용자 문서를 가리키면 그 문서를 지울 뻔했다
+    const rel = relative(libDir(), resolve(hit.path!));
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) await unlink(hit.path!).catch(() => undefined);
+    await writeIndex(list.filter((t) => t.id !== id));
+    return true;
+  });
 }
 
 /** 빈 값은 빼고, 다 비면 undefined (엔진이 빈 칸을 그리지 않게) */

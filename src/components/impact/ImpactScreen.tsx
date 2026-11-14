@@ -3,7 +3,7 @@
  * 기준 시간은 기관 실정에 맞게 바꾸고(impact.baselines), 기관 보고용 HWPX 로 저장한다.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, FileDown, RotateCcw, Save } from "lucide-react";
 import type { UsageReport } from "../../lib/contract";
 import { useApp } from "../../state/app";
@@ -30,25 +30,30 @@ export function ImpactScreen({ active }: { active: boolean }) {
   const [range, setRange] = useState<"month" | "all">("month");
   const [report, setReport] = useState<UsageReport | null>(null);
   const [error, setError] = useState("");
+  /** 고친 기준 시간만 (안 고친 칸은 집계 값을 보인다). 다시 읽어도(다른 화면 다녀옴·기간 바꿈) 고친 것은 남는다 */
   const [base, setBase] = useState<Record<string, string>>({});
   const exp = useTask<string>();
+  const baseOf = (i: UsageReport["items"][number]) => base[i.key] ?? String(i.baseline_min);
 
+  /** 늦게 온 앞 기간의 집계가 새 기간을 덮지 않게 */
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const my = ++loadSeq.current;
     try {
       const r = await rpc("usage_report", { range });
+      if (my !== loadSeq.current) return;
       setReport(r);
-      setBase(Object.fromEntries(r.items.map((i) => [i.key, String(i.baseline_min)])));
       setError("");
-    } catch (e) { setError(errorText(e)); }
+    } catch (e) { if (my === loadSeq.current) setError(errorText(e)); }
   }, [range]);
   useEffect(() => { if (active && ready) void load(); }, [active, ready, load]);
 
-  const changed = useMemo(() => report?.items.some((i) => String(i.baseline_min) !== base[i.key]) ?? false, [report, base]);
+  const changed = useMemo(() => report?.items.some((i) => base[i.key] != null && base[i.key] !== String(i.baseline_min)) ?? false, [report, base]);
 
   const saveBase = async () => {
     const baselines = { ...(settings?.impact.baselines ?? {}) };
-    for (const [k, v] of Object.entries(base)) { const n = Number(v); if (Number.isFinite(n) && n >= 0) baselines[k] = n; }
-    if (await saveSettings({ impact: { baselines } })) { toast("기준 시간을 저장했습니다", "success"); void load(); }
+    for (const i of report?.items ?? []) { const n = Number(baseOf(i)); if (Number.isFinite(n) && n >= 0) baselines[i.key] = n; }
+    if (await saveSettings({ impact: { baselines } })) { toast("기준 시간을 저장했습니다", "success"); await load(); setBase({}); }
   };
 
   const [confirmReset, setConfirmReset] = useState(false);
@@ -101,7 +106,7 @@ export function ImpactScreen({ active }: { active: boolean }) {
                       <td className="text-right kd-num">{num(i.count)}{i.unit}</td>
                       <td className="text-right">
                         <span className="inline-flex items-center gap-1.5">
-                          <input className="kd-input kd-num text-right" style={{ width: 72, height: 30 }} inputMode="numeric" value={base[i.key] ?? ""} aria-label={`${i.label} 한 건 기준 분`}
+                          <input className="kd-input kd-num text-right" style={{ width: 72, height: 30 }} inputMode="numeric" value={baseOf(i)} aria-label={`${i.label} 한 건 기준 분`}
                             onChange={(e) => setBase((b) => ({ ...b, [i.key]: e.target.value.replace(/[^\d.]/g, "") }))} />
                           <span className="kd-small kd-muted">분</span>
                         </span>

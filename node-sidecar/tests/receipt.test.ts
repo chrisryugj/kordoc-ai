@@ -248,6 +248,21 @@ describe('합성 영수증 OCR 정확도 (금액·일자·사업자번호 필수
     expect(r.ai_used).toBe(false);
   }, 120_000);
 
+  it.skipIf(!ocrModelsReady())('양면 스캔 PDF 의 빈 뒷면은 "못 읽은 쪽"으로 알리지 않고 넘긴다', async () => {
+    const { PDFDocument } = await import('pdf-lib');
+    const sharp = (await import('sharp')).default;
+    const doc = await PDFDocument.create();
+    const front = await doc.embedPng(readFileSync(join(FX, 'simple.png')));
+    const back = await doc.embedPng(await sharp({ create: { width: front.width, height: front.height, channels: 3, background: '#ffffff' } }).png().toBuffer());
+    for (const img of [front, back]) doc.addPage([front.width, front.height]).drawImage(img, { x: 0, y: 0, width: front.width, height: front.height });
+    const path = join(env.work, '양면 스캔.pdf');
+    writeFileSync(path, await doc.save());
+    const r = await call('receipt_read', { paths: [path] });
+    expect(r.receipts).toHaveLength(1);
+    expect(r.receipts[0]).toMatchObject({ ok: true, page: 1 });
+    expect(r.warnings.join('\n')).not.toMatch(/읽지 못해 빠졌/);
+  }, 120_000);
+
   it('그림·PDF 가 아니면 그 파일만 실패로', async () => {
     const r = await call('receipt_read', { paths: [join(env.work, '없는.hwpx')] });
     expect(r.receipts[0]).toMatchObject({ ok: false });

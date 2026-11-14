@@ -43,15 +43,19 @@ export async function pickFolder(): Promise<string | null> {
   return Array.isArray(picked) ? picked[0] ?? null : picked;
 }
 
-export async function pickSavePath(defaultPath: string, filters?: FileFilter[]): Promise<string | null> {
-  if (!isTauri) return defaultPath.includes("/") ? defaultPath : `/Users/kim/Documents/${defaultPath}`;
+/** 저장 창 — 고른 경로와, 저장 창이 그 이름에 덮어쓰기까지 물어 확인했는지(overwrite: 엔진에 그대로 넘긴다) */
+export async function pickSavePath(defaultPath: string, filters?: FileFilter[]): Promise<{ path: string; overwrite: boolean } | null> {
+  if (!isTauri) return { path: defaultPath.includes("/") ? defaultPath : `/Users/kim/Documents/${defaultPath}`, overwrite: true };
   // 맥 우클릭·끌어 놓기로 연 문서는 이름이 자소 분리(NFD)라, 그대로 제안하면 윈도에서 저장한 이름이 깨진다
   const cut = Math.max(defaultPath.lastIndexOf("/"), defaultPath.lastIndexOf("\\")) + 1;
   const picked = await save({ defaultPath: defaultPath.slice(0, cut) + defaultPath.slice(cut).normalize("NFC"), filters });
   if (!picked) return null;
-  // 저장 창이 확장자를 안 붙여 주거나 다른 확장자(회신.pdf)를 친 그대로 돌려줄 때, 내용과 이름이 어긋나지 않게 고른 형식의 확장자를 붙인다
+  // 저장 창이 확장자를 안 붙여 주거나 다른 확장자(회신.pdf)를 친 그대로 돌려줄 때, 내용과 이름이 어긋나지 않게 고른 형식의 확장자를 붙인다.
+  // 그러면 창이 덮어쓰기를 물은 것은 다른 이름(회신.pdf)이다 → 덮어쓰지 않는다 (같은 이름이 있으면 엔진이 (2) 를 붙이거나 알린다)
   const exts = (filters ?? []).flatMap((f) => f.extensions);
-  return exts.length && !exts.some((e) => picked.toLowerCase().endsWith(`.${e.toLowerCase()}`)) ? `${picked}.${exts[0]}` : picked;
+  return exts.length && !exts.some((e) => picked.toLowerCase().endsWith(`.${e.toLowerCase()}`))
+    ? { path: `${picked}.${exts[0]}`, overwrite: false }
+    : { path: picked, overwrite: true };
 }
 
 /** 창이 가려져 있을 때만 시스템 알림 (보이는 동안은 화면 안 알림으로 충분) */

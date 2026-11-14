@@ -2,10 +2,11 @@
  * 문서 카드: 탐색기 우클릭 "영수증으로 지출조서 만들기" (그림·PDF, 여러 장이면 한 카드에 줄 여러 개).
  * 이 PC 안에서 글자를 읽고(OCR) 값을 뽑아 고칠 수 있는 표로 → 지출조서 미리보기 → 끝나면 표를 클립보드에 넣는다.
  * 이 PC·기관 AI 서버가 켜져 있으면 적요 한 줄만 AI 로, 외부 AI 는 사용자가 누를 때만 (ReceiptEditor).
+ * hold: 링크로 연 카드라 "읽기 시작"을 누를 때까지 읽지 않는다 (우클릭 메뉴로 연 카드는 바로 읽는다).
  */
 
 import { useEffect, useState } from "react";
-import { LayoutGrid, ReceiptText, RotateCcw } from "lucide-react";
+import { LayoutGrid, Play, ReceiptText, RotateCcw } from "lucide-react";
 import type { RpcResult } from "../lib/contract";
 import { useApp } from "../state/app";
 import { useTask } from "../hooks/useTask";
@@ -15,20 +16,21 @@ import { Button } from "../components/ui/Button";
 import { ErrorLine, Working } from "../components/common/Status";
 import { ReceiptEditor } from "../components/receipt/ReceiptEditor";
 
-export function ReceiptCard({ paths }: { paths: string[] }) {
+export function ReceiptCard({ paths, hold = false }: { paths: string[]; hold?: boolean }) {
   const { ready, ai, settings, toast } = useApp();
   const read = useTask<RpcResult<"receipt_read">>();
   const [started, setStarted] = useState(false);
+  const [go, setGo] = useState(!hold);
   // AI 상태를 읽을 틈을 조금 준다 (못 읽어도 AI 없이 읽는다)
   const [waited, setWaited] = useState(false);
   useEffect(() => { const t = setTimeout(() => setWaited(true), 1500); return () => clearTimeout(t); }, []);
 
   useEffect(() => {
-    if (!ready || started || (!ai && !waited)) return;
+    if (!go || !ready || started || (!ai && !waited)) return;
     setStarted(true);
     const useAi = !!ai?.configured && !ai.is_cloud;
     void read.run(({ signal, onProgress }) => rpc("receipt_read", { paths, ai: useAi }, { signal, onProgress }));
-  }, [ready, started, ai, waited, paths, read]);
+  }, [go, ready, started, ai, waited, paths, read]);
 
   const toMain = () => invokeCmd("card_handoff", { action: "receipt", paths }).catch((e) => toast(errorText(e), "error"));
   const template = settings?.receipt?.template_name;
@@ -44,7 +46,13 @@ export function ReceiptCard({ paths }: { paths: string[] }) {
         </div>
       </header>
       <main className="kd-card-body">
-        {(!started || read.busy) && <Working label="영수증을 읽는 중" progress={read.progress} onCancel={read.busy ? read.cancel : undefined} />}
+        {!go && (
+          <div className="flex flex-col items-start gap-3">
+            <p className="kd-text">링크로 연 카드라 아직 읽지 않았습니다. 읽기 시작을 누르면 이 PC에서 글자를 읽어 표로 만들고(AI가 켜져 있으면 적요도 씁니다), 다 읽으면 표를 클립보드에 넣습니다.</p>
+            <Button size="sm" onClick={() => setGo(true)}><Play size={13} /> 읽기 시작</Button>
+          </div>
+        )}
+        {go && (!started || read.busy) && <Working label="영수증을 읽는 중" progress={read.progress} onCancel={read.busy ? read.cancel : undefined} />}
         <ErrorLine message={read.error} />
         {/* 읽기가 실패했거나 멈췄으면 여기서 다시 읽을 수 있게 (없으면 본창으로 넘기는 길만 남는다) */}
         {started && !read.busy && !read.result && <div><Button size="sm" onClick={() => setStarted(false)}><RotateCcw size={13} /> 다시 읽기</Button></div>}

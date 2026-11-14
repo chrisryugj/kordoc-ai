@@ -1,7 +1,7 @@
 /** 가. 내 기관 정보 › 지출조서 서식 — 기관 서식(HWP·HWPX)을 넣으면 표 머리 칸 이름으로 칸마다 넣을 값을 맞춘다(receipt_template_*).
  *  쉬운 화면에서도 보인다 (처음 쓰는 사람도 기관 서식으로 만들게). 대응표는 고르면 바로 저장 */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FilePlus2, Trash2 } from "lucide-react";
 import type { ReceiptColumn, ReceiptTemplateInfo } from "../../lib/contract";
 import { useApp } from "../../state/app";
@@ -41,13 +41,22 @@ export function ReceiptTemplate() {
     toast(`지출조서 서식을 넣었습니다: ${r.name}`, "success");
   };
 
+  /** 답을 기다리는 대응표 — 잇달아 고르면 이 위에 쌓는다 (화면 값으로 보내면 답이 오기 전에 고친 앞 칸이 되돌아갔다) */
+  const pending = useRef<Array<ReceiptColumn | ""> | null>(null);
+  const setSeq = useRef(0);
   const setField = async (i: number, field: ReceiptColumn | "") => {
     if (!info) return;
+    const fields = (pending.current ?? info.columns.map((c) => c.field)).map((f, k) => (k === i ? field : f));
+    pending.current = fields;
+    const my = ++setSeq.current;
     try {
-      const r = await rpc("receipt_template_set", { fields: info.columns.map((c, k) => (k === i ? field : c.field)) });
+      const r = await rpc("receipt_template_set", { fields });
+      if (my !== setSeq.current) return; // 더 나중에 고른 것의 답이 주인
+      pending.current = null;
       setInfo((cur) => (cur ? { ...cur, columns: r.columns } : r));
       await saveSettings({});
     } catch (e) {
+      if (my === setSeq.current) pending.current = null;
       toast(errorText(e), "error");
     }
   };

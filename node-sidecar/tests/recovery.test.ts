@@ -50,9 +50,9 @@ describe('recovery', () => {
     const path = join(work, '공문.hwp');
     writeFileSync(path, 'x');
     await (await mod()).recoveryWrite({ path, data_b64: b64('고친 것'), title: '공문' });
-    expect((await mod()).recoveryList().entries).toEqual([]);
+    expect((await (await mod()).recoveryList()).entries).toEqual([]);
     vi.resetModules(); // 앱이 꺼졌다 다시 켜짐
-    const [e] = (await mod()).recoveryList().entries;
+    const [e] = (await (await mod()).recoveryList()).entries;
     expect(e).toMatchObject({ path, name: '공문.hwp', format: 'hwp', title: '공문', exists: true, size: Buffer.byteLength('고친 것') });
   });
 
@@ -61,21 +61,41 @@ describe('recovery', () => {
     await (await mod()).recoveryWrite({ path: nfc, data_b64: b64('a') });
     vi.resetModules();
     const r = await mod();
-    expect(r.recoveryList(nfc.normalize('NFD')).entries.map((e) => e.path)).toEqual([nfc]);
-    expect(r.recoveryList(join(work, '다른 문서.hwpx')).entries).toEqual([]);
+    expect((await r.recoveryList(nfc.normalize('NFD'))).entries.map((e) => e.path)).toEqual([nfc]);
+    expect((await r.recoveryList(join(work, '다른 문서.hwpx'))).entries).toEqual([]);
     expect(r.recoveryBytes(nfc.normalize('NFD'))?.toString()).toBe('a');
   });
 
-  it('14일 지난 사본은 목록을 볼 때 지운다', async () => {
+  it('14일은 처음 보여 준 때부터 센다: 2주 넘게 앱을 안 켰어도 한 번은 보이고, 보여 준 뒤 14일 지나면 지운다', async () => {
     const path = join(work, '옛.hwpx');
     await (await mod()).recoveryWrite({ path, data_b64: b64('a') });
     vi.resetModules();
     const r = await mod();
-    const bin = readdirSync(join(data, 'recovery')).find((f) => f.endsWith('.bin'))!;
+    const rec = join(data, 'recovery');
+    const bin = readdirSync(rec).find((f) => f.endsWith('.bin'))!;
     const old = (Date.now() - 15 * 24 * 3600 * 1000) / 1000;
-    utimesSync(join(data, 'recovery', bin), old, old);
-    expect(r.recoveryList().entries).toEqual([]);
-    expect(readdirSync(join(data, 'recovery'))).toEqual([]);
+    utimesSync(join(rec, bin), old, old);
+    expect((await r.recoveryList()).entries.map((e) => e.path)).toEqual([path]);
+    expect((await r.recoveryList()).entries).toHaveLength(1);
+    // 보여 준 지 15일
+    const meta = join(rec, bin.replace(/\.bin$/, '.json'));
+    const m = JSON.parse(readFileSync(meta, 'utf-8'));
+    expect(typeof m.shown_at).toBe('number');
+    writeFileSync(meta, JSON.stringify({ ...m, shown_at: m.shown_at - 15 * 24 * 3600 * 1000 }));
+    expect((await r.recoveryList()).entries).toEqual([]);
+    expect(readdirSync(rec)).toEqual([]);
+  });
+
+  it('쓰다 끊긴 임시 파일·메타 없이 남은 사본은 하루 지나면 치우고, 막 쓴 것은 둔다', async () => {
+    const rec = join(data, 'recovery');
+    await (await mod()).recoveryWrite({ path: join(work, '지금.hwpx'), data_b64: b64('a') });
+    const old = (Date.now() - 2 * 24 * 3600 * 1000) / 1000;
+    for (const f of ['aaaa.bin', 'bbbb.json.kordoc-tmp', '.kordoc-1-1.tmp', 'cccc.bin']) writeFileSync(join(rec, f), 'x');
+    for (const f of ['aaaa.bin', 'bbbb.json.kordoc-tmp', '.kordoc-1-1.tmp']) utimesSync(join(rec, f), old, old);
+    vi.resetModules();
+    await (await mod()).recoveryList();
+    expect(readdirSync(rec).filter((f) => !/^[0-9a-f]{24}\./.test(f))).toEqual(['cccc.bin']);
+    expect(readdirSync(rec).filter((f) => /^[0-9a-f]{24}\./.test(f))).toHaveLength(2);
   });
 
   it('되살리기는 사본 바이트를 열고, 저장은 원본의 보정 정보로 한다', async () => {

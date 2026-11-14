@@ -1,6 +1,6 @@
 /** 파일 수합 — 마크다운 병합 또는 서식 유지 수합 */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, rmdir } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { dirname, basename, extname, join } from 'node:path';
 import { sendProgress } from '../../infra/progress.js';
@@ -15,6 +15,7 @@ import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult, MergeFailure } from './types.js';
 import { errorText, parseFailure } from '../errors.js';
 import { resultDir, stemOf } from '../output/index.js';
+import { checkZipSize, entryText } from '../files/zip-read.js';
 
 export type { MergeFilesParams, MergeFilesResult } from './types.js';
 export { splitPdf, extractPdfPages, getPdfPageCount } from './concat-pdf.js';
@@ -31,9 +32,15 @@ async function checkHwpx(bytes: Uint8Array): Promise<void> {
   if (!zip.file('Contents/header.xml') || !Object.keys(zip.files).some((n) => /content\.hpf$/i.test(n))) {
     throw new Error('HWPX 문서 구조가 아닙니다. 한글에서 열어 HWPX로 다시 저장한 뒤 넣으세요.');
   }
+  checkZipSize(zip);
   // 암호 걸린 문서는 안의 XML 이 암호문이다. 그대로 넘기면 합치기·나누기 전체가 XML 오류(영어)로 죽고 어느 파일 때문인지도 모른다
-  const manifest = await zip.file('META-INF/manifest.xml')?.async('string').catch(() => '') ?? '';
-  const head = (await zip.file('Contents/header.xml')!.async('string').catch(() => '')).trimStart();
+  // 크기 상한을 넘는 항목(압축 폭탄)은 걸러 어느 파일인지 알린다. 그 밖의 읽기 실패는 전처럼 빈 글로
+  const read = (name: string) => entryText(zip, name).catch((err: unknown) => {
+    if ((err as { code?: unknown })?.code === 'ZIP_TOO_BIG') throw err;
+    return '';
+  });
+  const manifest = await read('META-INF/manifest.xml') ?? '';
+  const head = (await read('Contents/header.xml') ?? '').trimStart();
   if (/encryption-data/i.test(manifest) || !head.startsWith('<')) {
     throw new Error('암호가 걸린 문서라 쓸 수 없습니다. 한글에서 암호를 풀어 다시 저장한 뒤 넣으세요.');
   }
@@ -67,7 +74,7 @@ async function mergeHangul(params: MergeFilesParams, signal: AbortSignal): Promi
     throw new Error(`합칠 수 있는 한글 문서가 두 개 이상 필요합니다.${why ? ` 읽지 못한 파일 ${why}` : ''}`);
   }
   sendProgress({ current: params.files.length, total: params.files.length + 1, message: '서식 그대로 합치는 중' });
-  const merged = await mergeHwpx(inputs);
+  const merged = await mergeHwpx(inputs, signal);
   let out = merged.bytes;
   if (extname(params.output_path).toLowerCase() === '.hwp') out = await rhwpConvert(out, 'hwp', signal);
   await mkdir(dirname(params.output_path), { recursive: true });
@@ -93,16 +100,28 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
   else await checkHwpx(bytes);
   signal.throwIfAborted();
   sendProgress({ current: 1, total: 2, message: '서식 그대로 나누는 중' });
-  const r = await splitHwpx(bytes, p.mode ?? 'auto');
+  const r = await splitHwpx(bytes, p.mode ?? 'auto', signal);
+  signal.throwIfAborted();
   // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
   const output_dir = resultDir(p.output_dir);
   const stem = stemOf(p.path);
   const width = String(r.parts.length).length;
   const output_files: string[] = [];
-  for (const [i, part] of r.parts.entries()) {
-    const out = join(output_dir, `${stem}_${String(i + 1).padStart(width, '0')}.hwpx`);
-    await writeFile(out, part);
-    output_files.push(out);
+  try {
+    for (const [i, part] of r.parts.entries()) {
+      // 멈춘(시간 초과 포함) 뒤에는 파일을 더 쓰지 않는다
+      signal.throwIfAborted();
+      const out = join(output_dir, `${stem}_${String(i + 1).padStart(width, '0')}.hwpx`);
+      await writeFile(out, part);
+      output_files.push(out);
+    }
+  } catch (err) {
+    // 반쯤 쓴 결과는 지운다 (쓴 파일만, 폴더는 비었을 때만)
+    if (signal.aborted) {
+      await Promise.all(output_files.map((f) => rm(f, { force: true })));
+      await rmdir(output_dir).catch(() => {});
+    }
+    throw err;
   }
   return { output_dir, output_files, sections: r.sections, page_breaks: r.pageBreaks };
 }

@@ -8,7 +8,7 @@
  */
 
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DocFormat } from '../../types/rpc-contract.js';
@@ -16,10 +16,12 @@ import { DEFAULT_SETTINGS, getSettings } from '../../infra/config.js';
 import { validatePath } from '../../infra/pathGuard.js';
 import { sendNotification } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
+import { LOCKED } from '../../infra/rename.js';
 import { errorText } from '../errors.js';
 import { convert } from '../converter/index.js';
 import { formatOf, isJunkName } from '../files/format.js';
-import { stemOf } from '../output/index.js';
+import { atomicWriteFile } from '../files/io.js';
+import { sameFile, stemOf } from '../output/index.js';
 
 type WatchFormat = 'md' | 'html' | 'txt';
 
@@ -36,6 +38,8 @@ interface Watcher {
   done: Map<string, number>;
   /** 다시 훑기의 기준: 원본 경로 → 마지막으로 본 수정 시각 (시작 때 있던 문서는 변환하지 않음) */
   seen: Map<string, number>;
+  /** 다른 프로그램이 쥐고 있어 못 읽고 다시 해 볼 원본 (실패 알림은 처음 한 번만) */
+  locked: Set<string>;
   scan?: NodeJS.Timeout;
   queue: string[];
   busy: boolean;
@@ -88,12 +92,19 @@ async function pump(w: Watcher): Promise<void> {
         const r = await convert({ path, format: w.format, save: false, images: false });
         const out = join(w.out_dir, relative(w.dir, dirname(path)), resultName(path, w.format));
         await mkdir(dirname(out), { recursive: true });
-        await writeFile(out, r.content, 'utf-8');
+        // 결과 파일은 같은 원본이 바뀔 때마다 덮는다: 쓰다 끊기면 앞 결과까지 잃지 않게 옆에 쓴 뒤 바꿔 넣는다
+        await atomicWriteFile(out, r.content);
         w.done.set(path, st.mtimeMs);
+        w.locked.delete(path);
         w.processed++;
         sendNotification('watch_event', { id: w.id, path, ok: true, output_path: out });
       } catch (err) {
-        w.done.set(path, st.mtimeMs);
+        // 한글이 쥐고 있어 못 읽은 것(Windows EBUSY 등)은 처리한 것으로 적지 않는다: 다음 다시 훑기 때 또 해 본다(알림은 처음 한 번)
+        if (LOCKED.test((err as NodeJS.ErrnoException).code ?? '')) {
+          w.seen.delete(path);
+          if (w.locked.has(path)) continue;
+          w.locked.add(path);
+        } else w.done.set(path, st.mtimeMs);
         sendNotification('watch_event', { id: w.id, path, ok: false, error: errorText(err) });
       }
     }
@@ -167,8 +178,10 @@ function scanLoop(w: Watcher, delay: number): void {
 export async function watchStart(p: { dir: string; out_dir?: string; format?: WatchFormat }): Promise<{ id: string }> {
   const st = await stat(p.dir).catch(() => null);
   if (!st?.isDirectory()) throw new Error('지켜볼 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.');
-  // 거는 중인 폴더도 센다: 아래에서 폴더를 훑는 동안(await) 같은 요청이 또 오면 한 폴더에 감시가 둘 걸려 문서마다 두 번 변환한다
-  if (starting.has(p.dir) || [...watchers.values()].some((w) => w.dir === p.dir)) throw new Error('이미 지켜보는 폴더입니다.');
+  // 거는 중인 폴더도 센다: 아래에서 폴더를 훑는 동안(await) 같은 요청이 또 오면 한 폴더에 감시가 둘 걸려 문서마다 두 번 변환한다.
+  // 글자열이 아니라 같은 폴더인지로: 맥 자소 분리(NFD)·대소문자만 다른 경로로 두 번 걸면 두 감시가 같은 결과 파일에 동시에 썼다
+  const same = (d: string) => sameFile(d, p.dir);
+  if ([...starting].some(same) || [...watchers.values()].some((w) => same(w.dir))) throw new Error('이미 지켜보는 폴더입니다.');
   if (watchers.size + starting.size >= MAX_WATCHERS) throw new Error(`폴더 지켜보기는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 폴더는 그만 보기를 누르세요.`);
   starting.add(p.dir);
   try {
@@ -203,7 +216,7 @@ async function startWatcher(p: { dir: string; out_dir?: string; format?: WatchFo
   });
   const w: Watcher = {
     id, dir: p.dir, out_dir: outDir, format: p.format ?? 'md', processed: 0, started_at: new Date().toISOString(),
-    fsw, timers: new Map(), done: new Map(), seen, queue: [], busy: false,
+    fsw, timers: new Map(), done: new Map(), seen, locked: new Set(), queue: [], busy: false,
   };
   fsw.on('error', (err) => {
     logger.warn(`[watch] ${id} 감시 중단: ${err.message}`);

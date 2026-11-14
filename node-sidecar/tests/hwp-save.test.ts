@@ -1,14 +1,15 @@
 /** HWP 저장 보정 (core/hwp-save) — 합성 레코드로 보정 규칙, 실제 엔진으로 열기·저장, 코퍼스가 있으면 한컴 문서 왕복 */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as CFB from 'cfb';
 import init, { HwpDocument } from '@rhwp/core';
 import { TAG, ctrlId, inlineControls, readHwp5, readRecords, writeHwp5, writeRecord, type Hwp5 } from '../src/core/hwp-save/hwp5.js';
 import { fillTabWidths, hasZeroWidthTabs, restoreFieldKinds, restoreSectionTails, tailStart } from '../src/core/hwp-save/fixups.js';
 import { EDITOR_REOPEN_NEEDED, editorOpen, editorWrite, fixHwp, nameByBytes } from '../src/core/hwp-save/index.js';
+import { BACKUP_FAILED } from '../src/core/files/backup.js';
 
 const require = createRequire(import.meta.url);
 beforeAll(async () => {
@@ -142,6 +143,8 @@ describe('복구 사본 이름', () => {
 
 describe('editor_open·editor_write (실제 엔진)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'kordoc-hwp-save-'));
+  // 편집기가 쓴 판 기록(editor-written.json)이 사용자 앱 데이터에 섞이지 않게
+  beforeAll(() => { process.env.KORDOC_AI_DATA_DIR = join(dir, 'appdata'); });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   function blankHwp(t: string): Uint8Array {
     const doc = HwpDocument.createEmpty();
@@ -180,6 +183,79 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     expect(w3.backup_path).toMatch(/보고\.hwp\.\d{8}-\d{6}\.bak$/);
     expect(readFileSync(w3.backup_path!)).toEqual(Buffer.from(blankHwp('한글에서 한 달 고친 판')));
     expect(readFileSync(`${path}.bak`)).toEqual(Buffer.from(blankHwp('원래')));
+  });
+
+  const b64 = (s: string) => Buffer.from(s).toString('base64');
+
+  it('엔진이 다시 켜져 열 때 받은 표가 없어도 HWPX 를 원본 자리에 저장하면 원본을 .bak 으로 남긴다', async () => {
+    const path = join(dir, '다시 켜짐.hwpx');
+    writeFileSync(path, 'PK원본');
+    const w = await editorWrite({ path, data_b64: b64('PK고친 것'), token: 'gone-after-restart', overwrite: true });
+    expect(w.backup_path).toBe(`${path}.bak`);
+    expect(readFileSync(`${path}.bak`, 'utf-8')).toBe('PK원본');
+    expect(readFileSync(path, 'utf-8')).toBe('PK고친 것');
+    // 편집기가 쓴 판을 다시 덮을 때는 더 만들지 않는다
+    expect((await editorWrite({ path, data_b64: b64('PK또 고침'), token: 'gone-after-restart', overwrite: true })).backup_path).toBeUndefined();
+  });
+
+  it('쓰기가 실패하면 이번에 만든 백업을 지운다: 다시 눌러도 날짜 백업이 쌓이지 않는다', async () => {
+    const sub = mkdtempSync(join(dir, 'retry-'));
+    const path = join(sub, '실패.hwpx');
+    writeFileSync(path, 'PK원본');
+    const o = await editorOpen(path);
+    for (let i = 0; i < 2; i++) {
+      // overwrite 없이 있는 파일에 쓰면 쓰기 단계에서 거절된다 (바꿔 넣기가 막힌 것과 같은 자리)
+      await expect(editorWrite({ path, data_b64: b64('PK고친 것'), token: o.token })).rejects.toThrow(/이미 있습니다/);
+      expect(readdirSync(sub)).toEqual(['실패.hwpx']);
+      await new Promise((r) => setTimeout(r, 1050)); // 날짜 백업 이름(초 단위)이 바뀌게
+    }
+    expect(readFileSync(path, 'utf-8')).toBe('PK원본');
+  });
+
+  it('이름이 길어 날짜 꼬리를 붙이면 한도를 넘어도 줄인 이름으로 백업하고 저장한다', async () => {
+    const sub = mkdtempSync(join(dir, 'long-'));
+    // 245자: .bak 은 되고 날짜 백업(+20)은 255 를 넘는다. 영문으로 — APFS·NTFS 는 글자 수로, SMB NAS 는 바이트로 센다(한글 이름은 거기서 넘친다)
+    const path = join(sub, `${'a'.repeat(240)}.hwpx`);
+    writeFileSync(path, 'PK처음 원본');
+    const o = await editorOpen(path);
+    writeFileSync(`${path}.bak`, 'PK처음 원본');
+    writeFileSync(path, 'PK한글에서 고친 판');
+    const w = await editorWrite({ path, data_b64: b64('PK편집기'), token: o.token, overwrite: true });
+    expect(Buffer.byteLength(basename(w.backup_path!))).toBeLessThanOrEqual(255);
+    expect(basename(w.backup_path!)).toMatch(/^a+….*\.\d{8}-\d{6}\.bak$/);
+    expect(readFileSync(w.backup_path!, 'utf-8')).toBe('PK한글에서 고친 판');
+    expect(readFileSync(path, 'utf-8')).toBe('PK편집기');
+  });
+
+  // 폴더에 새 파일을 못 만들면(권한) 백업이 하나도 안 된다: 바깥에서 고친 판을 잃느니 저장하지 않고 다른 이름으로 저장하라고 한다
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('백업을 하나도 못 만들면 저장하지 않는다 (지금 파일은 그대로)', async () => {
+    const sub = mkdtempSync(join(dir, 'locked-'));
+    const path = join(sub, '잠긴 폴더.hwpx');
+    writeFileSync(path, 'PK한글에서 고친 판');
+    chmodSync(sub, 0o555);
+    try {
+      await expect(editorWrite({ path, data_b64: b64('PK편집기'), overwrite: true })).rejects.toThrow(BACKUP_FAILED);
+      expect(readFileSync(path, 'utf-8')).toBe('PK한글에서 고친 판');
+      expect(readdirSync(sub)).toEqual(['잠긴 폴더.hwpx']);
+    } finally {
+      chmodSync(sub, 0o755);
+    }
+  });
+
+  // 원본을 못 읽어(Windows 는 한글이 쥔 파일이 EBUSY) 사본을 못 만들 때: 이미 있던 .bak(처음 원본)을 "반쯤 쓴 사본"으로 알고 지우면 안 된다
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('백업을 못 만들어도 앞서 남긴 .bak 은 지우지 않는다', async () => {
+    const sub = mkdtempSync(join(dir, 'unreadable-'));
+    const path = join(sub, '못 읽음.hwpx');
+    writeFileSync(`${path}.bak`, 'PK처음 원본');
+    writeFileSync(path, 'PK한글에서 고친 판');
+    chmodSync(path, 0o000);
+    try {
+      await expect(editorWrite({ path, data_b64: b64('PK편집기'), overwrite: true })).rejects.toThrow(BACKUP_FAILED);
+      expect(readFileSync(`${path}.bak`, 'utf-8')).toBe('PK처음 원본');
+      expect(readdirSync(sub).sort()).toEqual(['못 읽음.hwpx', '못 읽음.hwpx.bak']);
+    } finally {
+      chmodSync(path, 0o644);
+    }
   });
 });
 

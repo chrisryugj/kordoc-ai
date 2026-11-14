@@ -66,6 +66,17 @@ export interface Hwp5 {
 }
 
 const SECTION = /^Root Entry\/BodyText\/Section\d+$/;
+/** 구역 하나를 풀 크기 상한 — 받은 문서의 압축 폭탄이 엔진 메모리를 다 쓰지 않게 (풀린 크기를 다 만든 뒤가 아니라 푸는 중에 끊는다) */
+const MAX_SECTION_BYTES = 256 * 1024 * 1024;
+
+function inflateSection(raw: Buffer): Buffer {
+  try {
+    return inflateRawSync(raw, { maxOutputLength: MAX_SECTION_BYTES });
+  } catch (err) {
+    if ((err as { code?: unknown })?.code !== 'ERR_BUFFER_TOO_LARGE') throw err;
+    throw new Error('문서 본문을 풀면 너무 커서(구역 하나가 256MB 넘음) 읽지 않았습니다. 손상됐거나 일부러 크게 만든 파일일 수 있습니다. 원본을 다시 받아 여세요.');
+  }
+}
 
 export function readHwp5(bytes: Uint8Array): Hwp5 {
   const cfb = CFB.read(Buffer.from(bytes), { type: 'buffer' });
@@ -76,7 +87,7 @@ export function readHwp5(bytes: Uint8Array): Hwp5 {
   cfb.FullPaths.forEach((p, i) => {
     if (!SECTION.test(p)) return;
     const raw = Buffer.from(cfb.FileIndex[i].content as Uint8Array);
-    sections.set(p.replace(/^Root Entry\//, ''), compressed ? inflateRawSync(raw) : raw);
+    sections.set(p.replace(/^Root Entry\//, ''), compressed ? inflateSection(raw) : raw);
   });
   return { cfb, compressed, sections };
 }

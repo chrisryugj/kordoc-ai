@@ -1,12 +1,12 @@
 /** 목록 파일(저장한 서식·서식함) — 잠깐 못 읽은 것을 빈 목록으로 받아 저장하면 저장해 둔 것이 다 지워진다 */
 
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reload } from '../src/infra/config.js';
 import { readListFile } from '../src/infra/list-file.js';
-import { styleDelete, styleList } from '../src/core/style/index.js';
+import { styleDelete, styleList, styleSave } from '../src/core/style/index.js';
 import { templateRemove } from '../src/core/template/library.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'kordoc-list-'));
@@ -53,5 +53,29 @@ describe('저장한 서식·서식함', () => {
     mkdirSync(index);
     expect((await styleList()).styles).toEqual([]);
     rmSync(index, { recursive: true });
+  });
+
+  it('저장·지우기가 겹쳐도 사라지는 것이 없다 (한 엔진 안에서 한 줄로 고친다)', async () => {
+    const format = {
+      version: 1, margins: { top: 15, bottom: 15, left: 20, right: 20 }, body: { font: '', pt: 15, line_spacing: 160 },
+      numbering: { markers: [] }, levels: [], title: { kind: 'none' }, paper: { size: 'A4' },
+    };
+    const names = ['가', '나', '다', '라', '마'].map((n) => `서식 ${n}`);
+    const saved = await Promise.all(names.map((name) => styleSave({ name, format })));
+    expect((await styleList()).styles.map((s) => s.name).sort()).toEqual(names);
+    await Promise.all(saved.slice(0, 3).map((s) => styleDelete(s.id)));
+    expect((await styleList()).styles.map((s) => s.name).sort()).toEqual(names.slice(3));
+    expect(readdirSync(join(dir, 'styles')).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('서식함 지우기는 서식함 폴더 안 사본만 지운다 (목록 파일이 사용자 문서를 가리켜도)', async () => {
+    const mine = join(dir, '내 문서.hwpx');
+    writeFileSync(mine, 'PK');
+    const index = join(dir, 'templates', 'index.json');
+    mkdirSync(join(dir, 'templates'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ version: 1, templates: [{ id: 'user:bad', name: '손으로 고친 목록', path: mine, source: 'user' }] }));
+    expect(await templateRemove('user:bad')).toBe(true);
+    expect(existsSync(mine)).toBe(true);
+    expect(JSON.parse(readFileSync(index, 'utf-8')).templates).toEqual([]);
   });
 });

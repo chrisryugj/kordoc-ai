@@ -7,7 +7,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { atomicWriteFile } from '../files/io.js';
-import { basename, resolve } from 'node:path';
+import { basename } from 'node:path';
 import { markdownToPdf, renderDocument } from 'kordoc';
 import { PDFDocument } from 'pdf-lib';
 import type { BatchItemResult } from '../../types/rpc-contract.js';
@@ -16,7 +16,7 @@ import { logger } from '../../infra/logger.js';
 import { errorText } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
 import { formatOf } from '../files/format.js';
-import { outputFile, stemOf } from '../output/index.js';
+import { outputFile, sameFile, stemOf } from '../output/index.js';
 import { openPdf, rasterPdfPage } from '../render/pdfium.js';
 import { rhwpPages, tooBigForRhwp } from '../render/rhwp.js';
 import { NO_BROWSER, pagesToPdf } from './chromium.js';
@@ -29,7 +29,8 @@ async function imageToPdf(path: string): Promise<Uint8Array> {
   const img = sharp(await readFile(path)).rotate();
   const meta = await img.metadata();
   const jpeg = meta.format === 'jpeg';
-  const data = jpeg ? await img.jpeg({ quality: 90 }).toBuffer() : await img.png().toBuffer();
+  // PNG 는 pdf-lib 이 엔진 스레드에서 다 풀어 다시 압축한다(8000px 정사각 1.1초·RSS +715MB) → 긴 변 4000px(A4 에 약 340dpi)까지만
+  const data = jpeg ? await img.jpeg({ quality: 90 }).toBuffer() : await img.resize({ width: 4000, height: 4000, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
   const doc = await PDFDocument.create();
   const pic = jpeg ? await doc.embedJpg(data) : await doc.embedPng(data);
   const [pw, ph] = pic.width > pic.height ? [A4[1], A4[0]] : A4;
@@ -58,7 +59,7 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
     // rhwp 쪽 SVG → Chromium 인쇄, 쪽 묶음마다 찍어 잇는다 (kordoc 렌더는 칸 안 줄바꿈을 아직 무시). rhwp 가 못 읽으면 kordoc 렌더로
     try {
       // 쪽마다 취소를 본다: 안 보면 수백 쪽 문서는 취소한 뒤에도 끝까지 만들어 파일까지 쓴다
-      return await pagesToPdf(rhwpPages(bytes, undefined, signal), (n) => { signal?.throwIfAborted(); if (n % 20 === 0) sendProgress({ current: n, total: 0, message: `PDF 만드는 중 (${n}쪽)` }); });
+      return await pagesToPdf(rhwpPages(bytes, undefined, signal), (n) => { signal?.throwIfAborted(); if (n % 20 === 0) sendProgress({ current: n, total: 0, message: `PDF 만드는 중 (${n}쪽)` }); }, signal);
     } catch (err) {
       if (signal?.aborted || (err instanceof Error && err.message === NO_BROWSER)) throw err;
       logger.warn(`[pdf] rhwp 경로 실패 → kordoc 렌더: ${err instanceof Error ? err.message : err}`);
@@ -72,8 +73,11 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
   return textToPdf(path, signal);
 }
 
+/** 쪽 그림으로 바꿔 넣을 보안 설정 PDF 의 쪽 수 상한 (쪽마다 그리고 JPEG 로 만들어 엔진 스레드에서 쪽당 수백 ms) */
+const SECURED_MAX_PAGES = 500;
+
 /** pdf-lib 으로 열기 — 보안 설정 PDF 는 쪽 그림(약 150dpi JPEG)으로 다시 만든다 */
-export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+export async function loadPdf(bytes: Uint8Array, signal?: AbortSignal): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (err) {
@@ -82,7 +86,11 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
     const src = await openPdf(bytes);
     try {
       const out = await PDFDocument.create();
-      for (let n = 1; n <= src.getPageCount(); n++) {
+      const count = src.getPageCount();
+      if (count > SECURED_MAX_PAGES) throw new Error(`보안 설정이 걸린 PDF는 쪽을 그림으로 바꿔 넣는데, ${count.toLocaleString('ko-KR')}쪽은 너무 많습니다(${SECURED_MAX_PAGES}쪽까지). 보안을 푼 사본을 저장하거나 쪽을 나눠 넣으세요.`);
+      for (let n = 1; n <= count; n++) {
+        // 멈추면 바로 그만 그린다 (쪽마다 엔진 스레드에서 그려서, 안 보면 멈춘 뒤에도 끝까지 그렸다)
+        signal?.throwIfAborted();
         const r = await rasterPdfPage(src, n, 1300, 'jpeg');
         const pic = await out.embedJpg(r.data);
         out.addPage([r.width, r.height]).drawImage(pic, { x: 0, y: 0, width: r.width, height: r.height });
@@ -116,7 +124,7 @@ export async function bundlePdf(
     signal.throwIfAborted();
     sendProgress({ current: i + 1, total: p.paths.length, message: `${basename(path)} 넣는 중 (${i + 1}/${p.paths.length})` });
     try {
-      const src = await loadPdf(await docToPdf(path, signal));
+      const src = await loadPdf(await docToPdf(path, signal), signal);
       for (const page of await merged.copyPages(src, src.getPageIndices())) merged.addPage(page);
     } catch (err) {
       if (signal.aborted) throw err;
@@ -127,7 +135,7 @@ export async function bundlePdf(
   if (p.watermark?.trim() || p.page_numbers) await stampPdf(merged, p);
   signal.throwIfAborted();
   // overwrite: 화면이 덮어쓰기를 확인한 경로. 합칠 원본 자리면 덮어쓰지 않는다
-  const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => resolve(x).toLowerCase() === resolve(p.output_path!).toLowerCase());
+  const overwrite = !!p.overwrite && !!p.output_path && !p.paths.some((x) => sameFile(x, p.output_path!));
   const outPath = outputFile({ output_path: p.output_path, source: p.paths[0], name: `${stemOf(p.paths[0])}${p.paths.length > 1 ? `_외${p.paths.length - 1}건` : ''}_합본.pdf`, overwrite });
   await atomicWriteFile(outPath, await merged.save());
   return { output_path: outPath, page_count: merged.getPageCount(), failed };
@@ -135,7 +143,7 @@ export async function bundlePdf(
 
 export async function pdfStamp(p: { path: string; watermark?: string; page_numbers?: boolean; output_path?: string }, signal?: AbortSignal): Promise<{ output_path: string }> {
   if (!p.watermark?.trim() && !p.page_numbers) throw new Error('워터마크 글자나 쪽번호 중 하나를 고르세요.');
-  const doc = await loadPdf(await docToPdf(p.path, signal));
+  const doc = await loadPdf(await docToPdf(p.path, signal), signal);
   await stampPdf(doc, p);
   signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_${p.watermark?.trim() ? '워터마크' : '쪽번호'}.pdf` });

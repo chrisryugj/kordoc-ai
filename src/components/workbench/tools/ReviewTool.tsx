@@ -139,9 +139,10 @@ export function ReviewTool({ doc, info, onGoPage, autoRun = 0 }: ToolProps & { o
   const [munche, setMunche] = useState(false);
   /** 지금 점검한 문서 (고친 뒤엔 고친 사본) */
   const [target, setTarget] = useState(doc.path);
-  const pre = useTask<RpcResult<"precheck">>();
-  const review = useTask<RpcResult<"ai_review">>();
-  const law = useTask<RpcResult<"law_check">>();
+  // 문서를 닫으면 점검·K팀장·법령 확인을 끊는다 (결과를 볼 곳 없이 AI 사용량을 쓰지 않게)
+  const pre = useTask<RpcResult<"precheck">>({ stopOnUnmount: true });
+  const review = useTask<RpcResult<"ai_review">>({ stopOnUnmount: true });
+  const law = useTask<RpcResult<"law_check">>({ stopOnUnmount: true });
   const fix = useTask<RpcResult<"lint_fix">>();
   const [found, setFound] = useState<Record<string, number>>({});
   const run = useRef(0);

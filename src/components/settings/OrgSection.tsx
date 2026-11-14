@@ -48,7 +48,9 @@ export function SealPreview({ path }: { path: string }) {
   const [src, setSrc] = useState("");
   useEffect(() => {
     if (!path) { setSrc(""); return; }
-    rpc("read_file_b64", { path }).then((r) => setSrc(`data:image/${/\.jpe?g$/i.test(path) ? "jpeg" : "png"};base64,${r.data_b64}`)).catch(() => setSrc(""));
+    let alive = true; // 늦게 온 앞 그림이 새로 고른 그림을 덮지 않게
+    rpc("read_file_b64", { path }).then((r) => { if (alive) setSrc(`data:image/${/\.jpe?g$/i.test(path) ? "jpeg" : "png"};base64,${r.data_b64}`); }).catch(() => { if (alive) setSrc(""); });
+    return () => { alive = false; };
   }, [path]);
   return <div className="kd-seal-preview">{src ? <img src={src} alt="관인·서명 그림" /> : <span className="kd-small kd-muted">없음</span>}</div>;
 }

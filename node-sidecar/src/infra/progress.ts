@@ -33,6 +33,7 @@ export function sendProgress(data: ProgressData, requestId?: number | string): v
     current: data.current,
     total: data.total,
     message: data.message,
+    ...(data.item && { item: data.item }),
     ...(id != null && { request_id: id }),
     ...(stream && { stream }),
   });

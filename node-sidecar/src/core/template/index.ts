@@ -54,7 +54,8 @@ export async function templateFields(p: { template?: string; path?: string }): P
       fields: click.filter((f) => !seen.has(f.name) && seen.add(f.name)).map((f) => ({
         name: f.name,
         ...(f.placeholder?.trim() ? { label: f.placeholder.trim() } : {}),
-        ...((t.sample[f.name] ?? '').includes('\n') || MULTILINE.test(f.name) ? { multiline: true } : {}),
+        // 누름틀 이름은 받은 문서가 정한다: constructor·toString 같은 이름이면 객체의 기본 속성(함수)이 나온다 → 제 것만
+        ...((Object.hasOwn(t.sample, f.name) ? t.sample[f.name] : '').includes('\n') || MULTILINE.test(f.name) ? { multiline: true } : {}),
       })),
     };
   }
@@ -137,11 +138,13 @@ async function planMerge(p: MergeParams, t: LoadedTemplate, header: string[], ro
   const rejected = Object.keys(all).length ? (await fillWithUniqueGuard(all, (v, blocked) => fillHwpx(t.buf, v, blocked))).rejected : [];
   const fieldOf = (f: string) => columns.find((c) => !rejected.includes(c.name) && c.fields.some((x) => squash(x) === squash(f)))?.name;
   const free = names.filter((f) => !fieldOf(f));
-  const org = p.org === false ? {} : orgAutofill(free).values;
+  const auto = p.org === false ? {} : orgAutofill(free).values;
+  // 칸 이름은 받은 서식이 정한다(constructor 같은 이름이면 객체의 기본 속성이 나온다) → 제 것만
+  const org = (name: string) => (Object.hasOwn(auto, name) ? auto[name] : undefined);
   return {
     rows: rows.length,
     columns,
-    fields: names.map((name) => ({ name, ...(fieldOf(name) ? { column: fieldOf(name) } : org[name] ? { org: org[name] } : {}) })),
+    fields: names.map((name) => ({ name, ...(fieldOf(name) ? { column: fieldOf(name) } : org(name) ? { org: org(name) } : {}) })),
     rejected,
   };
 }

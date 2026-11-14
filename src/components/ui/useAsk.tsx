@@ -45,12 +45,13 @@ export function useAsk(): { ask: AskFn; dialog: ReactNode } {
   return { ask, dialog };
 }
 
-/** 트레이 "완전 종료" 전에 묻는다: 끄면 무엇이 사라지는지 밝히고, "버리고 끄기"를 고르면 true (onQuitGuard 에 넘긴다) */
-export async function askQuit(ask: AskFn, title: string, what: string): Promise<boolean> {
+/** 트레이 "완전 종료" 전에 묻는다: 끄면 무엇이 사라지는지 밝히고, "버리고 끄기"를 고르면 true (onQuitGuard 에 넘긴다).
+ *  카드 창은 창 X 가 같은 물음을 쓴다: 앱이 아니라 그 창만 닫히니 단추 이름을 바꿔 넘긴다 */
+export async function askQuit(ask: AskFn, title: string, what: string, leave = "버리고 끄기"): Promise<boolean> {
   const a = await ask({
     title,
     body: <p className="kd-text" style={{ overflowWrap: "anywhere" }}>{what}</p>,
-    choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "quit", label: "버리고 끄기", variant: "secondary" }],
+    choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "quit", label: leave, variant: "secondary" }],
   });
   return a === "quit";
 }

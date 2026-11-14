@@ -218,6 +218,7 @@ button.kd-finding:hover { border-color: var(--color-border-hover); }
 .kd-taskitem:disabled { cursor: default; }
 .kd-taskitem:disabled .kd-row-title { color: var(--color-text-disabled); }
 .kd-batch-main { overflow: auto; min-width: 0; padding: 18px 24px 28px; display: flex; flex-direction: column; gap: 18px; }
+.kd-batch-result[inert] { opacity: .55; }
 .kd-batch-opts { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .kd-batch-opts p.kd-small { text-wrap: balance; }
 .kd-filetable { display: flex; flex-direction: column; }

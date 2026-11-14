@@ -1,7 +1,7 @@
 /** 내장 한글 편집기의 열기·저장 (editor_open·editor_write).
  *
  * 열 때 원본 바이트를 표(token)로 간직했다가, HWP 로 저장할 때 rhwp 0.8.7 이 빠뜨리는 것을 원본에서 메운다(fixups.ts:
- * 구역 끝 묶음·필드 글자 종류·새 탭 폭). 처음 덮어쓰는 파일은 옆에 `.bak` 을 남긴다(이미 있으면 그대로 둔다).
+ * 구역 끝 묶음·필드 글자 종류·새 탭 폭). 덮기 전 백업(`.bak`·날짜 백업)은 files/backup 이 정한다(편집기가 쓴 판이면 안 만듦).
  * 변경 추적 문서(FileHeader 0x4000)는 보정하지 않고 알리기만 한다: rhwp 는 본문(BodyText) 대신 검토 기록이 섞인 화면용
  * 본문(ViewText)을 읽어, 저장하면 그 모양이 본문이 되고 추적 기록은 남지 않는다. 원본 BodyText 기준 보정을 섞으면 안 된다.
  * 되살리기(recover)는 복구 사본 바이트를 주되 보정 기준은 원래 경로의 파일이다.
@@ -9,49 +9,17 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, constants, mkdir, readFile, stat } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
-import { dataDir } from '../../infra/config.js';
-import { atomicWriteFile, readFileB64, writeFileB64 } from '../files/io.js';
+import { basename } from 'node:path';
+import { writeWithBackup } from '../files/backup.js';
+import { readFileB64, writeFileB64 } from '../files/io.js';
 import { recoveryBytes } from '../recovery/index.js';
 import { loadRhwp } from '../render/rhwp.js';
 import { fillTabWidths, hasZeroWidthTabs, restoreFieldKinds, restoreSectionTails, type Caret } from './fixups.js';
 import { headerFlags, isHwp5, readHwp5, writeHwp5 } from './hwp5.js';
 
-/** 편집기가 마지막으로 쓴 판의 크기·수정 시각 (경로별, 앱 데이터) — 다음 저장 때 그 사이 바깥에서 고쳤는지 가른다 */
-const writtenFile = () => join(dataDir(), 'editor-written.json');
-type WrittenMark = { size: number; mtimeMs: number };
-async function readWritten(): Promise<Record<string, WrittenMark>> {
-  try { return JSON.parse(await readFile(writtenFile(), 'utf-8')) as Record<string, WrittenMark>; } catch { return {}; }
-}
-async function sameAsLastWritten(path: string): Promise<boolean> {
-  const mark = (await readWritten())[resolve(path)];
-  if (!mark) return false;
-  const st = await stat(path);
-  return st.size === mark.size && Math.abs(st.mtimeMs - mark.mtimeMs) < 2;
-}
-async function rememberWritten(path: string): Promise<void> {
-  const st = await stat(path);
-  const all = await readWritten();
-  delete all[resolve(path)];
-  all[resolve(path)] = { size: st.size, mtimeMs: st.mtimeMs };
-  // 최근 500개만
-  const keep = Object.fromEntries(Object.entries(all).slice(-500));
-  await mkdir(dataDir(), { recursive: true });
-  await atomicWriteFile(writtenFile(), JSON.stringify(keep));
-}
-/** 이 PC 시각으로 "20261114-171230" */
-function stamp(): string {
-  const d = new Date();
-  const two = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
-}
-
 interface OpenedDoc {
   /** 원본 HWP 바이트 (보정 기준). HWPX·원본 없음·변경 추적 문서는 null */
   original: Uint8Array | null;
-  /** 이 열기에서 이미 쓴 파일 — 두 번째 저장부터는 앱이 쓴 바이트를 덮으니 `.bak` 을 다시 만들지 않는다 */
-  written: Set<string>;
 }
 
 /** 편집기에 연 문서마다 하나. 편집기는 한 번에 한 문서라 몇 개만 남긴다 */
@@ -79,7 +47,7 @@ export async function editorOpen(path: string, recover = false): Promise<{ data_
   const hwp = isHwp5(original);
   const tracked = hwp && (headerFlags(original) & TRACKED) !== 0;
   const token = randomUUID();
-  opened.set(token, { original: hwp && !tracked ? original : null, written: new Set() });
+  opened.set(token, { original: hwp && !tracked ? original : null });
   while (opened.size > KEEP) opened.delete(opened.keys().next().value!);
   const shown = copy ?? original;
   return {
@@ -139,25 +107,8 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
     bytes = r.bytes;
     lost = r.lost;
   }
-  let backup: string | undefined;
-  if (doc && p.backup !== false && existsSync(p.path) && !doc.written.has(p.path)) {
-    // 이미 있는 .bak 은 처음 원본이다 — 다시 열어 저장해도 덮지 않는다
-    try {
-      await copyFile(p.path, `${p.path}.bak`, constants.COPYFILE_EXCL);
-      backup = `${p.path}.bak`;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-      // 그런데 디스크 파일이 이 편집기가 마지막으로 쓴 판이 아니면(그 뒤 한글 등 바깥에서 고침) 그 판은 어디에도 백업이 없다 —
-      // .bak(옛 원본)은 두고 날짜 붙은 백업을 따로 남긴다
-      if (!(await sameAsLastWritten(p.path))) {
-        const dated = `${p.path}.${stamp()}.bak`;
-        await copyFile(p.path, dated, constants.COPYFILE_EXCL);
-        backup = dated;
-      }
-    }
-  }
-  const r = await writeFileB64({ path: p.path, data_b64: Buffer.from(bytes).toString('base64'), overwrite: p.overwrite });
-  doc?.written.add(r.path);
-  await rememberWritten(r.path).catch(() => undefined);
-  return { path: r.path, ...(backup ? { backup_path: backup } : {}), ...(lost ? { tails_lost: true } : {}) };
+  // 백업은 열 때 받은 표가 없어도(엔진이 다시 켜짐) 편집기가 쓴 판 기록으로 가린다
+  const data_b64 = Buffer.from(bytes).toString('base64');
+  const backup = await writeWithBackup(p.path, () => writeFileB64({ path: p.path, data_b64, overwrite: p.overwrite }), p.backup !== false);
+  return { path: p.path, ...(backup ? { backup_path: backup } : {}), ...(lost ? { tails_lost: true } : {}) };
 }

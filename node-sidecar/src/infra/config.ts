@@ -7,12 +7,13 @@
  */
 
 import { readFileSync, existsSync, mkdirSync, chmodSync, renameSync, statSync } from 'node:fs';
-import { writeFile, rename } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir, totalmem } from 'node:os';
 import { parse as parseYaml } from 'yaml';
 import type { Settings } from '../types/index.js';
 import { logger } from './logger.js';
+import { renameRetry } from './rename.js';
 import { FORBIDDEN_KEYS, isObj, loadPolicy, type Policy } from './policy.js';
 import { hasSecretKey, isSealed, seal, unseal } from './secret-box.js';
 
@@ -301,17 +302,6 @@ async function applyUpdate(patch: Record<string, unknown>): Promise<Settings> {
   user = next;
   logger.info('[config] updated');
   return compose();
-}
-
-/** Windows 에서는 백신·색인 프로그램이 막 쓴 파일을 잠깐 쥐어 바꿔 넣기가 EPERM·EBUSY·EACCES 로 실패한다(E2E 실측) → 잠깐 쉬었다 다시 */
-export async function renameRetry(from: string, to: string, tries = 6, mv: (a: string, b: string) => Promise<void> = rename): Promise<void> {
-  for (let i = 0; ; i++) {
-    try { await mv(from, to); return; } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? '';
-      if (i >= tries - 1 || !/^(EPERM|EBUSY|EACCES)$/.test(code)) throw err;
-      await new Promise((r) => setTimeout(r, 60 * (i + 1)));
-    }
-  }
 }
 
 /** settings.json 쓰기 — 임시 파일 뒤 바꿔 넣기, 키는 암호화(sealedForFile) */

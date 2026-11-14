@@ -5,7 +5,7 @@
  * (예외: 폴더 감시는 같은 원본의 변환 결과를 갱신하므로 덮어쓴다 — core/watch)
  */
 
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getSettings } from '../../infra/config.js';
@@ -117,13 +117,41 @@ export function fitFileName(name: string): string {
   return `${head.join('')}…${tail}${ext}`;
 }
 
+/** 같은 파일인가 — 맥은 끌어 놓은 원본 이름이 자소가 갈라진 꼴(NFD), 저장 창에서 친 이름이 완성형(NFC)이라 글자열로는 다른 파일로 보였다
+ *  (원본 자리 덮어쓰기 막기가 빗나가 빈 양식·합칠 원본을 결과로 덮었다). 둘 다 있으면 파일 번호(dev·ino)로, 아니면 NFC·대소문자를 맞춰 견준다 */
+export function sameFile(a: string, b: string): boolean {
+  try {
+    const sa = statSync(a), sb = statSync(b);
+    return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch {
+    const norm = (p: string) => resolve(p).normalize('NFC').toLowerCase();
+    return norm(a) === norm(b);
+  }
+}
+
+/** 아직 없는 이름 — claim 이면 빈 파일로 그 자리를 잡는다(wx, 있으면 다음 번호). 이름을 정한 뒤 오래 걸리는 일(합치기·가리기)을 하는 곳에서
+ *  같은 이름을 고른 두 작업이 겹치면 뒤 작업이 앞 결과를 덮고 둘 다 성공으로 알렸다. 일이 실패하면 부른 쪽이 그 빈 파일을 지운다 */
+function freePath(p: string, claim?: boolean): string {
+  for (;;) {
+    const cand = uniquePath(p);
+    if (!claim) return cand;
+    try {
+      closeSync(openSync(cand, 'wx'));
+      return cand;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+}
+
 /** 저장 파일 경로 — name 은 `이름.확장자` (safeFileName 을 거친 것) */
-export function outputFile(opts: { output_path?: string; output_dir?: string; source?: string; name: string; overwrite?: boolean }): string {
+export function outputFile(opts: { output_path?: string; output_dir?: string; source?: string; name: string; overwrite?: boolean; claim?: boolean }): string {
   if (opts.output_path) {
     const p = validatePath(opts.output_path);
     mkdirSync(dirname(p), { recursive: true });
-    // overwrite: 사용자가 저장 창에서 고르고 바꾸기까지 확인한 경로. 그 밖에는 있는 파일을 지키려고 (2) 를 붙인다
-    return opts.overwrite ? p : uniquePath(p);
+    // overwrite: 사용자가 저장 창에서 고르고 바꾸기까지 확인한 경로. 그 밖에는 있는 파일을 지키려고 (2) 를 붙인다.
+    // 새로 만드는 이름은 완성형(NFC)으로 — 화면이 맥 원본 이름(NFD)을 따서 지은 결과 이름이 Windows 에서 자소가 풀려 보였다
+    return opts.overwrite ? p : freePath(join(dirname(p), basename(p).normalize('NFC')), opts.claim);
   }
-  return uniquePath(join(outputDir(opts), fitFileName(opts.name)));
+  return freePath(join(outputDir(opts), fitFileName(opts.name.normalize('NFC'))), opts.claim);
 }
