@@ -6,11 +6,12 @@
  * 줄 배치로 정해지는 "쪽마다"는 한글 문서에서 정확히 알 수 없어 자르지 않는다.
  * 조각마다: 머리(글꼴·글자·문단 모양·스타일)는 그대로 두고, 본문은 그 조각의 문단만, 그림·바탕쪽·차트는 그 조각이 쓰는 것만.
  * 구역 중간에서 잘린 조각은 그 구역 첫 문단의 쪽 설정(secPr·단 설정)을 맨 앞에 붙여 용지·여백이 같다.
+ * 앞 조각에서 정해 원래 이 조각 쪽에도 찍히던 머리말·꼬리말·쪽 번호도 조각 첫 문단에 옮긴다.
  * 줄 배치 정보(linesegarray)는 빼서 한글이 열 때 다시 배치한다.
  */
 
 import JSZip from 'jszip';
-import { DOMParser, XMLSerializer, type Document, type Element } from '@xmldom/xmldom';
+import { DOMParser, XMLSerializer, type Element } from '@xmldom/xmldom';
 import { ensureVersionXml, readManifest, sectionHrefs } from './hwpx-merge.js';
 import { blankPng } from '../redact/preview.js';
 import { entryBytes, entryText } from '../files/zip-read.js';
@@ -28,20 +29,44 @@ function dropLineseg(el: El) {
   for (const l of [...(el.getElementsByTagName('hp:linesegarray') as unknown as El[])]) l.parentNode?.removeChild(l);
 }
 
-/** 구역 첫 문단에서 쪽 설정만 남긴 빈 문단 (구역 중간에서 시작하는 조각의 맨 앞) */
-function settingsCarrier(first: El): El | null {
-  const p = first.cloneNode(true) as El;
-  let keep = false;
-  for (const run of kids(p).filter((c) => local(c) === 'run')) {
-    const hasSec = run.getElementsByTagName('hp:secPr').length > 0;
-    if (!hasSec) { p.removeChild(run); continue; }
-    keep = true;
-    for (const c of kids(run)) if (local(c) !== 'secPr' && local(c) !== 'ctrl') run.removeChild(c);
+/** 쪽 설정(secPr)·단 설정(colPr) 자체인 run 의 자식 */
+const isSettings = (c: El) => local(c) === 'secPr' || (local(c) === 'ctrl' && kids(c).some((k) => local(k) === 'colPr'));
+
+/** 구역 첫 문단에서 쪽 설정만 남긴 run (구역 중간에서 시작하는 조각의 첫 문단 맨 앞에 붙인다).
+ *  머리말·쪽 번호·감추기는 뺀다: 머리말·쪽 번호는 조각마다 그때 살아 있는 것을 따로 넣고, 감추기는 원래 그 쪽에만 걸린다 */
+function settingsRun(first: El): El | null {
+  const run = kids(first).find((c) => local(c) === 'run' && c.getElementsByTagName('hp:secPr').length > 0);
+  if (!run) return null;
+  const copy = run.cloneNode(true) as El;
+  for (const c of kids(copy)) if (!isSettings(c)) copy.removeChild(c);
+  return copy;
+}
+
+/** 머리말·꼬리말(쪽 종류별)·쪽 번호 컨트롤의 열쇠. 그 밖의 컨트롤이면 null */
+function pageCtrlKey(ctrl: El): string | null {
+  const inner = kids(ctrl)[0];
+  if (!inner) return null;
+  const name = local(inner);
+  if (name === 'pageNum') return 'pageNum';
+  if (name === 'header' || name === 'footer') return `${name}:${inner.getAttribute('applyPageType') || 'BOTH'}`;
+  return null;
+}
+
+/** 문단들에 나온 머리말·꼬리말·쪽 번호로 "지금 살아 있는 것" 표를 고친다 (한글은 앞에서 정한 것을 다음 쪽·구역에도 찍는다) */
+function trackPageCtrls(paras: El[], live: Map<string, El>): void {
+  for (const p of paras) {
+    for (const run of kids(p)) {
+      if (local(run) !== 'run') continue;
+      for (const ctrl of kids(run)) {
+        const key = local(ctrl) === 'ctrl' ? pageCtrlKey(ctrl) : null;
+        if (!key) continue;
+        // 양쪽(BOTH)은 홀·짝쪽 것을 덮는다
+        if (key.endsWith(':BOTH')) for (const t of ['ODD', 'EVEN']) live.delete(key.replace('BOTH', t));
+        live.delete(key);
+        live.set(key, ctrl);
+      }
+    }
   }
-  for (const c of kids(p)) if (local(c) !== 'run') p.removeChild(c);
-  if (!keep) return null;
-  p.setAttribute('pageBreak', '0');
-  return p;
 }
 
 export interface SplitHwpxResult {
@@ -69,7 +94,7 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto', sig
   const atBreaks = mode === 'pagebreak' || (mode === 'auto' && hrefs.length < 2);
 
   // 조각: [구역 경로, 그 구역 문서, 문단들, 구역의 첫 조각인지]
-  const pieces: Array<{ href: string; doc: Document; paras: El[]; first: boolean }> = [];
+  const pieces: Array<{ href: string; paras: El[]; first: boolean }> = [];
   // 구역마다 한 번: 문단을 뺀 뿌리(속성·이름공간 선언 그대로)와 구역 첫 문단의 쪽 설정.
   // 조각마다 구역 전체를 다시 쓰고 읽은 뒤 문단을 하나씩 지우면(removeChild) 쪽 나눔 6만 개 문서(59KB)에 13분·RSS 1.9GB 였다.
   // 뿌리 바로 아래 문단 아닌 것(주석·빈칸)은 그 구역의 첫 조각에만 (조각마다 넣으면 그것이 많은 문서에서 다시 제곱)
@@ -87,19 +112,19 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto', sig
     const bare = srcRoot.cloneNode(false);
     const withOthers = srcRoot.cloneNode(false);
     for (let n = srcRoot.firstChild; n; n = n.nextSibling) if (n.nodeType !== 1) withOthers.appendChild(n.cloneNode(true));
-    shells.set(href, { first: prolog + serializer.serializeToString(withOthers), rest: prolog + serializer.serializeToString(bare), carrier: tops[0] ? settingsCarrier(tops[0]) : null });
+    shells.set(href, { first: prolog + serializer.serializeToString(withOthers), rest: prolog + serializer.serializeToString(bare), carrier: tops[0] ? settingsRun(tops[0]) : null });
     let cur: El[] = [];
     let first = true;
     for (const [i, p] of tops.entries()) {
       if (atBreaks && i > 0 && local(p) === 'p' && p.getAttribute('pageBreak') === '1' && cur.length) {
-        pieces.push({ href, doc, paras: cur, first });
+        pieces.push({ href, paras: cur, first });
         cur = [];
         first = false;
         pageBreaks++;
       }
       cur.push(p);
     }
-    if (cur.length) pieces.push({ href, doc, paras: cur, first });
+    if (cur.length) pieces.push({ href, paras: cur, first });
   }
   if (pieces.length < 2) throw new Error(atBreaks ? '나눌 곳이 없습니다. 구역이 하나이고 강제 쪽 나눔(Ctrl+Enter)도 없는 문서입니다.' : '나눌 곳이 없습니다. 구역이 하나뿐인 문서입니다. 강제 쪽 나눔마다 나누기를 고르세요.');
 
@@ -127,18 +152,32 @@ export async function splitHwpx(bytes: Uint8Array, mode: SplitMode = 'auto', sig
 
   const parts: Uint8Array[] = [];
   const titles: string[] = [];
+  /** 이 조각 앞에서 정해져 아직 살아 있는 머리말·꼬리말·쪽 번호 */
+  const live = new Map<string, El>();
   for (const [index, piece] of pieces.entries()) {
     signal?.throwIfAborted();
-    const zip = await JSZip.loadAsync(bytes);
+    const zip = new JSZip();
+    Object.assign(zip.files, src.files);
     const shell = shells.get(piece.href)!;
     const doc = parser.parseFromString(piece.first ? shell.first : shell.rest, 'text/xml');
     const root = doc.documentElement as unknown as El;
-    if (!piece.first && shell.carrier) root.appendChild(doc.importNode(shell.carrier as never, true));
+    const inherited = [...live.values()];
+    trackPageCtrls(piece.paras, live);
+    const settings = piece.first ? null : shell.carrier;
     for (const [i, p] of piece.paras.entries()) {
       // 문단이 아주 많은 조각(6만 개 12초)도 엔진이 다른 요청·멈춤을 받게 사이사이 숨을 돌린다
       if (i % 2000 === 1999) { await new Promise((r) => setImmediate(r)); signal?.throwIfAborted(); }
       const c = doc.importNode(p as never, true) as unknown as El;
-      if (i === 0) c.setAttribute('pageBreak', '0');
+      if (i === 0) {
+        c.setAttribute('pageBreak', '0');
+        // 쪽 설정은 조각 첫 문단에 넣는다 (따로 빈 문단을 만들면 조각 맨 위에 빈 줄이 생긴다)
+        if (settings) c.insertBefore(doc.importNode(settings as never, true), c.firstChild);
+        const run = kids(c).find((r) => local(r) === 'run' && r.getElementsByTagName('hp:secPr').length > 0);
+        if (run && inherited.length) {
+          const after = kids(run).find((k) => !isSettings(k)) ?? null;
+          for (const ctrl of inherited) run.insertBefore(doc.importNode(ctrl as never, true), after);
+        }
+      }
       root.appendChild(c as never);
     }
     dropLineseg(root);

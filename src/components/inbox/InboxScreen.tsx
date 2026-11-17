@@ -145,8 +145,11 @@ export function InboxScreen({ active }: { active: boolean }) {
       <div className="kd-body kd-inbox-drop" data-drop="inbox" data-over={dragTarget === "inbox" && !!items?.length}>
         <div className="kd-inbox">
           {adding.busy && <Working label="공문을 읽는 중" progress={adding.progress} onCancel={adding.cancel} />}
-          <ErrorLine message={adding.error || loadError || ledger.error} />
-          {loadError && !adding.error && <div><Button variant="secondary" size="sm" onClick={() => void load()}><RefreshCw size={13} /> 다시 읽기</Button></div>}
+          {/* 오류마다 따로: 하나로 고르면 앞 오류(공문 넣기)가 남아 뒤 오류(목록 읽기·접수대장)를 가린다 */}
+          <ErrorLine message={adding.error} />
+          <ErrorLine message={loadError} />
+          {loadError && <div><Button variant="secondary" size="sm" onClick={() => void load()}><RefreshCw size={13} /> 다시 읽기</Button></div>}
+          <ErrorLine message={ledger.error} />
           {ledger.result && !ledger.busy && <SavedFile path={ledger.result.output_path} label={`접수대장을 엑셀로 저장했습니다 (${num(ledger.result.count)}건)`} />}
           {failed.length > 0 && (
             <Note tone="warn">

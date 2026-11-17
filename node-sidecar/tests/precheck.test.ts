@@ -134,10 +134,22 @@ describe('끝. 표시·채우지 않은 자리 (엔진)', () => {
     expect(endMarkFindings('# 보고서\n\n□ 추진 배경')).toEqual([]);
   });
 
+  it('끝. 이 굵게·전각 마침표로 읽혀도 있는 것으로, 보고서 본문의 "붙임 …" 문장은 붙임 표시가 아니다', () => {
+    for (const end of ['**끝.**', '끝.**', '끝．', '끝.\\']) expect(endMarkFindings(`# 제목\n\n붙임 계획서 1부.  ${end}`), end).toEqual([]);
+    expect(endMarkFindings('# 추진 계획\n\n1. 개요\n\n붙임 자료는 별도로 보냅니다.')).toEqual([]);
+    // 붙임 줄 아래 번호 목록에 부 수가 있으면 붙임 표시
+    expect(endMarkFindings('# 제목\n\n붙임\n1. 계획서 1부.\n2. 명단 1부.')).toHaveLength(1);
+  });
+
   it('○○○·OOO 같은 자리 표시', () => {
     const f = placeholderFindings('담당: ○○○ 주무관\n○ 항목은 짚지 않음');
     expect(f).toHaveLength(1);
     expect(f[0].excerpt).toBe('○○○');
+  });
+
+  it('일부러 가린 이름(김○○·이OOO)은 채울 자리가 아니다. 제○○호·○○시장은 채울 자리', () => {
+    expect(placeholderFindings('민원인 김○○ 씨가 제출, 담당 이○○(내선 1234), 박○○○, 최OOO 팀장, (정○○)')).toEqual([]);
+    expect(placeholderFindings('제○○호 문서\n○○시장 귀하').map((f) => f.excerpt)).toEqual(['○○', '○○']);
   });
 });
 

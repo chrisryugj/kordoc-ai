@@ -12,6 +12,15 @@ import { entryText } from '../files/zip-read.js';
 import { replaceSpans, xmlSpans, type XmlSpan } from '../files/xml-scan.js';
 
 const RESAVE = '통합 문서의 시트 목록을 읽지 못했습니다. 엑셀에서 열어 다른 이름으로 저장(xlsx)한 뒤 다시 넣으세요.';
+const EMPTY = '내용이 없는 빈 파일(0바이트)입니다. 저장이 끝나지 않았을 수 있으니 원본을 다시 받아 넣으세요.';
+const LOCKED = '암호가 걸린 파일이라 열 수 없습니다. 엑셀에서 암호를 풀어 다시 저장한 뒤 넣으세요.';
+const OLD_XLS = '이름만 xlsx 이고 예전 엑셀 형식(xls)인 파일입니다. 엑셀에서 열어 xlsx 로 다시 저장한 뒤 넣으세요.';
+const READ_FAILED = '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.';
+/** 까닭을 그대로 알릴 오류 (그 밖의 오류는 READ_FAILED 로) */
+const KNOWN = new Set([RESAVE, EMPTY, LOCKED, OLD_XLS]);
+/** 암호 건 xlsx·예전 xls 는 zip 이 아니라 OLE 복합 문서다. 암호 건 것에는 EncryptionInfo 항목이 있다 */
+const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const ENCRYPTION_INFO = Buffer.from('EncryptionInfo', 'utf16le');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,14 +37,21 @@ function getElements(parent: any, tagName: string): any[] {
 
 // ─── shared strings 파싱 ────────────────────────────────
 
+/** 공유 문자열마다 칸 안 글(<is> 안에 넣을 XML). 칸 안 일부 서식(서식 있는 글: 글자마다 굵게·색)은 원래 XML 그대로 옮긴다.
+ *  이름공간 접두사가 붙은 꼴은 시트에 그 선언이 없을 수 있어 글만 옮긴다 */
 function parseSharedStringsText(xml: string): string[] {
   const doc = parseXml(xml);
   const strings: string[] = [];
   const siList = getElements(doc.documentElement, 'si');
-  for (const si of siList) {
+  const raw = [...xml.matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g)].map((m) => m[1] ?? '');
+  for (const [i, si] of siList.entries()) {
+    if (raw.length === siList.length && /<r\b[^>]*>\s*<rPr\b/.test(raw[i]) && !/<\/?[\w.-]+:/.test(raw[i])) { strings.push(raw[i]); continue; }
     // 읽는 법 표기(rPh, 한자 위의 후리가나)는 본문이 아니다
     const tElements = getElements(si, 't').filter((t: any) => t.parentNode?.nodeName !== 'rPh');
-    strings.push(tElements.map((t: any) => t.textContent ?? '').join(''));
+    const text = tElements.map((t: any) => t.textContent ?? '').join('');
+    // 앞뒤 빈칸·줄바꿈은 지키라고 적어야 엑셀이 버리지 않는다
+    const keep = /^\s|\s$|\n/.test(text) ? ' xml:space="preserve"' : '';
+    strings.push(`<t${keep}>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</t>`);
   }
   return strings;
 }
@@ -89,11 +105,8 @@ function resolveSharedStrings(sheetXml: string, strings: string[]): string {
     if (!/\bt="s"/.test(attrs)) return full;
     const index = body?.match(/<v>(\d+)<\/v>/)?.[1];
     if (index === undefined) return `<c${attrs.replace(/\s*\bt="s"/, '')}${tail === '/>' ? '/>' : `>${body ?? ''}</c>`}`;
-    const text = strings[parseInt(index, 10)] ?? '';
-    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // 앞뒤 빈칸·줄바꿈은 지키라고 적어야 엑셀이 버리지 않는다
-    const keep = /^\s|\s$|\n/.test(text) ? ' xml:space="preserve"' : '';
-    return `<c${attrs.replace(/\bt="s"/, 't="inlineStr"')}><is><t${keep}>${escaped}</t></is></c>`;
+    const inner = strings[parseInt(index, 10)] ?? '<t></t>';
+    return `<c${attrs.replace(/\bt="s"/, 't="inlineStr"')}><is>${inner}</is></c>`;
   });
 }
 
@@ -204,6 +217,8 @@ function patchWorkbook(originalXml: string, sheetEntries: Array<{ name: string; 
   // 열어 둘 시트(activeTab)는 숨기지 않은 첫 시트로 (숨긴 시트가 열려 있다고 적혀 있으면 안 된다)
   const firstShown = Math.max(0, sheetEntries.findIndex((s) => !s.state));
   xml = xml.replace(/(<workbookView\b[^>]*?)\s+activeTab="\d+"/g, '$1').replace(/<workbookView\b/, `<workbookView activeTab="${firstShown}"`);
+  // 보기 설정이 아예 없으면 엑셀은 첫 시트를 연다 → 첫 시트가 숨긴 시트면 보기 설정을 만들어 보이는 시트를 열게 한다 (규격 자리: sheets 앞)
+  if (firstShown > 0 && !/<workbookView\b/.test(xml)) xml = xml.replace(/<sheets>/, () => `<bookViews><workbookView activeTab="${firstShown}"/></bookViews><sheets>`);
   // 이름 정의(인쇄 영역·인쇄 제목 포함)는 시트 번호와 시트 이름이 바뀐 대로 다시 적는다
   const block = definedNames.length ? `<definedNames>${definedNames.join('')}</definedNames>` : '';
   if (/<definedNames\b/.test(xml)) xml = replaceFirst(xml, 'definedNames', () => block);
@@ -343,18 +358,27 @@ function mergeXlsxStyles(
     }
   }
 
+  /** 정규화한 모양 → 첫 차례 (같은 서식 찾기를 표 한 번 찾기로. 항목마다 목록 전체를 다시 정규화하면 서식이 수천 개일 때 엔진이 멈춘다) */
+  const indexOf = (arr: string[]): Map<string, number> => {
+    const index = new Map<string, number>();
+    arr.forEach((item, i) => { const key = normalize(item); if (!index.has(key)) index.set(key, i); });
+    return index;
+  };
+
   // ── 위치 기반 배열 병합 (fonts, fills, borders) ──
   const mergePositional = (baseArr: string[], donorArr: string[]): { merged: string[]; remap: Map<number, number> } => {
     const merged = [...baseArr];
     const remap = new Map<number, number>();
+    const index = indexOf(merged);
 
     for (let i = 0; i < donorArr.length; i++) {
       const norm = normalize(donorArr[i]);
-      const existingIdx = merged.findIndex(b => normalize(b) === norm);
+      const existingIdx = index.get(norm) ?? -1;
       if (existingIdx >= 0) {
         remap.set(i, existingIdx);
       } else {
         remap.set(i, merged.length);
+        index.set(norm, merged.length);
         merged.push(donorArr[i]);
       }
     }
@@ -378,14 +402,16 @@ function mergeXlsxStyles(
     return result;
   };
 
+  const cellStyleXfIndex = indexOf(mergedCellStyleXfs);
   for (let i = 0; i < donor.cellStyleXfs.length; i++) {
     const remapped = remapXfSubIds(donor.cellStyleXfs[i]);
     const norm = normalize(remapped);
-    const existingIdx = mergedCellStyleXfs.findIndex(b => normalize(b) === norm);
+    const existingIdx = cellStyleXfIndex.get(norm) ?? -1;
     if (existingIdx >= 0) {
       cellStyleXfRemap.set(i, existingIdx);
     } else {
       cellStyleXfRemap.set(i, mergedCellStyleXfs.length);
+      cellStyleXfIndex.set(norm, mergedCellStyleXfs.length);
       mergedCellStyleXfs.push(remapped);
     }
   }
@@ -393,6 +419,7 @@ function mergeXlsxStyles(
   // ── cellXfs — donor의 xf를 리매핑 후 병합 ──
   const mergedCellXfs = [...base.cellXfs];
   const cellXfRemap = new Map<number, number>();
+  const cellXfIndex = indexOf(mergedCellXfs);
 
   for (let i = 0; i < donor.cellXfs.length; i++) {
     let xf = donor.cellXfs[i];
@@ -426,11 +453,12 @@ function mergeXlsxStyles(
 
     // 중복 체크
     const norm = normalize(xf);
-    const existingIdx = mergedCellXfs.findIndex(b => normalize(b) === norm);
+    const existingIdx = cellXfIndex.get(norm) ?? -1;
     if (existingIdx >= 0) {
       cellXfRemap.set(i, existingIdx);
     } else {
       cellXfRemap.set(i, mergedCellXfs.length);
+      cellXfIndex.set(norm, mergedCellXfs.length);
       mergedCellXfs.push(xf);
     }
   }
@@ -559,6 +587,8 @@ export async function concatXlsx(
 
     try {
       const buffer = await readFile(files[fi]);
+      if (!buffer.length) throw new Error(EMPTY);
+      if (buffer.subarray(0, 8).equals(OLE_MAGIC)) throw new Error(buffer.includes(ENCRYPTION_INFO) ? LOCKED : OLD_XLS);
       const zip = await JSZip.loadAsync(buffer);
       const workbookXml = (await entryText(zip, 'xl/workbook.xml')) ?? '';
       const sheets = workbookXml ? parseWorkbook(workbookXml) : [];
@@ -704,15 +734,17 @@ export async function concatXlsx(
       const is1904 = (xml: string) => /<workbookPr\b[^>]*\bdate1904="(?:1|true)"/.test(xml);
       if (!isFirst && is1904(workbookXml) !== is1904(baseWorkbookXml)) warnings.push(`${fileName}: 날짜 기준(1904 날짜 체계)이 첫 파일과 달라 이 파일의 날짜가 4년쯤 어긋나 보입니다. 날짜 칸을 확인하세요.`);
     } catch (err) {
-      // 시트 목록을 못 읽은 것·너무 커서 풀지 않은 것(files/zip-read)은 그 까닭을 그대로
-      const known = err instanceof Error && (err.message === RESAVE || (err as { code?: unknown }).code === 'ZIP_TOO_BIG');
-      failures.push({ path: files[fi], error: known ? err.message : '이 파일을 읽지 못해 넣지 못했습니다. 원래 프로그램에서 열리는지 확인하세요.' });
+      failures.push({ path: files[fi], error: err instanceof Error && (KNOWN.has(err.message) || (err as { code?: unknown }).code === 'ZIP_TOO_BIG') ? err.message : READ_FAILED });
       failedFiles.push(files[fi]);
       logger.warn(`[concat-xlsx] 실패: ${files[fi]} — ${err instanceof Error ? err.message : err}`);
     }
   }
 
-  if (!baseZip || collectedSheets.length === 0) throw new Error('합칠 수 있는 XLSX 파일이 없습니다');
+  if (!baseZip || collectedSheets.length === 0) {
+    // 어느 파일을 왜 못 넣었는지 함께 알린다 (못 넣은 까닭이 없으면 시트가 없는 파일들이다)
+    const why = failures.map((x) => `${basename(x.path)}: ${x.error}`).join(' / ');
+    throw new Error(`합칠 수 있는 엑셀 파일이 없습니다.${why ? ` 읽지 못한 파일 ${why}` : ' 고른 파일에 넣을 시트가 없습니다.'}`);
+  }
 
   // ── 출력 ZIP 구성 ──
 
@@ -736,6 +768,9 @@ export async function concatXlsx(
   // 파일마다 첫 시트가 "선택됨"으로 적혀 있다. 그대로 합치면 엑셀이 여러 시트를 묶어 선택한 채 열어, 한 칸에 적은 것이 그 시트들에 모두 들어간다
   const shown = Math.max(0, collectedSheets.findIndex((c) => !c.state));
   collectedSheets.forEach((c, i) => { if (i !== shown) c.xml = c.xml.replace(/(<sheetView\b[^>]*?)\s+tabSelected="(?:1|true)"/g, '$1'); });
+  // 열어 둘 시트(숨기지 않은 첫 시트)는 "선택됨"으로 (첫 파일의 첫 시트가 숨긴 시트였으면 선택된 시트가 하나도 없게 된다)
+  const open = collectedSheets[shown];
+  if (open && !/<sheetView\b[^>]*\btabSelected="(?:1|true)"/.test(open.xml)) open.xml = open.xml.replace(/(<sheetView\b[^>]*?)\s+tabSelected="[^"]*"/, '$1').replace(/<sheetView\b/, '<sheetView tabSelected="1"');
 
   const existingSheets = Object.keys(baseZip.files).filter(p =>
     (p.startsWith('xl/worksheets/') && p.endsWith('.xml')) ||
@@ -744,6 +779,17 @@ export async function concatXlsx(
   for (const p of existingSheets) baseZip.remove(p);
 
   if (baseZip.file('xl/calcChain.xml')) baseZip.remove('xl/calcChain.xml');
+
+  // 시트 관계 id 는 첫 파일의 다른 관계(서식·테마·공유 문자열 …)가 쓰지 않는 번호로. 정해 둔 번호(rId100 …)를 쓰면
+  // 첫 파일 시트가 많을 때(그 관계들이 rId100 을 넘으면) 같은 id 가 둘이 되어 통합 문서가 깨진다
+  const usedRelIds = new Set([...baseRelsXml.matchAll(/<Relationship\b[^>]*>/g)]
+    .filter((m) => !/\bType="[^"]*\/worksheet"/.test(m[0]))
+    .map((m) => m[0].match(/\bId="([^"]*)"/)?.[1]));
+  let nextRelNo = 1;
+  const freshRelId = () => {
+    while (usedRelIds.has(`rId${nextRelNo}`)) nextRelNo++;
+    return `rId${nextRelNo++}`;
+  };
 
   for (let i = 0; i < collectedSheets.length; i++) {
     const sheetPath = `xl/worksheets/sheet${i + 1}.xml`;
@@ -755,7 +801,7 @@ export async function concatXlsx(
     sheetEntries.push({
       name: collectedSheets[i].name,
       target: `worksheets/sheet${i + 1}.xml`,
-      rId: `rId${100 + i}`,
+      rId: freshRelId(),
       sheetId: i + 1,
       ...(collectedSheets[i].state ? { state: collectedSheets[i].state } : {}),
     });

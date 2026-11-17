@@ -9,7 +9,7 @@ import { ask, contextCharBudget, restoreMasked } from '../../infra/llm/index.js'
 import { sendProgress, sendToken } from '../../infra/progress.js';
 import { chunkText } from './docs.js';
 import { asksToMaskText } from './agent-step.js';
-import { cleanOutput, FIDELITY_RULES, tokensFor } from './prompts.js';
+import { cleanOutput, FIDELITY_RULES } from './prompts.js';
 
 export type RewriteMode = 'polish' | 'concise' | 'formal' | 'plain' | 'expand' | 'english' | 'gaejosik' | 'narrative' | 'public' | 'press' | 'custom';
 
@@ -33,6 +33,15 @@ const MODE_GUIDE: Record<Exclude<RewriteMode, 'custom'>, string> = {
 const OUT_FACTOR: Partial<Record<RewriteMode, number>> = { expand: 1.8, english: 1.6, narrative: 1.4 };
 /** 한 번에 받을 답 상한 (공급자 출력 한도 16K 안쪽) */
 const MAX_OUT_TOKENS = 8000;
+/** 지시를 사용자가 쓰는 고쳐 쓰기("3배로 늘려 써")의 답 몫: 조각 크기는 그대로 두고 답 한도만 이만큼 넉넉히 */
+const CUSTOM_ANSWER_FACTOR = 3;
+
+/** 답 한도(토큰). 한국어를 토큰 하나에 0.5자로 촘촘히 세는 모델도 끝까지 쓰게 넉넉히 잡되, 답 상한과 문맥에 남은 자리 안에서.
+ *  끊겼는지는 공급자가 알려 준 것(truncated)으로만 가린다 */
+function answerTokens(outChars: number, roomChars: number): number {
+  const room = Math.floor(roomChars / 1.2);
+  return Math.min(MAX_OUT_TOKENS, Math.max(1024, Math.min(Math.ceil(outChars * 2) + 500, room)));
+}
 
 const SYSTEM = [
   '당신은 한국어 업무 문서를 고쳐 쓰는 편집자입니다. 사용자가 고른 글을 지시대로 바꿉니다.',
@@ -86,10 +95,11 @@ export async function rewriteText(
     signal.throwIfAborted();
     if (pieces.length > 1) sendProgress({ current: i, total: pieces.length, message: `고쳐 쓰는 중 (${i + 1}/${pieces.length})` });
     if (i > 0) sendToken(chunks[i - 1].sep);
+    const content = `${instructionFor(mode, params.instruction, pieces[i])}\n\n[원문]\n${pieces[i]}`;
     const r = await ask({
       system: SYSTEM,
-      messages: [{ role: 'user', content: `${instructionFor(mode, params.instruction, pieces[i])}\n\n[원문]\n${pieces[i]}` }],
-      maxTokens: Math.min(MAX_OUT_TOKENS, tokensFor(pieces[i].length * factor * 1.3) + 300),
+      messages: [{ role: 'user', content }],
+      maxTokens: answerTokens(pieces[i].length * (mode === 'custom' ? CUSTOM_ANSWER_FACTOR : factor), whole - SYSTEM.length - content.length),
       signal,
     });
     // 답이 길이 한도에서 끊겼으면 넣지 않는다: 끊긴 조각을 다음 조각과 이으면 가운데가 빠진 글이 문서에 들어간다
@@ -108,15 +118,17 @@ export async function rewriteText(
     const errs = lintMuncheText(result).filter((f) => f.severity === 'error');
     if (errs.length) {
       const list = errs.slice(0, 12).map((f) => `- ${f.line}줄 "${f.match.slice(0, 40)}": ${f.message}`).join('\n');
+      const content = `다음 개조식 글에서 지적된 줄의 끝맺음만 명사형(~함, ~임, ~ 예정)으로 고쳐 전체를 다시 쓰세요.\n\n[지적]\n${list}\n\n[글]\n${result}`;
       const fix = await ask({
         system: SYSTEM,
-        messages: [{ role: 'user', content: `다음 개조식 글에서 지적된 줄의 끝맺음만 명사형(~함, ~임, ~ 예정)으로 고쳐 전체를 다시 쓰세요.\n\n[지적]\n${list}\n\n[글]\n${result}` }],
-        maxTokens: Math.min(MAX_OUT_TOKENS, tokensFor(result.length * 1.2) + 200),
+        messages: [{ role: 'user', content }],
+        maxTokens: answerTokens(result.length * 1.2, whole - SYSTEM.length - content.length),
         signal,
         stream: false,
       });
       redacted += fix.redacted;
-      const fixed = cleanOutput(fix.restore(fix.text), text).replace(/[ \t]+$/gm, '');
+      // 끊긴 다시 쓰기는 버리고 첫 결과를 둔다 (지적 수가 줄었다고 끊긴 글을 넣지 않게)
+      const fixed = fix.truncated ? '' : cleanOutput(fix.restore(fix.text), text).replace(/[ \t]+$/gm, '');
       if (fixed && lintMuncheText(fixed).filter((f) => f.severity === 'error').length < errs.length) result = fixed;
     }
   }

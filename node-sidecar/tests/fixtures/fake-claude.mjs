@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 시험용 가짜 Claude Code (실제 claude 는 구독 사용량을 쓴다). 공식 CLI 의 stream-json 출력 모양만 흉내 낸다.
 // FAKE_CLAUDE_MODE: ok · tools · mcp · early · permission · apikey · nokeysrc · auth · retry · toolong · ratelimit · hang · old · exit
-//   · noinit(시작 보고 없이 답) · linger(답 뒤 안 끝남) · servertool · userevent · empty
+//   · noinit(시작 보고 없이 답) · linger(답 뒤 안 끝남) · servertool · userevent · empty · maxtokens(출력 한도에서 끊김)
 // FAKE_CLAUDE_AUTH: subscription(기본) · apikey · out  (`auth status --json` 의 답)
 // FAKE_CLAUDE_REPLY: ok 의 답 글
 // FAKE_LOG: 기록 파일. 없으면(앱이 자식 환경을 허용 목록으로 걸러 못 받을 때) 임시 폴더의 kordoc-fake-claude.jsonl
@@ -80,6 +80,14 @@ function respond() {
       init();
       out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600 } });
       fail('rate_limit', "You've hit your limit", 429);
+      return;
+    case 'maxtokens':
+      init();
+      out({ type: 'stream_event', event: { type: 'message_start' } });
+      delta('끊긴 답');
+      out({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'max_tokens' } } });
+      out({ type: 'assistant', message: { role: 'assistant', stop_reason: 'max_tokens', content: [{ type: 'text', text: '끊긴 답' }] } });
+      out({ type: 'result', subtype: 'success', is_error: false, result: '끊긴 답' });
       return;
     case 'retry':
       init();

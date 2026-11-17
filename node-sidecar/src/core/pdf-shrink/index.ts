@@ -160,6 +160,16 @@ async function shrinkImage(doc: PDFDocument, ref: PDFRef, s: PDFRawStream, lvl: 
   return out;
 }
 
+/** 바이트 안에 re 꼴이 있는가 — 토막(chunk)씩 글로 바꿔 본다. 통째로 바꾸면 Node 문자열 상한(약 512MB)을 넘는 PDF 에서
+ *  영어 오류(Cannot create a string longer than …)로 멈춘다. 토막 사이에 걸친 꼴은 앞 토막 끝 256바이트를 겹쳐 잡는다 */
+export function bytesMatch(bytes: Uint8Array, re: RegExp, chunk = 64 * MB): boolean {
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let at = 0; at < buf.length; at += chunk) {
+    if (re.test(buf.toString('latin1', Math.max(0, at - 256), Math.min(buf.length, at + chunk)))) return true;
+  }
+  return false;
+}
+
 /** 그림만 줄인 PDF 바이트 */
 export async function shrinkImages(bytes: Uint8Array, level: ShrinkLevel, signal?: AbortSignal): Promise<{ bytes: Uint8Array; images: number; shrunk: number; skippedBytes: number }> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
@@ -197,7 +207,7 @@ export async function shrinkImages(bytes: Uint8Array, level: ShrinkLevel, signal
     if (images % 20 === 0) sendProgress({ current: images, total: imgs.length - masks.size, message: `그림 줄이는 중 (${images}개)` });
   }
   // PDF/A-1 은 객체 묶음(object stream)을 허용하지 않는다 — 기록물 원본의 규격을 깨지 않게 그대로 쓴다
-  const pdfa1 = /pdfaid:part(?:>\s*|="\s*)1/.test(Buffer.from(bytes).toString('latin1'));
+  const pdfa1 = bytesMatch(bytes, /pdfaid:part(?:>\s*|="\s*)1/);
   return { bytes: await doc.save({ useObjectStreams: !pdfa1 }), images, shrunk, skippedBytes };
 }
 
@@ -235,7 +245,7 @@ export async function pdfShrink(p: ShrinkParams, signal?: AbortSignal): Promise<
   const before = source.length;
   const startAt = ORDER.indexOf(p.level ?? (target ? 'light' : 'normal'));
   if (startAt < 0) throw new Error('단계는 가볍게·보통·강하게 가운데 하나를 고르세요.');
-  const signed = /\/ByteRange\s*\[/.test(Buffer.from(source).toString('latin1'));
+  const signed = bytesMatch(source, /\/ByteRange\s*\[/);
   // 이미 한도 안이면 화질을 깎은 사본을 만들지 않는다 (한글·워드는 PDF 로 바꾼 것을 그대로 저장)
   if (target && before <= target) {
     if (isPdf) {

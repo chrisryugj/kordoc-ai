@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, Combine, FileOutput, FolderOpen, ExternalLink, ImageDown, Split } from "lucide-react";
 import type { PdfComposeResult } from "../../lib/contract";
-import { rpc } from "../../lib/rpc";
+import { errorText, rpc } from "../../lib/rpc";
+import { useApp } from "../../state/app";
 import { baseName, dirName, fileSize, num } from "../../lib/format";
 import { pickFolder } from "../../lib/native";
 import { Button } from "../ui/Button";
@@ -171,11 +172,15 @@ export function SavePanel({ board, sel, opts, set, names, defaultDir, configured
       {busy && <Working label="저장하는 중" progress={progress} onCancel={onCancel} />}
       <ErrorLine message={error} />
       {result && !busy && <SaveDone result={result} />}
+      {result && !busy && result.kind === "pdf" && [...new Set(result.outputs.flatMap((o) => (o.notice ? [o.notice] : [])))].map((n) => <Note key={n} tone="warn">{n}</Note>)}
     </aside>
   );
 }
 
 function SaveDone({ result }: { result: SaveResult }) {
+  const { toast } = useApp();
+  // 파일을 옮겼거나 지웠으면 열리지 않는다 → 아무 일도 안 일어나는 것처럼 보이지 않게 알린다
+  const fail = (e: unknown) => toast(errorText(e), "error");
   if (result.kind === "images" || result.outputs.length > 1) {
     const dir = result.kind === "images" ? result.dir : dirName(result.outputs[0].output_path);
     const n = result.kind === "images" ? result.count : result.outputs.length;
@@ -185,7 +190,7 @@ function SaveDone({ result }: { result: SaveResult }) {
         <div className="min-w-0 flex-1">
           <div className="font-semibold">{result.kind === "images" ? `그림 ${num(n)}장을 저장했습니다` : `PDF ${num(n)}개를 저장했습니다`}</div>
           <div className="kd-path mt-0.5" title={dir}>{dir}</div>
-          <div className="mt-2"><Button variant="secondary" size="sm" onClick={() => void rpc("open_folder", { path: dir }).catch(() => undefined)}><FolderOpen size={13} /> 폴더 열기</Button></div>
+          <div className="mt-2"><Button variant="secondary" size="sm" onClick={() => void rpc("open_folder", { path: dir }).catch(fail)}><FolderOpen size={13} /> 폴더 열기</Button></div>
         </div>
       </div>
     );
@@ -198,8 +203,8 @@ function SaveDone({ result }: { result: SaveResult }) {
         <div className="font-semibold">저장했습니다 ({num(o.page_count)}쪽 · {fileSize(o.bytes)})</div>
         <div className="kd-path mt-0.5" title={o.output_path}>{baseName(o.output_path)}</div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <Button variant="secondary" size="sm" onClick={() => void rpc("open_file", { path: o.output_path }).catch(() => undefined)}><ExternalLink size={13} /> 열기</Button>
-          <Button variant="secondary" size="sm" onClick={() => void rpc("reveal_file", { path: o.output_path }).catch(() => undefined)}><FolderOpen size={13} /> 폴더에서 보기</Button>
+          <Button variant="secondary" size="sm" onClick={() => void rpc("open_file", { path: o.output_path }).catch(fail)}><ExternalLink size={13} /> 열기</Button>
+          <Button variant="secondary" size="sm" onClick={() => void rpc("reveal_file", { path: o.output_path }).catch(fail)}><FolderOpen size={13} /> 폴더에서 보기</Button>
         </div>
       </div>
     </div>

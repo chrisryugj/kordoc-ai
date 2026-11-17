@@ -5,6 +5,7 @@
 
 import { receivedDocRef } from '../ai/prompts.js';
 import { dateAtStart } from '../inbox/dates.js';
+import { normText } from './article.js';
 
 export interface DocDate { date: string; source: '시행일' | '문서 날짜' }
 
@@ -34,9 +35,9 @@ export function documentDate(text: string, today: string): DocDate | undefined {
 export const koDate = (iso: string) => `${Number(iso.slice(0, 4))}. ${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 export const ymd = (iso: string) => iso.replace(/-/g, '');
 
-/** 비교용: 공백·문장부호 차이는 무시 */
+/** 비교용: 공백·문장부호 차이는 무시 (조문 지문도 같은 normText 기준) */
 export const sameText = (a: string, b: string) => {
-  const n = (s: string) => s.replace(/[\s.,·ㆍ'"“”‘’()]/g, '').replace(/…$/, '');
+  const n = (s: string) => normText(s).replace(/…$/, '');
   return n(a) === n(b);
 };
 

@@ -78,12 +78,15 @@ export async function rosterFromFile(path: string, signal?: AbortSignal): Promis
   return rosterFromText(r.markdown.replace(/^#+\s*/gm, '').replace(/\|/g, '\n'));
 }
 
+/** 과·실·동·국으로 끝나지만 부서가 아닌 흔한 낱말 ("조사 결과"의 결과, "추진 성과"의 성과) */
+const NOT_DEPT = /(?:결과|성과|효과|통과|초과|부과|경과|일과|교과|활동|행동|운동|이동|변동|연동|자동|공동|합동|사실|현실|확실|진실|전국|결국)$/;
+
 /** 파일 이름에서 부서처럼 생긴 토막 (명단이 없을 때) */
 function deptFromFileName(path: string): string {
   const tokens = basename(path, extname(path)).normalize('NFC').split(/[_\-\s()[\]]+/).filter(Boolean);
   for (let i = tokens.length - 1; i >= 0; i--) {
     const t = tokens[i];
-    if (t.length >= 2 && t.length <= 12 && DEPT_TOKEN.test(t) && /[가-힣]/.test(t)) return t;
+    if (t.length >= 2 && t.length <= 12 && DEPT_TOKEN.test(t) && !NOT_DEPT.test(t) && /[가-힣]/.test(t)) return t;
   }
   return '';
 }
@@ -111,7 +114,9 @@ export function matchDept(roster: string[], h: DeptHints): { dept: string; in_ro
     // 줄기(총무과의 "총무")는 파일 이름의 토막 하나가 그 줄기일 때만 맞춘다. 이름 어디에든 들어 있으면 맞는 것으로 보면
     // "교육수요조사_최종"이 조사과로, "홍보계획_제출"이 홍보과로 잡혀 그 부서가 미제출 목록에서 빠진다
     const tokens = basename(h.path, extname(h.path)).normalize('NFC').split(/[\s_\-.,()[\]{}·~+]+/).filter(Boolean);
-    const stemAt = (stem: string) => tokens.map((t) => norm(t) === stem || deptStem(t) === stem).lastIndexOf(true);
+    // 끝말이 붙은 토막(총무팀)은 어디서나, 줄기만인 토막(총무)은 맨 끝 토막일 때만 (서식 이름_부서 꼴).
+    // 줄기만인 토막이 앞·가운데에 있으면 보통 낱말이다: "정보과학 교육 수요조사"의 "교육"은 교육과가 아니다
+    const stemAt = (stem: string) => tokens.map((t, i) => (norm(t) === stem ? i === tokens.length - 1 : deptStem(t) === stem)).lastIndexOf(true);
     const byStem = keys
       .map((k) => ({ k, at: k.stem.length >= 2 ? stemAt(k.stem) : -1 }))
       .filter((x) => x.at >= 0)

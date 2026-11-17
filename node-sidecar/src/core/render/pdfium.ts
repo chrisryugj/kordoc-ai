@@ -3,6 +3,8 @@
 import type { PDFiumDocument, PDFiumLibrary, PDFiumPage } from '@hyzyla/pdfium';
 
 let lib: Promise<PDFiumLibrary> | null = null;
+/** sharp 가 받는 그림 화소 수 상한 (limitInputPixels 기본값 0x3FFF × 0x3FFF) */
+export const MAX_PIXELS = 0x3fff * 0x3fff;
 
 function pdfium(): Promise<PDFiumLibrary> {
   if (!lib) {
@@ -100,6 +102,9 @@ export function checkPageImages(page: PDFiumPage, pageNo: number): void {
 }
 
 export const isHeavyPage = (err: unknown) => (err as { code?: unknown })?.code === 'PDF_PAGE_TOO_HEAVY';
+
+/** 그림 내보내기도 미리보기와 같은 화소·긴 변 상한을 따른다. */
+export const capScale = fitScale;
 
 /** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배, maxScale 을 주면 그만큼). width·height 는 pt 원본 크기.
  *  화소 상한(MAX_PAGE_PIXELS·MAX_PAGE_SIDE)을 넘으면 배율을 낮추고, 그림이 너무 큰 쪽은 그리지 않고 오류(checkPageImages).

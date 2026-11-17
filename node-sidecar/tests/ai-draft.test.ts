@@ -299,10 +299,30 @@ describe('ai_rewrite', () => {
     expect(r.text).toBe('□ 체육대회 개최\n  ㅇ 4월 10일 개최 예정');
   });
 
+  it('gaejosik — 한 번 더 고친 답이 끊겼으면 버리고 첫 결과를 둔다', async () => {
+    const { CUT } = await import('./ai-fake-server.js');
+    reply = (b) => (lastUser(b).includes('[지적]') ? `□ 체육대회 개최${CUT}` : '□ 체육대회 개최\n  ㅇ 4월 10일에 개최합니다.');
+    const r = await rewriteText({ text: '체육대회를 4월 10일에 개최합니다.', mode: 'gaejosik' }, signal());
+    expect(r.text).toBe('□ 체육대회 개최\n  ㅇ 4월 10일에 개최합니다.');
+  });
+
   it('답이 길이 한도에서 끊기면 끊긴 글을 돌려주지 않고 알린다 (가운데가 빠진 글이 문서에 들어가지 않게)', async () => {
     const { CUT } = await import('./ai-fake-server.js');
     reply = () => `회의는 오늘 열리며 안건은${CUT}`;
     await expect(rewriteText({ text: '회의는 오늘 열린다고 하며 안건은 세 가지라고 합니다.', mode: 'polish' }, signal())).rejects.toThrow(/길이 한도에 걸려 중간에서 끊겼습니다/);
+  });
+
+  it('답 한도는 넉넉히: 한국어 토큰이 촘촘한 모델(0.5자/토큰)·늘려 쓰라는 지시도 끝까지 쓸 자리를 준다', async () => {
+    reply = () => '고친 글입니다.';
+    const long = '가온시는 주민 참여 예산 제도를 운영하여 주민이 직접 사업을 제안하고 심사하도록 하고 있습니다. '.repeat(20).trim();
+    await rewriteText({ text: long, mode: 'polish' }, signal());
+    expect(fake.chats().at(-1)!.max_tokens).toBeGreaterThanOrEqual(long.length * 1.2 * 2);
+    // 지시를 직접 쓴 고쳐 쓰기는 몇 배로 늘려 달라고 할 수 있다
+    const short = '회의는 오늘 열립니다. 안건은 세 가지입니다.';
+    await rewriteText({ text: short, mode: 'custom', instruction: '3배로 늘려 써 줘' }, signal());
+    expect(fake.chats().at(-1)!.max_tokens).toBeGreaterThanOrEqual(1024);
+    await rewriteText({ text: long, mode: 'custom', instruction: '3배로 늘려 써 줘' }, signal());
+    expect(fake.chats().at(-1)!.max_tokens).toBeGreaterThanOrEqual(Math.min(8000, long.length * 3 * 2));
   });
 
   it('custom 은 지시가 있어야 하고, 모르는 방식은 안내 오류', async () => {

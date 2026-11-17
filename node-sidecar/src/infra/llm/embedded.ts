@@ -145,10 +145,12 @@ export function createEmbeddedProvider(cfg: EmbeddedConfig): LlmProvider {
           const r = await session.promptWithMeta(last.content, {
             maxTokens: req.maxTokens,
             signal: req.signal,
+            stopOnAbortSignal: false,
             grammar,
             onTextChunk: req.onToken,
             budgets: { thoughtTokens: 0 },
           });
+          // 답 한도(maxTokens)에서 끊긴 답은 부른 쪽이 알게 한다 (고쳐 쓰기가 끊긴 글을 문서에 넣지 않게)
           if (r.stopReason === 'maxTokens') req.onTruncated?.();
           return r.responseText;
         } finally {

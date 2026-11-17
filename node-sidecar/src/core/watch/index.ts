@@ -32,7 +32,11 @@ interface Watcher {
   format: WatchFormat;
   processed: number;
   started_at: string;
-  fsw: FSWatcher;
+  /** 끊겼으면 없음 (다시 훑기가 폴더가 보이면 다시 건다) */
+  fsw?: FSWatcher;
+  /** 폴더를 볼 수 없던 연속 횟수와 처음 못 본 시각 (네트워크 드라이브가 잠깐 끊긴 것일 수 있다) */
+  misses: number;
+  missSince?: number;
   timers: Map<string, NodeJS.Timeout>;
   /** 원본 경로 → 변환한 판의 수정 시각 (같은 판을 두 번 변환하지 않게) */
   done: Map<string, number>;
@@ -46,7 +50,9 @@ interface Watcher {
 }
 
 const watchers = new Map<string, Watcher>();
-const GONE = '지켜보던 폴더를 더 볼 수 없어 지켜보기를 멈췄습니다. 폴더 이름을 바꿨거나 지웠다면 다시 골라 시작하세요.';
+const GONE = '지켜보던 폴더를 한동안 볼 수 없어 지켜보기를 멈췄습니다. 네트워크 드라이브라면 연결을 확인하고, 폴더 이름을 바꿨거나 지웠다면 다시 골라 시작하세요.';
+/** 폴더를 못 볼 때: 처음엔 firstWaitMs 뒤, 그다음부터 두 배씩 maxWaitMs 까지 늘려 다시 보고, giveUpMs 동안 계속 못 보면 멈춘다. 시험은 짧게 바꿔 쓴다 */
+export const watchRetry = { firstWaitMs: 5000, maxWaitMs: 60_000, giveUpMs: 10 * 60_000 };
 /** 지금 거는 중인 폴더 */
 const starting = new Set<string>();
 const WATCH_FORMATS = new Set<DocFormat>(['hwp', 'hwp3', 'hwpx', 'hwpml', 'pdf', 'xls', 'xlsx', 'docx', 'pptx']);
@@ -74,7 +80,7 @@ export function stopAllWatchers(): void {
 }
 
 function close(w: Watcher): void {
-  w.fsw.close();
+  w.fsw?.close();
   clearTimeout(w.scan);
   for (const t of w.timers.values()) clearTimeout(t);
   w.timers.clear();
@@ -150,15 +156,18 @@ async function listDocs(dir: string, outDir: string, out = new Map<string, numbe
 
 /** 다시 훑기 — fs.watch 가 놓친 새 문서·바뀐 문서를 디바운스에 태운다 */
 async function rescan(w: Watcher): Promise<void> {
-  // 지켜보던 폴더의 이름을 바꾸거나 지우면 감시는 아무 신호 없이 죽는다(없는 폴더는 빈 폴더로 읽힌다) → 여기서 알아채고 멈췄다고 알린다
+  // 지켜보던 폴더의 이름을 바꾸거나 지우면 감시는 아무 신호 없이 죽는다(없는 폴더는 빈 폴더로 읽힌다) → 여기서 알아챈다.
+  // 네트워크 드라이브가 잠깐 끊긴 것일 수도 있어 바로 멈추지 않고 간격을 늘려 다시 보다가, 오래 못 볼 때만 멈췄다고 알린다
   const st = await stat(w.dir).catch(() => null);
-  if (!st?.isDirectory()) {
-    if (!watchers.has(w.id)) return;
-    logger.warn(`[watch] ${w.id} 감시 중단: 폴더가 없음`);
-    close(w);
-    watchers.delete(w.id);
-    sendNotification('watch_event', { id: w.id, path: w.dir, ok: false, error: GONE });
-    return;
+  if (!watchers.has(w.id)) return;
+  if (!st?.isDirectory()) return missed(w);
+  if (w.missSince !== undefined) {
+    logger.info(`[watch] ${w.id} 폴더가 다시 보임 (${w.misses}번 못 봄)`);
+    w.misses = 0;
+    w.missSince = undefined;
+  }
+  if (!w.fsw) {
+    try { attach(w); } catch (err) { logger.warn(`[watch] ${w.id} 감시 다시 걸기 실패: ${errorText(err)}`); }
   }
   for (const [path, mtime] of await listDocs(w.dir, w.out_dir)) {
     if (w.seen.get(path) === mtime) continue;
@@ -167,12 +176,46 @@ async function rescan(w: Watcher): Promise<void> {
   }
 }
 
+/** 폴더를 못 봤다: giveUpMs 안이면 다시 볼 차례를 기다리고, 넘으면 멈추고 알린다 */
+function missed(w: Watcher): void {
+  w.misses++;
+  w.missSince ??= Date.now();
+  if (Date.now() - w.missSince < watchRetry.giveUpMs) {
+    logger.warn(`[watch] ${w.id} 폴더를 볼 수 없음 (${w.misses}번째), 다시 봄`);
+    return;
+  }
+  logger.warn(`[watch] ${w.id} 감시 중단: 폴더를 오래 볼 수 없음`);
+  close(w);
+  watchers.delete(w.id);
+  sendNotification('watch_event', { id: w.id, path: w.dir, ok: false, error: GONE });
+}
+
 function scanLoop(w: Watcher, delay: number): void {
   w.scan = setTimeout(async () => {
     const t0 = Date.now();
     await rescan(w).catch((err) => logger.warn(`[watch] ${w.id} 다시 훑기 실패: ${errorText(err)}`));
-    if (watchers.has(w.id)) scanLoop(w, Math.max(RESCAN_MS, (Date.now() - t0) * 10));
+    if (!watchers.has(w.id)) return;
+    scanLoop(w, w.misses
+      ? Math.min(watchRetry.maxWaitMs, watchRetry.firstWaitMs * 2 ** (w.misses - 1))
+      : Math.max(RESCAN_MS, (Date.now() - t0) * 10));
   }, delay);
+}
+
+/** fs.watch 를 건다. 끊기면(네트워크 드라이브가 잠깐 빠짐·폴더가 사라짐) 감시는 그대로 두고 다시 훑기가 폴더가 보일 때 다시 건다 */
+function attach(w: Watcher): void {
+  const fsw = watch(w.dir, { recursive: true }, (_event, name) => {
+    if (!name) return;
+    const rel = name.toString();
+    const full = join(w.dir, rel);
+    if (inside(full, w.out_dir) || rel.split(/[\\/]/).some(isJunkName) || !WATCH_FORMATS.has(formatOf(full))) return;
+    schedule(w, full);
+  });
+  fsw.on('error', (err) => {
+    logger.warn(`[watch] ${w.id} 감시가 끊김, 다시 훑기로 다시 봄: ${err.message}`);
+    fsw.close();
+    if (w.fsw === fsw) w.fsw = undefined;
+  });
+  w.fsw = fsw;
 }
 
 export async function watchStart(p: { dir: string; out_dir?: string; format?: WatchFormat }): Promise<{ id: string }> {
@@ -213,23 +256,11 @@ async function startWatcher(p: { dir: string; out_dir?: string; format?: WatchFo
 
   const id = randomUUID().slice(0, 8);
   const seen = await listDocs(p.dir, outDir);
-  const fsw = watch(p.dir, { recursive: true }, (_event, name) => {
-    if (!name) return;
-    const rel = name.toString();
-    const full = join(p.dir, rel);
-    if (inside(full, outDir) || rel.split(/[\\/]/).some(isJunkName) || !WATCH_FORMATS.has(formatOf(full))) return;
-    schedule(w, full);
-  });
   const w: Watcher = {
     id, dir: p.dir, out_dir: outDir, format: p.format ?? 'md', processed: 0, started_at: new Date().toISOString(),
-    fsw, timers: new Map(), done: new Map(), seen, locked: new Set(), queue: [], busy: false,
+    misses: 0, timers: new Map(), done: new Map(), seen, locked: new Set(), queue: [], busy: false,
   };
-  fsw.on('error', (err) => {
-    logger.warn(`[watch] ${id} 감시 중단: ${err.message}`);
-    close(w);
-    watchers.delete(id);
-    sendNotification('watch_event', { id, path: p.dir, ok: false, error: GONE });
-  });
+  attach(w);
   watchers.set(id, w);
   scanLoop(w, RESCAN_MS);
   if (!exitHooked) {

@@ -50,9 +50,14 @@ export async function pageTexts(path: string, signal?: AbortSignal): Promise<str
   // 멈춘 요청(다시 점검하며 앞 요청을 멈춤)이 만든 항목은 다시 쓰지 않는다 — 그 실패(null)가 남아 파일이 바뀌기 전까지 쪽 번호가 빠지고
   // "문서가 커서 쪽을 나누지 못했습니다"라는 틀린 까닭이 떴다
   if (!hit || hit.signal?.aborted) {
-    hit = { pages: load(path, signal).catch(() => null), signal };
+    const job = load(path, signal);
+    const mine = { pages: job.catch(() => null), signal };
+    hit = mine;
     cache.set(key, hit);
     if (cache.size > 6) cache.delete(cache.keys().next().value!);
+    // 실패·취소로 끝난 결과는 캐시에 두지 않는다 (남기면 같은 문서를 다시 점검해도 쪽 번호가 계속 안 나온다)
+    const drop = () => { if (cache.get(key) === mine) cache.delete(key); };
+    job.then(() => { if (signal?.aborted) drop(); }, drop);
   }
   return hit.pages;
 }

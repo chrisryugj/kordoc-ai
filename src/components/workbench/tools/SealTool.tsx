@@ -25,7 +25,7 @@ export function SealTool({ doc }: ToolProps) {
   const image = picked || settings?.org.seal_image || "";
   const [anchor, setAnchor] = useState("(인)");
   /** wanted: 찍을 때 적었던 자리 글자 (그 뒤 칸을 고쳐도 결과 안내는 그때 값으로) */
-  const task = useTask<{ output_path: string; placed: number; anchor?: string; reason?: string; wanted: string }>();
+  const task = useTask<{ output_path: string; placed: number; others?: number; anchor?: string; reason?: string; wanted: string }>();
 
   return (
     <div className="flex flex-col gap-4">
@@ -51,7 +51,10 @@ export function SealTool({ doc }: ToolProps) {
       <ErrorLine message={task.error} />
       {task.result && (task.result.placed > 0
         // 고른 글자가 없어 엔진이 다른 자리(발신명의 끝 등)에 찍었으면 그 자리를 밝힌다
-        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다${task.result.anchor && sameAnchor(task.result.anchor, task.result.wanted) ? "" : task.result.anchor ? ` (“${task.result.wanted}”이 없어 “${task.result.anchor}” 자리에 찍음)` : ""}`} />
+        ? <>
+            <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다${task.result.anchor && sameAnchor(task.result.anchor, task.result.wanted) ? "" : task.result.anchor ? ` (“${task.result.wanted}”이 없어 “${task.result.anchor}” 자리에 찍음)` : ""}`} />
+            {!!task.result.others && <Note tone="info">문서의 첫 서명 자리에만 찍었습니다. 남은 (인) {task.result.others}곳은 다른 사람의 자리일 수 있어 비워 두었습니다. 더 찍을 곳은 찍을 자리 글자를 그 칸의 글(예: 담당 이두리)로 바꿔 한 번 더 찍으세요.</Note>}
+          </>
         : <Note tone="warn">{task.result.reason ?? `“${task.result.wanted}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.`}</Note>)}
     </div>
   );

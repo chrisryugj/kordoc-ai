@@ -16,6 +16,7 @@ import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { Seg } from "../common/Field";
 import { ErrorLine, Note, SavedFile, Working } from "../common/Status";
+import { keepEdits } from "./baselines";
 
 const hm = (min: number) => {
   const h = Math.floor(min / 60);
@@ -37,12 +38,18 @@ export function ImpactScreen({ active }: { active: boolean }) {
 
   /** 늦게 온 앞 기간의 집계가 새 기간을 덮지 않게 */
   const loadSeq = useRef(0);
+  // 칸을 채운 집계 (다시 읽을 때 저장 안 한 칸을 가려내려고)
+  const shownReport = useRef<UsageReport | null>(null);
   const load = useCallback(async () => {
     const my = ++loadSeq.current;
     try {
       const r = await rpc("usage_report", { range });
       if (my !== loadSeq.current) return;
+      const before = shownReport.current?.items;
+      shownReport.current = r;
       setReport(r);
+      // 화면에 다시 들어오거나 기간을 바꿔도 저장 안 한 기준 시간이 말없이 되돌아가지 않게
+      setBase((b) => keepEdits(before, r.items, b));
       setError("");
     } catch (e) { if (my === loadSeq.current) setError(errorText(e)); }
   }, [range]);

@@ -7,13 +7,28 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { PDFDocument, PDFName, PDFRawStream, StandardFonts } from 'pdf-lib';
 import { call, sample, setupEnv } from './doc-helpers.js';
-import { unpredictPng } from '../src/core/pdf-shrink/index.js';
+import { bytesMatch, unpredictPng } from '../src/core/pdf-shrink/index.js';
 import { openPdf } from '../src/core/render/pdfium.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
 let env: ReturnType<typeof setupEnv>;
 beforeAll(() => { env = setupEnv(); });
+
+describe('bytesMatch — 512MB 넘는 PDF 를 통째로 글로 바꾸지 않고 서명·PDF/A 표시 찾기 (8차 LOW 13)', () => {
+  it('토막 경계에 걸친 꼴도 찾고, 없으면 false', () => {
+    const bytes = Buffer.from('%PDF-1.7 ......... /ByteRange   [0 10 20 30] ...', 'latin1');
+    const at = bytes.indexOf('/ByteRange');
+    // 꼴 한가운데에서 토막이 나뉘게
+    expect(bytesMatch(bytes, /\/ByteRange\s*\[/, at + 5)).toBe(true);
+    expect(bytesMatch(bytes, /\/ByteRange\s*\[/, 4)).toBe(true);
+    expect(bytesMatch(bytes, /pdfaid:part(?:>\s*|="\s*)1/, 4)).toBe(false);
+    expect(bytesMatch(new Uint8Array(0), /x/)).toBe(false);
+    // Uint8Array 의 일부(view)만 본다
+    const view = new Uint8Array(bytes.buffer, bytes.byteOffset, at);
+    expect(bytesMatch(view, /\/ByteRange/, 7)).toBe(false);
+  });
+});
 
 /** 잡음이 많은 큰 사진(잘 안 줄어드는 JPEG) */
 async function photo(w: number, h: number): Promise<Buffer> {

@@ -146,7 +146,8 @@ try {
   writeFileSync(broken, 'not a zip');
   await ui.dialog([[broken]]);
   await ui.click('파일 고르기', { within: '[data-drop="compare-new"]' });
-  await sleep(2900); // 두 칸이 차면 바로 비교한다
+  // 두 칸이 차면 바로 비교한다 (작업자 스레드가 뜨는 만큼 오류가 늦게 올 수 있다)
+  await page.waitForFunction(() => document.querySelector('.kd-note[data-tone="err"]'), { timeout: 30000 }).catch(() => undefined);
   const errText = await page.evaluate(() => [...document.querySelectorAll('.kd-note[data-tone="err"]')].map((n) => n.innerText).join(' | '));
   check('비교 오류는 "새 문서를 읽지 못했습니다"', errText.includes('새 문서를 읽지 못했습니다') && !/문서B|파싱/.test(errText), errText);
   const slotText = await page.evaluate(() => document.querySelector('[data-drop="compare-old"]')?.innerText ?? '');

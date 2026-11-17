@@ -109,6 +109,15 @@ describe('부서 이름 맞추기', () => {
     expect(matchDept(roster, { path: '/x/2027 교육과정 수요조사_1.hwpx', values: [], text: '' }).in_roster).toBe(false);
     expect(matchDept(roster, { path: '/x/교육과정 운영계획_총무.hwpx', values: [], text: '' })).toEqual({ dept: '총무과', in_roster: true });
     expect(matchDept(roster, { path: '/x/총무과 요청자료_홍보.hwpx', values: [], text: '' })).toEqual({ dept: '홍보과', in_roster: true });
+    // 줄기만인 토막이 앞·가운데에 있으면 보통 낱말 ("정보과학 교육 수요조사"의 교육)
+    expect(matchDept([...roster, '정보과'], { path: '/x/정보과학 교육 수요조사.hwpx', values: [], text: '' })).toEqual({ dept: '', in_roster: false });
+    expect(matchDept(roster, { path: '/x/교육 수요조사.hwpx', values: [], text: '' }).in_roster).toBe(false);
+  });
+
+  it('명단에 없으면 파일 이름 토막으로 짐작하되 "결과"·"성과" 같은 낱말은 부서가 아니다', () => {
+    expect(matchDept(['총무과'], { path: '/x/안전과제 발굴 조사 결과.hwpx', values: [], text: '' })).toEqual({ dept: '', in_roster: false });
+    expect(matchDept([], { path: '/x/2026 추진 성과.hwpx', values: [], text: '' }).dept).toBe('');
+    expect(matchDept([], { path: '/x/홍보과 결과.hwpx', values: [], text: '' }).dept).toBe('홍보과');
   });
 
   it('부서 이름 뒤에 낱말이 붙거나 띄어 쓴 파일 이름도 그 부서로 맞춘다 (이름에 빈칸이 든 부서 포함)', () => {

@@ -133,7 +133,7 @@ describe.skipIf(!hasCorpus(SECURED))('보안 설정 PDF 를 쪽 그림으로 (lo
   it('멈추면 쪽을 더 그리지 않는다', async () => {
     const ac = new AbortController();
     ac.abort();
-    await expect(loadPdf(new Uint8Array(readFileSync(corpus(SECURED))), ac.signal)).rejects.toThrow(/abort/i);
+    await expect(loadPdf(new Uint8Array(readFileSync(corpus(SECURED))), { signal: ac.signal })).rejects.toThrow(/abort/i);
   });
 });
 

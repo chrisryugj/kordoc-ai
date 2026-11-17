@@ -8,22 +8,22 @@ import { FormatBadge } from "./FormatBadge";
 import { useFileMenu } from "./file-menu";
 import { baseName, formatOf } from "../../lib/format";
 
-function Row({ path, index, total, onMove, onRemove, note }: {
-  path: string; index: number; total: number; onMove: (to: number) => void; onRemove: () => void; note?: string;
+function Row({ path, index, total, onMove, onRemove, note, disabled = false }: {
+  path: string; index: number; total: number; onMove: (to: number) => void; onRemove: () => void; note?: string; disabled?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: path });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: path, disabled });
   const menu = useFileMenu();
   return (
     <li ref={setNodeRef} className="kd-order-row" data-dragging={isDragging}
       style={{ transform: CSS.Transform.toString(transform), transition }} {...attributes}
       onContextMenu={(e) => menu.open(e, path, {
         before: [
-          { label: "맨 위로", icon: <ChevronsUp size={14} />, disabled: index === 0, onClick: () => onMove(0) },
-          { label: "위로", icon: <ChevronUp size={14} />, disabled: index === 0, onClick: () => onMove(index - 1) },
-          { label: "아래로", icon: <ChevronDown size={14} />, disabled: index === total - 1, onClick: () => onMove(index + 1) },
-          { label: "맨 아래로", icon: <ChevronsDown size={14} />, disabled: index === total - 1, onClick: () => onMove(total - 1) },
+          { label: "맨 위로", icon: <ChevronsUp size={14} />, disabled: disabled || index === 0, onClick: () => onMove(0) },
+          { label: "위로", icon: <ChevronUp size={14} />, disabled: disabled || index === 0, onClick: () => onMove(index - 1) },
+          { label: "아래로", icon: <ChevronDown size={14} />, disabled: disabled || index === total - 1, onClick: () => onMove(index + 1) },
+          { label: "맨 아래로", icon: <ChevronsDown size={14} />, disabled: disabled || index === total - 1, onClick: () => onMove(total - 1) },
         ],
-        after: [{ label: "목록에서 빼기", icon: <X size={14} />, onClick: onRemove }],
+        after: [{ label: "목록에서 빼기", icon: <X size={14} />, disabled, hint: disabled ? "작업이 끝난 뒤 뺄 수 있습니다" : undefined, onClick: onRemove }],
       })}>
       <button type="button" className="kd-icon-btn kd-grip" {...listeners} aria-label="끌어서 순서 바꾸기" tabIndex={-1}>
         <GripVertical size={15} />
@@ -34,14 +34,15 @@ function Row({ path, index, total, onMove, onRemove, note }: {
         <span className="block text-sm font-semibold" style={{ overflowWrap: "anywhere" }}>{baseName(path)}</span>
         {note && <span className="kd-row-desc block">{note}</span>}
       </span>
-      <button type="button" className="kd-icon-btn" disabled={index === 0} onClick={() => onMove(index - 1)} aria-label={`${baseName(path)} 위로`}><ChevronUp size={15} /></button>
-      <button type="button" className="kd-icon-btn" disabled={index === total - 1} onClick={() => onMove(index + 1)} aria-label={`${baseName(path)} 아래로`}><ChevronDown size={15} /></button>
-      <button type="button" className="kd-icon-btn" onClick={onRemove} aria-label={`${baseName(path)} 빼기`}><X size={14} /></button>
+      <button type="button" className="kd-icon-btn" disabled={disabled || index === 0} onClick={() => onMove(index - 1)} aria-label={`${baseName(path)} 위로`}><ChevronUp size={15} /></button>
+      <button type="button" className="kd-icon-btn" disabled={disabled || index === total - 1} onClick={() => onMove(index + 1)} aria-label={`${baseName(path)} 아래로`}><ChevronDown size={15} /></button>
+      <button type="button" className="kd-icon-btn" disabled={disabled} onClick={onRemove} aria-label={`${baseName(path)} 빼기`}><X size={14} /></button>
     </li>
   );
 }
 
-export function OrderList({ items, onChange, notes }: { items: string[]; onChange: (next: string[]) => void; notes?: Record<string, string> }) {
+/** disabled: 이 목록으로 일하는 중 (합치는 동안 옮기거나 빼면 화면 순서와 실제 결과가 달라진다) */
+export function OrderList({ items, onChange, notes, disabled = false }: { items: string[]; onChange: (next: string[]) => void; notes?: Record<string, string>; disabled?: boolean }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -55,7 +56,7 @@ export function OrderList({ items, onChange, notes }: { items: string[]; onChang
       <SortableContext items={items} strategy={verticalListSortingStrategy}>
         <ol className="kd-order">
           {items.map((p, i) => (
-            <Row key={p} path={p} index={i} total={items.length} note={notes?.[p]}
+            <Row key={p} path={p} index={i} total={items.length} note={notes?.[p]} disabled={disabled}
               onMove={(to) => onChange(arrayMove(items, i, to))}
               onRemove={() => onChange(items.filter((x) => x !== p))} />
           ))}
