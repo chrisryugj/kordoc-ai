@@ -12,13 +12,19 @@ import { Button } from "../../ui/Button";
 import { Field } from "../../common/Field";
 import { ErrorLine, Note, SavedFile, Working } from "../../common/Status";
 
+/** 엔진이 찾은 자리가 사용자가 적은 글자와 같은가 (엔진은 "( 인 )"·"（인）"처럼 빈칸·전각만 다른 꼴도 그 자리로 찾고 문서 속 글자를 돌려준다) */
+export const sameAnchor = (found: string, wanted: string) => {
+  const norm = (t: string) => t.replace(/\s/g, "").replace(/（/g, "(").replace(/）/g, ")");
+  return norm(found) === norm(wanted);
+};
+
 export function SealTool({ doc }: ToolProps) {
   const { settings, openSettings } = useApp();
   // 따로 고른 그림이 없으면 설정에 등록한 그림을 쓴다 (설정에서 등록하고 돌아오면 바로 반영되게 처음 한 번만 읽지 않는다)
   const [picked, setImage] = useState("");
   const image = picked || settings?.org.seal_image || "";
   const [anchor, setAnchor] = useState("(인)");
-  const task = useTask<{ output_path: string; placed: number }>();
+  const task = useTask<{ output_path: string; placed: number; anchor?: string; reason?: string }>();
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,8 +49,9 @@ export function SealTool({ doc }: ToolProps) {
       )}
       <ErrorLine message={task.error} />
       {task.result && (task.result.placed > 0
-        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다`} />
-        : <Note tone="warn">“{anchor}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.</Note>)}
+        // 고른 글자가 없어 엔진이 다른 자리(발신명의 끝 등)에 찍었으면 그 자리를 밝힌다
+        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다${task.result.anchor && sameAnchor(task.result.anchor, anchor) ? "" : task.result.anchor ? ` (“${anchor.trim()}”이 없어 “${task.result.anchor}” 자리에 찍음)` : ""}`} />
+        : <Note tone="warn">{task.result.reason ?? `“${anchor}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.`}</Note>)}
     </div>
   );
 }

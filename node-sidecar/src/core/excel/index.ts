@@ -8,7 +8,7 @@ import { blocksToMarkdown, extractTables, type IRTable } from 'kordoc';
 import type { TablesResult } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
 import { outputFile, stemOf } from '../output/index.js';
-import { parsePageSpec } from '../render/index.js';
+import { assertPageSpec, parsePageSpec } from '../render/index.js';
 import { toCsv } from './csv.js';
 import { buildXlsx, type Sheet } from './xlsx.js';
 
@@ -33,13 +33,16 @@ export async function tablesExtract(
   p: { path: string; format: 'xlsx' | 'csv' | 'md'; pages?: string; only_data?: boolean; output_path?: string; allow_empty?: boolean },
   signal?: AbortSignal,
 ): Promise<TablesResult> {
+  assertPageSpec(p.pages);
   sendProgress({ current: 0, total: 2, message: '표 찾는 중' });
   const found = await extractTables(await readFile(p.path), { policy: 'none' });
   signal?.throwIfAborted();
-  const pages = new Set(parsePageSpec(p.pages));
+  // "5-"(끝까지)는 표가 나온 가장 뒤 쪽까지
+  const pages = new Set(parsePageSpec(p.pages, Math.max(0, ...found.map((t) => t.page ?? 0)) || undefined));
   const picked = found
     .map((t, i) => ({ ...t, index: i, kind: KIND[t.classification.kind] ?? 'uncertain' }))
-    .filter((t) => (!pages.size || pages.has(t.page)) && (!p.only_data || t.kind === 'data'));
+    // 쪽을 적었으면 그 쪽만: 적은 쪽이 표가 나온 쪽보다 뒤라 목록이 비어도 "제한 없음"으로 읽지 않는다
+    .filter((t) => (!p.pages?.trim() || pages.has(t.page)) && (!p.only_data || t.kind === 'data'));
   if (!picked.length) {
     if (p.allow_empty) return { tables: [] };
     throw new Error(p.only_data && found.length ? '자료표가 없습니다. "자료가 든 표만"을 끄고 다시 시도하세요.' : '문서에서 표를 찾지 못했습니다.');

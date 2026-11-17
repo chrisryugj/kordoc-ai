@@ -24,6 +24,8 @@ export interface GatherRow {
 }
 
 const UNIT = '명|원|천원|만원|백만원|억원|건|개|개소|곳|회|대|권|부|가구|세대|kg|㎏|㎡|m²|톤|시간';
+/** 숫자에 곱하는 단위 — 단위 없는 값과 섞이면 합계를 내지 않는다 */
+const MULTIPLIER = /^(천원|만원|백만원|억원)$/;
 const NUMERIC = new RegExp(`^([-+]?(?:\\d{1,3}(?:,\\d{3})+|0|[1-9]\\d*)(?:\\.\\d+)?)\\s*(${UNIT})?$`);
 // "행사일"·"마감일"처럼 "일"로 끝나는 이름은 날짜다("11.10" 을 더하면 뜻 없는 합계가 나온다). 세는 날 수(소요일·근무일)는 더한다
 // 이름이 그 말로 "끝날" 때만 뺀다. 어디든 들어 있으면 빼던 때는 금액·수량 열이 이름 때문에 합계에서 빠졌다
@@ -46,7 +48,10 @@ export function columnTotals(columns: Column[], rows: GatherRow[]): Map<string, 
     const nums = vals.map(numberOf);
     if (nums.some((n) => n === null)) continue;
     // 단위가 섞인 열(5천원 · 3만원 · 200원)은 숫자만 더하면 틀린 합계가 된다 → 내지 않는다 (단위 없는 값은 같은 단위로 본다)
-    if (new Set(vals.map((v) => NUMERIC.exec(v)?.[2]).filter(Boolean)).size > 1) continue;
+    const units = vals.map((v) => NUMERIC.exec(v)?.[2]);
+    if (new Set(units.filter(Boolean)).size > 1) continue;
+    // 단, 배수 단위(천원·만원·백만원·억원)를 쓴 값과 단위 없는 값이 섞이면 같은 단위로 볼 수 없다("3만원" + "30,000" 은 30,003 이 아니다)
+    if (units.some((u) => u && MULTIPLIER.test(u)) && units.some((u) => !u)) continue;
     out.set(col.key, Math.round((nums as number[]).reduce((a, b) => a + b, 0) * 1e6) / 1e6);
   }
   return out;

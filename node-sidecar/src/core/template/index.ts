@@ -15,7 +15,7 @@ import { parseDoc, readTextFile } from '../converter/index.js';
 import { parseCsv } from '../excel/csv.js';
 import { tableGrid, tableMerges } from '../excel/index.js';
 import { formatOf } from '../files/format.js';
-import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
+import { dropPartial, outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
 import { isHeaderField } from '../fill/index.js';
 import { orgAutofill } from './org.js';
 import type { MailMergePlan } from '../../types/rpc-contract.js';
@@ -179,28 +179,35 @@ export async function mailMerge(
   const outputs: string[] = [];
   const failed: Array<{ row: number; error: string }> = [];
   const rejected = new Set<string>();
-  for (const [i, r] of rows.entries()) {
-    signal.throwIfAborted();
-    sendProgress({ current: i + 1, total: rows.length, message: `${i + 1}/${rows.length}번째 문서 만드는 중` });
-    try {
-      const cells = Object.fromEntries(header.map((h, c) => [h, formatCell(h, r.cells[c] ?? '')]).filter(([h]) => used.includes(h))) as Record<string, string>;
-      if (!Object.keys(nonEmpty(cells)).length) throw new Error(`양식에 넣을 값이 비어 있습니다. 명부의 ${used.slice(0, 4).map((u) => `'${u}'`).join(', ')} 열에 값을 넣으세요.`);
-      // 명부에서 비어 있는 칸은 빈칸으로 채운다(공백 한 칸). 값이 적힌 문서를 양식으로 쓰면, 건너뛴 칸에 양식에 있던 앞 사람 값이
-      // 그대로 남아 다른 사람의 연락처·비고가 든 문서가 나간다
-      const fromRoster = Object.fromEntries(Object.entries(cells).map(([h, v]) => [h, v.trim() === '' ? ' ' : v]));
-      const res = await fillWithUniqueGuard({ ...org, ...fromRoster }, (v, blocked) => fillHwpx(t.buf, v, blocked));
-      res.rejected.forEach((x) => rejected.add(x));
-      if (!res.filled.length) {
-        throw new Error('이 줄의 값이 양식 칸에 하나도 들어가지 않았습니다. 명부 첫 줄의 열 이름을 양식 칸 이름에 맞추세요.');
+  try {
+    for (const [i, r] of rows.entries()) {
+      signal.throwIfAborted();
+      sendProgress({ current: i + 1, total: rows.length, message: `${i + 1}/${rows.length}번째 문서 만드는 중` });
+      try {
+        const cells = Object.fromEntries(header.map((h, c) => [h, formatCell(h, r.cells[c] ?? '')]).filter(([h]) => used.includes(h))) as Record<string, string>;
+        if (!Object.keys(nonEmpty(cells)).length) throw new Error(`양식에 넣을 값이 비어 있습니다. 명부의 ${used.slice(0, 4).map((u) => `'${u}'`).join(', ')} 열에 값을 넣으세요.`);
+        // 명부에서 비어 있는 칸은 빈칸으로 채운다(공백 한 칸). 값이 적힌 문서를 양식으로 쓰면, 건너뛴 칸에 양식에 있던 앞 사람 값이
+        // 그대로 남아 다른 사람의 연락처·비고가 든 문서가 나간다
+        const fromRoster = Object.fromEntries(Object.entries(cells).map(([h, v]) => [h, v.trim() === '' ? ' ' : v]));
+        const res = await fillWithUniqueGuard({ ...org, ...fromRoster }, (v, blocked) => fillHwpx(t.buf, v, blocked));
+        res.rejected.forEach((x) => rejected.add(x));
+        if (!res.filled.length) {
+          throw new Error('이 줄의 값이 양식 칸에 하나도 들어가지 않았습니다. 명부 첫 줄의 열 이름을 양식 칸 이름에 맞추세요.');
+        }
+        const base = nameCol >= 0 ? safeFileName(r.cells[nameCol] ?? '', '') : '';
+        const outPath = outputFile({ output_dir: dir, name: `${base || `${t.name}_${i + 1}`}.hwpx` });
+        await writeFile(outPath, Buffer.from(res.buffer));
+        outputs.push(outPath);
+      } catch (err) {
+        if (signal.aborted) throw err;
+        failed.push({ row: r.row, error: errorText(err) });
       }
-      const base = nameCol >= 0 ? safeFileName(r.cells[nameCol] ?? '', '') : '';
-      const outPath = outputFile({ output_dir: dir, name: `${base || `${t.name}_${i + 1}`}.hwpx` });
-      await writeFile(outPath, Buffer.from(res.buffer));
-      outputs.push(outPath);
-    } catch (err) {
-      if (signal.aborted) throw err;
-      failed.push({ row: r.row, error: errorText(err) });
     }
+  } catch (err) {
+    // 멈추면 이번에 만든 문서와 (비었으면) 폴더를 지운다: 응답이 오지 않아 화면은 0개로 알고, 다시 하면 이름에 (2) 가 붙은 문서가 섞였다
+    // 사용자가 고른 저장 폴더(output_dir)는 비어도 지우지 않는다: 만든 문서만
+    if (signal.aborted) await dropPartial(outputs, p.output_dir ? '' : dir);
+    throw err;
   }
   return { outputs, failed, output_dir: outputs.length ? dir : '', rejected: [...rejected] };
 }

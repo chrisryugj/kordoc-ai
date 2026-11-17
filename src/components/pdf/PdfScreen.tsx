@@ -160,6 +160,8 @@ export function PdfScreen({ active }: { active: boolean }) {
         setOpening({ done: i, total: list.length, name: f.name });
         try {
           const s = await rpc("pdf_open", { path: f.path });
+          // 여는 사이 멈추기·책상 비우기를 눌렀다: 열던 파일을 빈 책상에 다시 놓지 않는다
+          if (openRound.current !== round) break;
           const base = first && replace ? EMPTY : boardRef.current;
           commit(addFile(base, { path: f.path, name: f.name, source: s.source, converted: s.converted, secured: s.secured, sizes: s.pages }), { merge: !first });
           first = false;
@@ -178,8 +180,13 @@ export function PdfScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!pdfIntent || pdfIntent.nonce === handled.current) return;
     handled.current = pdfIntent.nonce;
+    // 저장·열기 중에 책상을 바꾸면 저장이 말없이 취소된다(resetSave 가 엔진에 멈춤을 보냄): 받지 않고 알린다
+    if (save.busy || opening) {
+      toast(`${save.busy ? "PDF를 저장하는" : "파일을 여는"} 중이라 넘어온 파일을 넣지 않았습니다. 끝난 뒤 다시 하세요.`, "info");
+      return;
+    }
     add(pdfIntent.value.paths, true);
-  }, [pdfIntent, add]);
+  }, [pdfIntent, add, save.busy, opening, toast]);
   useEffect(() => setBadge("pdf", save.busy ? "저장" : opening ? "여는 중" : undefined), [save.busy, opening, setBadge]);
 
   const items = board.items;

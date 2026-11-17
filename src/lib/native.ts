@@ -24,7 +24,7 @@ export const FILTERS: Record<string, FileFilter[]> = {
   image: [{ name: "그림", extensions: ["png", "jpg", "jpeg"] }],
   gguf: [{ name: "AI 모델 (GGUF)", extensions: ["gguf"] }],
   pdf: [{ name: "PDF", extensions: ["pdf"] }],
-  receipt: [{ name: "영수증 (그림·PDF)", extensions: ["png", "jpg", "jpeg", "webp", "pdf"] }],
+  receipt: [{ name: "영수증 (그림·PDF)", extensions: ["png", "jpg", "jpeg", "webp", "tif", "tiff", "pdf"] }],
 };
 
 export async function pickFiles(opts: { multiple?: boolean; filters?: FileFilter[] } = {}): Promise<string[]> {

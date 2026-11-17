@@ -209,13 +209,18 @@ export function createOpenAiProvider(cfg: OpenAiConfig, timeoutMs: number): LlmP
           out += t;
           req.onToken?.(t);
         };
+        let finish: string | undefined;
+        let done = false;
         for await (const data of sseData(res, signal)) {
           touch();
-          if (data === '[DONE]') break;
+          if (data === '[DONE]') { done = true; break; }
           let chunk: { choices?: Array<{ delta?: { content?: string | null }; finish_reason?: string | null }>; error?: { message?: string } };
           try { chunk = JSON.parse(data); } catch { continue; }
           if (chunk.error) throw new Error(`AI 서버: ${chunk.error.message ?? '알 수 없는 오류'}`);
-          if (chunk.choices?.[0]?.finish_reason === 'length') req.onTruncated?.();
+          finish = chunk.choices?.[0]?.finish_reason ?? finish;
+          if (finish === 'length') req.onTruncated?.();
+          // 내용 거름에 걸려 멈춘 답은 받은 앞부분을 완성본으로 넘기지 않는다
+          if (finish === 'content_filter') throw new Error('AI 서버가 내용 기준에 걸린다며 답을 멈췄습니다. 내용을 바꾸거나 다른 모델로 다시 시도하세요.');
           const t = chunk.choices?.[0]?.delta?.content;
           if (t) {
             if (limit !== timeoutMs) { limit = timeoutMs; touch(); }
@@ -223,6 +228,8 @@ export function createOpenAiProvider(cfg: OpenAiConfig, timeoutMs: number): LlmP
           }
         }
         emit(filter.flush());
+        // 마침 신호도 [DONE] 도 없이 흐름이 끝났다: 연결이 중간에 끊긴 답 ([DONE] 만 보내고 마침 신호를 안 주는 서버는 정상으로 본다)
+        if (!finish && !done) req.onTruncated?.();
         return out;
       } catch (err) {
         if (idle.signal.aborted && !req.signal.aborted) {

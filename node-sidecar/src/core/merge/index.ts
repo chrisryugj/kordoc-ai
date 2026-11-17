@@ -8,12 +8,12 @@ import { logger } from '../../infra/logger.js';
 import { mergeHwpx } from './hwpx-merge.js';
 import { splitHwpx, type SplitMode } from './hwpx-split.js';
 import { rhwpConvert, tooBigForRhwp } from '../render/rhwp.js';
-import { parseBytes } from '../converter/index.js';
+import { parseDoc } from '../converter/index.js';
 import { concatDocx } from './concat-docx.js';
 import { concatXlsx } from './concat-xlsx.js';
 import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult, MergeFailure } from './types.js';
-import { errorText, parseFailure } from '../errors.js';
+import { errorText } from '../errors.js';
 import { dropPartial, resultDir, stemOf } from '../output/index.js';
 import { checkZipSize, entryText } from '../files/zip-read.js';
 
@@ -168,17 +168,12 @@ export async function mergeFiles(
 
     const filePath = files[i];
     try {
-      const buffer = await readFile(filePath);
-      const result = await parseBytes(buffer, {}, undefined, signal);
-
-      if (result.success) {
-        const fileName = basename(filePath);
-        const divider = separator ?? `\n\n---\n\n## ${fileName}\n\n`;
-        sections.push(i === 0 ? `## ${fileName}\n\n${result.markdown}` : `${divider}${result.markdown}`);
-      } else {
-        failed.push({ path: filePath, error: errorText(parseFailure(result)) });
-        logger.warn(`[merge] 실패: ${filePath} — ${result.error}`);
-      }
+      // parseDoc: 글 파일(md·txt·csv)은 그대로 읽고(바이트만 보는 kordoc 은 형식을 몰라 실패했다), 그림은 꺼내지 않는다
+      // (꺼내면 "![image](image_001.png)" 링크만 남고 파일은 없으며 문서마다 이름도 같았다)
+      const result = await parseDoc(filePath, { images: false, signal });
+      const fileName = basename(filePath);
+      const divider = separator ?? `\n\n---\n\n## ${fileName}\n\n`;
+      sections.push(i === 0 ? `## ${fileName}\n\n${result.markdown}` : `${divider}${result.markdown}`);
     } catch (err) {
       if (signal.aborted) throw err;
       failed.push({ path: filePath, error: errorText(err) });

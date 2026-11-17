@@ -19,7 +19,7 @@ vi.mock('node-llama-cpp', () => ({
   LlamaChatSession: class {
     getChatHistory() { return []; }
     dispose() {}
-    prompt() { return new Promise<string>((r) => { release = () => r('답'); }); }
+    promptWithMeta() { return new Promise<{ responseText: string; stopReason: string }>((r) => { release = () => r({ responseText: '답', stopReason: 'eogToken' }); }); }
   },
 }));
 

@@ -22,6 +22,7 @@ import { ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { OrderList } from "../common/OrderList";
 import { RULES } from "../workbench/tools/RedactTool";
 import { keepFromSettings } from "../workbench/tools/ReviewTool";
+import { sameAnchor } from "../workbench/tools/SealTool";
 
 /** 돌던 작업을 결과 없는 빈 작업으로 밀어낸다 (결과·오류를 지우고, 늦게 끝난 앞 작업의 결과는 버려진다) */
 const supersede = <T,>(t: { run: (fn: () => Promise<T>) => Promise<T | null> }) => void t.run(async () => null as unknown as T);
@@ -55,7 +56,7 @@ export function OutputStep({ active }: { active: boolean }) {
   const save = useTask<string>();
   const pdf = useTask<string>();
   const print = useTask<string>();
-  const seal = useTask<{ output_path: string; placed: number }>();
+  const seal = useTask<{ output_path: string; placed: number; anchor?: string; reason?: string }>();
   const redact = useTask<RedactResult>();
   const bundle = useTask<{ output_path: string; page_count: number; failed?: Array<{ path: string; error?: string }> }>();
   const lastSession = useRef("");
@@ -64,14 +65,16 @@ export function OutputStep({ active }: { active: boolean }) {
   const ready = editorState === "ready";
   const [printers, setPrinters] = useState<Array<{ name: string; isDefault: boolean }> | null>(null);
   const [printer, setPrinter] = useState("");
+  /** 프린터 목록을 못 읽었다 (엔진이 다시 켜지는 중 등): "없음"과 갈라 다시 찾게 한다 */
+  const [printersErr, setPrintersErr] = useState(false);
 
-  // 프린터 목록은 출력 단계를 처음 열 때 한 번
+  // 프린터 목록은 출력 단계를 처음 열 때 한 번 (다시 찾기를 누르면 printers 를 비워 한 번 더)
   useEffect(() => {
     if (!active || printers) return;
     rpc("list_printers", {}).then((list) => {
       setPrinters(list);
       setPrinter(list.find((p) => p.isDefault)?.name ?? list[0]?.name ?? "");
-    }).catch(() => setPrinters([]));
+    }).catch(() => { setPrinters([]); setPrintersErr(true); });
   }, [active, printers]);
 
   useEffect(() => {
@@ -299,7 +302,12 @@ export function OutputStep({ active }: { active: boolean }) {
             </Row>
 
             <Row mark="다." title="인쇄" desc="고른 프린터로 한 부">
-              {printers && !printers.length ? <Note tone="info">이 PC에 연결된 프린터가 없습니다.</Note> : print.busy ? <Working label="인쇄를 준비하는 중" /> : (
+              {printers && !printers.length ? (
+                <Note tone="info">
+                  {printersErr ? "프린터 목록을 읽지 못했습니다." : "이 PC에 연결된 프린터가 없습니다."}{" "}
+                  <button type="button" className="kd-link" onClick={() => { setPrintersErr(false); setPrinters(null); }}>다시 찾기</button>
+                </Note>
+              ) : print.busy ? <Working label="인쇄를 준비하는 중" /> : (
                 <div className="flex flex-wrap items-end gap-2">
                   {printers && printers.length > 1 && (
                     <div style={{ width: 240 }}>
@@ -320,7 +328,9 @@ export function OutputStep({ active }: { active: boolean }) {
                 <div><Button variant="secondary" onClick={doSeal} data-tip="이름_날인.hwpx 사본을 만듭니다. 지금 문서는 그대로입니다"><Stamp size={14} /> 도장 찍기</Button></div>
               )}
               <ErrorLine message={seal.error} />
-              {seal.result && (seal.result.placed > 0 ? <SavedFile path={seal.result.output_path} label={`${seal.result.placed}곳에 찍은 사본을 저장했습니다`} /> : <Note tone="warn">문서에서 (인) 자리를 찾지 못해 찍지 않았습니다. 편집기에서 도장 찍을 곳에 (인)을 넣고 다시 누르세요.</Note>)}
+              {seal.result && (seal.result.placed > 0
+                ? <SavedFile path={seal.result.output_path} label={`${seal.result.placed}곳에 찍은 사본을 저장했습니다${seal.result.anchor && !sameAnchor(seal.result.anchor, "(인)") ? ` ((인)이 없어 “${seal.result.anchor}” 자리에 찍음)` : ""}`} />
+                : <Note tone="warn">{seal.result.reason ?? "문서에서 (인) 자리를 찾지 못해 찍지 않았습니다. 편집기에서 도장 찍을 곳에 (인)을 넣고 다시 누르세요."}</Note>)}
             </Row>
 
             <Row mark="마." title="공개용 사본" desc="개인정보를 가린 정보공개·게시용">

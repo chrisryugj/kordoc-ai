@@ -296,10 +296,12 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     input?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, []);
 
+  /** 값을 고친 횟수 — 저장이 끝났을 때 저장을 시작한 뒤 또 고쳤는지 본다 */
+  const edits = useRef(0);
   const setValue = useCallback((label: string, value: string, source: ValueSource = { kind: "manual" }) => {
     setValues((v) => ({ ...v, [label]: value }));
     setSources((s) => ({ ...s, [label]: source }));
-    if (source.kind !== "existing") setUnsaved(true);
+    if (source.kind !== "existing") { setUnsaved(true); edits.current++; }
   }, []);
   /** 넣은 값(손으로 넣은 것·명부에서 가져온 것)이 저장 전이다 (닫기·Esc·완전 종료에서 한 번 묻는다) */
   const [unsaved, setUnsaved] = useState(false);
@@ -415,6 +417,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     if (!target) return;
     setBusy("save");
     previewSeq.current++; // 저장 결과가 미리보기의 주인
+    const startedAt = edits.current;
     try {
       const res = await sidecarCall("form_fill", { input_path: file.path, values: fillValues, output_path: target.path, overwrite: target.overwrite }) as FormFillRes;
       setFillResult(res);
@@ -424,7 +427,8 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
         await renderPage(page);
       }
       if (res.success) {
-        setUnsaved(false);
+        // 저장하는 사이(경로 고른 뒤 채우기·다시 읽기 1~2초) 또 고친 값은 파일에 없다: 저장 전으로 남겨 닫을 때 묻게 한다
+        if (edits.current === startedAt) setUnsaved(false);
         setAskClose(false);
         showToast(`저장했습니다${res.output_path ? ` (${res.output_path.split(/[\\/]/).pop()})` : ""}: 칸 ${res.filled.length}개 채움${res.verification.reparse_ok ? " · 다시 읽어 확인함" : ""}`, "success");
       }

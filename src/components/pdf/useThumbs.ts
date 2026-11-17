@@ -9,6 +9,9 @@ import { toRanges } from "../../lib/format";
 
 const BATCH = 40;
 const PARALLEL = 2;
+/** 들고 있을 쪽 그림 수 (쪽마다 JPEG data URL 수십 KB). 화면은 한 번 열면 계속 남아, 책상을 바꿔도 본 쪽 그림이 쌓였다.
+ *  넘으면 먼저 받은 것부터 버린다(다시 보이면 다시 받는다) */
+const KEEP = 800;
 
 interface Entry { w: number; url: string }
 
@@ -57,8 +60,14 @@ export function useThumbs(cssWidth: number): Thumbs {
       void rpc("pdf_thumbs", { path: source, pages: toRanges(pages), width: w })
         .then((r) => {
           for (const p of r.pages) {
-            cache.current.set(key(source, p.page), { w, url: p.data_url });
-            failed.current.delete(key(source, p.page));
+            const k = key(source, p.page);
+            cache.current.delete(k); // 다시 넣어 맨 뒤(가장 최근)로
+            cache.current.set(k, { w, url: p.data_url });
+            failed.current.delete(k);
+          }
+          for (const old of cache.current.keys()) {
+            if (cache.current.size <= KEEP) break;
+            cache.current.delete(old);
           }
           // 문서에 없는 쪽(원본이 바뀜)은 다시 묻지 않는다
           for (const p of pages) if (!r.pages.some((x) => x.page === p)) failed.current.set(key(source, p), Infinity);

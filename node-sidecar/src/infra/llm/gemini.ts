@@ -59,18 +59,23 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
         if (!res.ok) throw await httpError(res, 'Gemini');
 
         let out = '';
+        let finish: string | undefined;
         for await (const data of sseData(res, signal)) {
           touch();
-          let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> }; finishReason?: string }>; error?: { message?: string } };
+          let chunk: { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> }; finishReason?: string }>; promptFeedback?: { blockReason?: string }; error?: { message?: string } };
           try { chunk = JSON.parse(data); } catch { continue; }
           if (chunk.error) throw new Error(`Gemini: ${chunk.error.message ?? '오류'}`);
-          if (chunk.candidates?.[0]?.finishReason === 'MAX_TOKENS') req.onTruncated?.();
+          if (chunk.promptFeedback?.blockReason) throw new Error(geminiStopped(chunk.promptFeedback.blockReason));
+          finish = chunk.candidates?.[0]?.finishReason ?? finish;
           for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
             if (part.thought || !part.text) continue;
             out += part.text;
             req.onToken?.(part.text);
           }
         }
+        // 정상 끝은 STOP 뿐. 길이 한도·마침 신호 없이 끊긴 흐름은 끊긴 답으로, 안전·원문 반복 차단 등은 받은 앞부분을 답으로 넘기지 않는다
+        if (finish === 'MAX_TOKENS' || !finish) req.onTruncated?.();
+        else if (finish !== 'STOP') throw new Error(geminiStopped(finish));
         return out;
       } catch (err) {
         if (idle.signal.aborted && !req.signal.aborted) {
@@ -94,4 +99,11 @@ export function createGeminiProvider(cfg: { api_key: string; model: string }, ti
         .map((m) => m.name!.replace(/^models\//, ''));
     },
   };
+}
+
+/** Gemini 가 답을 STOP 이 아닌 까닭으로 멈췄을 때의 안내 (finishReason·blockReason) */
+function geminiStopped(reason: string): string {
+  if (reason === 'RECITATION') return 'Gemini가 원문을 그대로 옮겨 적는 답이라며 중간에 멈췄습니다. 요약이나 고쳐 쓰기로 바꾸거나 다른 모델로 다시 시도하세요.';
+  if (/SAFETY|PROHIBITED|BLOCKLIST|SPII/.test(reason)) return 'Gemini가 안전 기준에 걸린다며 답을 멈췄습니다. 내용을 바꾸거나 다른 모델로 다시 시도하세요.';
+  return `Gemini가 답을 중간에 멈췄습니다(까닭: ${reason}). 다시 시도하거나 다른 모델로 바꿔 보세요.`;
 }

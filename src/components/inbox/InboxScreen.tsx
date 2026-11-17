@@ -20,7 +20,7 @@ import "./inbox.css";
 type Filter = "todo" | "done" | "all";
 type Failed = Array<{ path: string; error: string }>;
 
-const LETTER_FILTER = [{ name: "받은 공문", extensions: ["hwp", "hwpx", "hml", "pdf", "docx", "png", "jpg", "jpeg", "webp", "txt", "md"] }];
+const LETTER_FILTER = [{ name: "받은 공문", extensions: ["hwp", "hwpx", "hml", "pdf", "docx", "png", "jpg", "jpeg", "webp", "tif", "tiff", "txt", "md"] }];
 
 export function InboxScreen({ active }: { active: boolean }) {
   const { ready, registerDrop, dragTarget, setBadge, toast } = useApp();

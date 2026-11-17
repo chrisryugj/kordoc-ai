@@ -139,6 +139,14 @@ describe('tables_extract', () => {
     expect(await call('tables_extract', { path: letter, format: 'xlsx', allow_empty: true })).toEqual({ tables: [] });
   });
 
+  it('쪽 범위: 3~5·끝까지(1-)도 범위로, 표가 없는 쪽만 적으면 전체 표가 아니라 안내 오류, 읽지 못한 글은 오류', async () => {
+    expect((await call('tables_extract', { path: FORM, format: 'md', pages: '1~1' })).tables).toHaveLength(1);
+    expect((await call('tables_extract', { path: FORM, format: 'md', pages: '1-' })).tables).toHaveLength(1);
+    await expect(call('tables_extract', { path: FORM, format: 'md', pages: '9' })).rejects.toThrow(/표를 찾지 못했습니다/);
+    await expect(call('tables_extract', { path: FORM, format: 'md', pages: '9-' })).rejects.toThrow(/표를 찾지 못했습니다/);
+    await expect(call('tables_extract', { path: FORM, format: 'md', pages: '첫쪽' })).rejects.toThrow(/1-3, 5/);
+  });
+
   it('CSV·MD', async () => {
     const csv = await call('tables_extract', { path: FORM, format: 'csv' });
     const rows = parseCsv(readFileSync(csv.output_path, 'utf-8').replace(/^﻿/, ''));

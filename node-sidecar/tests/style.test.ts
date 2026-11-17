@@ -121,6 +121,13 @@ describe('내용 다시 짜기', () => {
     // 진짜 결문은 그대로 버린다
     const real = normalizeContent('수신 내부결재\n\n제목 알림\n\n1. 알립니다.  끝.\n\n주무관 김가온 팀장 박나래\n\n협조자\n\n시행 총무과-1234 (2026. 10. 1.) 접수\n\n우 12345 가온시 시청로 1 / www.gaon.example\n\n전화 031-000-0000 /전송 / 공개');
     expect(real.markdown).toBe('# 알림\n\n- 알립니다.\n');
+    // 끝 표시가 없는 본문 끝의 "접수 기간"·"전화 문의" 문단은 결문이 아니다 (말없이 지우지 않는다)
+    const body = normalizeContent('# 안내\n\n1. 신청을 받습니다.\n\n접수 기간: 2026. 11. 1. ~ 11. 30.\n\n전화 문의: 총무과 031-000-0000');
+    expect(body.markdown).toContain('접수 기간: 2026. 11. 1. ~ 11. 30.');
+    expect(body.markdown).toContain('전화 문의: 총무과');
+    // 끝 표시 없이 남은 결문 줄(우편번호·전화 번호 줄)은 버린다
+    const bare = normalizeContent('# 안내\n\n1. 신청을 받습니다.\n\n우 12345 가온시 시청로 1\n\n전화 031-000-0000 / 전송 031-000-0001');
+    expect(bare.markdown).not.toMatch(/우 12345|전화 031/);
   });
 
   it('숫자로 시작하는 항목(연도·수량·분기)도 항목이다: 앞 항목에 한 줄로 붙지 않는다. 날짜 줄은 항목이 아니다', () => {

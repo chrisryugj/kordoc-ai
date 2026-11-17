@@ -19,6 +19,14 @@ import { ReceiptTaskOptions } from "../receipt/ReceiptTaskOptions";
 const NO_OUTPUT: BatchTaskId[] = ["search", "watch", "print", "compare"];
 type SetOpts = (p: Partial<BatchOpts>) => void;
 
+/** AI에 넘길 글로: 형식마다 쓰임 (그림은 md·json·html 만 images 폴더로 꺼낸다: 엔진 convert 의 keepImages) */
+const CONVERT_HINT: Record<BatchOpts["convertFormat"], string> = {
+  md: "AI 대화창에 붙여 넣거나 파일로 올리기 좋습니다(.md, 메모장으로 열림). 문서 속 그림은 결과 옆 images 폴더에 따로 둡니다.",
+  json: "제목·문단·표를 나눠 적은 자료입니다(.json). 다른 프로그램이나 AI가 표를 정확히 읽게 할 때 씁니다. 문서 속 그림은 결과 옆 images 폴더에 따로 둡니다.",
+  html: "웹 브라우저로 여는 쪽(.html)입니다. 문서 속 그림은 결과 옆 images 폴더에 따로 둡니다.",
+  txt: "꾸밈 없이 글자만 적은 파일(.txt)입니다. 표는 칸 사이를 탭으로 띄우고, 그림은 꺼내지 않습니다.",
+};
+
 function HangulSplit({ opts, set }: { opts: BatchOpts; set: SetOpts }) {
   return (
     <Field label="한글 나누는 곳">
@@ -66,7 +74,10 @@ export function TaskOptions({ task, opts, set, formats = [], onPdfWork }: {
   return (
     <div className="flex flex-col gap-3.5">
       {task === "convert" && (
-        <Field label="형식"><Seg label="바꿀 형식" value={opts.convertFormat} onChange={(v) => set({ convertFormat: v })} options={[{ value: "md", label: "제목·표 살린 글" }, { value: "html", label: "웹 페이지" }, { value: "txt", label: "글자만" }]} /></Field>
+        <>
+          <Field label="형식"><Seg label="바꿀 형식" value={opts.convertFormat} onChange={(v) => set({ convertFormat: v })} options={[{ value: "md", label: "제목·표 살린 글" }, { value: "json", label: "구조 자료(JSON)" }, { value: "html", label: "웹 페이지" }, { value: "txt", label: "글자만" }]} /></Field>
+          <p className="kd-small kd-muted">{CONVERT_HINT[opts.convertFormat]}</p>
+        </>
       )}
       {task === "hwpx" && (
         <p className="kd-small kd-muted">문서마다 모양을 보고 서식을 맞춥니다(공문은 기안문, □○ 항목은 보고서 등). 애매하면 글·표만 옮기고, 옛 HWP는 서식 그대로 옮깁니다.</p>

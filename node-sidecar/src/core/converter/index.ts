@@ -17,7 +17,7 @@ import { cleanMessage, errorText, parseFailure } from '../errors.js';
 import { parseCsv } from '../excel/csv.js';
 import { formatOf, TEXT_FORMATS } from '../files/format.js';
 import { zipXmlBytes } from '../files/zip-read.js';
-import { outputDir, outputFile, stemOf } from '../output/index.js';
+import { outputDir, outputFile, stemOf, uniquePath } from '../output/index.js';
 import { markdownToPlain } from './plain.js';
 
 export type OcrMode = 'auto' | 'force' | 'off';
@@ -176,7 +176,11 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
   const outPath = save ? outputFile({ output_dir: p.output_dir, source: p.path, name: stemOf(p.path) + EXT[format] }) : undefined;
   const images = outPath ? (r.images ?? []) : [];
   const docStem = outPath ? stemOf(outPath).replace(/\.chunks$/, '') : stemOf(p.path);
-  const link = `images/${docStem.replace(/[ ()]/g, (ch) => encodeURIComponent(ch))}/`;
+  // 그림 폴더는 결과 파일과 따로 겹침을 피한다: 확장자만 다른 결과(보고서.md·보고서.html)가 images/보고서 를 같이 쓰면 뒤의 것이 앞 문서의 그림을 덮었다
+  const imgDir = outPath && images.length ? uniquePath(join(dirname(outPath), 'images', docStem)) : undefined;
+  const folder = imgDir ? basename(imgDir) : docStem;
+  // 링크에서 뜻이 갈리는 글자(빈칸·괄호·#·%·?)만 바꾼다: 한글 이름은 메모장으로 열어도 읽히게 그대로
+  const link = `images/${folder.replace(/[ ()#%?]/g, (ch) => encodeURIComponent(ch))}/`;
   const linked = (t: string) => (images.length
     ? t.replace(/!\[image\]\(image_/g, `![image](${link}image_`).replace(/(<img\b[^>]*\bsrc=")image_/g, `$1${link}image_`)
     : t);
@@ -201,10 +205,9 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
 
   if (outPath) {
     await writeFile(outPath, content, 'utf-8');
-    if (images.length) {
-      const dir = join(dirname(outPath), 'images', docStem);
-      await mkdir(dir, { recursive: true });
-      for (const img of images) await writeFile(join(dir, img.filename), img.data);
+    if (imgDir) {
+      await mkdir(imgDir, { recursive: true });
+      for (const img of images) await writeFile(join(imgDir, img.filename), img.data);
     }
   }
   return {

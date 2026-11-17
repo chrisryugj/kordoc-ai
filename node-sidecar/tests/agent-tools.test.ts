@@ -9,6 +9,7 @@ import { WORK_TOOLS, runWorkTool, workToolDefs, type Dispatch } from '../src/cor
 import { createMcpHandler } from '../src/mcp/server.js';
 import { RpcRouter } from '../src/rpc/router.js';
 import { registerAllMethods } from '../src/rpc/methods/index.js';
+import { updateSettings } from '../src/infra/config.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -250,5 +251,19 @@ describe('MCP 서버', () => {
     const res = c?.result as { content: Array<{ type: string; text: string }>; isError: boolean };
     expect(res.isError).toBe(false);
     expect(res.content[0].text).toContain('.hwpx');
+  });
+
+  it('폐쇄망 모드면 도구를 돌리지 않고 까닭을 알리며, 연결 등록도 거절한다 (바깥 AI 프로그램이 문서를 인터넷으로 보낼 수 있다)', async () => {
+    await updateSettings({ privacy: { offline: true } });
+    try {
+      const c = await handle({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'list_documents', arguments: { paths: [SAMPLES] } } });
+      const res = c?.result as { content: Array<{ type: string; text: string }>; isError: boolean };
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/폐쇄망 모드/);
+      expect(res.content[0].text).not.toContain('.hwpx');
+      await expect(call('install_mcp_config', { clients: ['cursor'] })).rejects.toThrow(/폐쇄망 모드/);
+    } finally {
+      await updateSettings({ privacy: { offline: false } });
+    }
   });
 });

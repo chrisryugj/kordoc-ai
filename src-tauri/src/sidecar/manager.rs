@@ -63,8 +63,8 @@ fn timeout_for(method: &str) -> u64 {
     }
     // 파일 수만큼 늘어나는 묶음 작업: 한글 문서 수백 개를 PDF 로 바꾸면 30분을 넘는다. 30분에 끊으면 하던 일이 날아가고
     // 처음부터 다시 해야 한다. 멈추는 것은 화면의 멈추기 단추로 (AI 도구 실행도 안에서 묶음 작업을 부른다)
-    // 내장 AI 모델 받기(2.5~5GB)도 여기: 느린 회선에서는 1시간을 넘는다
-    if method.ends_with("_batch") || method == "llm_download" || BATCH_METHODS.contains(&method) {
+    // 내장 AI 모델 받기(2.5~5GB)도 여기: 느린 회선에서는 1시간을 넘는다. 폐쇄망의 모델 가져오기(USB·공유 드라이브)도 같은 크기라 느린 매체면 30분을 넘는다
+    if method.ends_with("_batch") || matches!(method, "llm_download" | "llm_import" | "models_import") || BATCH_METHODS.contains(&method) {
         return 6 * 3600;
     }
     1800
@@ -76,6 +76,7 @@ fn timeout_message(method: &str) -> &'static str {
         "ping" => "문서 엔진이 제때 켜지지 않았습니다. 앱을 다시 켜세요.",
         // 받기에는 줄일 파일이 없다. 받던 조각은 엔진이 남겨 두어 다음 받기가 거기서 잇는다
         "llm_download" => "모델 받기가 너무 오래 걸려 멈췄습니다. 다시 받기를 누르면 받은 데까지 이어서 받습니다.",
+        "llm_import" | "models_import" => "모델 가져오기가 너무 오래 걸려 멈췄습니다. 모델 파일을 이 PC의 폴더로 먼저 복사한 뒤 그곳에서 다시 가져오세요.",
         _ => "작업이 너무 오래 걸려 멈췄습니다. 파일 수를 줄이거나 다시 시도하세요.",
     }
 }

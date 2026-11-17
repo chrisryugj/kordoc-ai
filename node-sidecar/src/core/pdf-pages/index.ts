@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { atomicWriteFile } from '../files/io.js';
 import { tmpdir } from 'node:os';
@@ -282,23 +282,36 @@ export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Prom
   const src = sources(signal);
   const dir = p.output_dir ? outputDir({ output_dir: p.output_dir }) : undefined;
   const results: PdfComposeResult['outputs'] = [];
-  for (const [i, o] of p.outputs.entries()) {
-    signal.throwIfAborted();
-    if (p.outputs.length > 1) sendProgress({ current: i + 1, total: p.outputs.length, message: `PDF 만드는 중 (${i + 1}/${p.outputs.length})` });
-    const out = await buildPdf(o.pages, src, p.fit_a4);
-    if (p.watermark?.trim() || p.page_numbers) await stampPdf(out, p);
-    let bytes = await out.save();
-    if (p.shrink) {
-      const r = await shrinkImages(bytes, p.shrink, signal);
-      if (r.bytes.length < bytes.length) bytes = r.bytes;
+  /** 이번에 새로 만든 파일만 (덮어쓰기로 바꾼 기존 파일은 지우면 옛 내용도 새 내용도 없어진다) */
+  const created: string[] = [];
+  try {
+    for (const [i, o] of p.outputs.entries()) {
+      signal.throwIfAborted();
+      if (p.outputs.length > 1) sendProgress({ current: i + 1, total: p.outputs.length, message: `PDF 만드는 중 (${i + 1}/${p.outputs.length})` });
+      const out = await buildPdf(o.pages, src, p.fit_a4);
+      if (p.watermark?.trim() || p.page_numbers) await stampPdf(out, p);
+      let bytes = await out.save();
+      if (p.shrink) {
+        const r = await shrinkImages(bytes, p.shrink, signal);
+        if (r.bytes.length < bytes.length) bytes = r.bytes;
+      }
+      const name = `${safeFileName(o.name?.replace(/\.pdf$/i, '') ?? '', p.source ? stemOf(p.source) : 'PDF')}.pdf`;
+      // 앞 결과를 이미 써 두었으니 같은 이름은 outputFile 이 (2) 로 피한다
+      const path = o.output_path
+        ? outputFile({ output_path: o.output_path, name, overwrite: p.overwrite })
+        : outputFile({ output_dir: dir, source: p.source, name });
+      const fresh = !existsSync(path);
+      await atomicWriteFile(path, bytes);
+      if (fresh) created.push(path);
+      results.push({ output_path: path, page_count: out.getPageCount(), bytes: bytes.length });
     }
-    const name = `${safeFileName(o.name?.replace(/\.pdf$/i, '') ?? '', p.source ? stemOf(p.source) : 'PDF')}.pdf`;
-    // 앞 결과를 이미 써 두었으니 같은 이름은 outputFile 이 (2) 로 피한다
-    const path = o.output_path
-      ? outputFile({ output_path: o.output_path, name, overwrite: p.overwrite })
-      : outputFile({ output_dir: dir, source: p.source, name });
-    await atomicWriteFile(path, bytes);
-    results.push({ output_path: path, page_count: out.getPageCount(), bytes: bytes.length });
+  } catch (err) {
+    // 여러 파일로 나눠 저장하다 멈추거나 실패하면 이번에 쓴 파일을 지운다 (화면은 응답을 못 받아 모르고, 다시 하면 "_01 (2)" 가 섞였다).
+    // 폴더는 사용자가 고른 곳일 수 있어 지우지 않는다
+    for (const f of created) {
+      try { rmSync(f, { force: true }); } catch { /* 지우지 못한 파일은 둔다 */ }
+    }
+    throw err;
   }
   return { outputs: results, secured: src.secured };
 }

@@ -127,6 +127,8 @@ export function parseFailure(r: { code?: string; error: string }, hadPassword = 
     case 'MISSING_DEPENDENCY':
       return new Error(MISSING_PART);
     default:
+      // kordoc 4.24.82~ PDF 엔진이 열지 못한 PDF (까닭 없는 문장이라 할 일을 붙인 손상 안내로)
+      if (/^PDF 파일을 읽을 수 없습니다\s*$/.test(r.error ?? '')) return new Error(DAMAGED);
       return new Error(MISSING_DEP.test(r.error ?? '') ? MISSING_PART : cleanMessage(r.error || '문서를 읽지 못했습니다.'));
   }
 }

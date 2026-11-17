@@ -10,6 +10,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import { basename, join } from 'node:path';
 import type { IRBlock } from 'kordoc';
 import type { InboxItem } from '../../types/rpc-contract.js';
+import { renameRetry } from '../../infra/rename.js';
 import { dataDir } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
 import { sendProgress } from '../../infra/progress.js';
@@ -84,7 +85,8 @@ async function save(items: Stored[]): Promise<void> {
   const tmp = `${file()}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
   try {
     await writeFile(tmp, JSON.stringify({ version: 1, items }, null, 2), 'utf-8');
-    await rename(tmp, file());
+    // 백신·색인 프로그램이 잠깐 쥐면 Windows 에서 EPERM: 설정·목록 파일처럼 몇 번 더 해 본다
+    await renameRetry(tmp, file());
   } catch (err) {
     await unlink(tmp).catch(() => undefined);
     throw err;

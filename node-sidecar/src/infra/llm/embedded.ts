@@ -141,13 +141,16 @@ export function createEmbeddedProvider(cfg: EmbeddedConfig): LlmProvider {
           const grammar = req.schema
             ? await l.llama.createGrammarForJsonSchema(req.schema as never)
             : req.json ? await l.llama.getGrammarFor('json') : undefined;
-          return await session.prompt(last.content, {
+          // prompt() 는 끊긴 까닭을 버린다: 길이 한도에서 멈춘 답을 완성본으로 넘기면 고쳐 쓰기가 끊긴 글을 문서에 넣는다
+          const r = await session.promptWithMeta(last.content, {
             maxTokens: req.maxTokens,
             signal: req.signal,
             grammar,
             onTextChunk: req.onToken,
             budgets: { thoughtTokens: 0 },
           });
+          if (r.stopReason === 'maxTokens') req.onTruncated?.();
+          return r.responseText;
         } finally {
           session.dispose({ disposeSequence: true });
         }

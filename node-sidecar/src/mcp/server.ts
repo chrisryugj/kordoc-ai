@@ -11,7 +11,7 @@ import { routerDispatch } from '../rpc/dispatch.js';
 import { WORK_SYSTEM, runWorkTool, workToolDefs } from '../core/agent-tools/index.js';
 import { muteNotifications } from '../infra/progress.js';
 import { reloadIfChanged } from '../infra/config.js';
-import { syncOfflineEnv } from '../infra/net-guard.js';
+import { mcpBlocked, syncOfflineEnv } from '../infra/net-guard.js';
 import { confineOutputs } from '../core/output/index.js';
 import { logger } from '../infra/logger.js';
 import { flushUsage } from '../infra/usage.js';
@@ -52,6 +52,8 @@ export function createMcpHandler(router: RpcRouter, opts: { version: string; roo
         const input = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
         // 앱에서 그새 설정을 바꿨으면 따른다 (폐쇄망 모드를 켰는데 이 프로세스만 인터넷 AI 로 보내지 않게)
         if (reloadIfChanged()) syncOfflineEnv();
+        const blocked = mcpBlocked();
+        if (blocked) return ok({ content: [{ type: 'text', text: blocked }], isError: true });
         const ac = new AbortController();
         running.set(msg.id, ac);
         try {

@@ -3,6 +3,7 @@
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { dirname, basename, extname, join } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
+import { assertPageSpec, parsePageSpec } from '../render/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
@@ -75,21 +76,13 @@ export interface SplitPdfResult {
   total_pages: number;
 }
 
+/** 쉼표로 나눈 조각마다 한 묶음(0-based 쪽). "7-" 는 끝까지, "1~3" 도 범위. 읽지 못한 조각은 오류
+ *  (말없이 버리면 "7-" 로 쪽 빼기를 했을 때 한 쪽도 안 뺀 원본 사본을 성공으로 냈다) */
 function parseRanges(rangeStr: string, maxPage: number): number[][] {
-  const groups: number[][] = [];
-  for (const part of rangeStr.split(',')) {
-    const trimmed = part.trim();
-    if (trimmed.includes('-')) {
-      const [start, end] = trimmed.split('-').map(s => parseInt(s.trim(), 10));
-      const pages: number[] = [];
-      for (let p = Math.max(1, start); p <= Math.min(maxPage, end); p++) pages.push(p - 1);
-      if (pages.length > 0) groups.push(pages);
-    } else {
-      const p = parseInt(trimmed, 10);
-      if (p >= 1 && p <= maxPage) groups.push([p - 1]);
-    }
-  }
-  return groups;
+  assertPageSpec(rangeStr);
+  return rangeStr.split(/[,，、]/)
+    .map((part) => parsePageSpec(part, maxPage).filter((p) => p <= maxPage).map((p) => p - 1))
+    .filter((pages) => pages.length > 0);
 }
 
 /** PDF 페이지 수 조회 */

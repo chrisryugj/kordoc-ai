@@ -20,6 +20,8 @@ export function FollowUp({ doc }: { doc: OpenDoc }) {
   const addInbox = () => void inbox.run(async ({ signal }) => {
     const r = await rpc("inbox_add", { paths: [doc.path] }, { signal });
     if (!r.items.length) throw new Error(r.failed[0]?.error ?? "접수함에 넣지 못했습니다. 잠시 뒤 다시 눌러 보세요.");
+    // 접수함 화면·기한 배지가 바로 다시 읽게 (빠른 동작과 같이)
+    window.dispatchEvent(new Event("kordoc:inbox"));
     toast("접수함에 넣었습니다", "success");
     return { due: r.items[0].due };
   });

@@ -48,6 +48,8 @@ function ImpactLine() {
 function Recovered({ active }: { active: boolean }) {
   const { ready, startCreate } = useApp();
   const [items, setItems] = useState<RecoveryEntry[]>([]);
+  // 엔진은 목록을 한 번 보여 준 사본을 14일 뒤 지운다: 셋까지만 보이고 나머지를 숨기면 본 적 없는 사본이 지워진다 → "더 보기"로 다 연다
+  const [all, setAll] = useState(false);
   const load = useCallback(() => rpc("recovery_list", {}).then((r) => setItems(r.entries)).catch(() => setItems([])), []);
   useEffect(() => {
     if (ready && active) void load();
@@ -59,7 +61,7 @@ function Recovered({ active }: { active: boolean }) {
         <h2 id="recovered-t" className="kd-h2 flex items-center gap-2"><LifeBuoy size={16} className="kd-muted" /> 저장하지 않고 꺼진 문서</h2>
       </div>
       <div className="kd-rows">
-        {items.slice(0, 3).map((it) => (
+        {(all ? items : items.slice(0, 3)).map((it) => (
           <div key={it.path} className="kd-row">
             <span className="kd-row-main">
               <span className="kd-row-title block" style={{ overflowWrap: "anywhere" }}>{it.working && it.title ? it.title : it.name}</span>
@@ -74,6 +76,9 @@ function Recovered({ active }: { active: boolean }) {
           </div>
         ))}
       </div>
+      {!all && items.length > 3 && (
+        <button type="button" className="kd-link kd-small mt-1" onClick={() => setAll(true)}>{num(items.length - 3)}개 더 보기 (14일이 지나면 지워집니다)</button>
+      )}
     </section>
   );
 }

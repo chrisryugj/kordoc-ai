@@ -216,6 +216,18 @@ describe('convert 그림 형식', () => {
     for (const f of files) expect(r.content).toContain(f);
     expect(r.content).not.toMatch(/\.bmp\)/);
   }, 60_000);
+
+  it('확장자만 다른 결과(보고서#2.md·보고서#2.html)는 그림 폴더를 따로 두고, 링크의 # 은 바꿔 적는다', async () => {
+    const hwpx = join(env.work, '보고서#2.hwpx');
+    writeFileSync(hwpx, Buffer.from(await markdownToHwpx('# 그림\n\n![로고](logo.png)', { images: { 'logo.png': await makePng(120, 60, 'A') } })));
+    const md = await call('convert', { path: hwpx, format: 'md' });
+    const html = await call('convert', { path: hwpx, format: 'html' });
+    expect(md.content).toContain('images/보고서%232/');
+    // HTML 은 렌더러가 주소를 다시 적는다(한글도 바꿔 씀): 풀어서 견준다
+    const src = /<img[^>]*\bsrc="([^"]+)"/.exec(html.content)?.[1] ?? '';
+    expect(decodeURIComponent(src)).toBe('images/보고서#2 (2)/image_001.png');
+    expect(readdirSync(join(env.out, 'images'))).toEqual(expect.arrayContaining(['보고서#2', '보고서#2 (2)']));
+  }, 60_000);
 });
 
 describe('extract_images', () => {

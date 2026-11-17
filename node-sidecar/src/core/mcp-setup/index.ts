@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { McpEnv } from '../../types/rpc-contract.js';
 import { getSettings } from '../../infra/config.js';
+import { mcpBlocked } from '../../infra/net-guard.js';
 import { logger } from '../../infra/logger.js';
 import { renameRetry } from '../../infra/rename.js';
 import { kordocMcpPath } from '../kordoc-cli.js';
@@ -194,6 +195,8 @@ export async function detectMcpEnv(): Promise<McpEnv> {
 }
 
 export async function installMcpConfig(ids: string[], rootDir?: string): Promise<{ installed: string[]; failed: Array<{ client: string; error: string }> }> {
+  const blocked = mcpBlocked();
+  if (blocked) throw new Error(blocked);
   const env: Record<string, string> = { KORDOC_MODEL_CACHE: modelCacheDir() };
   // AI 프로그램은 자식에게 정해진 환경 변수만 넘긴다. 기관 정책 파일 자리(%ProgramData%)를 엔진이 찾을 수 있게 함께 적는다
   if (process.platform === 'win32' && process.env.ProgramData) env.ProgramData = process.env.ProgramData;

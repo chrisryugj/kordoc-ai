@@ -2,7 +2,7 @@
  * 네이티브·WASM 모듈 스테이징 — 번들이 external 로 남긴 패키지를 전이 의존까지 dist/node_modules 에.
  *
  * 설치본에는 레포의 node_modules 가 없다. 번들 옆 dist/node_modules 만 따라간다.
- * 버전은 지금 설치된 것과 똑같이 맞춘다 (kordoc 이 쓰는 pdfjs-dist 는 kordoc 안쪽 사본 버전).
+ * 버전은 지금 설치된 것과 똑같이 맞춘다.
  * 실행 OS·CPU 의 바이너리만 남기고 나머지는 지운다 — 설치 파일 크기.
  *
  * 사용: node scripts/stage-natives.mjs   (node-sidecar 에서, esbuild 다음)
@@ -156,7 +156,7 @@ for (const pkg of readdirSync(TARGET)) {
     for (const junk of ['docs', 'example', 'examples', 'test', 'tests', '.github']) rm(join(TARGET, d, junk));
   }
 }
-// pdfjs-dist: 뷰어·타입 (kordoc 은 legacy/build 만 씀)
+// pdfjs-dist: 뷰어·타입 (kordoc 4.24.82~ 는 PDF 를 hayro wasm 으로 읽어 pdfjs-dist 를 싣지 않는다. 옛 판 잠금 파일로 깔렸을 때만 지움)
 rm(join(TARGET, 'pdfjs-dist', 'web'));
 rm(join(TARGET, 'pdfjs-dist', 'types'));
 // 소스맵 전부

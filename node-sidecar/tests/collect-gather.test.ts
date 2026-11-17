@@ -171,6 +171,8 @@ describe('부서 이름 맞추기', () => {
     const row = (a: string, b: string) => ({ file: a, dept: '', cells: new Map([['a', a], ['b', b]]) });
     expect([...columnTotals(cols, [row('5천원', '3명'), row('3만원', '4명'), row('200원', '2')])]).toEqual([['b', 9]]);
     expect([...columnTotals(cols, [row('5천원', '1'), row('30천원', '1')])]).toEqual([['a', 35], ['b', 2]]);
+    // 배수 단위와 단위 없는 값이 섞이면 같은 단위로 볼 수 없다 ("3만원" + "30,000" 은 30,003 이 아니다). 명·건은 섞여도 더한다
+    expect([...columnTotals(cols, [row('3만원', '3명'), row('30,000', '2')])]).toEqual([['b', 5]]);
   });
 });
 

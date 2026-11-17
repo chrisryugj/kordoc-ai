@@ -580,8 +580,45 @@ fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>,
     }
 }
 
-/// 카드 창이 닫혔다: 앱이 우클릭으로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드도 도는 빠른 동작도 없으면 끈다
+/// 완전 종료가 카드 창들의 답을 기다리는 중 (본창은 이미 물었고 끄라고 했다)
+static QUIT_AFTER_CARDS: AtomicBool = AtomicBool::new(false);
+
+/// 완전 종료(트레이·⌘Q): 카드 창이 있으면 카드마다 저장 안 한 것을 먼저 묻는다(본창 묻기는 본창 화면의 가드만 돌아,
+/// 영수증 카드에서 고치던 표·도는 AI 카드가 말없이 사라졌다). 카드가 다 닫히면 card_closed 가 끄고, 하나라도 남기로 하면 그만둔다.
+/// true 면 카드가 없어 지금 꺼도 된다
+pub fn quit_asks_cards(app: &AppHandle) -> bool {
+    use tauri::Manager;
+    let cards: Vec<String> = app.webview_windows().keys().filter(|l| l.starts_with("card-")).cloned().collect();
+    if cards.is_empty() {
+        return true;
+    }
+    QUIT_AFTER_CARDS.store(true, Ordering::SeqCst);
+    for label in cards {
+        if card_close_requested(app, &label) {
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.destroy();
+            }
+        }
+    }
+    false
+}
+
+/// 완전 종료가 카드의 답을 기다리는 중인가 (그동안 또 누른 완전 종료가 묻는 카드를 두고 끄지 않게)
+pub fn quit_waiting_cards(app: &AppHandle) -> bool {
+    use tauri::Manager;
+    QUIT_AFTER_CARDS.load(Ordering::SeqCst) && app.webview_windows().keys().any(|l| l.starts_with("card-"))
+}
+
+/// 카드 창이 닫혔다: 완전 종료가 카드를 기다리던 중이면 마지막 카드가 닫힐 때 끈다.
+/// 아니면 앱이 우클릭으로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드도 도는 빠른 동작도 없을 때 끈다
 pub fn card_closed(app: &AppHandle) {
+    use tauri::Manager;
+    if QUIT_AFTER_CARDS.load(Ordering::SeqCst) {
+        if !app.webview_windows().keys().any(|l| l.starts_with("card-")) {
+            app.exit(0);
+        }
+        return;
+    }
     exit_if_idle(app);
 }
 
@@ -660,6 +697,9 @@ pub fn card_close(window: tauri::WebviewWindow, answer: String) {
     }
     if card_close_answer(&mut CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()), &label, &answer) {
         let _ = window.destroy();
+    } else if answer != "asking" && QUIT_AFTER_CARDS.swap(false, Ordering::SeqCst) {
+        // 완전 종료 중에 카드가 남기로 했다: 끄지 않고, 다음 완전 종료도 처음부터 다시 묻게
+        crate::reset_quit_clock();
     }
 }
 

@@ -42,7 +42,7 @@ export const TASKS: TaskDef[] = [
   { id: "pdf", group: "바꾸기", title: "PDF로", desc: "인쇄 모양 그대로 PDF로", min: 1, skips: ["pdf"] },
   { id: "hwpx", group: "바꾸기", title: "한글로", desc: "PDF·워드·엑셀을 고칠 수 있는 한글 문서로", min: 1, skips: ["hwpx"] },
   { id: "stylecopy", group: "바꾸기", title: "우리 서식으로 맞추기", desc: "내용은 두고 저장한 우리 기관 서식으로", min: 1, accepts: ["hwp", "hwpx", "pdf", "docx", "md", "txt"], adv: true },
-  { id: "convert", group: "바꾸기", title: "글로", desc: "문서 속 글만 꺼내 글 파일로", min: 1, adv: true },
+  { id: "convert", group: "바꾸기", title: "AI에 넘길 글로", desc: "ChatGPT 같은 AI에 붙여 넣거나 올릴 글 파일로, 폴더째 한꺼번에", min: 1 },
   { id: "ocr", group: "바꾸기", title: "스캔 읽기", desc: "그림·스캔 PDF 속 글자를 글로", min: 1, accepts: ["pdf", "image"], adv: true },
   { id: "watch", group: "지켜보기", title: "폴더 지켜보기", desc: "새 문서가 들어오면 글로 바꿈", min: 0, adv: true },
 ];
@@ -51,7 +51,7 @@ export const GROUPS = [...new Set(TASKS.map((t) => t.group))];
 
 export interface BatchOpts {
   outDir: string;
-  convertFormat: "md" | "html" | "txt";
+  convertFormat: "md" | "html" | "txt" | "json";
   rules: RedactRule[];
   tablesFormat: "xlsx" | "csv" | "md";
   watermark: string;

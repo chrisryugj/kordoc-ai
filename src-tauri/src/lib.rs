@@ -14,15 +14,22 @@ static QUIT_ASKED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 static QUIT_PROBE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static QUIT_STILL_ASKING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// 화면이 저장 안 한 것을 다 물은 뒤 부르는 완전 종료
+/// 본창 화면이 저장 안 한 것을 다 물은 뒤 부르는 완전 종료. 카드 창이 있으면 카드에도 묻고, 다 닫히면 끈다
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
+    if shell::quit_asks_cards(&app) {
+        app.exit(0);
+    }
 }
 
 /// 화면이 종료를 묻고 사용자가 취소했다 — 다음 "완전 종료"도 다시 묻게 시계를 되돌린다
 #[tauri::command]
 fn quit_cancelled() {
+    reset_quit_clock();
+}
+
+/// 다음 완전 종료를 처음부터 다시 묻게 (본창·카드에서 취소했을 때)
+pub(crate) fn reset_quit_clock() {
     QUIT_ASKED_AT.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -71,8 +78,8 @@ fn force_quit_unless_asking(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        // 묻는 중이라고 답했거나, 그사이 사용자가 취소했으면(시계 0) 끄지 않는다
-        if !answered_asking(QUIT_STILL_ASKING.load(SeqCst), n) && QUIT_ASKED_AT.load(SeqCst) != 0 {
+        // 묻는 중이라고 답했거나, 그사이 사용자가 취소했으면(시계 0), 카드 창이 아직 묻는 중이면 끄지 않는다
+        if !answered_asking(QUIT_STILL_ASKING.load(SeqCst), n) && QUIT_ASKED_AT.load(SeqCst) != 0 && !shell::quit_waiting_cards(&app) {
             app.exit(0);
         }
     });

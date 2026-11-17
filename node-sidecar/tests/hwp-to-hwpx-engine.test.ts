@@ -8,7 +8,8 @@ import { rhwpConvert } from '../src/core/render/rhwp.js';
 import { sample } from './doc-helpers.js';
 
 // 글자만 견준다: HWP·HWPX 파서는 같은 글에 제목 표시(#)·표 기호를 다르게 붙인다
-const flat = (s: string) => s.replace(/[\s#*|>`_-]+/g, '');
+// (kordoc 4.24.81~ HWPX 파서는 문단 첫 「- 」를 `\-` 로 이스케이프하고 HWP 파서는 그대로 둔다)
+const flat = (s: string) => s.replace(/[\s#*|>`_\\-]+/g, '');
 
 describe('HWP → HWPX 는 kordoc 변환', () => {
   it('HWP 5 를 kordoc 이 바꾸고(version.xml application=kordoc), 본문이 그대로', async () => {

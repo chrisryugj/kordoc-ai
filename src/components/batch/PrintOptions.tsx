@@ -12,6 +12,9 @@ const STATE: Record<Printers[number]["status"], string> = { ready: "", offline: 
 export function PrintOptions({ value, onChange }: { value: string; onChange: (name: string) => void }) {
   const [list, setList] = useState<Printers | null>(null);
   const [error, setError] = useState("");
+  /** 다시 찾기 — 못 읽었거나 없을 때 (이 화면은 숨겨진 채 남아 다시 열어도 새로 읽지 않는다) */
+  const [round, setRound] = useState(0);
+  const again = <button type="button" className="kd-link" onClick={() => { setError(""); setList(null); setRound((n) => n + 1); }}>다시 찾기</button>;
 
   useEffect(() => {
     rpc("list_printers", {})
@@ -20,13 +23,13 @@ export function PrintOptions({ value, onChange }: { value: string; onChange: (na
         if (!value && r.length) onChange((r.find((p) => p.isDefault) ?? r[0]).name);
       })
       .catch((e) => setError(errorText(e)));
-    // 화면에 들어올 때 한 번
+    // 화면에 들어올 때 한 번, 다시 찾기를 누르면 또
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [round]);
 
-  if (error) return <Note tone="err">프린터 목록을 읽지 못했습니다: {error}</Note>;
+  if (error) return <Note tone="err">프린터 목록을 읽지 못했습니다: {error} {again}</Note>;
   if (!list) return <p className="kd-small kd-muted">프린터를 찾는 중입니다.</p>;
-  if (!list.length) return <Note tone="warn">연결된 프린터가 없습니다. 운영체제 설정에서 프린터를 추가한 뒤 이 화면을 다시 여세요.</Note>;
+  if (!list.length) return <Note tone="warn">연결된 프린터가 없습니다. 운영체제 설정에서 프린터를 추가한 뒤 {again}를 누르세요.</Note>;
   return (
     <div className="flex flex-col gap-2">
       <div style={{ maxWidth: 320 }}>

@@ -18,6 +18,10 @@ const EXT_FORMAT: Record<string, DocFormat> = {
   '.jpg': 'image',
   '.jpeg': 'image',
   '.webp': 'image',
+  // kordoc 4.24.74~ 이 읽고(여러 장 TIFF 는 쪽마다) sharp 가 그린다. BMP 는 sharp 가 못 읽어 넣지 않는다
+  '.gif': 'image',
+  '.tif': 'image',
+  '.tiff': 'image',
   '.md': 'md',
   '.markdown': 'md',
   '.txt': 'txt',
@@ -54,4 +58,11 @@ export function formatOf(path: string): DocFormat {
 /** 오피스 임시 파일(~$), 숨김 파일 */
 export function isJunkName(name: string): boolean {
   return name.startsWith('~$') || name.startsWith('.') || name.toLowerCase() === 'thumbs.db';
+}
+
+/** 그림을 PDF 쪽으로 낼 때의 장 수: 여러 장짜리 TIFF(스캐너·팩스)만 장마다, 그 밖(GIF 의 움직이는 장 포함)은 1 */
+export async function tiffPages(buf: Buffer): Promise<number> {
+  const sharp = (await import('sharp')).default;
+  const meta = await sharp(buf).metadata();
+  return meta.format === 'tiff' ? Math.max(1, meta.pages ?? 1) : 1;
 }

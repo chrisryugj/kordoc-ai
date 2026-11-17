@@ -271,7 +271,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       // 길어서 일부만 읽은 문서는 줄에 밝힌다 (빈칸이 "문서에 없음"이 아니라 "보지 못함"일 수 있다)
       const partial = new Set(r.partial ?? []);
       files.filter((f) => !r.failed.some((x) => x.path === f.path)).forEach((f) => env.setRow(f.path, { status: "ok", ...(partial.has(f.path) ? { note: "일부만 읽음" } : {}) }));
-      return { kind: "extract", message: `${r.rows.length}개 문서에서 뽑았습니다${partial.size ? ` (${partial.size}개는 길어서 항목과 가까운 대목만 읽음 — 빈칸은 원문에서 확인하세요)` : ""}`, path: r.output_path, columns, rows: r.rows };
+      return { kind: "extract", message: `${r.rows.length}개 문서에서 뽑았습니다${partial.size ? ` (${partial.size}개는 길어서 항목과 가까운 대목만 읽음. 빈칸은 원문에서 확인하세요)` : ""}`, path: r.output_path, columns, rows: r.rows };
     }
     case "search": {
       const r = await rpc("search_files", { paths, query: opts.query.trim(), max_hits: 20 }, o);

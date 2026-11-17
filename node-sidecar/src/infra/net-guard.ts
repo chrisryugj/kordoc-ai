@@ -88,3 +88,15 @@ export async function assertAllowed(url: string): Promise<void> {
   record(host, external, allowed);
   if (!allowed) throw new OfflineBlockedError(host);
 }
+
+/** 다른 AI 프로그램(MCP: Claude Code·Codex·Claude·Cursor 등)에 문서를 내줄 수 없는 까닭. 내줘도 되면 null.
+ *  그 프로그램이 받은 문서를 어디로 보내는지 앱은 볼 수 없다(대부분 인터넷 AI). 그래서 폐쇄망 모드거나
+ *  기관이 구독 계정 AI 보내기를 꺼서 잠갔으면, 앱 안 AI 와 같은 선에서 MCP 도구도 막는다 */
+export function mcpBlocked(): string | null {
+  const s = getSettings();
+  if (s.privacy.offline) return '폐쇄망 모드라 다른 AI 프로그램(MCP)에서 KorDoc AI 도구를 쓸 수 없습니다. 문서 내용이 그 프로그램을 거쳐 인터넷으로 나갈 수 있어서입니다. 설정 › 보안에서 폐쇄망 모드를 끄거나 기관 정보통신 담당자에게 문의하세요.';
+  if (!s.ai.allow_subscription && s.policy?.locked.includes('ai.allow_subscription')) {
+    return '기관 설정이 구독 계정 AI로 문서 보내기를 막아 두어 다른 AI 프로그램(MCP)에서도 KorDoc AI 도구를 쓸 수 없습니다. 기관 정보통신 담당자에게 문의하세요.';
+  }
+  return null;
+}

@@ -75,7 +75,7 @@ export function ImpactScreen({ active }: { active: boolean }) {
       ...report.items.map((i) => `| ${i.label} | ${num(i.count)}${i.unit} | ${i.baseline_min}분 | ${hm(i.saved_min)} |`), "",
       Object.keys(settings?.impact.baselines ?? {}).length
         ? "※ 기준 시간은 손으로 할 때 걸리는 시간의 가정치로, 기관에서 정한 값으로 계산했습니다."
-        : "※ 기준 시간은 손으로 할 때 걸리는 시간의 가정치입니다. 설정에서 기관 실정에 맞게 바꿀 수 있습니다.",
+        : "※ 기준 시간은 손으로 할 때 걸리는 시간의 가정치입니다. 앱의 효과 화면에서 기관 실정에 맞게 바꿀 수 있습니다.",
     ].join("\n");
     const preset = meta?.presets.find((p) => p.id === "report" || p.label.includes("보고서"))?.id;
     const r = await rpc("generate_hwpx", { markdown: md, no_usage: true, ...(preset ? { preset } : {}) });

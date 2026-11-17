@@ -132,7 +132,16 @@ function migrateV1(): Obj | null {
   }
 }
 
+let lastRetry = 0;
+
 export function getSettings(): Readonly<Settings> {
+  // 처음 읽을 때 설정 파일을 잠깐 못 읽어(백신이 쥠 등) 기본값으로 열렸으면 몇 초마다 다시 읽는다. 앱 엔진은 reloadIfChanged 를
+  // 부르지 않아, 이것이 없으면 사용자가 켠 폐쇄망 모드·기관 정보가 빠진 기본값으로 앱을 끌 때까지 돌았다
+  if (cached && loadedAt === -1 && Date.now() - lastRetry > 3000) {
+    lastRetry = Date.now();
+    reload();
+    if (loadedAt !== -1) void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
+  }
   if (cached) return cached;
   return reload();
 }

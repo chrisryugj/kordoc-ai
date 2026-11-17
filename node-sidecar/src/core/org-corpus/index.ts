@@ -159,12 +159,13 @@ export function phraseLines(markdown: string): string[] {
   return [...seen];
 }
 
-/** 같은 문서인지 가를 줄 지문: 숫자는 그대로(표 줄 포함, 칸 나눔은 걷음), 제목·인용 표시·장 번호·항목부호·빈칸은 걷고 4자 넘는 줄만 */
+/** 같은 문서인지 가를 줄 지문: 숫자는 그대로(표 줄 포함, 칸 나눔은 걷음), 제목·인용 표시·장 번호·항목부호·빈칸은 걷고 4자 넘는 줄만.
+ *  줄 앞 역슬래시도 걷는다: kordoc 4.24.81~ HWPX 파서는 문단 첫 「- 」를 `\-` 로 쓰고 HWP 파서는 그대로라, 남기면 같은 문서의 HWP·HWPX 가 갈린다 */
 function fingerprint(markdown: string): string[] {
   const out = new Set<string>();
   for (const raw of markdown.split('\n')) {
     if (/^\s*\|[\s:|-]+\|\s*$/.test(raw)) continue; // 표 머리 구분 줄
-    const line = raw.replace(/\*\*|<[^>]{1,40}>/g, '').replace(/^[\s#>]*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\.?\s*)?[□■○◦ㅇ❍▪•·※-]?\s*/, '').replace(/[\s|]+/g, '');
+    const line = raw.replace(/\*\*|<[^>]{1,40}>/g, '').replace(/^[\s#>\\]*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\.?\s*)?[□■○◦ㅇ❍▪•·※-]?\s*/, '').replace(/[\s|]+/g, '');
     if (line.length >= 4) out.add(createHash('sha1').update(line).digest('hex').slice(0, 8));
     if (out.size >= 400) break;
   }

@@ -15,7 +15,7 @@ import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import { errorText } from '../errors.js';
 import { parseDoc } from '../converter/index.js';
-import { formatOf } from '../files/format.js';
+import { formatOf, tiffPages } from '../files/format.js';
 import { outputFile, sameFile, stemOf } from '../output/index.js';
 import { openPdf, rasterPdfPage } from '../render/pdfium.js';
 import { rhwpPages, tooBigForRhwp } from '../render/rhwp.js';
@@ -26,17 +26,22 @@ const A4: [number, number] = [595.28, 841.89];
 
 async function imageToPdf(path: string): Promise<Uint8Array> {
   const sharp = (await import('sharp')).default;
-  const img = sharp(await readFile(path)).rotate();
-  const meta = await img.metadata();
-  const jpeg = meta.format === 'jpeg';
-  // PNG 는 pdf-lib 이 엔진 스레드에서 다 풀어 다시 압축한다(8000px 정사각 1.1초·RSS +715MB) → 긴 변 4000px(A4 에 약 340dpi)까지만
-  const data = jpeg ? await img.jpeg({ quality: 90 }).toBuffer() : await img.resize({ width: 4000, height: 4000, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+  const buf = await readFile(path);
   const doc = await PDFDocument.create();
-  const pic = jpeg ? await doc.embedJpg(data) : await doc.embedPng(data);
-  const [pw, ph] = pic.width > pic.height ? [A4[1], A4[0]] : A4;
-  const s = Math.min(pw / pic.width, ph / pic.height);
-  const page = doc.addPage([pw, ph]);
-  page.drawImage(pic, { x: (pw - pic.width * s) / 2, y: (ph - pic.height * s) / 2, width: pic.width * s, height: pic.height * s });
+  // 스캐너·팩스의 여러 장짜리 TIFF 는 장마다 한 쪽 (GIF 는 첫 장만: 움직이는 그림의 장은 쪽이 아니다)
+  const pages = await tiffPages(buf);
+  for (let i = 0; i < pages; i++) {
+    const img = sharp(buf, { page: i }).rotate();
+    const meta = await img.metadata();
+    const jpeg = meta.format === 'jpeg';
+    // PNG 는 pdf-lib 이 엔진 스레드에서 다 풀어 다시 압축한다(8000px 정사각 1.1초·RSS +715MB) → 긴 변 4000px(A4 에 약 340dpi)까지만
+    const data = jpeg ? await img.jpeg({ quality: 90 }).toBuffer() : await img.resize({ width: 4000, height: 4000, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+    const pic = jpeg ? await doc.embedJpg(data) : await doc.embedPng(data);
+    const [pw, ph] = pic.width > pic.height ? [A4[1], A4[0]] : A4;
+    const s = Math.min(pw / pic.width, ph / pic.height);
+    const page = doc.addPage([pw, ph]);
+    page.drawImage(pic, { x: (pw - pic.width * s) / 2, y: (ph - pic.height * s) / 2, width: pic.width * s, height: pic.height * s });
+  }
   return doc.save();
 }
 

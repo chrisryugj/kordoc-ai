@@ -5,7 +5,7 @@
  * 밖으로는 아무것도 보내지 않는다.
  */
 
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dataDir, getSettings } from './config.js';
@@ -153,10 +153,14 @@ export function flushUsage(): void {
   saveTimer = null;
   const sent = mergeDisk();
   if (!sent) return;
+  // 꺼지는 길이라 쓰다 끊길 수 있다: 파일에 바로 쓰면 반쪽 파일이 남아 다음 시작 때 누적 기록이 통째로 사라졌다 → 옆에 다 쓴 뒤 바꿔 넣기
+  const tmp = `${file()}.${process.pid}.flush.tmp`;
   try {
     mkdirSync(dataDir(), { recursive: true });
-    writeFileSync(file(), JSON.stringify(data), 'utf-8');
+    writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+    renameSync(tmp, file());
   } catch (err) {
+    try { rmSync(tmp, { force: true }); } catch { /* 지우지 못한 임시 파일은 둔다 */ }
     keep(sent);
     logger.warn(`[usage] 저장 실패: ${err}`);
   }

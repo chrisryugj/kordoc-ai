@@ -7,7 +7,7 @@ import { DAMAGED, parseFailure } from '../errors.js';
 import { parseBytes, parseWarnings } from '../converter/index.js';
 import { openPdf } from '../render/pdfium.js';
 import { estimatePages } from '../render/rhwp.js';
-import { formatOf, isJunkName, LAYOUT_FORMATS, PARSEABLE } from './format.js';
+import { formatOf, isJunkName, LAYOUT_FORMATS, PARSEABLE, tiffPages } from './format.js';
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 12;
@@ -82,7 +82,8 @@ export async function docInfo(path: string, password?: string): Promise<DocInfo>
     editable: format === 'hwpx',
     warnings: [],
   };
-  if (format === 'image') return { ...info, page_count: 1 };
+  // 여러 장 TIFF(스캐너·팩스)는 장 수를 쪽 수로. 못 읽는 그림은 예전처럼 1 (미리보기·글 읽기가 까닭을 알린다)
+  if (format === 'image') return { ...info, page_count: await tiffPages(await readFile(path)).catch(() => 1) };
   if (!PARSEABLE.has(format)) return info;
 
   const buf = await readFile(path);
@@ -107,7 +108,8 @@ export async function docInfo(path: string, password?: string): Promise<DocInfo>
     if (r.code === 'DRM_PROTECTED') return { ...locked('한컴 문서보안(DRM)이 걸린 문서라 열 수 없습니다.'), has_layout: false };
     // 확장자로는 읽을 수 있는 형식인데 내용을 못 알아봤다(형식 모름·구역 없음·까닭 없는 읽기 실패):
     // 다른 형식이 아니라 깨졌거나 저장이 덜 된 파일. kordoc 은 까닭을 모르는 오류를 '문서 처리 중 오류가 발생했습니다' 로만 준다
-    if (r.code === 'UNSUPPORTED_FORMAT' || r.code === 'NO_SECTIONS' || (r.code === 'PARSE_ERROR' && /^문서 처리 중 오류가 발생했습니다/.test(r.error ?? ''))) throw new Error(DAMAGED);
+    // (4.24.82 부터 PDF 엔진이 못 연 PDF 는 'PDF 파일을 읽을 수 없습니다')
+    if (r.code === 'UNSUPPORTED_FORMAT' || r.code === 'NO_SECTIONS' || (r.code === 'PARSE_ERROR' && /^(문서 처리 중 오류가 발생했습니다|PDF 파일을 읽을 수 없습니다)/.test(r.error ?? ''))) throw new Error(DAMAGED);
     throw parseFailure(r, !!password);
   }
   const m = r.metadata;

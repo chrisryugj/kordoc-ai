@@ -35,7 +35,7 @@ const winPath = (p: string) => p.replace(/\//g, '\\');
 const opener = () => (process.platform === 'darwin' ? 'open' : 'xdg-open');
 
 /** 기본 앱으로 열어도 되는 확장자 (실행 파일 차단) */
-const OPENABLE_EXT = new Set(['.hwp', '.hwpx', '.hml', '.hwpml', '.pdf', '.xls', '.xlsx', '.docx', '.pptx', '.txt', '.md', '.csv', '.html', '.json', '.png', '.jpg', '.jpeg', '.webp']);
+const OPENABLE_EXT = new Set(['.hwp', '.hwpx', '.hml', '.hwpml', '.pdf', '.xls', '.xlsx', '.docx', '.pptx', '.txt', '.md', '.csv', '.html', '.json', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.tif', '.tiff']);
 
 export function registerSystem(router: RpcRouter): void {
   const reg = registrar(router);

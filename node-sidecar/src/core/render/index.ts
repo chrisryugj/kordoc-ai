@@ -8,18 +8,28 @@ import { readFile } from 'node:fs/promises';
 import { renderDocument } from 'kordoc';
 import type { PagePreview } from '../../types/rpc-contract.js';
 import { logger } from '../../infra/logger.js';
-import { formatOf } from '../files/format.js';
+import { formatOf, tiffPages } from '../files/format.js';
 import { isHeavyPage, openPdf, rasterPdfPage } from './pdfium.js';
 
 const DEFAULT_PAGES = 5;
 const MAX_PAGES = 20;
 
-/** "1-3,5" · "7-"(끝까지, max 필요) → 1-based 쪽 번호 오름차순 */
+/** 쪽 범위 한 조각: "3" · "3-5" · "3~5" · "3–5" · "7-"(끝까지) */
+const PAGE_PART = /^\s*(\d+)\s*([-~–—〜]\s*(\d*))?\s*$/;
+
+/** 쪽 범위 글에 읽지 못한 조각이 있으면 사람이 고칠 수 있는 오류 (조각을 말없이 버리면 "전체 쪽"으로 돌았다) */
+export function assertPageSpec(spec: string | undefined): void {
+  if (!spec?.trim()) return;
+  const bad = spec.split(/[,，、]/).map((s) => s.trim()).filter((s) => s && !PAGE_PART.test(s));
+  if (bad.length) throw new Error(`쪽 번호 "${bad[0]}"을(를) 읽지 못했습니다. "1-3, 5"처럼 숫자와 붙임표·쉼표로 적으세요.`);
+}
+
+/** "1-3,5" · "3~5" · "7-"(끝까지, max 필요) → 1-based 쪽 번호 오름차순 */
 export function parsePageSpec(spec: string | undefined, max?: number): number[] {
   if (!spec?.trim()) return [];
   const out = new Set<number>();
-  for (const part of spec.split(',')) {
-    const m = /^\s*(\d+)\s*(-\s*(\d*))?\s*$/.exec(part);
+  for (const part of spec.split(/[,，、]/)) {
+    const m = PAGE_PART.exec(part);
     if (!m) continue;
     const a = Number(m[1]);
     const b = m[2] ? (m[3] ? Number(m[3]) : (max ?? a)) : a;
@@ -40,7 +50,7 @@ export async function renderPages(
   const maxW = Math.round(Math.min(Math.max(p.max_width ?? 1000, 200), 2400));
   if (fmt === 'hwp' || fmt === 'hwpx') return renderHangul(p.path, p.pages, maxW, p.password, signal);
   if (fmt === 'pdf') return renderPdf(p.path, p.pages, maxW, p.password, signal);
-  if (fmt === 'image') return renderImage(p.path, maxW);
+  if (fmt === 'image') return renderImage(p.path, p.pages, maxW);
   throw new Error('NO_LAYOUT: 이 형식은 쪽 모양 미리보기가 없습니다. 글 보기로 확인하세요.');
 }
 
@@ -92,14 +102,22 @@ async function renderPdf(path: string, spec: string | undefined, maxW: number, p
 }
 
 /** 이미지 — width·height 는 원본 픽셀 */
-async function renderImage(path: string, maxW: number) {
+/** 그림 한 장(여러 장 TIFF 는 장마다 한 쪽) */
+async function renderImage(path: string, spec: string | undefined, maxW: number) {
   const sharp = (await import('sharp')).default;
   const buf = await readFile(path);
-  const meta = await sharp(buf).metadata();
-  const w = meta.width ?? 0;
-  const h = meta.height ?? 0;
-  const mime = meta.format === 'jpeg' ? 'image/jpeg' : meta.format === 'png' ? 'image/png' : meta.format === 'webp' ? 'image/webp' : '';
-  const fits = mime && w <= maxW && (meta.orientation ?? 1) === 1;
-  const data = fits ? buf : await sharp(buf).rotate().resize({ width: maxW, withoutEnlargement: true }).png().toBuffer();
-  return { page_count: 1, pages: [{ page: 1, width: w, height: h, data_url: dataUrl(fits ? mime : 'image/png', data) }] };
+  const count = await tiffPages(buf);
+  const wanted = spec?.trim() ? parsePageSpec(spec, count).filter((n) => n <= count) : Array.from({ length: Math.min(DEFAULT_PAGES, count) }, (_, i) => i + 1);
+  if (!wanted.length) throw new Error(`고른 쪽이 그림에 없습니다. 이 그림은 ${count}장입니다.`);
+  const pages: PagePreview[] = [];
+  for (const n of wanted.slice(0, MAX_PAGES)) {
+    const meta = await sharp(buf, { page: n - 1 }).metadata();
+    const w = meta.width ?? 0;
+    const h = meta.height ?? 0;
+    const mime = meta.format === 'jpeg' ? 'image/jpeg' : meta.format === 'png' ? 'image/png' : meta.format === 'webp' ? 'image/webp' : '';
+    const fits = mime && w <= maxW && (meta.orientation ?? 1) === 1;
+    const data = fits ? buf : await sharp(buf, { page: n - 1 }).rotate().resize({ width: maxW, withoutEnlargement: true }).png().toBuffer();
+    pages.push({ page: n, width: w, height: h, data_url: dataUrl(fits ? mime : 'image/png', data) });
+  }
+  return { page_count: count, pages };
 }

@@ -209,8 +209,9 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
       if (seed.levelsFrom) { setOpts((o) => ({ ...o, levelsFrom: seed.levelsFrom! })); setOptsOpen(true); }
       if (autoDraft) runDraft("", seed.kind, seed.references);
     };
-    // 쓰던 초안을 덮어쓰는 시작값(보낸 글·회신 자동 초안)은 먼저 묻는다
-    if ((seed.markdown || autoDraft) && unmade(markdown)) setSeedAsk({ apply });
+    // 쓰던 초안을 덮어쓰는 시작값(보낸 글·회신 자동 초안)은 먼저 묻는다. 부탁 칸을 비우는 시작값도: 메모 정리·회의록은 부탁 칸이 곧 원문이다
+    const clearsAsk = !!(seed.kind || seed.references || seed.preset) && !!instruction.trim();
+    if (((seed.markdown || autoDraft) && unmade(markdown)) || clearsAsk) setSeedAsk({ apply });
     else apply();
     // 시작값마다 한 번
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,7 +432,7 @@ export function DraftComposer({ seed, onRoute }: { seed: DraftSeed | null; onRou
         )}>
         <p className="kd-text">{seedAsk?.again
           ? "초안을 다시 쓰면 지금 쓰던 초안(손으로 고친 것까지)은 사라집니다. 쓰던 초안을 두면 다시 쓰지 않습니다."
-          : "다른 화면에서 보낸 내용으로 바꾸면 지금 쓰던 초안은 사라집니다. 쓰던 초안을 두면 보낸 내용은 받지 않습니다."}</p>
+          : "다른 화면에서 보낸 내용으로 바꾸면 지금 쓰던 초안과 부탁 칸에 적은 글은 사라집니다. 쓰던 초안을 두면 보낸 내용은 받지 않습니다."}</p>
       </Modal>
       {dialog}
     </div>

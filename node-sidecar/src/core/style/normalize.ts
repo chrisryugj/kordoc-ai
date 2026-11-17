@@ -31,6 +31,9 @@ type Block =
 // 한글 뒤 \b 는 낱말 경계로 안 잡혀서("시행 " 의 행·공백 사이) 공백·줄끝으로 본다
 const FOOT_RE = /^(시\s*행(?=\s|$)|접\s*수(?=\s|[(]|$)|협\s*조\s*자|우\s*\d{3}|전\s*화\s|전\s*송\s|공개\s*구분|\/\s*(비|부분)?공개|(비|부분)공개\s*\(|공개$)/;
 const HEAD_RE = /^(수\s*신(자)?|\(?\s*경\s*유\s*\)?|제\s*목)/;
+/** 끝에 남은 결문 줄 — FOOT_RE 보다 좁게: 시행·접수는 문서번호(부서-123)나 빈 칸, 전화·전송은 번호가 바로 오는 줄만.
+ *  "접수 기간: 11. 1. ~ 11. 30." · "전화 문의: 총무과 …" 같은 본문 끝 문단을 결문으로 보고 말없이 지우지 않게 */
+const FOOT_LINE = /^(시\s*행\s+\S+\s?-\s?\d|접\s*수\s*(?:\S+\s?-\s?\d|\(\s*\)|$)|협\s*조\s*자|우\s*\d{3}|전\s*화\s*\(?\d|전\s*송\s*\(?\d|공개\s*구분|\/\s*(비|부분)?공개|(비|부분)공개\s*\(|공개$)/;
 /** 결문이 시작됐다는 표시 — 시행 번호 줄·협조자·기안자 줄 */
 const FOOT_ANCHOR = /^(시\s*행\s+(?!\d+\s?-)\S+\s?-\s?\d|협\s*조\s*자(?:\s|$)|기\s*안\s*자\s)/;
 /** 결문만큼 짧은가 — 결문은 서명 줄·시행·주소·전화 몇 줄이다(수신자 목록이 길어도 이 안).
@@ -154,7 +157,7 @@ export function normalizeContent(md: string, opts: NormalizeOptions = {}): Norma
     while (from > 1 && !END_RE.test(paras[from - 1]) && isSignLine(paras[from - 1].trim())) from--;
     paras = paras.slice(0, from);
   }
-  while (paras.length && FOOT_RE.test(paras[paras.length - 1].trim())) paras.pop();
+  while (paras.length && FOOT_LINE.test(paras[paras.length - 1].trim()) && !isStatement(paras[paras.length - 1].trim())) paras.pop();
 
   // 제목: 첫 # 줄 → 견본 쪽에서 찾은 제목 줄 → 맨 앞 짧은 줄
   const blocks: Block[] = [];

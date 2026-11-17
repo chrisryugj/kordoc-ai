@@ -2,8 +2,8 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { markdownToHwpx, parse, redactMarkdown } from 'kordoc';
 import { call, makePng, sample, setupEnv, SAMPLES } from './doc-helpers.js';
 
@@ -57,9 +57,9 @@ async function brokenLayerPdf(name: string): Promise<string> {
   lines.forEach((t, k) => broken.drawText(t, { x: 50, y: y(k), size: 16, font: body }));
   const curves = pdf.addPage([595, 842]);
   curves.drawText(title, { x: 50, y: 780, size: 14, font: head });
-  // 글자 윤곽선은 kordoc 이 싣는 pdfjs 표준 글꼴에서. 글꼴 좌표는 위가 + 라 SVG 좌표로 뒤집어 넣는다 (fontkit Path 의 scale)
-  const pdfjs = createRequire(createRequire(import.meta.url).resolve('kordoc')).resolve('pdfjs-dist/package.json');
-  const face = fontkit.create(readFileSync(join(dirname(pdfjs), 'standard_fonts', 'LiberationSans-Regular.ttf')));
+  // 글자 윤곽선은 시험 글꼴(Liberation Sans, OFL: tests/fixtures/fonts)에서. 글꼴 좌표는 위가 + 라 SVG 좌표로 뒤집어 넣는다 (fontkit Path 의 scale).
+  // kordoc 4.24.82 가 pdfjs-dist 를 빼서 그 안의 표준 글꼴을 더는 못 쓴다. @pdf-lib/fontkit 은 CFF(OTF) 윤곽선을 못 읽어 TTF 여야 한다
+  const face = fontkit.create(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fonts', 'LiberationSans-Regular.ttf')));
   lines.forEach((t, k) => {
     const run = face.layout(t);
     const s = 16 / face.unitsPerEm;
@@ -173,7 +173,8 @@ describe('redact', () => {
       expect(r.total).toBe(1);
       expect(r.output_path).toMatch(/스캔_가림\.pdf$/);
     }
-  });
+    // 글자 읽기를 두 번(찾기·다시 검사) 돌려 전체 시험을 함께 돌리면 10초를 넘긴다 (옆 OCR 시험과 같은 한도)
+  }, 60_000);
 
   it('PDF — 글자층이 있는 쪽에 붙은 그림 속 글자도 읽어 가린다 (못 읽으면 숨기지 않고 알린다)', async () => {
     const { PDFDocument, StandardFonts } = await import('pdf-lib');

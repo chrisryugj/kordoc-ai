@@ -10,6 +10,7 @@ import { countRead, joinBroken, redactMarkdown, redactText, tighten } from './ru
 import { PDFDocument } from 'pdf-lib';
 import type { PDFiumDocument, PDFiumPage } from '@hyzyla/pdfium';
 import { checkPageImages, fitScale, MAX_PAGE_PIXELS, openPdf } from '../render/pdfium.js';
+import { tiffPages } from '../files/format.js';
 import { sendProgress } from '../../infra/progress.js';
 import { parseBytes } from '../converter/index.js';
 
@@ -257,22 +258,27 @@ function paint(data: Uint8Array, w: number, h: number, boxes: Array<[number, num
   }
 }
 
-/** 그림(PNG·JPG·WEBP) → 한 쪽짜리 PDF (150dpi 로 보고 쪽 크기를 정한다).
+/** 그림(PNG·JPG·WEBP·GIF·TIFF) → PDF, 여러 장 TIFF 는 장마다 한 쪽 (150dpi 로 보고 쪽 크기를 정한다).
  *  큰 그림(4백만 화소 넘게)은 JPEG 로 싣는다: PNG 는 pdf-lib 이 엔진 스레드에서 다 풀어 다시 압축한다(8000px 정사각 1.1초·RSS +715MB).
  *  쪽 그림은 어차피 화소 상한(MAX_PAGE_PIXELS)까지만 그리고 가린 사본도 JPEG 라, 그보다 큰 그림은 상한까지 줄여 싣는다 */
 export async function imageToPdf(bytes: Uint8Array): Promise<Uint8Array> {
   const sharp = (await import('sharp')).default;
-  let img = sharp(Buffer.from(bytes)).rotate();
-  const meta = await img.metadata();
-  const pw = meta.autoOrient?.width ?? meta.width ?? 0;
-  const ph = meta.autoOrient?.height ?? meta.height ?? 0;
-  if (pw * ph > MAX_PAGE_PIXELS) img = img.resize({ width: Math.floor(pw * Math.sqrt(MAX_PAGE_PIXELS / (pw * ph))) });
-  const big = pw * ph > 4_000_000;
+  const buf = Buffer.from(bytes);
   const pdf = await PDFDocument.create();
-  const image = big ? await pdf.embedJpg(await img.flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toBuffer()) : await pdf.embedPng(await img.png().toBuffer());
-  const w = ((meta.autoOrient?.width ?? meta.width ?? image.width) * 72) / 150;
-  const h = ((meta.autoOrient?.height ?? meta.height ?? image.height) * 72) / 150;
-  pdf.addPage([w, h]).drawImage(image, { x: 0, y: 0, width: w, height: h });
+  // 여러 장짜리 TIFF(스캐너·팩스)는 장마다 한 쪽: 첫 장만 내면 가린 사본에서 나머지 장이 빠진다
+  const pages = await tiffPages(buf);
+  for (let i = 0; i < pages; i++) {
+    let img = sharp(buf, { page: i }).rotate();
+    const meta = await img.metadata();
+    const pw = meta.autoOrient?.width ?? meta.width ?? 0;
+    const ph = meta.autoOrient?.height ?? meta.height ?? 0;
+    if (pw * ph > MAX_PAGE_PIXELS) img = img.resize({ width: Math.floor(pw * Math.sqrt(MAX_PAGE_PIXELS / (pw * ph))) });
+    const big = pw * ph > 4_000_000;
+    const image = big ? await pdf.embedJpg(await img.flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toBuffer()) : await pdf.embedPng(await img.png().toBuffer());
+    const w = ((meta.autoOrient?.width ?? meta.width ?? image.width) * 72) / 150;
+    const h = ((meta.autoOrient?.height ?? meta.height ?? image.height) * 72) / 150;
+    pdf.addPage([w, h]).drawImage(image, { x: 0, y: 0, width: w, height: h });
+  }
   return pdf.save();
 }
 
