@@ -28,7 +28,7 @@ ${all.map((n) => `    "${n}",`).join('\n')}
 `;
 const target = 'src-tauri/src/commands/rpc_methods.rs';
 if (process.argv.includes('--check')) {
-  const cur = existsSync(target) ? readFileSync(target, 'utf-8') : '';
+  const cur = existsSync(target) ? readFileSync(target, 'utf-8').replace(/\r\n/g, '\n') : '';
   if (cur !== out) {
     console.error(`[rpc-whitelist] ${target} 가 계약과 다르다 — node scripts/sync-rpc-whitelist.mjs 로 다시 만들어라`);
     process.exit(1);

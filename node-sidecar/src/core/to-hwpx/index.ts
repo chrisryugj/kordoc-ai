@@ -5,7 +5,7 @@
  * HWP 는 rhwp 로 옮겨서 preset 을 쓰지 않는다.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { markdownToHwpx } from 'kordoc';
 import { rhwpConvert, tooBigForRhwp } from '../render/rhwp.js';
@@ -25,22 +25,31 @@ export async function toHwpx(
   const fmt = formatOf(p.path);
   if (fmt === 'hwpx') throw new Error('이미 HWPX 문서입니다.');
   const warnings: string[] = [];
-  const outName = `${stemOf(p.path)}.hwpx`;
+  const save = async (bytes: Uint8Array) => {
+    signal?.throwIfAborted();
+    const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: `${stemOf(p.path)}.hwpx`, claim: true });
+    try {
+      await writeFile(outPath, bytes, { signal });
+      return outPath;
+    } catch (err) {
+      await rm(outPath, { force: true });
+      throw err;
+    }
+  };
   // 아주 큰 HWP(1천 쪽 넘게)는 rhwp 가 수 분 동안 엔진을 멈추게 해서 서식 그대로 옮기지 않는다
   const hwp = fmt === 'hwp' ? new Uint8Array(await readFile(p.path)) : null;
   const big = hwp ? await tooBigForRhwp(hwp) : null;
   if (big) warnings.push(`문서가 커서(약 ${big.toLocaleString('ko-KR')}쪽) 서식 그대로 옮기지 않고 글·표를 다시 짰습니다.`);
   if (hwp && !big) {
     // 옛 HWP 는 다시 짜지 않고 rhwp 로 서식 그대로 HWPX 로 옮긴다. 못 열면 아래에서 글·표를 다시 짠다
+    let bytes: Uint8Array | undefined;
     try {
-      const bytes = await rhwpConvert(hwp, 'hwpx', signal);
-      const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: outName });
-      await writeFile(outPath, bytes);
-      return { output_path: outPath, warnings, style: '서식 그대로' };
+      bytes = await rhwpConvert(hwp, 'hwpx', signal);
     } catch (err) {
       if (signal?.aborted) throw err;
       warnings.push(`서식 그대로 옮기지 못해 글·표를 다시 짰습니다 (${errorText(err)}).`);
     }
+    if (bytes) return { output_path: await save(bytes), warnings, style: '서식 그대로' };
   }
   // PDF 그림은 쪽 끝에 몰지 않고 읽는 차례 제자리에
   const r = await parseDoc(p.path, { ocr: p.ocr, images: true, imagePlacement: 'flow', progressLabel: quiet ? undefined : `${basename(p.path)} 읽는 중`, signal });
@@ -58,8 +67,7 @@ export async function toHwpx(
   // 일괄(quiet)에서는 "N개 페이지에 OCR 적용" 안내를 뺀다: 확인할 일이 아니라서, 결과 줄에 실으면 경고 줄·빠른 동작 "확인 필요"가 된다
   const parsed = quiet ? { ...r, warnings: r.warnings?.filter((w) => w.code !== 'OCR_APPLIED') } : r;
   warnings.push(...parseWarnings(parsed), ...genWarnings.map(cleanMessage));
-  const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.path, name: outName });
-  await writeFile(outPath, Buffer.from(buf));
+  const outPath = await save(new Uint8Array(buf));
   const style = preset ? `${PRESETS.find((x) => x.id === preset)?.label ?? preset} 서식` : '꾸밈 없이';
   return { output_path: outPath, warnings: [...new Set(warnings)].slice(0, 20), style };
 }
