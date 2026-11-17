@@ -7,7 +7,8 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { renameRetry } from '../../infra/rename-retry.js';
 import { basename, join } from 'node:path';
 import { dataDir } from '../../infra/config.js';
 import type { RecoveryEntry } from '../../types/rpc-contract.js';
@@ -32,7 +33,7 @@ const idOf = (path: string) => {
 const atomicWrite = async (path: string, data: Buffer) => {
   const tmp = `${path}.kordoc-tmp`;
   await writeFile(tmp, data);
-  await rename(tmp, path);
+  await renameRetry(tmp, path);
 };
 const files = (path: string) => {
   const base = join(dir(), idOf(path));

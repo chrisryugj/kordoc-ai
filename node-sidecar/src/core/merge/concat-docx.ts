@@ -170,7 +170,7 @@ function mergeDocxStyles(
   baseStylesXml: string,
   donorStylesXml: string,
   docIndex: number,
-): { added: string[]; remap: Map<string, string> } {
+): { added: string[]; remap: Map<string, string>; twins: Map<string, string> } {
   const baseStyles = parseDocxStyles(baseStylesXml);
   const donorStyles = parseDocxStyles(donorStylesXml);
 
@@ -241,7 +241,54 @@ function mergeDocxStyles(
     .replace(/(<w:name\s+w:val=")[^"]*(")/, (_, a, z) => a + name + z)
     .replace(/(<w:(?:basedOn|next|link|numStyleLink|styleLink)\s+w:val=")([^"]*)(")/g, (_, a, ref, z) => a + (remap.get(ref) ?? ref) + z));
 
-  return { added, remap };
+  return { added, remap, twins: twin };
+}
+
+/** 서식(또는 그 서식이 기대는 서식)에 걸린 번호 — 번호를 가진 서식 id, 번호 목록 id, 수준 */
+function styleNumbering(id: string | undefined, styles: Map<string, string>): { owner: string; numId: number; ilvl: string } | undefined {
+  for (let cur = id, hops = 0; cur !== undefined && hops < 50; hops++) {
+    const fragment = styles.get(cur);
+    if (!fragment) return undefined;
+    const numPr = fragment.match(/<w:numPr>([\s\S]*?)<\/w:numPr>/)?.[1];
+    if (numPr !== undefined) {
+      const numId = Number(numPr.match(/<w:numId\s+w:val="(\d+)"/)?.[1] ?? 0);
+      return numId ? { owner: cur, numId, ilvl: numPr.match(/<w:ilvl\s+w:val="(\d+)"/)?.[1] ?? '0' } : undefined;
+    }
+    cur = fragment.match(/<w:basedOn\s+w:val="([^"]*)"/)?.[1];
+  }
+  return undefined;
+}
+
+/** 번호가 서식에 걸려 있고 그 서식이 첫 문서 서식과 같아 하나로 합쳐졌으면, 뒤 문서 문단도 첫 문서 서식의 번호 목록을 따라
+ *  번호가 이어진다(1. 이 4. 로). 그런 문단에 이 문서의 번호 목록을 직접 적어(합본에서는 새 numId) 번호가 새로 시작하게 한다 */
+function restartStyleNumbering(root: any, styles: Map<string, string>, twins: Map<string, string>, numIdRemap: Map<number, number>, defaultStyle: string | undefined): void {
+  const paras = root.localName === 'p' ? [root] : [];
+  const found = root.getElementsByTagNameNS(W_NS, 'p');
+  for (let i = 0; i < found.length; i++) paras.push(found[i]);
+  for (const p of paras) {
+    let pPr = getChildElements(p, 'pPr')[0];
+    const styleId = pPr ? getChildElements(pPr, 'pStyle')[0]?.getAttributeNS(W_NS, 'val') ?? defaultStyle : defaultStyle;
+    const num = styleNumbering(styleId, styles);
+    if (!num || !twins.has(num.owner) || !numIdRemap.has(num.numId)) continue;
+    const doc = p.ownerDocument;
+    const el = (name: string, val: string) => { const e = doc.createElementNS(W_NS, `w:${name}`); e.setAttributeNS(W_NS, 'w:val', val); return e; };
+    let numPr = pPr ? getChildElements(pPr, 'numPr')[0] : undefined;
+    if (numPr && getChildElements(numPr, 'numId').length) continue;
+    if (!pPr) {
+      pPr = doc.createElementNS(W_NS, 'w:pPr');
+      p.insertBefore(pPr, p.firstChild);
+    }
+    if (!numPr) {
+      numPr = doc.createElementNS(W_NS, 'w:numPr');
+      numPr.appendChild(el('ilvl', num.ilvl));
+      const at = PPR_ORDER.indexOf('numPr');
+      let before = null;
+      for (let c = pPr.firstChild; c; c = c.nextSibling) if (c.nodeType === 1 && PPR_ORDER.indexOf(c.localName) > at) { before = c; break; }
+      pPr.insertBefore(numPr, before);
+    }
+    // 이 문서의 번호 목록 id 를 적는다 (본문의 numId 는 뒤에서 한꺼번에 합본의 id 로 바뀐다)
+    numPr.appendChild(el('numId', String(num.numId)));
+  }
 }
 
 /** 문단 속성(pPr)의 규격 차례 — 차례가 틀리면 워드가 문서를 못 읽는 일이 있다 */
@@ -504,6 +551,10 @@ export async function concatDocx(
       let addedStyles: string[] = [];
       /** 서식을 적지 않은 문단에 적어 줄 서식 (이 문서의 기본 문단 서식이 합본의 기본 서식과 다를 때) */
       let implicitStyle: string | undefined;
+      /** 이 문서의 서식(id → 조각), 첫 문서 서식과 같아 하나로 합친 서식, 기본 문단 서식 (서식에 걸린 번호를 새로 시작할 때 쓴다) */
+      let donorStyles = new Map<string, string>();
+      let twins = new Map<string, string>();
+      let donorDefault: string | undefined;
       const donorStylesFile = zip.file('word/styles.xml');
       if (donorStylesFile && mergedStylesXml) {
         // 문서 기본값(글꼴·크기·문단 간격)이 첫 문서와 다르면 이 문서의 뿌리 서식에 적어 넣는다
@@ -512,7 +563,10 @@ export async function concatDocx(
         const result = mergeDocxStyles(mergedStylesXml, donorStylesXml, i + 1);
         addedStyles = result.added;
         styleRemap = result.remap;
+        twins = result.twins;
+        donorStyles = parseDocxStyles(donorStylesXml);
         const own = defaultParagraphStyle(donorStylesXml);
+        donorDefault = own;
         const merged = own === undefined ? undefined : styleRemap.get(own) ?? own;
         if (merged !== undefined && merged !== defaultParagraphStyle(mergedStylesXml)) implicitStyle = merged;
       }
@@ -566,6 +620,7 @@ export async function concatDocx(
       for (const child of children) {
         headers += child.getElementsByTagNameNS(W_NS, 'headerReference').length + child.getElementsByTagNameNS(W_NS, 'footerReference').length;
         if (!rewire(child, ids)) continue;
+        if (twins.size && numIdRemap.size) restartStyleNumbering(child, donorStyles, twins, numIdRemap, donorDefault);
         let serialized = new XMLSerializer().serializeToString(child);
         // 각주·미주·메모는 문서마다 따로 번호를 매긴 부품에 있다 → 표시를 남기면 첫 문서의 다른 각주를 가리킨다
         serialized = serialized.replace(/<w:(?:footnoteReference|endnoteReference|commentReference|commentRangeStart|commentRangeEnd)\b[^>]*\/>/g, (el) => { if (!/Range(Start|End)/.test(el)) notes++; return ''; });

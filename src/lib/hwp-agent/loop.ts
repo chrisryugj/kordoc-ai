@@ -30,6 +30,26 @@ export function trimHistory(events: AgentEvent[], limit = HISTORY_CHARS): void {
   }
 }
 
+/** 보낼 대화: 이어진 사용자 차례는 하나로 합친다 (되돌리기 알림 뒤의 새 요청 등).
+ *  차례가 번갈아 와야 받는 서버·모델은 사용자 차례가 연달아 오면 대화를 거절한다 */
+export function wireEvents(events: AgentEvent[]): AgentEvent[] {
+  const out: AgentEvent[] = [];
+  for (const e of events) {
+    const prev = out[out.length - 1];
+    if (e.role === "user" && prev?.role === "user") {
+      const context = ("context" in e && e.context) || ("context" in prev && prev.context);
+      out[out.length - 1] = { role: "user", text: `${prev.text}\n\n${e.text}`, ...(context ? { context } : {}) };
+    } else out.push(e);
+  }
+  return out;
+}
+
+/** 도구가 던진 오류의 활동 줄 — 내부 도구 이름은 내지 않고, 영어 원문도 내지 않는다 (모델은 output 으로 원문을 받는다) */
+export function failSummary(e: unknown): string {
+  const msg = (e instanceof Error ? e.message : String(e)).trim();
+  return /[가-힣]/.test(msg) ? `하지 못함 · ${msg.slice(0, 40)}` : "하지 못함";
+}
+
 export interface RunHooks {
   /** 모델이 쓴 글 (차례마다 마지막 글로 바뀐다) */
   onText(text: string): void;
@@ -61,7 +81,7 @@ export async function runAgent(opts: {
   const steps = async (): Promise<{ text: string; redacted: number }> => {
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
-      const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events }, { signal });
+      const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events: wireEvents(events) }, { signal });
       redacted += turn.redacted;
       if (turn.text) { text = turn.text; hooks.onText(text); }
       events.push({ role: "assistant", text: turn.text, calls: turn.calls.map(({ id, name, input }) => ({ id, name, input })) });
@@ -78,7 +98,8 @@ export async function runAgent(opts: {
         if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
         if (call.inputError) {
           results.push({ id: call.id, name: call.name, output: call.inputError, isError: true });
-          hooks.onTool({ name: call.name, summary: call.inputError, isError: true });
+          // 엔진의 인자 오류 글에는 도구·인자 이름이 들어 있다: 모델에는 그대로, 활동 줄에는 사람 말로
+          hooks.onTool({ name: call.name, summary: "AI가 보낸 값이 맞지 않음", isError: true });
           continue;
         }
         let out;
@@ -87,7 +108,7 @@ export async function runAgent(opts: {
         } catch (e) {
           // 멈추기를 눌러 끊긴 도구는 실패가 아니다 (실패로 적으면 진행 줄에 가짜 실패가 뜬다)
           if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
-          out = { output: e instanceof Error ? e.message : String(e), isError: true, summary: `${call.name} 실패` };
+          out = { output: e instanceof Error ? e.message : String(e), isError: true, summary: failSummary(e) };
         }
         executed.push({ name: call.name, ok: !out.isError });
         if (out.mutated) changed = true;
@@ -100,10 +121,15 @@ export async function runAgent(opts: {
       sameCalls = sig && sig === lastCalls ? sameCalls + 1 : 1;
       lastCalls = sig;
       failedSteps = results.every((r) => r.isError) ? failedSteps + 1 : 0;
-      if (sameCalls >= SAME_CALLS) return { text: "같은 일을 되풀이해 멈췄습니다. 요청을 조금 바꾸거나 나눠서 다시 시도하세요.", redacted };
-      if (failedSteps >= FAILED_STEPS) return { text: "도구가 계속 실패해 멈췄습니다. 위 진행 줄의 실패 까닭을 확인하고 다시 시도하세요.", redacted };
+      if (sameCalls >= SAME_CALLS) return stop("같은 일을 되풀이해 멈췄습니다. 요청을 조금 바꾸거나 나눠서 다시 시도하세요.");
+      if (failedSteps >= FAILED_STEPS) return stop("도구가 계속 실패해 멈췄습니다. 위 진행 줄의 실패 까닭을 확인하고 다시 시도하세요.");
     }
-    return { text: text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.", redacted };
+    return stop(text || "도구를 너무 여러 번 불러 멈췄습니다. 요청을 나눠 다시 시도하세요.");
+  };
+  // 도구 결과(엔진에서는 사용자 차례)로 끝난 채 두면 다음 요청과 사용자 차례가 연달아 간다 → 사용자에게 보인 그 말을 답 차례로 남긴다
+  const stop = (say: string) => {
+    events.push({ role: "assistant", text: say, calls: [] });
+    return { text: say, redacted };
   };
   try {
     return await steps();

@@ -13,6 +13,7 @@ vi.mock('../src/core/export/index.js', () => ({
 
 // child_process mock — Start-Process 실제 실행 차단
 const mockExecFile = vi.fn();
+let printerListFails = false;
 vi.mock('node:child_process', () => ({
   execFile: (cmd: string, args: string[], opts: unknown, cb: unknown) => {
     // promisified execFile callback 시그니처: (err, {stdout, stderr})
@@ -22,7 +23,10 @@ vi.mock('node:child_process', () => ({
     if (typeof callback === 'function') {
       // listPrinters 의 stdout 시뮬레이션
       const last = args[args.length - 1] ?? '';
-      if (last.includes('Get-CimInstance Win32_Printer')) {
+      if (last.includes('Get-CimInstance Win32_Printer') && printerListFails) {
+        // execFile 실패 오류는 명령줄 원문을 담는다
+        (callback as (e: unknown, r: unknown) => void)(Object.assign(new Error(`Command failed: ${cmd} ${args.join(' ')}\nGet-CimInstance : Access denied`), { code: 1 }), { stdout: '', stderr: 'Access denied' });
+      } else if (last.includes('Get-CimInstance Win32_Printer')) {
         const stdout = JSON.stringify([
           { Name: 'Microsoft Print to PDF', Default: true, PrinterStatus: 3, DriverName: 'PDF' },
           { Name: 'OfflinePrinter', Default: false, PrinterStatus: 7, DriverName: 'X' },
@@ -41,7 +45,8 @@ vi.mock('../src/infra/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { printFiles, listPrinters } from '../src/core/print/index.js';
+import { existsSync } from 'node:fs';
+import { printFiles, listPrinters, tempPdfTtl } from '../src/core/print/index.js';
 
 let tmp: string;
 const originalPlatform = process.platform;
@@ -138,6 +143,44 @@ describe('listPrinters', () => {
       driver: 'PDF',
     });
     expect(printers[1].status).toBe('offline');
+  });
+
+  it('목록을 못 읽으면 명령줄 원문 대신 한국어 안내 (8차 LOW 13)', async () => {
+    printerListFails = true;
+    try {
+      const err = await listPrinters().then(() => null, (e: Error) => e);
+      expect(err?.message).toMatch(/프린터 목록을 읽지 못했습니다/);
+      expect(err?.message).not.toMatch(/Command failed|powershell|Get-CimInstance|Access denied/i);
+    } finally {
+      printerListFails = false;
+    }
+  });
+});
+
+describe('인쇄용 임시 PDF 지우기 (8차 LOW 13)', () => {
+  it('윈도는 PDF 프로그램이 늦게 열어도 되게 10분 뒤에 지운다 (1분 뒤에는 남아 있음)', async () => {
+    const file = join(tmp, 'late.hwpx');
+    await writeFile(file, 'x');
+    mockDocToPdf.mockResolvedValue(Buffer.from('%PDF-1.4 stub'));
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const result = await printFiles({ files: [file] }, new AbortController().signal);
+      const pdf = result.jobIds[0];
+      vi.advanceTimersByTime(61_000);
+      await new Promise((r) => setImmediate(r));
+      expect(existsSync(pdf)).toBe(true);
+      vi.advanceTimersByTime(10 * 60_000);
+      for (let i = 0; i < 20 && existsSync(pdf); i++) await new Promise((r) => setImmediate(r));
+      expect(existsSync(pdf)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('CUPS(lp)는 넘길 때 대기열로 옮겨 두어 1분', () => {
+    expect(tempPdfTtl('win32')).toBe(600_000);
+    expect(tempPdfTtl('linux')).toBe(60_000);
+    expect(tempPdfTtl('darwin')).toBe(60_000);
   });
 });
 

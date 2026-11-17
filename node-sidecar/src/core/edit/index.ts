@@ -9,7 +9,8 @@
  * 제약: HWPX 전용 (HwpxSession과 동일). 세션 수/undo 깊이 상한으로 메모리 가드.
  */
 
-import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { renameRetry } from '../../infra/rename-retry.js';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HwpxSession, type BlockEdit, type BlockCapabilityInfo, type IRBlock } from 'kordoc';
@@ -228,7 +229,7 @@ export async function editSave(params: EditSaveParams): Promise<{ success: boole
   const tmp = `${output_path}.kordoc-tmp`;
   await writeFile(tmp, entry.session.bytes);
   try {
-    await rename(tmp, output_path);
+    await renameRetry(tmp, output_path);
   } catch (e) {
     await rm(tmp, { force: true });
     throw e;

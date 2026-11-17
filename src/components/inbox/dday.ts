@@ -45,6 +45,14 @@ export function autoDue(it: InboxItem): string | undefined {
   return it.requests.map((r) => r.due).filter((d): d is string => Boolean(d)).sort()[0];
 }
 
+/** 기한 칸(type=date)에서 바뀐 값 → 저장할 기한, 저장할 것이 없으면 null.
+ *  연도를 한 자씩 치는 동안은 0002·0020·0202년 같은 날짜가 지나가므로 2000년 이후만 받는다.
+ *  빈 값은 둘이다: 칸을 덜 채운 중(partial: 입력 칸의 badInput)이면 기다리고, 달력의 "삭제"로 비웠으면 기한 지우기("") */
+export function dueToSave(v: string, partial: boolean, current: string | null | undefined): string | null {
+  if (!v) return !partial && current ? "" : null;
+  return v !== current && Number(v.slice(0, 4)) >= 2000 ? v : null;
+}
+
 /** 엔진(inbox_list)과 같은 순서: 할 일 먼저 기한 순(기한 없는 것 뒤), 끝난 것은 아래 */
 export function sortItems(items: InboxItem[]): InboxItem[] {
   return [...items].sort((a, b) => {

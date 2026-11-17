@@ -83,6 +83,29 @@ describe('보정 규칙', () => {
     expect(restoreSectionTails(orig, fake({}), new Map()).lost).toBe(true);
   });
 
+  it('구역 끝 묶음: 본문에서 메모 필드를 지웠으면 메모 묶음은 되붙이지 않고 바탕쪽만 되붙인다', () => {
+    const memoPara = [rec(TAG.PARA_HEADER, 0), rec(TAG.PARA_TEXT, 1, Buffer.concat([inlineCtrl(3, '%%me'), text('본문'), inlineCtrl(4, '\0%me'), text('\r')]))];
+    const master = [rec(TAG.LIST_HEADER, 1, 'b'), ...para(1, '바탕쪽')];
+    const orig = fake({ 'BodyText/Section0': Buffer.concat([...memoPara, ...master, ...memoTail]) });
+    // 메모를 지운 편집본: 묶음이 다 빠졌으면 바탕쪽만
+    const noMemo = Buffer.concat([...para(), ...para()]);
+    const c1 = new Map<string, Buffer>();
+    expect(restoreSectionTails(orig, fake({ 'BodyText/Section0': noMemo }), c1).restored).toBe(1);
+    expect(c1.get('BodyText/Section0')!.equals(Buffer.concat([noMemo, ...master]))).toBe(true);
+    // 바탕쪽이 남았으면 할 일이 없다
+    expect(restoreSectionTails(orig, fake({ 'BodyText/Section0': Buffer.concat([noMemo, ...master]) }), new Map()).restored).toBe(0);
+    // 메모만 있던 문서에서 메모를 지웠으면 아무것도 붙이지 않는다
+    const memoOnly = fake({ 'BodyText/Section0': Buffer.concat([...memoPara, ...memoTail]) });
+    const c2 = new Map<string, Buffer>();
+    expect(restoreSectionTails(memoOnly, fake({ 'BodyText/Section0': noMemo }), c2).restored).toBe(0);
+    expect(c2.size).toBe(0);
+    // 메모 필드가 남았으면(rhwp 0.8.7 은 글자 ID 를 '%unk' 로 씀) 메모 묶음까지 되붙인다
+    const keptBody = Buffer.concat([rec(TAG.PARA_HEADER, 0), rec(TAG.PARA_TEXT, 1, Buffer.concat([inlineCtrl(3, '%unk'), text('고친 본문'), inlineCtrl(4, '\0%me'), text('\r')]))]);
+    const c3 = new Map<string, Buffer>();
+    expect(restoreSectionTails(orig, fake({ 'BodyText/Section0': keptBody }), c3).restored).toBe(1);
+    expect(c3.get('BodyText/Section0')!.equals(Buffer.concat([keptBody, ...master, ...memoTail]))).toBe(true);
+  });
+
   it('필드 글자 종류: 컨트롤 레코드 내용이 같은 짝의 원본 글자 ID 로 되돌린다', () => {
     const header = Buffer.concat([id('%unk'), Buffer.from([1, 2, 3, 4, 5, 6])]);
     const section = (inlineId: string) => Buffer.concat([
@@ -163,6 +186,28 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     expect(w2.backup_path).toBeUndefined();
     await expect(editorWrite({ path, data_b64: Buffer.from('PK..').toString('base64'), token: o.token, overwrite: true })).rejects.toThrow(/HWP 형식이 아닌/);
     await expect(editorWrite({ path, data_b64: Buffer.from(blankHwp('x')).toString('base64'), token: 'gone', overwrite: true })).rejects.toThrow(EDITOR_REOPEN_NEEDED);
+  });
+
+  it('편집기에서 메모 달린 글을 지우고 저장하면 메모가 되살아나지 않는다', async () => {
+    const SECRET = '내부 검토: 예산 근거 부족';
+    const has = (b: Uint8Array) => [...readHwp5(b).sections.values()].some((s) => s.includes(Buffer.from(SECRET, 'utf16le')));
+    const d0 = HwpDocument.createEmpty();
+    d0.createBlankDocument();
+    d0.insertText(0, 0, 0, '주민자치회 지원 계획을 다음과 같이 보고합니다.');
+    d0.insertMemo(0, 0, 0, 5, JSON.stringify({ author: '팀장', text: SECRET }));
+    const path = join(dir, '메모.hwp');
+    writeFileSync(path, d0.exportHwp());
+    d0.free();
+    const o = await editorOpen(path);
+    const d = new HwpDocument(new Uint8Array(Buffer.from(o.data_b64, 'base64')));
+    d.deleteText(0, 0, 0, d.getParagraphLength(0, 0));
+    d.insertText(0, 0, 0, '새로 쓴 본문입니다.');
+    const exported = d.exportHwp();
+    d.free();
+    expect(has(exported)).toBe(false);
+    const w = await editorWrite({ path, data_b64: Buffer.from(exported).toString('base64'), token: o.token, overwrite: true });
+    expect(has(readFileSync(w.path))).toBe(false);
+    expect(count(readFileSync(w.path), TAG.MEMO_LIST)).toBe(0);
   });
 });
 

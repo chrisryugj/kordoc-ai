@@ -197,8 +197,10 @@ function Shell() {
       // 창이 떠 있으면 뒤 화면에서 문서를 열지 않는다
       if (dialogOpen()) return;
       const img = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
+      // 엑셀·워드에서 복사하면 글과 함께 그 모양을 찍은 그림도 실린다: 글이 있으면 글을 연다 (그림만 있으면 화면 갈무리)
+      const text = e.clipboardData?.getData("text/plain") ?? "";
       try {
-        if (img) {
+        if (img && text.trim().length < 10) {
           e.preventDefault();
           const blob = img.getAsFile();
           if (!blob) return;
@@ -206,7 +208,6 @@ function Shell() {
           openDocs([await invokeCmd<string>("save_clipboard_image", { base64Data: b64, extension: img.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png" })]);
           return;
         }
-        const text = e.clipboardData?.getData("text/plain") ?? "";
         if (text.trim().length >= 10) {
           e.preventDefault();
           openDocs([await invokeCmd<string>("save_clipboard_text", { text })]);

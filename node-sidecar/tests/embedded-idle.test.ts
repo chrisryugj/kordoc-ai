@@ -19,9 +19,10 @@ vi.mock('node-llama-cpp', () => ({
   LlamaChatSession: class {
     getChatHistory() { return []; }
     dispose() {}
-    prompt() { return new Promise<string>((r) => { release = () => r('답'); }); }
+    promptWithMeta() { return new Promise((r) => { release = () => r({ responseText: '답', stopReason }); }); }
   },
 }));
+let stopReason = 'eogToken';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: () => {} }));
 
@@ -59,5 +60,26 @@ describe('내장 모델 유휴 해제', () => {
     expect(isEmbeddedLoaded()).toBe(true);
     await vi.advanceTimersByTimeAsync(1 * MIN + 10);
     expect(isEmbeddedLoaded()).toBe(false);
+  });
+});
+
+describe('내장 모델 끊긴 답', () => {
+  it('답 한도(maxTokens)에서 멈추면 onTruncated 를 부르고, 끝까지 쓴 답은 부르지 않는다', async () => {
+    let cut = 0;
+    const ask = async () => {
+      const p = createEmbeddedProvider(cfg).chat({ messages: [{ role: 'user', content: '질문' }], maxTokens: 10, signal: new AbortController().signal, onTruncated: () => { cut++; } });
+      while (!release) await new Promise((r) => setTimeout(r, 5));
+      const go = release;
+      release = undefined;
+      go();
+      return p;
+    };
+    release = undefined;
+    stopReason = 'maxTokens';
+    expect(await ask()).toBe('답');
+    expect(cut).toBe(1);
+    stopReason = 'eogToken';
+    await ask();
+    expect(cut).toBe(1);
   });
 });

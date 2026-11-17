@@ -13,7 +13,7 @@ import { homedir, totalmem } from 'node:os';
 import { parse as parseYaml } from 'yaml';
 import type { Settings } from '../types/index.js';
 import { logger } from './logger.js';
-import { FORBIDDEN_KEYS, isObj, loadPolicy, type Policy } from './policy.js';
+import { FORBIDDEN_KEYS, isObj, loadPolicy, onMachinePolicyChange, recheckMachinePolicies, type Policy } from './policy.js';
 import { hasSecretKey, isSealed, seal, unseal } from './secret-box.js';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -138,9 +138,34 @@ export function getSettings(): Readonly<Settings> {
 
 let tmpSeq = 0;
 
-/** 미뤄 둔 기관 정책 다시 보기 (세 번까지) */
+/** 미뤄 둔 기관 정책 다시 보기 (간격을 늘려 가며 계속) */
 let policyRetries = 0;
 let policyTimer: NodeJS.Timeout | null = null;
+/** 엔진이 처음 설정을 정할 때만 정책 권한을 동기로 확인한다(그 전에 요청을 받으면 안 된다). 그 뒤는 기억한 판정 + 뒤에서 비동기 확인 */
+let policyReady = false;
+
+/** 뒤에서 다시 본 정책 판정이 바뀌면(확인 못 함 → 믿음 등) 설정을 다시 짜고 폐쇄망 환경 표지도 맞춘다 (엔진 시작 때 한 번만 맞추므로) */
+onMachinePolicyChange(() => {
+  reload();
+  void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
+});
+
+/** 권한 확인을 못 해 미뤄 둔 기관 정책은 잠시 뒤 다시 본다. 느린 PC 에서 확인 도구의 첫 실행이 늦었다고
+ *  앱을 끌 때까지 기관이 고정한 폐쇄망 모드·AI 서버 주소가 풀려 있으면 안 된다
+ *  (그동안에도 폐쇄망 모드 같은 조이는 고정값은 적용돼 있다: policy.ts tightenOnly). 간격을 늘려 가며 계속 본다(1분 → 최대 15분).
+ *  확인은 비동기(PowerShell 을 기다리는 동안 엔진이 멈추지 않는다). 판정이 바뀌면 onMachinePolicyChange 가 설정을 다시 짠다 */
+function schedulePolicyRecheck(): void {
+  if (!policy?.unverified || policyTimer) return;
+  const wait = Math.min(60_000 * 2 ** policyRetries, 15 * 60_000);
+  policyRetries++;
+  policyTimer = setTimeout(() => {
+    void recheckMachinePolicies().catch(() => undefined).then(() => {
+      policyTimer = null;
+      schedulePolicyRecheck(); // 아직 확인하지 못했으면 다음 차례 (설정 파일을 잠깐 못 읽어도 사슬이 끊기지 않게 여기서 잇는다)
+    });
+  }, wait);
+  policyTimer.unref();
+}
 
 /** 읽은 설정 파일의 고친 시각 — 다른 프로세스가 그 뒤에 바꿨는지 본다 */
 let loadedAt = 0;
@@ -158,6 +183,8 @@ export function reload(): Settings {
   const p = configPath();
   loadedAt = fileStamp();
   let loaded: unknown = {};
+  /** 설정 파일을 잠깐 못 읽어 앞서 읽은 사용자 값을 그대로 쓴다 (기관 정책은 그래도 다시 본다) */
+  let keepUser = false;
   if (existsSync(p)) {
     let text: string | null = null;
     try {
@@ -167,7 +194,7 @@ export function reload(): Settings {
       // → 앞서 읽은 값이 있으면 그대로 쓰고(다음 확인 때 다시 읽게 표시), 처음이면 이번만 기본값으로 연다
       logger.warn(`[config] 설정 파일을 읽지 못했습니다(파일은 그대로 둠): ${(err as NodeJS.ErrnoException).code ?? err}`);
       loadedAt = -1;
-      if (cached) return cached;
+      if (cached) keepUser = true;
     }
     if (text !== null) {
       try {
@@ -182,24 +209,11 @@ export function reload(): Settings {
   } else {
     loaded = migrateV1() ?? {};
   }
-  user = isObj(loaded) ? loaded : {};
-  const migrate = openSecrets(user);
-  policy = loadPolicy(POLICY_SHAPE);
-  // 권한 확인을 못 해 미뤄 둔 기관 정책은 잠시 뒤 다시 본다. 느린 PC 에서 확인 도구의 첫 실행이 늦었다고
-  // 앱을 끌 때까지 기관이 고정한 폐쇄망 모드·AI 서버 주소가 풀려 있으면 안 된다
-  // (그동안에도 폐쇄망 모드 같은 조이는 고정값은 적용돼 있다: policy.ts tightenOnly). 간격을 늘려 가며 계속 본다(1분 → 최대 15분)
-  if (policy?.unverified && !policyTimer) {
-    const wait = Math.min(60_000 * 2 ** policyRetries, 15 * 60_000);
-    policyRetries++;
-    policyTimer = setTimeout(() => {
-      policyTimer = null;
-      if (!policy?.unverified) return;
-      reload();
-      // 정책이 되살아났으면 폐쇄망 환경 표지도 다시 맞춘다 (엔진 시작 때 한 번만 맞추므로)
-      if (!policy?.unverified) void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
-    }, wait);
-    policyTimer.unref();
-  }
+  if (!keepUser) user = isObj(loaded) ? loaded : {};
+  const migrate = !keepUser && openSecrets(user);
+  policy = loadPolicy(POLICY_SHAPE, { cachedOnly: policyReady });
+  policyReady = true;
+  schedulePolicyRecheck();
   const s = compose();
   // 예전에 평문으로 저장한 키는 한 번 다시 써서 암호화한다
   if (migrate) void persist(user).catch((e) => logger.warn(`[config] 키 암호화 저장 실패: ${e}`));

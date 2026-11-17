@@ -363,6 +363,55 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     expect(machinePolicyState(bad, 'win32', () => 'O:S-1-5-21-1-2-3-1001G:BU')).toBe('bad');
   });
 
+  it('엔진이 도는 중의 다시 보기는 PowerShell 을 기다리지 않는다: 아는 판정(없으면 확인 못 함)을 쓰고 뒤에서 비동기로 본다', async () => {
+    const { machinePolicyState } = await import('../src/infra/policy.js');
+    const file = join(root, `bg-${++n}.json`);
+    writeFileSync(file, '{"version":1}');
+    let syncAsked = 0;
+    const sync = () => { syncAsked++; return 'O:BAG:SYD:'; };
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let bgAsked = 0;
+    const bg = async () => { bgAsked++; await gate; return 'O:BAG:SYD:'; };
+    // 기억이 없으면 바로 "확인 못 함" (조이는 값만 적용), 동기 확인은 부르지 않는다
+    expect(machinePolicyState(file, 'win32', sync, Date.now(), bg)).toBe('unknown');
+    expect(machinePolicyState(file, 'win32', sync, Date.now(), bg)).toBe('unknown');
+    expect(syncAsked).toBe(0);
+    // 같은 파일의 확인은 하나만 돈다 (파일·폴더 한 번씩)
+    expect(bgAsked).toBe(2);
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    // 뒤에서 본 판정을 기억해 쓴다
+    expect(machinePolicyState(file, 'win32', sync, Date.now(), bg)).toBe('ok');
+    expect(syncAsked).toBe(0);
+  });
+
+  it.runIf(process.platform === 'win32')('미뤄 둔 정책 다시 보기: reload 는 PowerShell 을 기다리지 않고 조이는 값만 둔 뒤, 비동기 확인이 끝나면 설정을 다시 짠다', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'kordoc-policy-bg-'));
+    mkdirSync(join(base, 'KorDoc AI'));
+    const prev = { pd: process.env.ProgramData, pol: process.env.KORDOC_AI_POLICY };
+    process.env.ProgramData = base;
+    delete process.env.KORDOC_AI_POLICY;
+    try {
+      reload(); // 처음 설정을 정한다(정책 파일 없음). 그 뒤의 다시 읽기는 동기 확인을 하지 않는다
+      writeFileSync(join(base, 'KorDoc AI', 'policy.json'), JSON.stringify({ version: 1, locked: { privacy: { offline: true }, org: { name: '심은 기관' } } }));
+      // 동기로 확인했다면 바로 "나쁨"이 나온다. "확인 못 함"이면 PowerShell 을 기다리지 않은 것이다
+      const first = reload();
+      expect(first.policy?.error).toMatch(/확인하지 못해 아직 적용하지 않았습니다/);
+      expect(first.privacy.offline).toBe(true);
+      expect(first.org.name).not.toBe('심은 기관');
+      // 뒤에서 실제 PowerShell 로 본 판정(이 임시 파일은 일반 사용자 소유라 "나쁨")이 오면 설정이 다시 짜인다
+      const deadline = Date.now() + 40_000;
+      while (/확인하지 못해/.test(getSettings().policy?.error ?? '') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
+      expect(getSettings().policy?.error).toMatch(/소유자가 관리자/);
+      expect(getSettings().privacy.offline).toBe(true);
+    } finally {
+      if (prev.pd === undefined) delete process.env.ProgramData; else process.env.ProgramData = prev.pd;
+      if (prev.pol !== undefined) process.env.KORDOC_AI_POLICY = prev.pol;
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('관리자 소유여도 일반 사용자가 고칠 수 있으면 믿지 않는다 (파일의 쓰기 권한, 폴더의 소유자·지우기 권한)', async () => {
     const { machinePolicyTrusted, writableByOthers } = await import('../src/infra/policy.js');
     // %ProgramData% 아래에 관리자가 만든 폴더와 파일의 흔한 권한: 관리자·SYSTEM 모든 권한, 사용자 읽기, 만든 사람 물려주기

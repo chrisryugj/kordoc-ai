@@ -239,20 +239,26 @@ describe('mail_merge', () => {
     await expect(call('mail_merge', { template: 'gian', data_path: csv, name_column: '성명' })).rejects.toThrow(/명부에 '성명' 열이 없습니다.*제목/);
   });
 
-  it('명부에 없는 칸은 내 기관 정보로 · 날짜·전화는 같은 모양으로', async () => {
+  it('내장 서식은 기본으로, 끄면 안 채움 · 날짜·전화는 같은 모양으로', async () => {
     const csv = join(env.work, '기관.csv');
     writeFileSync(csv, '제목,시행일,전화번호\n체육대회 안내,2026-10-01,01012345678\n');
-    const r = await call('mail_merge', { template: 'gian', data_path: csv });
-    expect(r.failed).toEqual([]);
-    const back = await parse(readFileSync(r.outputs[0]));
-    const md = back.success ? back.markdown : '';
-    expect(md).toContain('가온시'); // 행정기관명 (내 기관 정보)
-    expect(md).toContain('2026. 10. 1.');
-    expect(md).toContain('010-1234-5678');
+    // 내장 기안문의 기관 칸(결문)은 보내는 쪽 = 나 → org 를 주지 않아도 채운다
+    for (const extra of [{}, { org: true }]) {
+      const r = await call('mail_merge', { template: 'gian', data_path: csv, ...extra });
+      expect(r.failed).toEqual([]);
+      const back = await parse(readFileSync(r.outputs[0]));
+      const md = back.success ? back.markdown : '';
+      expect(md).toContain('가온시'); // 행정기관명 (내 기관 정보)
+      expect(md).toContain('2026. 10. 1.');
+      expect(md).toContain('010-1234-5678');
+    }
     // org:false 면 기관 정보를 넣지 않는다
-    const r2 = await call('mail_merge', { template: 'gian', data_path: csv, org: false });
-    const md2 = (await parse(readFileSync(r2.outputs[0]))).markdown ?? '';
-    expect(md2).not.toContain('주무관 김가온');
+    for (const extra of [{ org: false }]) {
+      const r2 = await call('mail_merge', { template: 'gian', data_path: csv, ...extra });
+      const md2 = (await parse(readFileSync(r2.outputs[0]))).markdown ?? '';
+      expect(md2).not.toContain('주무관 김가온');
+      expect(md2).toContain('010-1234-5678');
+    }
   });
 
   it('같은 이름의 열이 둘이고 뒤 열이 비어도 앞 열 값이 들어간다', async () => {
@@ -283,7 +289,7 @@ describe('mail_merge_plan', () => {
   it('명부 열 ↔ 양식 칸 짝, 양식에 없는 열, 기관 정보로 채울 칸', async () => {
     const csv = join(env.work, '짝.csv');
     writeFileSync(csv, '제목,본문,없는열\n체육대회,본문입니다,x\n');
-    const plan = await call('mail_merge_plan', { template: 'gian', data_path: csv });
+    const plan = await call('mail_merge_plan', { template: 'gian', data_path: csv, org: true });
     expect(plan.rows).toBe(1);
     expect(plan.columns.find((c: { name: string }) => c.name === '제목').fields).toEqual(['제목']);
     expect(plan.columns.find((c: { name: string }) => c.name === '없는열').fields).toEqual([]);
@@ -291,6 +297,19 @@ describe('mail_merge_plan', () => {
     expect(f('제목')).toMatchObject({ column: '제목' });
     expect(f('행정기관명')).toMatchObject({ org: '가온시' });
     expect(f('경유').column).toBeUndefined();
+    // 내장 서식은 org 를 주지 않아도 기관 칸을 채우고, 끄면 안 채운다
+    const byDefault = await call('mail_merge_plan', { template: 'gian', data_path: csv });
+    expect(byDefault.fields.find((x: { name: string }) => x.name === '행정기관명')).toMatchObject({ org: '가온시' });
+    const off = await call('mail_merge_plan', { template: 'gian', data_path: csv, org: false });
+    expect(off.fields.some((x: { org?: string }) => x.org)).toBe(false);
+  });
+
+  it('내 양식(template_path)은 기본으로 기관 정보를 채우지 않는다', async () => {
+    const csv = join(env.work, '내양식.csv');
+    writeFileSync(csv, '부서명\n세무과\n');
+    const form = sample('취합/교육수요조사서_총무과.hwpx');
+    const plan = await call('mail_merge_plan', { template_path: form, data_path: csv });
+    expect(plan.fields.some((x: { org?: string }) => x.org)).toBe(false);
   });
 });
 

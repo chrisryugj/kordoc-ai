@@ -16,9 +16,11 @@ import { ErrorLine, Working } from "../components/common/Status";
 import { ReceiptEditor } from "../components/receipt/ReceiptEditor";
 
 export function ReceiptCard({ paths }: { paths: string[] }) {
-  const { ready, ai, settings, toast } = useApp();
+  const { ready, ai, settings, toast, engine } = useApp();
   const read = useTask<RpcResult<"receipt_read">>();
   const [started, setStarted] = useState(false);
+  // 엔진이 켜지지 않으면 읽기를 시작조차 못 한다 → 끝없이 "읽는 중"이 아니라 알리고 다시 켜게 (켜지면 아래 효과가 읽기를 시작한다)
+  const engineDown = !started && engine.status === "error";
   // AI 상태를 읽을 틈을 조금 준다 (못 읽어도 AI 없이 읽는다)
   const [waited, setWaited] = useState(false);
   useEffect(() => { const t = setTimeout(() => setWaited(true), 1500); return () => clearTimeout(t); }, []);
@@ -44,8 +46,14 @@ export function ReceiptCard({ paths }: { paths: string[] }) {
         </div>
       </header>
       <main className="kd-card-body">
-        {(!started || read.busy) && <Working label="영수증을 읽는 중" progress={read.progress} onCancel={read.busy ? read.cancel : undefined} />}
+        {((!started && !engineDown) || read.busy) && <Working label="영수증을 읽는 중" progress={read.progress} onCancel={read.busy ? read.cancel : undefined} />}
         <ErrorLine message={read.error} />
+        {engineDown && (
+          <>
+            <ErrorLine message={engine.error || "문서 엔진을 켜지 못했습니다."} />
+            <div><Button size="sm" onClick={engine.restart}><RotateCcw size={13} /> 다시 하기</Button></div>
+          </>
+        )}
         {/* 읽기가 실패했거나 멈췄으면 여기서 다시 읽을 수 있게 (없으면 본창으로 넘기는 길만 남는다) */}
         {started && !read.busy && !read.result && <div><Button size="sm" onClick={() => setStarted(false)}><RotateCcw size={13} /> 다시 읽기</Button></div>}
         {read.result && (

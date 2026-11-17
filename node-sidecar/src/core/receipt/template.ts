@@ -114,6 +114,29 @@ function bodyRows(t: ScanTable, header: number): { blank: number[]; total: numbe
   return { blank, total };
 }
 
+/** 채울 줄 = 빈 줄 + 지난번에 채운 자료 줄(금액 칸, 없으면 일자 칸에 숫자가 있는 줄. 서명·안내 줄은 숫자가 없어 빠진다).
+ *  합계가 채울 줄 아래에 있으면 합계 위의 줄만 (bodyRows 와 같은 규칙) */
+function fillRows(at: Located, fields: string[]): { rows: number[]; old: Set<number>; total: number } {
+  const t = at.table;
+  const { total } = bodyRows(t, at.header);
+  const span = Math.max(1, ...t.rows[at.header].map((c) => c.rowSpan || 1));
+  const blankAll: number[] = [];
+  const old = new Set<number>();
+  const k = fields.includes('amount') ? fields.indexOf('amount') : fields.indexOf('date');
+  const col = k >= 0 ? at.heads[k]?.col : undefined;
+  for (let i = at.header + span; i < t.rows.length; i++) {
+    if (i === total) continue;
+    const texts = t.rows[i].map(cellText);
+    if (texts.some((x) => TOTAL_CELL.test(x))) continue;
+    const c = col === undefined ? undefined : cellAt(t.rows[i], col);
+    if (!texts.filter((x, j) => x && !(j === 0 && /^\d{1,3}\.?$/.test(x))).length) blankAll.push(i);
+    else if (c && /\d/.test(cellText(c))) old.add(i);
+  }
+  let rows = [...blankAll, ...old].sort((a, b) => a - b);
+  if (total >= 0 && rows.some((r) => r < total)) rows = rows.filter((r) => r < total);
+  return { rows, old, total };
+}
+
 const empty = (): ReceiptTemplateInfo => ({ name: '', columns: [], rows: 0, total_row: false, saved: false, warnings: [] });
 
 async function aiColumns(headers: string[], signal: AbortSignal): Promise<Array<ReceiptColumn | ''>> {
@@ -195,14 +218,15 @@ export async function templateClear(): Promise<boolean> {
 
 // ── 채우기 ──
 
-/** 표 줄 r 을 k 번 복제해 바로 뒤에 넣는다: 아래 줄의 rowAddr·표 rowCnt·표 높이를 맞춘다 */
-function insertRows(xml: string, t: ScanTable, r: number, k: number): string {
+/** 표 줄 r 을 k 번 복제해 줄 after(기본 r) 바로 뒤에 넣는다: 아래 줄의 rowAddr·표 rowCnt·표 높이를 맞춘다 */
+function insertRows(xml: string, t: ScanTable, r: number, k: number, after = r): string {
   const range = t.rowRanges[r];
   const rowXml = xml.slice(range.start, range.end);
   const shift = (s: string, by: number) => s.replace(/(<(?:\w+:)?cellAddr\b[^>]*?\browAddr=")(\d+)(")/g, (_m, a, n, b) => `${a}${Number(n) + by}${b}`);
-  const copies = Array.from({ length: k }, (_, j) => shift(rowXml, j + 1)).join('');
-  const edits: SpliceEdit[] = [{ start: range.end, end: range.end, replacement: copies }];
-  for (let i = r + 1; i < t.rows.length; i++) {
+  const copies = Array.from({ length: k }, (_, j) => shift(rowXml, after - r + j + 1)).join('');
+  const at = t.rowRanges[after].end;
+  const edits: SpliceEdit[] = [{ start: at, end: at, replacement: copies }];
+  for (let i = after + 1; i < t.rows.length; i++) {
     for (const c of t.rows[i]) {
       if (!c.addrTagRange) continue;
       edits.push({ start: c.addrTagRange.start, end: c.addrTagRange.end, replacement: shift(xml.slice(c.addrTagRange.start, c.addrTagRange.end), k) });
@@ -241,9 +265,10 @@ function setCell(xml: string, cell: ScanCell | undefined, text: string, edits: S
 export async function templateTotalAt(templatePath: string): Promise<'top' | 'bottom' | 'none'> {
   const at = await locate(await JSZip.loadAsync(await readFile(templatePath)));
   if (!at) return 'none';
-  const { blank, total } = bodyRows(at.table, at.header);
+  // 채울 줄은 저장 때와 같게(빈 줄 + 옛 자료 줄)
+  const { rows, total } = fillRows(at, at.heads.map((h) => fieldOf(h.text)));
   if (total < 0) return 'none';
-  return blank.length && total > blank[0] ? 'bottom' : 'top';
+  return rows.length && total > rows[0] ? 'bottom' : 'top';
 }
 
 export async function fillTemplate(templatePath: string, columns: Array<{ field: string }>, values: Array<Record<string, string>>, totals: Record<string, string>): Promise<{ bytes: Uint8Array; warnings: string[] }> {
@@ -254,33 +279,46 @@ export async function fillTemplate(templatePath: string, columns: Array<{ field:
   // 서식이 바뀌어 칸 수가 달라졌으면 이름으로 다시 맞춘다
   const fields = at.heads.length === columns.length ? columns.map((c) => c.field) : at.heads.map((h) => fieldOf(h.text));
   if (at.heads.length !== columns.length) warnings.push('서식 표의 칸 수가 학습할 때와 달라 칸 이름으로 다시 맞췄습니다.');
-  let { blank, total } = bodyRows(at.table, at.header);
-  if (blank.length < values.length) {
-    // 복제할 줄: 마지막 빈 줄 → 합계 아닌 마지막 줄 → 머리줄
-    const others = at.table.rows.map((_, i) => i).filter((i) => i > at!.header && i !== total);
-    const src = blank.length ? blank[blank.length - 1] : others.length ? others[others.length - 1] : at.header;
-    const need = values.length - blank.length + (blank.length ? 0 : 1);
-    const xml = insertRows(at.xml, at.table, src, need);
-    zip.file(at.section, xml);
+  // 채울 줄: 빈 줄 + 지난번에 채운 자료 줄(지난달 조서를 서식으로 쓴 경우). 자료 줄은 칸 글을 모두 바꾼다
+  let { rows: slots, old, total } = fillRows(at, fields);
+  if (slots.length < values.length) {
+    const need = values.length - slots.length;
+    // 복제할 줄: 마지막 채울 줄. 없으면(머리줄·합계만) 머리줄을 복제해 칸 글을 모두 바꾼다
+    const src = slots.length ? slots[slots.length - 1] : at.header;
+    // 머리줄 바로 아래 합계가 있으면 사본은 합계 밑에 (합계 줄은 머리줄 바로 아래 그대로)
+    const after = !slots.length && total === at.header + 1 ? total : src;
+    zip.file(at.section, insertRows(at.xml, at.table, src, need, after));
     at = await locate(zip);
     if (!at) throw new Error('서식 표에 줄을 더하지 못했습니다.');
-    ({ blank, total } = bodyRows(at.table, at.header));
-    // 머리줄·꽉 찬 줄을 복제했으면 그 사본들을 채울 줄로
-    if (blank.length < values.length) {
-      const startAt = src + 1;
-      blank = Array.from({ length: values.length }, (_, i) => startAt + i).filter((i) => i < at!.table.rows.length && i !== total);
+    if (slots.length) ({ rows: slots, old, total } = fillRows(at, fields));
+    else {
+      total = bodyRows(at.table, at.header).total;
+      slots = Array.from({ length: need }, (_, i) => after + 1 + i);
+      old = new Set(slots);
     }
   }
   const edits: SpliceEdit[] = [];
   const { xml, table } = at;
-  values.forEach((v, i) => {
-    const r = blank[i];
-    if (r === undefined) return;
+  const write = (r: number, v: Record<string, string>) => {
+    if (old.has(r)) {
+      // 옛 자료 줄·머리줄 사본: 대응표에 없는 칸(비고 등)의 옛 글도 비운다
+      for (const c of table.rows[r]) {
+        const k = at!.heads.findIndex((h) => h.col === (c.colAddr ?? -1));
+        const f = k >= 0 ? fields[k] : '';
+        setCell(xml, c, f ? v[f] ?? '' : '', edits);
+      }
+      return;
+    }
     at!.heads.forEach((h, k) => {
       const f = fields[k];
       if (f) setCell(xml, cellAt(table.rows[r], h.col), v[f] ?? '', edits);
     });
+  };
+  values.forEach((v, i) => {
+    if (slots[i] !== undefined) write(slots[i], v);
   });
+  // 영수증보다 많은 옛 자료 줄은 비운다 (옛 금액이 남아 합계와 어긋나지 않게)
+  for (const r of slots.slice(values.length)) if (old.has(r)) write(r, {});
   if (total >= 0) {
     at.heads.forEach((h, k) => {
       const f = fields[k];

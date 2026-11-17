@@ -71,8 +71,10 @@ export async function docToPdf(path: string, signal?: AbortSignal): Promise<Uint
   return textToPdf(path, signal);
 }
 
-/** pdf-lib 으로 열기 — 보안 설정 PDF 는 쪽 그림(약 150dpi JPEG)으로 다시 만든다 */
-export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+/** pdf-lib 으로 열기 — 보안 설정 PDF 는 쪽 그림(약 150dpi JPEG)으로 다시 만든다.
+ *  pages(0부터): 그 쪽만 그리고 나머지 쪽은 쪽 번호만 맞추는 빈 자리로 둔다 (한 쪽만 쓰는데 수백 쪽을 다 그리지 않게).
+ *  signal: 쪽마다 취소를 본다 */
+export async function loadPdf(bytes: Uint8Array, opt: { pages?: ReadonlySet<number>; signal?: AbortSignal } = {}): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (err) {
@@ -81,10 +83,16 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
     const src = await openPdf(bytes);
     try {
       const out = await PDFDocument.create();
-      for (let n = 1; n <= src.getPageCount(); n++) {
+      const count = src.getPageCount();
+      const total = opt.pages ? [...opt.pages].filter((i) => i >= 0 && i < count).length : count;
+      let done = 0;
+      for (let n = 1; n <= count; n++) {
+        if (opt.pages && !opt.pages.has(n - 1)) { out.addPage([1, 1]); continue; }
+        opt.signal?.throwIfAborted();
         const r = await rasterPdfPage(src, n, 1300, 'jpeg');
         const pic = await out.embedJpg(r.data);
         out.addPage([r.width, r.height]).drawImage(pic, { x: 0, y: 0, width: r.width, height: r.height });
+        if (++done % 10 === 0) sendProgress({ current: done, total, message: `보안 설정 PDF 쪽을 그림으로 (${done}/${total})` });
       }
       return out;
     } finally {
@@ -114,7 +122,7 @@ export async function bundlePdf(
     signal.throwIfAborted();
     sendProgress({ current: i + 1, total: p.paths.length, message: `${basename(path)} 넣는 중 (${i + 1}/${p.paths.length})` });
     try {
-      const src = await loadPdf(await docToPdf(path, signal));
+      const src = await loadPdf(await docToPdf(path, signal), { signal });
       for (const page of await merged.copyPages(src, src.getPageIndices())) merged.addPage(page);
     } catch (err) {
       if (signal.aborted) throw err;
@@ -133,7 +141,7 @@ export async function bundlePdf(
 
 export async function pdfStamp(p: { path: string; watermark?: string; page_numbers?: boolean; output_path?: string }, signal?: AbortSignal): Promise<{ output_path: string }> {
   if (!p.watermark?.trim() && !p.page_numbers) throw new Error('워터마크 글자나 쪽번호 중 하나를 고르세요.');
-  const doc = await loadPdf(await docToPdf(p.path, signal));
+  const doc = await loadPdf(await docToPdf(p.path, signal), { signal });
   await stampPdf(doc, p);
   signal?.throwIfAborted();
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_${p.watermark?.trim() ? '워터마크' : '쪽번호'}.pdf` });

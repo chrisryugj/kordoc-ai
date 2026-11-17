@@ -148,7 +148,8 @@ export interface RpcMethods {
   redact_batch: [{ paths: string[]; rules?: RedactRule[]; mask_char?: string; output_dir?: string; keep?: string[] }, { results: Array<BatchItemResult & { total?: number; residual?: number }>; output_dir: string }];
   /** anchor 가 "(인)" 인데 문서에 없으면 "(서명 또는 인)"·"(서명)", 그다음 발신명의(예: 가온시장)의 끝 글자에 찍는다(관인은 발신명의 끝 글자가 가운데 오게).
    *  찍을 자리가 없으면 저장하지 않고 placed: 0, output_path: '', reason(이유와 할 일). anchor: 실제로 찍은 자리 글자 */
-  seal: [{ path: string; image_path: string; anchor: string; output_path?: string }, { output_path: string; placed: number; anchor?: string; reason?: string }];
+  /** 첫 서명 자리 한 곳에만 찍는다. others: 찍지 않고 둔 (인) 자리 수 (남의 서명 자리일 수 있다) */
+  seal: [{ path: string; image_path: string; anchor: string; output_path?: string }, { output_path: string; placed: number; anchor?: string; reason?: string; others?: number }];
   /** 고친 글(md)을 원본 HWPX·HWP 에 서식 그대로 반영. 글은 convert(keep_layout:true) 로 뽑은 것 */
   /** 고른 표기 지적(fix)만 문서에 반영한 사본 — 서식 그대로(kordoc 패치·무결성 검사). HWPX·HWP */
   lint_fix: [{ path: string; fixes: Array<{ from: string; to: string }>; output_path?: string }, { output_path: string; replaced: number; applied: number; skipped: Array<{ reason: string; excerpt?: string }> }];
@@ -324,6 +325,8 @@ export interface RpcMethods {
   /** path: 그 문서의 사본만 (한글 이름 조합 방식·Windows 대소문자는 같은 파일로 본다) */
   recovery_list: [{ path?: string }, { entries: RecoveryEntry[] }];
   recovery_discard: [{ path: string }, boolean];
+  /** 이 PC의 작업 흔적 지우기 — 복구 사본·작업 사본·임시 폴더의 앱 파일. skipped: 쓰는 중이라 남은 것 */
+  wipe_traces: [Record<string, never>, { removed: number; skipped: number }];
   /** 편집기에서 내보낸 HWPX 의 미리보기 사본 (read_file_b64 preview 와 같은 처리) */
   preview_bytes: [{ data_b64: string }, { data_b64: string }];
 
@@ -454,7 +457,8 @@ export interface PdfComposeParams {
 }
 
 export interface PdfComposeResult {
-  outputs: Array<{ output_path: string; page_count: number; bytes: number }>;
+  /** notice: A4 에 맞추며 입력 칸·메모를 쪽에 굳혔거나 못 넣은 것이 있을 때 화면에 띄울 알림 */
+  outputs: Array<{ output_path: string; page_count: number; bytes: number; notice?: string }>;
   /** 쪽을 그림으로 넣은 보안 PDF 원본 */
   secured: string[];
 }
@@ -835,6 +839,8 @@ export interface MailMergePlan {
   columns: Array<{ name: string; fields: string[]; sample?: string }>;
   fields: Array<{ name: string; column?: string; org?: string }>;
   rejected: string[];
+  /** 엑셀에서 숨긴 행이라 건너뛴 줄 수 (없으면 빠짐) */
+  hidden_rows?: number;
 }
 
 export interface TemplateEntry {

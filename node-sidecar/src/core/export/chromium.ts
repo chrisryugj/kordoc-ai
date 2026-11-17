@@ -1,13 +1,17 @@
 /** Chromium(Edge·Chrome) 으로 HTML → PDF — kordoc 과 같은 탐지 순서·같은 잠금(스크립트 끔, data: 외 요청 차단) */
 
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export function findBrowser(): string | null {
+  return findBrowsers()[0] ?? null;
+}
+
+/** 깔린 브라우저 모두, 쓸 차례대로 (환경변수로 준 것이 맨 앞). 앞의 것을 띄우지 못하면(기관 정책이 Edge 의 머리 없는 실행을 막음 등) 다음 것으로 */
+export function findBrowsers(): string[] {
   const env = process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (env && existsSync(env)) return env;
   const pf = process.env.ProgramFiles ?? 'C:\\Program Files';
   const pf86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
   const local = process.env.LOCALAPPDATA ?? '';
@@ -22,7 +26,7 @@ export function findBrowser(): string | null {
     : process.platform === 'darwin'
       ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
       : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/microsoft-edge'];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  return [...new Set([...(env ? [env] : []), ...candidates])].filter((p) => existsSync(p));
 }
 
 export const NO_BROWSER = 'PDF로 내보내려면 Microsoft Edge나 Chrome이 필요합니다. 둘 중 하나를 설치한 뒤 다시 시도하세요.';
@@ -63,25 +67,53 @@ async function canRender(browser: import('puppeteer-core').Browser): Promise<boo
 
 /** 샌드박스를 켠 채로는 이 PC 에서 쪽을 못 그렸다 (이 실행 동안 기억) */
 let sandboxBlocked = false;
+/** 샌드박스를 켜도 꺼도 띄우지 못한 브라우저 (이 실행 동안 기억: 다음부터는 다른 후보를 먼저) */
+const unusable = new Set<string>();
 
 export async function pagesToPdf(pages: AsyncIterable<{ svg: string; width: number; height: number }>, onPage?: (n: number) => void): Promise<Uint8Array> {
-  const executablePath = findBrowser();
-  if (!executablePath) throw new Error(NO_BROWSER);
+  const found = findBrowsers();
+  if (!found.length) throw new Error(NO_BROWSER);
+  const order = [...found.filter((p) => !unusable.has(p)), ...found.filter((p) => unusable.has(p))];
   const puppeteer = (await import('puppeteer-core')).default;
   sweepProfiles();
   const userDataDir = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
   try {
     // pipe: 엔진이 강제로 꺼져도 연결 파이프가 닫혀 브라우저가 스스로 끝난다 (웹소켓 연결이면 Chromium 이 남는다)
-    const launch = (sandbox: boolean) => puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir, timeout: 90_000, args: sandbox ? [] : NO_SANDBOX });
+    // 후보마다 프로필 폴더를 따로 (Edge 가 쓰다 남긴 프로필을 Chrome 이 읽지 않게)
+    const launch = (executablePath: string, at: number, sandbox: boolean) => {
+      const profile = join(userDataDir, String(at));
+      mkdirSync(profile, { recursive: true });
+      return puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: profile, timeout: 90_000, args: sandbox ? [] : NO_SANDBOX });
+    };
     // 샌드박스를 켠 채 띄운다. 받은 문서의 그림·글꼴을 이 브라우저가 그리는데, 업무 PC 의 Edge·Chrome 은 오래된 판일 수 있다:
     // 샌드박스가 없으면 렌더러 결함 하나가 곧바로 사용자 권한 코드 실행이 된다.
     // 문서보안·백신이 샌드박스 렌더러를 막는 PC 에서는 빈 쪽도 못 그린다 → 그때만 끄고 다시 띄운다
     // 한 번 막힌 PC 는 이 실행 동안 계속 막힌다: 기억해 두고 다음부터는 바로 끄고 띄운다 (안 그러면 여러 파일을 바꿀 때 파일마다 실패를 되풀이한다)
-    const sandboxed = sandboxWanted() && !sandboxBlocked
-      ? await launch(true).then(async (b) => ((await canRender(b)) ? b : (await b.close().catch(() => undefined), null)), () => null)
-      : null;
-    if (!sandboxed && sandboxWanted() && !sandboxBlocked) sandboxBlocked = true;
-    const browser = sandboxed ?? await launch(false);
+    // 샌드박스를 꺼도 못 띄우면 샌드박스 탓이 아니라 그 브라우저를 못 쓰는 것이다(기관 정책이 Edge 의 머리 없는 실행을 막음 등) → 다음 후보로
+    const open = async (exe: string, at: number) => {
+      if (sandboxWanted() && !sandboxBlocked) {
+        const b = await launch(exe, at, true).catch(() => null);
+        if (b && (await canRender(b))) return b;
+        await b?.close().catch(() => undefined);
+        const plain = await launch(exe, at, false);
+        sandboxBlocked = true;
+        return plain;
+      }
+      return launch(exe, at, false);
+    };
+    let browser: import('puppeteer-core').Browser | null = null;
+    let lastErr: unknown;
+    for (const [at, exe] of order.entries()) {
+      try {
+        browser = await open(exe, at);
+        unusable.delete(exe);
+        break;
+      } catch (err) {
+        lastErr = err;
+        unusable.add(exe);
+      }
+    }
+    if (!browser) throw lastErr;
     try {
       return await printPages(browser, pages, onPage);
     } finally {

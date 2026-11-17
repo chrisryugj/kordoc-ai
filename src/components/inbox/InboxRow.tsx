@@ -13,7 +13,7 @@ import { ConfirmRemove } from "../ui/ConfirmRemove";
 import { ErrorLine, Working } from "../common/Status";
 import { LawResults } from "../workbench/tools/LawResults";
 import { useReply } from "../workbench/reply";
-import { autoDue, dueBadge, dueText, type InboxItem } from "./dday";
+import { autoDue, dueBadge, dueText, dueToSave, type InboxItem } from "./dday";
 
 export type InboxPatch = { status?: "todo" | "done"; due?: string | null; note?: string };
 
@@ -42,6 +42,11 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   const [askRemove, setAskRemove] = useState(0);
   // 접었다 다시 펼칠 때 묻는 줄이 또 뜨지 않게
   useEffect(() => { if (!open) setAskRemove(0); }, [open]);
+  // 인용 법령 확인은 누를 때만 (넣을 때마다 법제처에 묻지 않는다). 기준 날짜는 이 공문의 시행일.
+  // 줄이 쥔다: 확인하는 동안 접었다 펴도 결과가 남는다. 줄이 사라지면(보기 바꿈·빼기) 도는 확인을 끊는다
+  const law = useTask<RpcResult<"law_check">>();
+  const checkLaw = () => void law.run(({ signal, onProgress }) => rpc("law_check", { path: item.path, ...(item.sent_date ? { as_of: item.sent_date } : {}) }, { signal, onProgress }));
+  useEffect(() => law.cancel, [law.cancel]);
   const onMenu = (e: React.MouseEvent) => menu.open(e, item.path, {
     before: [
       { label: replyLabel, icon: <Reply size={14} />, onClick: reply },
@@ -96,7 +101,7 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
       {open && (
         <tr className="kd-inbox-detail" id={`inbox-${item.id}`}>
           <td colSpan={6}>
-            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} replyLabel={replyLabel} replyTip={tip} askRemove={askRemove} />
+            <InboxDetail item={item} today={today} done={done} onUpdate={onUpdate} onRemove={onRemove} onReply={reply} replyLabel={replyLabel} replyTip={tip} askRemove={askRemove} law={law} checkLaw={checkLaw} />
           </td>
         </tr>
       )}
@@ -104,8 +109,9 @@ export function InboxRow({ item, open, today, onToggle, onUpdate, onRemove }: Pr
   );
 }
 
-function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabel, replyTip, askRemove }: {
+function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabel, replyTip, askRemove, law, checkLaw }: {
   item: InboxItem; today: string; done: boolean; onUpdate: (p: InboxPatch) => void; onRemove: () => void; onReply: () => void; replyLabel: string; replyTip: string; askRemove: number;
+  law: ReturnType<typeof useTask<RpcResult<"law_check">>>; checkLaw: () => void;
 }) {
   const { openDocs } = useApp();
   const auto = autoDue(item);
@@ -113,9 +119,6 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
   const [due, setDue] = useState(item.due ?? "");
   const [note, setNote] = useState(item.note ?? "");
   const timer = useRef<number | undefined>(undefined);
-  // 인용 법령 확인은 누를 때만 (넣을 때마다 법제처에 묻지 않는다). 기준 날짜는 이 공문의 시행일
-  const law = useTask<RpcResult<"law_check">>();
-  const checkLaw = () => void law.run(({ signal, onProgress }) => rpc("law_check", { path: item.path, ...(item.sent_date ? { as_of: item.sent_date } : {}) }, { signal, onProgress }));
 
   useEffect(() => setDue(item.due ?? ""), [item.due]);
   useEffect(() => setNote(item.note ?? ""), [item.note]);
@@ -125,17 +128,18 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
   save.current = onUpdate;
   useEffect(() => () => {
     window.clearTimeout(timer.current);
-    if (pendingDue.current) save.current({ due: pendingDue.current });
+    if (pendingDue.current !== null) save.current({ due: pendingDue.current });
   }, []);
 
-  // 날짜 칸은 다 고친 뒤 한 번만 저장. 연도를 한 자씩 치는 동안은 0002·0020·0202년 같은 날짜가 지나가므로 2000년 이후만 받는다
-  const changeDue = (v: string) => {
+  // 날짜 칸은 다 고친 뒤 한 번만 저장 (무엇을 저장할지는 dueToSave)
+  const changeDue = (v: string, partial: boolean) => {
     setDue(v);
     window.clearTimeout(timer.current);
     pendingDue.current = null;
-    if (v && v !== item.due && Number(v.slice(0, 4)) >= 2000) {
-      pendingDue.current = v;
-      timer.current = window.setTimeout(() => { pendingDue.current = null; onUpdate({ due: v }); }, 600);
+    const next = dueToSave(v, partial, item.due);
+    if (next !== null) {
+      pendingDue.current = next;
+      timer.current = window.setTimeout(() => { pendingDue.current = null; onUpdate({ due: next }); }, 600);
     }
   };
 
@@ -167,7 +171,7 @@ function InboxDetail({ item, today, done, onUpdate, onRemove, onReply, replyLabe
 
       <section aria-label="기한과 메모" className="kd-inbox-edit">
         <label className="kd-label" htmlFor={`due-${item.id}`}>기한</label>
-        <input id={`due-${item.id}`} type="date" className="kd-input kd-num" value={due} onChange={(e) => changeDue(e.target.value)} />
+        <input id={`due-${item.id}`} type="date" className="kd-input kd-num" value={due} onChange={(e) => changeDue(e.target.value, e.target.validity.badInput)} />
         <span className="kd-small flex flex-wrap gap-x-3">
           {manual && <button type="button" className="kd-link" onClick={() => onUpdate({ due: null })}>{auto ? `뽑은 기한(${dueText(auto, today)})으로` : "기한 없음으로"}</button>}
           {item.due && <button type="button" className="kd-link" onClick={() => onUpdate({ due: "" })}>기한 지우기</button>}

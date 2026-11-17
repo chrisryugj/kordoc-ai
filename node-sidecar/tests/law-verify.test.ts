@@ -22,7 +22,7 @@ vi.mock('../src/infra/llm/index.js', async (importOriginal) => ({
 import { updateSettings } from '../src/infra/config.js';
 import { findCitations } from '../src/core/law/cite.js';
 import { lawCheck } from '../src/core/law/index.js';
-import { documentDate, wordDiff } from '../src/core/law/asof.js';
+import { documentDate, sameText, wordDiff } from '../src/core/law/asof.js';
 import { citingSentence, contentWords, wordMatch } from '../src/core/law/match.js';
 import { findLevel, parseArticle } from '../src/core/law/article.js';
 // @ts-expect-error 시험용 JS 모듈 (형식 선언 없음)
@@ -100,6 +100,31 @@ describe('긴 조문의 당시·현행 비교', () => {
     // 조 전체를 인용했을 때도, 바뀌지 않았으면 지문이 같다
     expect(findLevel(parseArticle(unit('가')), {}, '제9조').sig).toBe(findLevel(parseArticle(unit('가')), {}, '제9조').sig);
     expect(findLevel(parseArticle(unit('가')), {}, '제9조').sig).not.toBe(findLevel(parseArticle(unit('나')), {}, '제9조').sig);
+  });
+
+  it('지문도 sameText 처럼 띄어쓰기·문장부호(가운뎃점·끝 온점) 차이는 보지 않는다', () => {
+    const unit = (last: string) => ({
+      조문내용: '제9조(수의계약)',
+      항: [{ 항번호: '①', 항내용: '① 다음 각 호의 경우 수의계약을 할 수 있다.', 호: Array.from({ length: 40 }, (_, i) => ({ 호번호: `${i + 1}.`, 호내용: `${i + 1}. ${'가온 시험 조문의 긴 호 내용입니다 '.repeat(3)}${i === 39 ? last : ''}` })) }],
+    });
+    const a = findLevel(parseArticle(unit('공사·용역의 추정가격 2천만원 이하.')), { paragraph: 1 }, '제9조');
+    const b = findLevel(parseArticle(unit('공사ㆍ용역의  추정가격 2천만원 이하')), { paragraph: 1 }, '제9조');
+    expect(sameText(a.text!, b.text!)).toBe(true);
+    expect(a.sig).toBe(b.sig);
+    // 낱말이 바뀌면 여전히 다르다
+    expect(findLevel(parseArticle(unit('공사·용역의 추정가격 5천만원 이하.')), { paragraph: 1 }, '제9조').sig).not.toBe(a.sig);
+    // 한 칸 글이 잘린 호의 지문도 같은 기준
+    const longItem = (t: string) => findLevel(parseArticle({ 조문내용: '제3조(정의)', 항: [{ 호: [{ 호번호: '1.', 호내용: `1. ${'가온 시험 정의 '.repeat(80)}${t}` }] }] }), { item: '1' }, '제3조');
+    expect(longItem('끝·말.').sig).toBe(longItem('끝ㆍ말').sig);
+  });
+
+  it('옛 지문 기준으로 담아 둔 조문 캐시(art3)는 읽지 않는다 (섞이면 같은 글이 "개정"으로 보인다)', async () => {
+    const { cacheSet } = await import('../src/core/law/cache.js');
+    const { lawArticles } = await import('../src/core/law/drf.js');
+    cacheSet('art3:ef:910001:20240101', { 17: { text: '옛 캐시', paras: [{ no: 1, text: '옛', sig: '0000000000000000' }] } });
+    const arts = await lawArticles('910001', { oc: 'test-oc', base: drf.base }, { efYd: '20240101' });
+    expect(arts['17']?.text).not.toBe('옛 캐시');
+    expect(drf.requests.some((u) => u.searchParams.get('MST') === '910001' && u.searchParams.get('efYd') === '20240101')).toBe(true);
   });
 });
 

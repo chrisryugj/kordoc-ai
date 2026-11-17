@@ -6,7 +6,8 @@
  * 결과·로그에는 원본 개인정보를 싣지 않는다 — samples 는 가려진 문자열, 파일 이름 속 개인정보도 가린다.
  */
 
-import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, rm, writeFile } from 'node:fs/promises';
+import { renameRetry } from '../../infra/rename-retry.js';
 import { dirname, join } from 'node:path';
 import { DEFAULT_REDACT_RULES, parse, type RedactHit } from 'kordoc';
 import type { BatchItemResult, RedactResult, RedactRule } from '../../types/rpc-contract.js';
@@ -141,7 +142,7 @@ async function patchInPlace(path: string, markdown: string, format: 'hwp' | 'hwp
   const tmp = join(dirname(path), `.${Date.now()}_가림.${format}`);
   try {
     await patchDocument({ path, markdown, output_path: tmp });
-    await rename(tmp, path);
+    await renameRetry(tmp, path);
   } finally {
     await rm(tmp, { force: true });
   }

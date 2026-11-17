@@ -97,6 +97,52 @@ describe('한글 나누기', () => {
     expect(await b.file('Preview/PrvImage.png')!.async('string')).not.toContain('원본 첫 쪽');
   }, 60_000);
 
+  it('둘째 조각부터도 머리말·쪽 번호가 남고, 쪽 설정은 조각 첫 문단에 (맨 위 빈 문단 없음), 글 누락 없음', async () => {
+    // 보고서 첫 문단(쪽 설정 run)에 머리말을 넣는다. 보고서는 이미 쪽 번호와 표지 쪽 감추기를 가진다
+    const zip = await JSZip.loadAsync(readFileSync(REPORT));
+    const xml = await zip.file('Contents/section0.xml')!.async('string');
+    const at = xml.indexOf('</hp:run>', xml.indexOf('</hp:secPr>'));
+    const head = '<hp:ctrl><hp:header id="1" applyPageType="BOTH"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="42520" textHeight="4252" hasTextRef="0" hasNumRef="0"><hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>총무과머리말표시</hp:t></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>';
+    zip.file('Contents/section0.xml', xml.slice(0, at) + head + xml.slice(at));
+    const src = join(env.work, '머리말 보고서.hwpx');
+    writeFileSync(src, Buffer.from(await zip.generateAsync({ type: 'arraybuffer' })));
+    expect(xml).toContain('<hp:pageNum ');
+    expect(xml).toContain('<hp:pageHiding ');
+
+    const r = await call('split_hangul', { path: src, output_dir: join(env.work, '머리말_나누기') });
+    expect(r.output_files).toHaveLength(3);
+    const body = (s: string) => [...s.replace(/<hp:(header|footer)\b[\s\S]*?<\/hp:\1>/g, '').matchAll(/<hp:t(?:\s[^>]*)?>([^<]*)<\/hp:t>/g)].map((m) => m[1]).join('');
+    let all = '';
+    for (const [i, f] of r.output_files.entries()) {
+      const { xml: part } = await sectionXml(f);
+      all += body(part);
+      expect(part.match(/<hp:header\b/g), `조각 ${i + 1}`).toHaveLength(1);
+      expect(part).toContain('총무과머리말표시');
+      expect(part.match(/<hp:pageNum\b/g), `조각 ${i + 1}`).toHaveLength(1);
+      expect(part.match(/<hp:secPr\b/g)).toHaveLength(1);
+      expect((await validateHwpx(readFileSync(f))).ok).toBe(true);
+      if (i === 0) continue;
+      // 첫 문단이 쪽 설정과 그 조각의 글을 함께 가진다. 감추기(표지 쪽만)는 옮기지 않는다
+      const firstP = part.match(/<hp:p\b[\s\S]*?<\/hp:p>(?=\s*<hp:p\b|\s*<\/hs:sec>)/)![0];
+      expect(firstP).toContain('<hp:secPr');
+      expect(body(firstP).trim()).not.toBe('');
+      expect(part).not.toContain('<hp:pageHiding hideHeader="1"');
+    }
+    expect(all).toBe(body(xml));
+  }, 60_000);
+
+  it('나누기는 원본 묶음을 조각마다 다시 풀지 않는다 (조각 수에 곱으로 느려지지 않게)', async () => {
+    const { splitHwpx } = await import('../src/core/merge/hwpx-split.js');
+    const spy = vi.spyOn(JSZip, 'loadAsync');
+    try {
+      const r = await splitHwpx(new Uint8Array(readFileSync(REPORT)), 'pagebreak');
+      expect(r.parts).toHaveLength(3);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('쪽 나눔마다를 고르면 합친 문서도 구역 안 쪽 나눔까지 (1 + 3)', async () => {
     const r = await call('split_hangul', { path: merged, mode: 'pagebreak', output_dir: join(env.work, '합본_쪽마다') });
     expect(r.output_files).toHaveLength(4);

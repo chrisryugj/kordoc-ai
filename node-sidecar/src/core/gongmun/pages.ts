@@ -45,9 +45,14 @@ export async function pageTexts(path: string, signal?: AbortSignal): Promise<str
   const key = `${path}|${st.mtimeMs}|${st.size}`;
   let hit = cache.get(key);
   if (!hit) {
-    hit = load(path, signal).catch(() => null);
-    cache.set(key, hit);
+    const job = load(path, signal);
+    const mine = job.catch(() => null);
+    hit = mine;
+    cache.set(key, mine);
     if (cache.size > 6) cache.delete(cache.keys().next().value!);
+    // 실패·취소로 끝난 결과는 캐시에 두지 않는다 (남기면 같은 문서를 다시 점검해도 쪽 번호가 계속 안 나온다)
+    const drop = () => { if (cache.get(key) === mine) cache.delete(key); };
+    job.then(() => { if (signal?.aborted) drop(); }, drop);
   }
   return hit;
 }

@@ -19,6 +19,9 @@ export function PagePreview({ board, pageKey, onGo, onRotate, onRemove, onClose 
   const boxRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState<{ key: string; url: string } | null>(null);
+  // 그림을 못 받은 쪽 (끝없이 "불러오는 중"이 아니라 알리고 다시 하게)
+  const [failed, setFailed] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [room, setRoom] = useState({ w: 800, h: 600 });
   useDialogKeys(boxRef, true, onClose);
 
@@ -43,11 +46,16 @@ export function PagePreview({ board, pageKey, onGo, onRotate, onRemove, onClose 
     if (!source || !page) return;
     let gone = false;
     const width = Math.min(1600, Math.round(Math.max(room.w, room.h) * (window.devicePixelRatio || 1)));
+    const key = `${source}#${page}`;
     void rpc("pdf_thumbs", { path: source, pages: String(page), width })
-      .then((r) => { if (!gone && r.pages[0]) setUrl({ key: `${source}#${page}`, url: r.pages[0].data_url }); })
-      .catch(() => undefined);
+      .then((r) => {
+        if (gone) return;
+        if (r.pages[0]) setUrl({ key, url: r.pages[0].data_url });
+        else setFailed(key);
+      })
+      .catch(() => { if (!gone) setFailed(key); });
     return () => { gone = true; };
-  }, [source, page, room.w, room.h]);
+  }, [source, page, room.w, room.h, retry]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -81,7 +89,14 @@ export function PagePreview({ board, pageKey, onGo, onRotate, onRemove, onClose 
       </div>
       <div ref={bodyRef} className="kd-pdf-view-body" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className={`kd-pg-sheet${it.blank ? " kd-pg-blank" : ""}`} style={{ width: base.width * s, height: base.height * s, transform: `rotate(${it.rotate}deg)` }}>
-          {here ? <img src={here} alt={`${i + 1}번째 쪽`} draggable={false} /> : !it.blank && <span className="kd-pg-wait">불러오는 중</span>}
+          {here ? <img src={here} alt={`${i + 1}번째 쪽`} draggable={false} />
+            : it.blank ? null
+            : failed === `${source}#${page}` ? (
+              <span className="kd-pg-wait">
+                <span>이 쪽 그림을 불러오지 못했습니다.{" "}
+                  <button type="button" className="kd-link" onClick={() => { setFailed(null); setRetry((n) => n + 1); }}>다시 하기</button></span>
+              </span>
+            ) : <span className="kd-pg-wait">불러오는 중</span>}
         </div>
       </div>
     </div>

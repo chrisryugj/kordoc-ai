@@ -57,35 +57,51 @@ function senderIndex(texts: string[]): number {
 
 const countOf = (text: string, ch: string) => text.split(ch).length - 1;
 
-/** 찍을 자리 고르기 — 적은 글(꼴이 조금 달라도) → "(인)" 이면 서명 자리 → 발신명의 끝 글자 */
-function pickAnchor(texts: string[], anchor: string): { anchor: string; occurrence: number; mode?: 'overlap' } | null {
-  const tries = IN_ANCHOR.test(anchor) ? [anchor, ...SIGN_ANCHORS] : [anchor];
+type Pick = { anchor: string; occurrence: number; mode?: 'overlap' };
+
+/** 문서에 있는 서명 자리("(인)"·"( 인 )" 등) 수 — 첫 곳만 찍고 나머지 수를 알린다 */
+function signSpots(texts: string[], anchor: string): number {
+  if (!IN_ANCHOR.test(anchor)) return 0;
+  for (const a of [anchor, ...SIGN_ANCHORS]) {
+    const re = new RegExp(anchorPattern(a).source, 'g');
+    const n = texts.reduce((k, t) => k + [...t.matchAll(re)].length, 0);
+    if (n) return n;
+  }
+  return 0;
+}
+
+/** 찍을 자리 고르기 — 적은 글(꼴이 조금 달라도) → "(인)" 이면 서명 자리 → 발신명의 끝 글자. 처음 한 곳만.
+ *  "(인)" 이 여러 곳이어도 모두 찍지 않는다: 위임장·동의서의 (인)은 남(위임인·수임인·본인)의 자리라 내 도장이 들어가면 안 된다 */
+function pickAnchor(texts: string[], anchor: string): Pick[] {
+  const every = IN_ANCHOR.test(anchor);
+  const tries = every ? [anchor, ...SIGN_ANCHORS] : [anchor];
   for (const a of tries) {
-    if (texts.some((t) => t.includes(a))) return { anchor: a, occurrence: 0 };
+    if (texts.some((t) => t.includes(a))) return [{ anchor: a, occurrence: 0 }];
     const re = anchorPattern(a);
     for (const t of texts) {
       const m = re.exec(t);
       // 처음 맞은 꼴은 그보다 앞에 같은 글이 없다 (있으면 앞에서 맞았다) → 0번째
-      if (m) return { anchor: m[0], occurrence: 0 };
+      if (m) return [{ anchor: m[0], occurrence: 0 }];
     }
   }
-  if (!IN_ANCHOR.test(anchor)) return null;
+  if (!every) return [];
   // 관인은 발신명의의 마지막 글자가 인영의 가운데에 오도록 찍는다 (행정업무운영 편람)
   const i = senderIndex(texts);
-  if (i < 0) return null;
+  if (i < 0) return [];
   const last = texts[i].trimEnd().slice(-1);
   const before = texts.slice(0, i).reduce((n, t) => n + countOf(t, last), 0);
-  return { anchor: last, occurrence: before + countOf(texts[i], last) - 1, mode: 'overlap' };
+  return [{ anchor: last, occurrence: before + countOf(texts[i], last) - 1, mode: 'overlap' }];
 }
 
-export async function seal(p: { path: string; image_path: string; anchor: string; output_path?: string }): Promise<{ output_path: string; placed: number; anchor?: string; reason?: string }> {
+export async function seal(p: { path: string; image_path: string; anchor: string; output_path?: string }): Promise<{ output_path: string; placed: number; anchor?: string; reason?: string; others?: number }> {
   if (formatOf(p.path) !== 'hwpx') throw new Error('도장은 HWPX 문서에만 찍을 수 있습니다. 한글에서 HWPX로 저장해 넣으세요.');
   const ext = extname(p.image_path).slice(1).toLowerCase();
   if (!SEAL_EXT.has(ext)) throw new Error('도장 그림은 PNG·JPG 파일로 넣으세요. 배경이 투명한 PNG가 좋습니다.');
   const anchor = p.anchor?.trim() || '(인)';
   const [doc, image] = await Promise.all([readFile(p.path), readFile(p.image_path)]);
-  const pick = pickAnchor(await sealTexts(doc), anchor);
-  if (!pick) {
+  const texts = await sealTexts(doc);
+  const picks = pickAnchor(texts, anchor);
+  if (!picks.length) {
     return {
       output_path: '',
       placed: 0,
@@ -96,7 +112,7 @@ export async function seal(p: { path: string; image_path: string; anchor: string
   }
   let r: Awaited<ReturnType<typeof placeSealHwpx>>;
   try {
-    r = await placeSealHwpx(toAB(doc), [{ anchor: pick.anchor, occurrence: pick.occurrence, ...(pick.mode ? { mode: pick.mode } : {}), image: new Uint8Array(image), ext: ext as 'png' | 'jpg' | 'jpeg' | 'bmp' | 'gif' }]);
+    r = await placeSealHwpx(toAB(doc), picks.map((pick) => ({ anchor: pick.anchor, occurrence: pick.occurrence, ...(pick.mode ? { mode: pick.mode } : {}), image: new Uint8Array(image), ext: ext as 'png' | 'jpg' | 'jpeg' | 'bmp' | 'gif' })));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/매직|형식이 아닙니다/.test(msg)) throw new Error('도장 그림 파일의 내용이 PNG·JPG 그림이 아닙니다. 그림 파일을 다시 골라 넣으세요.');
@@ -105,7 +121,8 @@ export async function seal(p: { path: string; image_path: string; anchor: string
   }
   const outPath = outputFile({ output_path: p.output_path, source: p.path, name: `${stemOf(p.path)}_날인.hwpx` });
   await writeFile(outPath, await withVersionXml(new Uint8Array(r.buffer)));
-  return { output_path: outPath, placed: r.placed.length, anchor: pick.anchor };
+  const others = Math.max(0, signSpots(texts, anchor) - r.placed.length);
+  return { output_path: outPath, placed: r.placed.length, anchor: picks[0].anchor, ...(others ? { others } : {}) };
 }
 
 export async function patchDocument(p: { path: string; markdown: string; output_path?: string }): Promise<{ output_path: string; applied: number; skipped: Array<{ reason: string; excerpt?: string }> }> {

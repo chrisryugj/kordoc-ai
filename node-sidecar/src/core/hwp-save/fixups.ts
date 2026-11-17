@@ -21,7 +21,37 @@ export function tailStart(recs: Rec[]): number {
   return -1;
 }
 
-/** 원본에만 있는 구역 끝 묶음을 저장본에 되붙인다. lost: 구역 수가 달라 되붙이지 못한 묶음이 있다 */
+/** 메모 필드 시작 글자 ID: 한컴은 '%%me', rhwp 0.8.7 은 '%unk' 로 쓴다 */
+const MEMO_FIELD = new Set(['%%me', '%unk']);
+
+/** 구역 본문(끝 묶음 앞)의 메모 필드 수 */
+function memoFields(recs: Rec[], end: number): number {
+  let n = 0;
+  for (let i = 0; i < end; i++) {
+    if (recs[i].tag !== TAG.PARA_TEXT) continue;
+    for (const c of inlineControls(recs[i].data)) if (c.code === 3 && MEMO_FIELD.has(ctrlId(recs[i].data, c.at + 2))) n++;
+  }
+  return n;
+}
+
+/** 끝 묶음에서 메모 묶음(MEMO_LIST 와 그 바로 뒤 LIST_HEADER·문단)을 뺀 레코드 */
+function withoutMemos(tail: Rec[]): Rec[] {
+  const out: Rec[] = [];
+  let memo = false;
+  let memoHead = false; // 메모 묶음의 LIST_HEADER 를 이미 지났나
+  for (const r of tail) {
+    if (r.level === 1 && r.tag === TAG.MEMO_LIST) { memo = true; memoHead = false; continue; }
+    if (r.level === 1 && r.tag === TAG.LIST_HEADER) {
+      if (memo && !memoHead) { memoHead = true; continue; }
+      memo = false;
+    }
+    if (!memo) out.push(r);
+  }
+  return out;
+}
+
+/** 원본에만 있는 구역 끝 묶음을 저장본에 되붙인다. lost: 구역 수가 달라 되붙이지 못한 묶음이 있다.
+ *  메모 묶음은 본문에 메모 필드가 원본과 같은 수로 남았을 때만 붙인다: 편집기에서 지운 메모를 되살리지 않는다 */
 export function restoreSectionTails(orig: Hwp5, out: Hwp5, changed: Map<string, Buffer>): { restored: number; lost: boolean } {
   let restored = 0;
   let lost = false;
@@ -33,10 +63,13 @@ export function restoreSectionTails(orig: Hwp5, out: Hwp5, changed: Map<string, 
     if (!outBuf) { lost = true; continue; }
     const outRecs = readRecords(outBuf);
     const ot = tailStart(outRecs);
+    const memosKept = memoFields(outRecs, ot >= 0 ? ot : outRecs.length) === memoFields(origRecs, t);
+    const want = memosKept ? origRecs.slice(t) : withoutMemos(origRecs.slice(t));
+    if (!want.length) continue;
     // 묶음이 여럿이면(바탕쪽 몇 개 + 메모) 일부만 빠지기도 한다: 원본보다 짧을 때만 원본 묶음으로 바꾼다
-    if (ot >= 0 && outRecs.length - ot >= origRecs.length - t) continue; // 엔진이 지켰다
+    if (ot >= 0 && outRecs.length - ot >= want.length) continue; // 엔진이 지켰다
     const keep = ot >= 0 ? outRecs.slice(0, ot).map((r) => r.raw) : [outBuf];
-    changed.set(name, Buffer.concat([...keep, ...origRecs.slice(t).map((r) => r.raw)]));
+    changed.set(name, Buffer.concat([...keep, ...want.map((r) => r.raw)]));
     restored++;
   }
   return { restored, lost };

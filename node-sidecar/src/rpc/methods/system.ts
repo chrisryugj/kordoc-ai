@@ -16,14 +16,14 @@ import { optPath, registrar, reqPath, reqPaths, strList } from './params.js';
 import { winTool } from '../../infra/win-tools.js';
 
 /** 탐색기·Finder·기본 앱 실행 — 윈도 explorer 는 성공해도 종료 코드 1 을 자주 내므로 결과를 따지지 않는다 */
-function launch(cmd: string, args: string[]): Promise<boolean> {
+function launch(cmd: string, args: string[], verbatim = false): Promise<boolean> {
   // 화면 시험·시연 녹화: 사용자 화면에 한글·탐색기 창을 띄우지 않는다 (실측: 녹화 중 AI 가 open_result 를 불러 사용자의 한글에 결과가 열림)
   if (process.env.KORDOC_AI_NO_LAUNCH === '1') {
     logger.info(`[open] KORDOC_AI_NO_LAUNCH: ${cmd} 를 띄우지 않음`);
     return Promise.resolve(true);
   }
   return new Promise((resolve) => {
-    execFile(cmd, args, { windowsHide: false }, (err) => {
+    execFile(cmd, args, { windowsHide: false, windowsVerbatimArguments: verbatim }, (err) => {
       const code = (err as { code?: unknown } | null)?.code;
       if (err && !(process.platform === 'win32' && code === 1)) logger.warn(`[open] ${cmd} 실패: ${err.message}`);
       resolve(true);
@@ -32,6 +32,12 @@ function launch(cmd: string, args: string[]): Promise<boolean> {
 }
 
 const winPath = (p: string) => p.replace(/\//g, '\\');
+/** explorer 인자 — explorer 는 쉼표를 인자 구분으로 읽어 `/select,C:\a,b.pdf` 가 `C:\a` 에서 잘린다. 경로를 큰따옴표로 감싸
+ *  그대로(windowsVerbatimArguments) 넘긴다: Node 가 다시 감싸면 안쪽 따옴표가 \" 로 바뀌어 explorer 가 못 읽는다. 윈도 경로에는 " 가 들어갈 수 없다 */
+export function explorerArgs(path: string, select = false): string[] {
+  const quoted = `"${winPath(path)}"`;
+  return [select ? `/select,${quoted}` : quoted];
+}
 const opener = () => (process.platform === 'darwin' ? 'open' : 'xdg-open');
 
 /** 기본 앱으로 열어도 되는 확장자 (실행 파일 차단) */
@@ -59,7 +65,8 @@ export function registerSystem(router: RpcRouter): void {
   reg('open_folder', async (p) => {
     const dir = reqPath(p.path);
     if (!(await stat(dir)).isDirectory()) throw new Error('폴더가 아닙니다. 폴더를 고르세요.');
-    return launch(process.platform === 'win32' ? winTool('explorer') : opener(), [process.platform === 'win32' ? winPath(dir) : dir]);
+    if (process.platform === 'win32') return launch(winTool('explorer'), explorerArgs(dir), true);
+    return launch(opener(), [dir]);
   });
 
   reg('open_file', async (p) => {
@@ -67,14 +74,15 @@ export function registerSystem(router: RpcRouter): void {
     if (!(await stat(file)).isFile()) throw new Error('파일이 아닙니다. 파일을 고르세요.');
     const ext = file.toLowerCase().match(/\.[^.\\/]+$/)?.[0] ?? '';
     if (!OPENABLE_EXT.has(ext)) throw new Error(`이 형식은 앱에서 열 수 없습니다: ${ext || '확장자 없음'}`);
-    return launch(process.platform === 'win32' ? winTool('explorer') : opener(), [process.platform === 'win32' ? winPath(file) : file]);
+    if (process.platform === 'win32') return launch(winTool('explorer'), explorerArgs(file), true);
+    return launch(opener(), [file]);
   });
 
   // 탐색기·Finder 에서 파일을 고른 채로 폴더 열기
   reg('reveal_file', async (p) => {
     const file = reqPath(p.path);
     await stat(file);
-    if (process.platform === 'win32') return launch(winTool('explorer'), [`/select,${winPath(file)}`]);
+    if (process.platform === 'win32') return launch(winTool('explorer'), explorerArgs(file, true), true);
     if (process.platform === 'darwin') return launch('open', ['-R', file]);
     return launch('xdg-open', [dirname(file)]);
   });

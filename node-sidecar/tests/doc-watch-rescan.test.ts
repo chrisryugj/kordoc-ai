@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 
 // 이벤트를 하나도 내지 않는 fs.watch (SMB·NAS 공유 폴더에서 흔한 상황)
@@ -38,4 +38,42 @@ describe('watch 다시 훑기', () => {
       await call('watch_stop', { id });
     }
   }, 60_000);
+
+  it('폴더를 잠깐 못 보면(네트워크 드라이브 끊김) 멈추지 않고 다시 보다가, 오래 못 볼 때만 멈추고 알린다', async () => {
+    const { watchRetry } = await import('../src/core/watch/index.js');
+    const saved = { ...watchRetry };
+    // (임시 폴더 안 이름은 영문으로)
+    const dir = join(env.base, 'flaky');
+    const away = join(env.base, 'flaky-away');
+    const out = join(env.base, 'flaky-out');
+    mkdirSync(dir, { recursive: true });
+    vi.mocked(sendNotification).mockClear();
+    const events = () => vi.mocked(sendNotification).mock.calls.filter(([m]) => m === 'watch_event').map(([, p]) => p as { ok: boolean; path: string; error?: string });
+    const listed = async (id: string) => (await call('watch_list')).some((w: { id: string }) => w.id === id);
+    const until = async (ok: () => boolean | Promise<boolean>, ms: number) => {
+      const deadline = Date.now() + ms;
+      while (!(await ok()) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    };
+    Object.assign(watchRetry, { firstWaitMs: 200, maxWaitMs: 400, giveUpMs: 60_000 });
+    const { id } = await call('watch_start', { dir, out_dir: out, format: 'md' });
+    try {
+      renameSync(dir, away); // 드라이브가 빠짐
+      await new Promise((r) => setTimeout(r, 6500)); // 첫 다시 훑기(5초)와 그 뒤 몇 번 더
+      expect(events()).toHaveLength(0);
+      expect(await listed(id)).toBe(true);
+      renameSync(away, dir); // 다시 붙음
+      copyFileSync(sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx'), join(dir, 'new.hwpx'));
+      await until(() => events().length > 0, 30_000);
+      expect(events()[0]).toMatchObject({ ok: true, path: join(dir, 'new.hwpx') });
+      // 오래 못 보면 멈추고 알린다
+      watchRetry.giveUpMs = 0;
+      renameSync(dir, away);
+      await until(async () => !(await listed(id)), 15_000);
+      expect(await listed(id)).toBe(false);
+      expect(events().at(-1)).toMatchObject({ ok: false, path: dir, error: expect.stringMatching(/네트워크 드라이브라면 연결을 확인/) });
+    } finally {
+      Object.assign(watchRetry, saved);
+      await call('watch_stop', { id });
+    }
+  }, 90_000);
 });

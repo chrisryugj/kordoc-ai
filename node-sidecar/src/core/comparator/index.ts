@@ -6,9 +6,10 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { blocksToMarkdown, compare, markdownToHwpx, type BlockDiff, type IRBlock } from 'kordoc';
+import { blocksToMarkdown, diffBlocks, markdownToHwpx, parse, type BlockDiff, type DiffResult, type IRBlock } from 'kordoc';
 import type { CompareResult } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
+import { registerJob, runJob } from '../../infra/worker.js';
 import { buildXlsx } from '../excel/xlsx.js';
 import { tableGrid } from '../excel/index.js';
 import { outputFile, stemOf } from '../output/index.js';
@@ -16,8 +17,6 @@ import { parseFailure } from '../errors.js';
 
 type Row = CompareResult['rows'][number];
 interface Seg { text: string; changed: boolean }
-
-const toAB = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
 /** 블록 → 비교용 글 (표는 행마다 한 줄, 칸은 ·) */
 function blockText(b?: IRBlock): string {
@@ -37,8 +36,147 @@ export function compareRows(diffs: BlockDiff[]): Row[] {
   return all.filter((r, i) => changed(r) || changed(all[i - 1]) || changed(all[i + 1]));
 }
 
-/** 어절 단위 차이 — 같은 어절은 그대로, 다른 어절만 changed */
+/** 가운데 두 쪽 블록 수를 곱한 값이 이만큼을 넘으면 기준점으로 잘라 비교한다.
+ *  kordoc 은 1e7(약 3,163개씩)을 넘으면 차례대로만 짝짓고, 그 아래에서도 1,000×1,000 짝을 견주는 데 20초 걸렸다(실측) */
+const ANCHOR_FROM = 1e5;
+const blockKey = (b: IRBlock) => `${b.type}\u0000${blockText(b)}`;
+
+/** 양쪽 가운데에 한 번씩만 나오는 같은 블록 짝 중 차례가 어긋나지 않는 가장 긴 줄 (나눠 비교할 기준점) */
+function anchors(ka: string[], kb: string[], i0: number, i1: number, j0: number, j1: number): Array<[number, number]> {
+  const once = (keys: string[], from: number, to: number) => {
+    const at = new Map<string, number>();
+    for (let k = from; k < to; k++) at.set(keys[k], at.has(keys[k]) ? -1 : k);
+    return at;
+  };
+  const inA = once(ka, i0, i1);
+  const inB = once(kb, j0, j1);
+  const pairs: Array<[number, number]> = [];
+  for (const [key, i] of inA) {
+    const j = inB.get(key);
+    if (i >= 0 && j !== undefined && j >= 0) pairs.push([i, j]);
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+  // B 차례가 늘어나는 가장 긴 부분열
+  const tails: number[] = [];
+  const prev = new Int32Array(pairs.length).fill(-1);
+  pairs.forEach(([, j], k) => {
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (pairs[tails[mid]][1] < j) lo = mid + 1; else hi = mid; }
+    if (lo > 0) prev[k] = tails[lo - 1];
+    tails[lo] = k;
+  });
+  const out: Array<[number, number]> = [];
+  for (let k = tails.at(-1) ?? -1; k >= 0; k = prev[k]) out.push(pairs[k]);
+  return out.reverse();
+}
+
+/** kordoc diffBlocks 앞에 같은 블록을 떼어 낸다. 블록이 많으면 kordoc 이 차례대로만 짝지어 문단 하나만 끼워도 뒤가 모두 "변경"이 됐다.
+ *  앞뒤로 같은 블록은 "같음"으로 두고 가운데만 비교하고, 가운데도 크면 양쪽에 한 번씩만 나오는 같은 블록을 기준점으로 잘라 조각마다 비교한다
+ *  (조각 하나가 여전히 아주 크면 그 조각은 kordoc 대로 차례대로 짝지어진다) */
+export function diffBlockLists(A: IRBlock[], B: IRBlock[]): DiffResult {
+  const ka = A.map(blockKey);
+  const kb = B.map(blockKey);
+  let p = 0;
+  while (p < A.length && p < B.length && ka[p] === kb[p]) p++;
+  let s = 0;
+  while (s < A.length - p && s < B.length - p && ka[A.length - 1 - s] === kb[B.length - 1 - s]) s++;
+  const out: DiffResult = { stats: { added: 0, removed: 0, modified: 0, unchanged: 0 }, diffs: [] };
+  const same = (i: number, j: number) => { out.diffs.push({ type: 'unchanged', before: A[i], after: B[j], similarity: 1 }); out.stats.unchanged++; };
+  const part = (i0: number, i1: number, j0: number, j1: number) => {
+    if (i0 === i1 && j0 === j1) return;
+    const d = diffBlocks(A.slice(i0, i1), B.slice(j0, j1));
+    for (const x of d.diffs) out.diffs.push(x);
+    out.stats.added += d.stats.added;
+    out.stats.removed += d.stats.removed;
+    out.stats.modified += d.stats.modified;
+    out.stats.unchanged += d.stats.unchanged;
+  };
+  for (let k = 0; k < p; k++) same(k, k);
+  const i1 = A.length - s;
+  const j1 = B.length - s;
+  if ((i1 - p) * (j1 - p) <= ANCHOR_FROM) part(p, i1, p, j1);
+  else {
+    let i = p;
+    let j = p;
+    for (const [ai, bj] of anchors(ka, kb, p, i1, p, j1)) { part(i, ai, j, bj); same(ai, bj); i = ai + 1; j = bj + 1; }
+    part(i, i1, j, j1);
+  }
+  for (let k = s; k > 0; k--) same(A.length - k, B.length - k);
+  return out;
+}
+
+/** 작업자 스레드에서 두 문서를 읽고 비교한다 (1,000문단 비교에 엔진이 18초쯤 멈추고 취소도 못 받았다). 받는 값은 구조화 복제되는 Uint8Array */
+registerJob('compare', async ({ a, b }: { a: Uint8Array; b: Uint8Array }): Promise<DiffResult> => {
+  const buf = (u: Uint8Array) => Buffer.from(u.buffer, u.byteOffset, u.byteLength);
+  const [ra, rb] = await Promise.all([parse(buf(a)), parse(buf(b))]);
+  // kordoc compare 와 같은 문구 (compareError 가 어느 쪽인지 읽는다)
+  if (!ra.success) throw new Error(`문서A 파싱 실패: ${ra.error}`);
+  if (!rb.success) throw new Error(`문서B 파싱 실패: ${rb.error}`);
+  return diffBlockLists(ra.blocks, rb.blocks);
+});
+
+/** 여러 줄 글(표는 행마다 한 줄)은 줄부터 맞추고, 짝지은 줄 안에서 어절을 견준다. 사이에 남은 줄은 차례대로 짝짓고 남는 줄은 통째로 바뀜 */
+function lineDiff(a: string, b: string): { old: Seg[]; new: Seg[] } {
+  const A = a.split('\n');
+  const B = b.split('\n');
+  const w = B.length + 1;
+  // 줄이 아주 많으면 맞추지 않고 차례대로 짝짓는다
+  const dp = A.length * B.length > 4_000_000 ? null : new Uint32Array((A.length + 1) * w);
+  if (dp) {
+    for (let i = A.length - 1; i >= 0; i--) {
+      for (let j = B.length - 1; j >= 0; j--) dp[i * w + j] = A[i] === B[j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+    }
+  }
+  const oldL: Seg[][] = [];
+  const newL: Seg[][] = [];
+  const gap = (i0: number, i1: number, j0: number, j1: number) => {
+    for (let k = 0; i0 + k < i1 || j0 + k < j1; k++) {
+      if (i0 + k < i1 && j0 + k < j1) {
+        const d = wordDiff(A[i0 + k], B[j0 + k]);
+        oldL.push(d.old);
+        newL.push(d.new);
+      } else if (i0 + k < i1) oldL.push([{ text: A[i0 + k], changed: true }]);
+      else newL.push([{ text: B[j0 + k], changed: true }]);
+    }
+  };
+  let i = 0;
+  let j = 0;
+  if (dp) {
+    let gi = 0;
+    let gj = 0;
+    while (i < A.length && j < B.length) {
+      if (A[i] === B[j]) {
+        gap(gi, i, gj, j);
+        oldL.push([{ text: A[i], changed: false }]);
+        newL.push([{ text: B[j], changed: false }]);
+        gi = ++i;
+        gj = ++j;
+      } else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++;
+      else j++;
+    }
+    gap(gi, A.length, gj, B.length);
+  } else gap(0, A.length, 0, B.length);
+  const flat = (lines: Seg[][]) => {
+    const out: Seg[] = [];
+    lines.forEach((segs, k) => {
+      for (const s of k ? [{ text: '\n', changed: false }, ...segs] : segs) {
+        const last = out.at(-1);
+        if (!s.text) continue;
+        if (last && last.changed === s.changed) last.text += s.text;
+        else out.push({ ...s });
+      }
+    });
+    return out;
+  };
+  return { old: flat(oldL), new: flat(newL) };
+}
+
+/** 어절 단위 차이 — 같은 어절은 그대로, 다른 어절만 changed.
+ *  여러 줄 글은 줄마다 견준다: 통째로 견주면 큰 표(어절 2,000개 넘게)는 아래 한도에 걸려 몇 칸만 바뀌어도 표 전체가 바뀐 것으로 나왔고,
+ *  줄 끝과 다음 줄 첫머리가 함께 바뀌면 굵게가 줄바꿈을 넘어 대비표에 별표가 글자로 찍혔다 */
 export function wordDiff(a: string, b: string): { old: Seg[]; new: Seg[] } {
+  if (a.includes('\n') || b.includes('\n')) return lineDiff(a, b);
   const A = a.match(/\s+|\S+/g) ?? [];
   const B = b.match(/\s+|\S+/g) ?? [];
   if (A.length * B.length > 4_000_000) return { old: [{ text: a, changed: true }], new: [{ text: b, changed: true }] };
@@ -149,7 +287,8 @@ export async function diffFiles(oldPath: string, newPath: string, signal?: Abort
   sendProgress({ current: 0, total: 2, message: '두 문서 읽는 중' });
   const [a, b] = await Promise.all([readFile(oldPath), readFile(newPath)]);
   signal?.throwIfAborted();
-  const diff = await compare(toAB(a), toAB(b)).catch((err) => { throw compareError(err); });
+  // 작업자에서 비교한다: 엔진은 그동안 다른 요청을 받고, 취소하면 작업자를 끝내 바로 멈춘다 (시작 파일을 모르는 시험에서는 같은 스레드)
+  const diff = await runJob<DiffResult>('compare', { a, b }, { signal }).result.catch((err) => { throw compareError(err); });
   signal?.throwIfAborted();
   // 엔진은 99% 넘게 닮은 문단·표를 "같음"으로 낸다. 긴 조문에서 금액 한 글자("1,000만원" → "9,000만원")나
   // "할 수 있으며" → "할 수 없으며" 만 바뀐 것이 "바뀐 곳 없음"으로 나가면 안 된다 → 글이 한 글자라도 다르면 "변경"

@@ -14,6 +14,7 @@ import { copyTable } from "../../lib/clipboard";
 import { baseName } from "../../lib/format";
 import { Button } from "../ui/Button";
 import { Note, SavedFile } from "../common/Status";
+import { caretAfterDigits, digitsBefore } from "./caret";
 
 /** 화면에서 고치는 칸 */
 const EDIT = ["date", "vendor", "brn", "purpose", "amount", "payment", "note"] as const;
@@ -193,7 +194,15 @@ export function ReceiptEditor({ receipts, aiUsed = false, warnings = [], autoCop
                     {EDIT.map((k) => (
                       <td key={k} data-k={k}>
                         <input className="kd-receipt-input" data-low={l.low[k] || undefined} value={k === "amount" ? comma(l.row[k] ?? "") : (l.row[k] ?? "")}
-                          onChange={(e) => edit(l.key, k, k === "amount" ? digits(e.target.value) : e.target.value)}
+                          onChange={(e) => {
+                            if (k !== "amount") { edit(l.key, k, e.target.value); return; }
+                            const el = e.target;
+                            const n = digitsBefore(el.value, el.selectionStart ?? el.value.length);
+                            const v = digits(el.value);
+                            edit(l.key, k, v);
+                            // 쉼표를 다시 매기면 커서가 끝으로 튄다 → 친 자리로 되돌린다
+                            requestAnimationFrame(() => { if (document.activeElement === el) { const p = caretAfterDigits(comma(v), n); el.setSelectionRange(p, p); } });
+                          }}
                           aria-label={`${baseName(l.path)} ${HEAD[k]}`} title={l.tips[k]} inputMode={k === "amount" ? "numeric" : undefined}
                           placeholder={k === "date" ? "2026-11-04" : k === "note" ? "" : "읽지 못함"} />
                       </td>

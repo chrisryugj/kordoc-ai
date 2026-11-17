@@ -11,7 +11,7 @@
  *   - PrintTo verb는 시스템 등록 PDF 핸들러(Adobe Reader/Edge 등)에 의존. 미설치 시 실패.
  *   - copies/duplex/color 등 세부 옵션은 PrintTo verb로 제어 불가 (드라이버 기본값 사용).
  *     세부 제어가 필요하면 SumatraPDF 같은 외부 도구나 Win32 EnumPrintProcessors 필요.
- *   - 임시 PDF는 인쇄 큐 투입 후 즉시 삭제하면 OS가 못 읽음. 60초 지연 삭제.
+ *   - 임시 PDF는 인쇄 큐 투입 후 즉시 삭제하면 OS가 못 읽음. 지연 삭제 (윈도 10분, 그 밖 60초: tempPdfTtl).
  *
  * 참조: docs/archive/SPEC.md §2.1, §2.2 (v1 기획)
  */
@@ -58,11 +58,14 @@ export interface Printer {
 }
 
 const PRINT_TEMP_DIR = join(tmpdir(), 'kordoc-print');
-const TEMP_PDF_TTL_MS = 60_000;
+/** 임시 PDF 를 지울 때까지. 윈도 PrintTo 는 PDF 프로그램을 띄우기만 하고 바로 돌아온다: 그 프로그램이 파일을 여는 것은 그 뒤이고,
+ *  여러 문서를 보내면 한 창이 차례로 열어 뒤 문서는 1분을 넘겨 열 수 있다 → 지운 뒤 열면 빈 인쇄·"파일 없음". 그래서 넉넉히 10분.
+ *  CUPS lp 는 돌아올 때 이미 파일을 인쇄 대기열로 옮겨 두어 1분이면 된다. 엔진이 그 전에 꺼지면 다음 인쇄 때 1시간 지난 것을 지운다 */
+export const tempPdfTtl = (platform: NodeJS.Platform = process.platform) => (platform === 'win32' ? 10 * 60_000 : 60_000);
 
 async function ensurePrintTempDir(): Promise<void> {
   await mkdir(PRINT_TEMP_DIR, { recursive: true });
-  // 60초 안에 엔진이 꺼져 못 지운 지난 인쇄 파일
+  // 지우기 전에 엔진이 꺼져 못 지운 지난 인쇄 파일
   const cut = Date.now() - 3_600_000;
   for (const name of await readdir(PRINT_TEMP_DIR)) {
     const f = join(PRINT_TEMP_DIR, name);
@@ -91,7 +94,7 @@ async function shellPrint(pdfPath: string, printer?: string): Promise<void> {
 async function scheduleTempCleanup(pdfPath: string): Promise<void> {
   setTimeout(() => {
     unlink(pdfPath).catch((e) => logger.warn(`[print] 임시 PDF 삭제 실패: ${pdfPath} (${e.message})`));
-  }, TEMP_PDF_TTL_MS).unref?.();
+  }, tempPdfTtl()).unref?.();
 }
 
 export async function printFiles(
@@ -188,11 +191,15 @@ export async function listPrinters(): Promise<Printer[]> {
     'Get-CimInstance Win32_Printer | ' +
     'Select-Object Name, Default, PrinterStatus, DriverName | ConvertTo-Json -Compress';
 
+  // 실패하면 오류에 PowerShell 명령줄 원문이 들어 있다 → 기록에만 남기고 화면엔 할 일만
   const { stdout } = await execFileAsync(
     winTool('powershell'),
     ['-NoProfile', '-NonInteractive', '-Command', ps],
     { windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
-  );
+  ).catch((e: unknown) => {
+    logger.warn(`[list_printers] 실패: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error('프린터 목록을 읽지 못했습니다. 잠시 뒤 다시 열어 보고, 그래도 안 되면 윈도 설정의 "프린터 및 스캐너"에서 프린터가 보이는지 확인하세요.');
+  });
 
   const trimmed = stdout.trim();
   if (!trimmed) return [];

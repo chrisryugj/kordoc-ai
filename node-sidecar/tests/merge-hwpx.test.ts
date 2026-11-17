@@ -6,8 +6,8 @@ import { tmpdir, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import JSZip from 'jszip';
 import { parse, validateHwpx } from 'kordoc';
-import { mergeFiles } from '../src/core/merge/index.js';
-import { openRhwp } from '../src/core/render/rhwp.js';
+import { mergeFiles, splitHangul } from '../src/core/merge/index.js';
+import { openRhwp, rhwpPages } from '../src/core/render/rhwp.js';
 
 const SAMPLES = resolve(__dirname, '..', 'samples');
 const received = join(SAMPLES, '1-받은공문_도민체육대회 참가 협조 요청.hwpx');
@@ -34,6 +34,31 @@ async function check(out: string, texts: string[]) {
   const pages = doc.pageCount();
   doc.free?.();
   return { bytes, pages };
+}
+
+/** 첫 구역 첫 문단(쪽 설정이 든 run)에 쪽 번호와 알아볼 글이 든 머리말을 넣은 사본 */
+async function withPageCtrls(src: string, name: string, mark: string) {
+  const zip = await JSZip.loadAsync(readFileSync(src));
+  const xml = await zip.file('Contents/section0.xml')!.async('string');
+  const at = xml.indexOf('</hp:run>', xml.indexOf('</hp:secPr>'));
+  const ctrls = `<hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl><hp:ctrl><hp:header id="1" applyPageType="BOTH"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="42520" textHeight="4252" hasTextRef="0" hasNumRef="0"><hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${mark}</hp:t></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>`;
+  zip.file('Contents/section0.xml', xml.slice(0, at) + ctrls + xml.slice(at));
+  const path = join(dir, name);
+  writeFileSync(path, await zip.generateAsync({ type: 'nodebuffer' }));
+  return path;
+}
+
+/** 구역이 바탕쪽(masterpage0)을 가리키는 사본 */
+async function withMasterPage(src: string, name: string, mark: string) {
+  const zip = await JSZip.loadAsync(readFileSync(src));
+  zip.file('Contents/masterpage0.xml', `<?xml version="1.0" encoding="UTF-8"?><masterPage xmlns="http://www.hancom.co.kr/hwpml/2011/master-page" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" id="masterpage0" type="BOTH"><hp:subList><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="7"><hp:t>${mark}</hp:t></hp:run></hp:p></hp:subList></masterPage>`);
+  const hpf = await zip.file('Contents/content.hpf')!.async('string');
+  zip.file('Contents/content.hpf', hpf.replace('</opf:manifest>', '<opf:item id="masterpage0" href="Contents/masterpage0.xml" media-type="application/xml"/></opf:manifest>'));
+  const sec = await zip.file('Contents/section0.xml')!.async('string');
+  zip.file('Contents/section0.xml', sec.replace(/masterPageCnt="0"/, 'masterPageCnt="1"').replace('</hp:secPr>', '<hp:masterPage idRef="masterpage0"/></hp:secPr>'));
+  const path = join(dir, name);
+  writeFileSync(path, await zip.generateAsync({ type: 'nodebuffer' }));
+  return path;
 }
 
 describe('HWPX 서식 유지 수합 (순수 XML)', () => {
@@ -107,6 +132,72 @@ describe('HWPX 서식 유지 수합 (순수 XML)', () => {
     await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
   });
 
+  it('앞 문서의 머리말·쪽 번호가 뒤 문서 쪽에 찍히지 않는다 (뒤 문서 첫 구역에 끊는 빈 것), 자기 것이 있으면 그대로', async () => {
+    const headed = await withPageCtrls(report, 'headed.hwpx', '총무과머리말표시');
+    const out = join(dir, 'header-carry.hwpx');
+    await mergeFiles({ files: [headed, received], output_path: out, mode: 'native' }, signal);
+    const { bytes } = await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
+    const zip = await JSZip.loadAsync(bytes);
+    const sec1 = await zip.file('Contents/section1.xml')!.async('string');
+    expect(sec1).toMatch(/<hp:header id="0" applyPageType="BOTH"><hp:subList\b[^>]*><hp:p\b[^>]*><hp:run\b[^>]*><hp:t\/><\/hp:run><\/hp:p><\/hp:subList><\/hp:header>/);
+    expect(sec1).toContain('<hp:pageNum pos="NONE"');
+    expect(sec1).not.toContain('총무과머리말표시');
+    // 그린 쪽: 앞 문서 쪽에는 머리말과 쪽 번호(보고서는 표지 쪽만 감추기), 공문 쪽(마지막)에는 둘 다 없다
+    const pages: string[] = [];
+    for await (const p of rhwpPages(new Uint8Array(bytes))) pages.push([...p.svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) => m[1].replace(/<[^>]+>/g, '')).join('').replace(/\s+/g, ''));
+    expect(pages[1]).toContain('총무과머리말표시');
+    expect(pages.at(-2)).toMatch(/-\d+-$/);
+    expect(pages.at(-1)).toContain('체육대회');
+    expect(pages.at(-1)).not.toContain('총무과머리말표시');
+    expect(pages.at(-1)).not.toMatch(/-\d+-$/);
+
+    // 뒤 문서가 자기 머리말·쪽 번호를 가지면 끊는 것을 넣지 않는다
+    const own = await withPageCtrls(received, 'own.hwpx', '회계과머리말표시');
+    const out2 = join(dir, 'header-own.hwpx');
+    await mergeFiles({ files: [headed, own], output_path: out2, mode: 'native' }, signal);
+    const sec = await (await JSZip.loadAsync(readFileSync(out2))).file('Contents/section1.xml')!.async('string');
+    expect(sec.match(/<hp:header\b/g)).toHaveLength(1);
+    expect(sec.match(/<hp:pageNum\b/g)).toHaveLength(1);
+    expect(sec).toContain('회계과머리말표시');
+    expect(sec).not.toContain('pos="NONE"');
+  }, 60_000);
+
+  it('뒤 문서 구역이 가리키는 바탕쪽을 이름 머리를 붙여 옮긴다 (첫 문서의 같은 이름 바탕쪽과 겹치지 않게)', async () => {
+    const a = await withMasterPage(received, 'master-a.hwpx', '첫문서바탕쪽', 0);
+    const b = await withMasterPage(report, 'master-b.hwpx', '대외비바탕쪽', 7);
+    const out = join(dir, 'master.hwpx');
+    await mergeFiles({ files: [a, b], output_path: out, mode: 'native' }, signal);
+    await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const hpf = await zip.file('Contents/content.hpf')!.async('string');
+    expect(hpf).toContain('<opf:item id="masterpage0" href="Contents/masterpage0.xml"');
+    expect(hpf).toContain('<opf:item id="m1_masterpage0" href="Contents/m1_masterpage0.xml"');
+    expect(await zip.file('Contents/masterpage0.xml')!.async('string')).toContain('첫문서바탕쪽');
+    const moved = await zip.file('Contents/m1_masterpage0.xml')!.async('string');
+    expect(moved).toContain('대외비바탕쪽');
+    expect(moved).toContain('id="m1_masterpage0"');
+    // 바탕쪽 안의 글자 모양도 합본의 id 로 (뒤 문서의 charPr 7 은 합본에서 첫 문서 글자 모양 뒤 번호)
+    const baseChars = ((await (await JSZip.loadAsync(readFileSync(received))).file('Contents/header.xml')!.async('string')).match(/<hh:charPr id=/g) ?? []).length;
+    expect(moved).toContain(`charPrIDRef="${baseChars + 7}"`);
+    expect(await zip.file('Contents/section0.xml')!.async('string')).toContain('<hp:masterPage idRef="masterpage0"/>');
+    expect(await zip.file('Contents/section1.xml')!.async('string')).toContain('<hp:masterPage idRef="m1_masterpage0"/>');
+  });
+
+  it('번호 머리의 글자 모양 참조도 합본의 id 로 바꾼다', async () => {
+    const zip = await JSZip.loadAsync(readFileSync(report));
+    const head = await zip.file('Contents/header.xml')!.async('string');
+    zip.file('Contents/header.xml', head.replace(/(<hh:paraHead\b[^>]*\blevel="1"[^>]*\bcharPrIDRef=")4294967295"/, '$15"'));
+    const b = join(dir, 'numhead.hwpx');
+    writeFileSync(b, await zip.generateAsync({ type: 'nodebuffer' }));
+    const out = join(dir, 'numhead-out.hwpx');
+    await mergeFiles({ files: [received, b], output_path: out, mode: 'native' }, signal);
+    const merged = await (await JSZip.loadAsync(readFileSync(out))).file('Contents/header.xml')!.async('string');
+    const baseChars = ((await (await JSZip.loadAsync(readFileSync(received))).file('Contents/header.xml')!.async('string')).match(/<hh:charPr id=/g) ?? []).length;
+    const heads = [...merged.matchAll(/<hh:paraHead\b[^>]*\blevel="1"[^>]*\bcharPrIDRef="(\d+)"/g)].map((m) => m[1]);
+    expect(heads).toContain(String(baseChars + 5));
+    expect(heads).not.toContain('5');
+  });
+
   it.skipIf(!press || !existsSync(hwp5))('실문서: 그림 든 보도자료 + HWP 5.x 섞어 합치기 (그림 옮김)', async () => {
     const out = join(dir, 'real.hwpx');
     const r = await mergeFiles({ files: [received, press!, hwp5], output_path: out, mode: 'native' }, signal);
@@ -132,6 +223,22 @@ describe('HWPX 서식 유지 수합 (순수 XML)', () => {
     expect(r.failed_files).toEqual([bad]);
     expect(r.failed).toEqual([{ path: bad, error: expect.stringMatching(/손상됐거나 저장이 끝나지 않은/) }]);
     await check(out, ['한마음 체육대회', '디지털 행정 혁신']);
+  });
+
+  it('0바이트 HWP·HWP 가 아닌 HWP 는 그 파일만 빼고, 까닭을 영어 오류 코드 없이 한국어로 알린다 (나누기도)', async () => {
+    const empty = join(dir, '빈 공문.hwp');
+    writeFileSync(empty, Buffer.alloc(0));
+    const junk = join(dir, '이름만 한글.hwp');
+    writeFileSync(junk, 'not a hwp file at all');
+    const out = join(dir, 'with-empty.hwpx');
+    const r = await mergeFiles({ files: [received, empty, junk, report], output_path: out, mode: 'native' }, signal);
+    expect(r.file_count).toBe(2);
+    const why = Object.fromEntries(r.failed.map((f) => [f.path, f.error]));
+    expect(why[empty]).toMatch(/빈 파일\(0바이트\)/);
+    expect(why[junk]).toMatch(/한글\(HWP\) 문서로 읽을 수 없습니다/);
+    for (const e of Object.values(why)) expect(e).not.toMatch(/[A-Za-z]{6,}|rhwp/);
+    await expect(splitHangul({ path: empty, output_dir: join(dir, 'split-empty') }, signal)).rejects.toThrow(/빈 공문\.hwp: 내용이 없는 빈 파일/);
+    await expect(splitHangul({ path: junk, output_dir: join(dir, 'split-junk') }, signal)).rejects.toThrow(/한글\(HWP\) 문서로 읽을 수 없습니다/);
   });
 
   it('합칠 수 있는 문서가 하나뿐이면 오류에 못 읽은 파일 이름을 넣는다', async () => {

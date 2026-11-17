@@ -304,6 +304,22 @@ describe('seal·patch_document·validate_hwpx', () => {
     expect(r).toMatchObject({ placed: 1, anchor: '( 인 )' });
   });
 
+  it('도장 — (인) 이 여러 곳이면 첫 곳에만 찍고(남의 서명 자리일 수 있다) 남긴 곳 수를 알린다', async () => {
+    const doc = join(env.work, '확인서.hwpx');
+    writeFileSync(doc, Buffer.from(await markdownToHwpx('# 확인서\n\n신청인 홍길동 (인)\n\n| 확인자 | 김가온 (인) |\n| --- | --- |\n| 담당 | 이두리 ( 인 ) |\n\n위 사람 (인)\n')));
+    const img = join(env.work, '도장.png');
+    writeFileSync(img, await makePng(200, 200, '印'));
+    const r = await call('seal', { path: doc, image_path: img, anchor: '(인)' });
+    expect(r.placed).toBe(1);
+    expect(r.others).toBe(3);
+    expect((await call('validate_hwpx', { path: r.output_path })).ok).toBe(true);
+    const JSZip = (await import('jszip')).default;
+    const xml = await (await JSZip.loadAsync(readFileSync(r.output_path))).file('Contents/section0.xml')!.async('text');
+    expect(xml.split('kordoc seal').length - 1).toBe(1);
+    // 찍은 곳은 첫 (인) 인 신청인 자리
+    expect(xml.indexOf('kordoc seal')).toBeLessThan(xml.indexOf('김가온'));
+  });
+
   it('도장 — (인) 이 없는 공문은 발신명의(가온도지사) 끝 글자에 찍는다', async () => {
     const img = join(env.work, '도장.png');
     writeFileSync(img, await makePng(200, 200, '印'));

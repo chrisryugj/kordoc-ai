@@ -105,6 +105,8 @@ async function ask(program: Program, cfg: ClaudeCodeConfig, req: ChatRequest, ti
     let resetsAt: number | undefined;
     let ended: { kind: FailKind } | null = null;
     let sawInit = false;
+    /** 답이 출력 한도(max_tokens)에서 끊겼다: 공식 스트림의 stop_reason */
+    let cut = false;
     const r = await runProgram(program, args, {
       signal: req.signal,
       idleMs: timeoutMs,
@@ -134,6 +136,7 @@ async function ask(program: Program, cfg: ClaudeCodeConfig, req: ChatRequest, ti
           const e = obj(ev.event);
           if (e?.type === 'message_start') streamed = ''; // 다시 시도한 답이면 앞 시도를 버린다
           const d = obj(e?.delta);
+          if (e?.type === 'message_delta' && d?.stop_reason === 'max_tokens') cut = true;
           if (e?.type === 'content_block_delta' && d?.type === 'text_delta' && typeof d.text === 'string') {
             streamed += d.text;
             req.onToken?.(d.text);
@@ -147,6 +150,7 @@ async function ask(program: Program, cfg: ClaudeCodeConfig, req: ChatRequest, ti
           const content = obj(ev.message)?.content;
           if (Array.isArray(content) && content.some(isToolBlock)) throw new SubscriptionError('unsafe-tools', 'claude-code', { why: '도구를 쓰려 함' });
           if (typeof ev.error === 'string') errorKind = ev.error;
+          if (obj(ev.message)?.stop_reason === 'max_tokens') cut = true;
           return;
         }
         if (ev.type === 'rate_limit_event') {
@@ -163,13 +167,17 @@ async function ask(program: Program, cfg: ClaudeCodeConfig, req: ChatRequest, ti
             ended = { kind: resetsAt ? 'rate-limit' : failureOf(errorKind, ev.api_error_status, text) };
           } else {
             answer = text || streamed;
+            if (ev.stop_reason === 'max_tokens') cut = true;
           }
           return 'done';
         }
       },
     });
     if (ended) throw new SubscriptionError((ended as { kind: FailKind }).kind, 'claude-code', { resetsAt });
-    if (answer !== null && (answer as string).trim()) return answer;
+    if (answer !== null && (answer as string).trim()) {
+      if (cut) req.onTruncated?.();
+      return answer;
+    }
     if (answer !== null) throw new SubscriptionError('failed', 'claude-code', { why: '빈 답이 옴' });
     if (/unknown option|unknown argument|unrecognized/i.test(r.stderr)) throw new SubscriptionError('needs-update', 'claude-code', { why: '모르는 옵션이 있다고 함' });
     const kind = failureOf(errorKind, undefined, r.stderr);

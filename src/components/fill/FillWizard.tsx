@@ -143,6 +143,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   // rhwp 일꾼 하나를 계속 쓴다 — 열기·그리기를 화면 스레드 밖에서 (쪽이 많으면 여는 데만 수 초, 화면이 멈추지 않게)
   const rhwpRef = useRef<RhwpPreview | null>(null);
   const rhwpReady = useRef(false);                         // 지금 문서가 일꾼에 열려 있다
+  const closed = useRef(false);                            // 창을 닫아 일꾼을 껐다
   const [wasmOk, setWasmOk] = useState<boolean | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -181,6 +182,8 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
   /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신). 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
+    // 창을 닫은 뒤 늦게 온 미리보기·저장 응답이 일꾼을 새로 만들면 아무도 끄지 않는다
+    if (closed.current) return;
     docB64Ref.current = b64;
     const bytes = b64ToBytes(b64);
     // 일꾼은 받은 차례대로 일한다: 여는 사이 들어온 그리기 요청도 새 문서로 그린다
@@ -200,6 +203,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   // ── 초기 로드: form_schema ──
   useEffect(() => {
     let cancelled = false;
+    closed.current = false;
     (async () => {
       try {
         const res = await sidecarCall("form_schema", { input_path: file.path, include_doc: true }) as FormSchemaRes;
@@ -228,6 +232,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     })();
     return () => {
       cancelled = true;
+      closed.current = true;
       rhwpRef.current?.dispose();
       rhwpRef.current = null;
       rhwpReady.current = false;

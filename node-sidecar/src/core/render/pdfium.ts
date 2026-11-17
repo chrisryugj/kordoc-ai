@@ -3,6 +3,8 @@
 import type { PDFiumDocument, PDFiumLibrary, PDFiumPage } from '@hyzyla/pdfium';
 
 let lib: Promise<PDFiumLibrary> | null = null;
+/** sharp 가 받는 그림 화소 수 상한 (limitInputPixels 기본값 0x3FFF × 0x3FFF) */
+export const MAX_PIXELS = 0x3fff * 0x3fff;
 
 function pdfium(): Promise<PDFiumLibrary> {
   if (!lib) {
@@ -26,6 +28,13 @@ export async function openPdf(bytes: Uint8Array, password?: string): Promise<PDF
   }
 }
 
+/** 그린 그림이 MAX_PIXELS 안에 들게 줄인 배율. sharp 는 그보다 큰 그림을 영어 오류(Input image exceeds pixel limit)로 거절한다:
+ *  2A0 쪽(약 3370×4768pt)을 300dpi 로 그리면 넘는다(실측). 넘으면 해상도를 낮춰 그린다 */
+export function capScale(width: number, height: number, scale: number): number {
+  const px = Math.max(1, Math.floor(width)) * Math.max(1, Math.floor(height));
+  return px * scale * scale > MAX_PIXELS ? Math.sqrt(MAX_PIXELS / px) * (1 - 1e-6) : scale;
+}
+
 /** 한 쪽을 그림으로 — 폭 maxWidth px 에 맞춤(최대 4배, maxScale 을 주면 그만큼). width·height 는 pt 원본 크기.
  *  loaded: 크기를 보려고 앞서 불러 둔 쪽. @hyzyla/pdfium 은 그린 뒤 쪽을 닫으므로 한 쪽 객체는 한 번만 그린다 (두 번째는 WASM 오류) */
 export async function rasterPdfPage(
@@ -41,7 +50,7 @@ export async function rasterPdfPage(
   const page = loaded ?? doc.getPage(pageNo - 1);
   const { originalWidth, originalHeight } = page.getOriginalSize();
   // @hyzyla/pdfium 은 원본 폭을 내림한 뒤 배율을 곱하고 다시 내림한다 → 내림한 폭 기준 + 아주 조금 키워 정확히 maxWidth
-  const scale = Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), Math.max(4, maxScale));
+  const scale = capScale(originalWidth, originalHeight, Math.min((maxWidth / Math.max(1, Math.floor(originalWidth))) * (1 + 1e-9), Math.max(4, maxScale)));
   // 입력 칸(양식 필드)에 적어 넣은 값도 그린다. 안 그리면 쪽을 그림으로 만드는 길(용량 줄이기·보안 PDF 합치기·쪽 그림 내보내기)에서
   // 칸의 값이 통째로 빠진 결과가 정상처럼 나온다
   const r = await page.render({ scale, renderFormFields: true, render: async ({ data }) => data });

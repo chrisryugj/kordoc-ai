@@ -127,12 +127,15 @@ function SortableFileItem({
 interface MergeOrderDialogProps {
   files: ImportedFile[];
   uniformType: string | null;
+  /** 이 창에서 고르지 않으면 저장할 폴더 (없으면 첫 파일이 있는 폴더) */
   outputDir: string;
+  /** 그 폴더가 어디서 왔는지 ("이 화면에서 고른 폴더", "설정의 저장 폴더") */
+  outputSource?: string;
   onConfirm: (orderedFiles: ImportedFile[], mergeMode: MergeMode, outputDir?: string) => void;
   onCancel: () => void;
 }
 
-export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDir, onConfirm, onCancel }: MergeOrderDialogProps) {
+export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDir, outputSource, onConfirm, onCancel }: MergeOrderDialogProps) {
   const [items, setItems] = useState<ImportedFile[]>(() => [...files]);
   const [mergeMode, setMergeMode] = useState<MergeMode>(uniformType ? "native" : "markdown");
   const [localOutputDir, setLocalOutputDir] = useState("");
@@ -204,7 +207,7 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
         aria-modal="true"
         aria-labelledby={titleId}
         className="p-6 mx-4 space-y-5 rounded-2xl animate-modal-enter"
-        style={{ maxWidth: "28rem", width: "100%", backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", boxShadow: "var(--shadow-xl)" }}
+        style={{ maxWidth: "28rem", width: "100%", maxHeight: "calc(100vh - 32px)", overflowY: "auto", backgroundColor: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", boxShadow: "var(--shadow-xl)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -319,8 +322,8 @@ export function MergeOrderDialog({ files, uniformType, outputDir: globalOutputDi
               <FolderOpen size={13} style={{ color: effectiveDir ? "var(--color-accent)" : "var(--color-text-muted)" }} />
               <span className="kd-small truncate" style={{ color: effectiveDir ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
                 {effectiveDir
-                  ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir ? " (설정의 저장 폴더)" : ""}`
-                  : "원본 파일 옆"
+                  ? `${effectiveDir.split(/[/\\]/).slice(-2).join("\\")}${!localOutputDir && globalOutputDir && outputSource ? ` (${outputSource})` : ""}`
+                  : "첫 파일이 있는 폴더"
                 }
               </span>
               <span className="kd-small font-semibold ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--color-accent)" }}>

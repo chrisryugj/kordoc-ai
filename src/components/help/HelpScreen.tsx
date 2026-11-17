@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Search, X } from "lucide-react";
 import { ScreenHeader } from "../shell/ScreenHeader";
+import { findLine } from "./search";
 import "./help.css";
 
 const PAGES = import.meta.glob("../../../docs/manual/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -40,10 +41,9 @@ export function HelpScreen({ active }: { active: boolean }) {
   const hits = useMemo(() => {
     const t = q.trim();
     if (!t) return null;
-    return CHAPTERS.filter((c) => c.body.includes(t)).map((c) => {
-      const i = c.body.indexOf(t);
-      const line = c.body.slice(Math.max(0, i - 30), i + t.length + 40).replace(/[#*`>|]/g, "").replace(/\s+/g, " ").trim();
-      return { c, line };
+    return CHAPTERS.flatMap((c) => {
+      const line = findLine(c.body, t);
+      return line === null ? [] : [{ c, line }];
     });
   }, [q]);
 

@@ -4,7 +4,8 @@
  * fillHwpx 가 누름틀 이름으로 먼저 채우고 남은 키는 라벨로 찾는다 (원본 서식 바이트 보존).
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   extractClickHereFields, extractFormSchema, fillHwpx, fillWithUniqueGuard, formatFillValue, readBuiltinTemplate, readBuiltinTemplateSample, resolveBuiltinTemplate,
@@ -18,6 +19,7 @@ import { formatOf } from '../files/format.js';
 import { outputDir, outputFile, safeFileName, stemOf, uniquePath } from '../output/index.js';
 import { isHeaderField } from '../fill/index.js';
 import { orgAutofill } from './org.js';
+import { readSheetView } from './xlsx-view.js';
 import type { MailMergePlan } from '../../types/rpc-contract.js';
 
 export interface LoadedTemplate {
@@ -77,18 +79,35 @@ export async function templateFill(p: { template?: string; path?: string; values
   return { output_path: outPath, filled: [...new Set(r.filled.map((f) => f.label))], unmatched: r.unmatched };
 }
 
-/** 명부 → [머리 행, 데이터 행들(엑셀 줄 번호)] — 머리는 칸이 둘 이상 찬 첫 줄 */
-async function readRoster(dataPath: string): Promise<{ header: string[]; rows: Array<{ row: number; cells: string[] }> }> {
+/** 명부 → [머리 행, 데이터 행들(엑셀 줄 번호), 건너뛴 숨긴 행 수] — 머리는 칸이 둘 이상 찬 첫 줄 */
+async function readRoster(dataPath: string): Promise<{ header: string[]; rows: Array<{ row: number; cells: string[] }>; hidden: number }> {
   const fmt = formatOf(dataPath);
   let grid: string[][];
+  let merges: NonNullable<ReturnType<typeof tableMerges>> = [];
+  // 표 줄 → 명부 줄 번호 (엑셀은 글 없는 줄이 표에서 빠지므로 시트 줄 번호로)
+  let rowNo = (i: number) => i + 1;
+  let isHidden = (_i: number) => false;
   if (fmt === 'csv' || fmt === 'txt') grid = parseCsv(await readTextFile(dataPath));
   else if (fmt === 'xlsx' || fmt === 'xls') {
     const r = await parseDoc(dataPath, { images: false, ocr: 'off' });
-    const table = r.blocks.find((b) => b.type === 'table' && b.table)?.table;
+    const block = r.blocks.find((b) => b.type === 'table' && b.table);
+    const table = block?.table;
     if (!table) throw new Error('명부 첫 시트에서 표를 찾지 못했습니다.');
     grid = tableGrid(table);
+    const { sourceRows, sourceCols } = table;
+    if (sourceRows) rowNo = (i) => sourceRows[i] + 1;
+    // 숫자 칸은 엑셀에 보이는 글로 (010-1234-5678·50%·1,234,000·004321). kordoc 표는 원래 값(1012345678·0.5)만 준다
+    if (fmt === 'xlsx' && sourceRows && sourceCols) {
+      const view = await readSheetView(await readFile(dataPath), (block.pageNumber ?? 1) - 1);
+      grid.forEach((row, i) => row.forEach((_, j) => {
+        const shown = view.display.get(`${sourceRows[i]},${sourceCols[j]}`);
+        if (shown !== undefined) row[j] = shown;
+      }));
+      isHidden = (i) => view.hiddenRows.has(sourceRows[i]);
+    }
+    merges = tableMerges(table) ?? [];
     // 세로로 합친 칸(부서를 여러 사람에 걸쳐 합친 명부)은 합친 줄마다 같은 값으로. 안 채우면 둘째 사람부터 그 칸이 빈 문서가 된다
-    for (const m of tableMerges(table) ?? []) {
+    for (const m of merges) {
       for (let r = m.r + 1; r < m.r + m.rs && r < grid.length; r++) if (!(grid[r][m.c] ?? '').trim()) grid[r][m.c] = grid[m.r][m.c];
     }
   } else throw new Error('명부는 엑셀(xlsx·xls)이나 CSV 파일로 넣으세요.');
@@ -96,16 +115,39 @@ async function readRoster(dataPath: string): Promise<{ header: string[]; rows: A
   let hi = grid.findIndex((r) => filled(r) >= 2);
   if (hi < 0) hi = grid.findIndex((r) => filled(r) >= 1);
   if (hi < 0) throw new Error('명부가 비어 있습니다.');
+  const clean = (s: string | undefined) => (s ?? '').replace(/\s*\n\s*/g, ' ').trim();
+  // 머리 줄에 합친 칸이 있으면 머리가 두 줄 (성명 | 연락처(전화·이메일)). 둘째 줄을 사람 한 명으로 읽지 않게 머리로 합친다
+  const headMerges = merges.filter((m) => m.r === hi && (m.rs > 1 || m.cs > 1));
+  let depth = 1;
+  let names = grid[hi].map((c) => clean(c));
+  if (headMerges.length) {
+    if (headMerges.some((m) => m.rs > 2) || merges.some((m) => m.r === hi + 1 && m.cs > 1)) {
+      throw new Error('명부 머리 줄이 세 줄 이상으로 합쳐져 있어 어느 열이 무엇인지 정하지 못했습니다. 엑셀에서 머리 칸 합치기를 풀고 첫 줄에 칸 이름을 한 줄로 적은 뒤 명부를 다시 고르세요.');
+    }
+    depth = 2;
+    const cover = (c: number, m: { c: number; cs: number }) => c >= m.c && c < m.c + m.cs;
+    const pairs = grid[hi].map((_, c) => {
+      const m = headMerges.find((x) => cover(c, x));
+      const top = clean(m ? grid[hi][m.c] : grid[hi][c]);
+      // 위아래로 합친 머리 칸은 아랫줄이 없다
+      const under = headMerges.some((x) => x.rs > 1 && cover(c, x)) ? '' : clean(grid[hi + 1]?.[c]);
+      return [top, under] as const;
+    });
+    // 아랫줄 이름(전화·이메일)을 열 이름으로, 같은 아랫줄 이름이 여럿이면 윗줄을 앞에 (1학기 점수·2학기 점수)
+    names = pairs.map(([top, under]) => (!under ? top : top && top !== under && pairs.filter(([, u]) => u === under).length > 1 ? `${top} ${under}` : under));
+  }
   // 같은 이름의 열이 둘이면 뒤 것에 번호를 붙인다 (이름으로 값을 모으므로, 그대로 두면 뒤 열이 앞 열 값을 지운다)
   const seen = new Map<string, number>();
-  const header = grid[hi].map((c, i) => {
-    const name = c.replace(/\s*\n\s*/g, ' ').trim() || `열${i + 1}`;
+  const header = names.map((c, i) => {
+    const name = c || `열${i + 1}`;
     const n = (seen.get(name) ?? 0) + 1;
     seen.set(name, n);
     return n > 1 ? `${name} (${n})` : name;
   });
-  const rows = grid.slice(hi + 1).map((cells, i) => ({ row: hi + 2 + i, cells })).filter((r) => filled(r.cells) > 0);
-  return { header, rows };
+  const data = grid.map((cells, i) => ({ i, cells })).slice(hi + depth).filter((r) => filled(r.cells) > 0);
+  // 엑셀에서 숨긴 행은 문서로 만들지 않는다 (지운 사람·거른 사람)
+  const rows = data.filter((r) => !isHidden(r.i)).map((r) => ({ row: rowNo(r.i), cells: r.cells }));
+  return { header, rows, hidden: data.length - rows.length };
 }
 
 const squash = (s: string) => s.replace(/\s+/g, '');
@@ -122,7 +164,7 @@ function formatCell(column: string, v: string): string {
 type MergeParams = { template_path?: string; template?: string; data_path: string; name_column?: string; output_dir?: string; org?: boolean };
 
 /** 명부 열 ↔ 양식 칸 짝 — 열마다 실제로 채워 보고 어느 칸에 들어가는지 잰다 */
-async function planMerge(p: MergeParams, t: LoadedTemplate, header: string[], rows: Array<{ row: number; cells: string[] }>): Promise<MailMergePlan> {
+async function planMerge(p: MergeParams, t: LoadedTemplate, header: string[], rows: Array<{ row: number; cells: string[] }>, hidden = 0): Promise<MailMergePlan> {
   const names = (await templateFields({ template: p.template, path: p.template_path })).fields.map((f) => f.name);
   const sample = (c: number) => rows.map((r) => (r.cells[c] ?? '').trim()).find(Boolean);
   const columns: MailMergePlan['columns'] = [];
@@ -135,20 +177,23 @@ async function planMerge(p: MergeParams, t: LoadedTemplate, header: string[], ro
   const rejected = Object.keys(all).length ? (await fillWithUniqueGuard(all, (v, blocked) => fillHwpx(t.buf, v, blocked))).rejected : [];
   const fieldOf = (f: string) => columns.find((c) => !rejected.includes(c.name) && c.fields.some((x) => squash(x) === squash(f)))?.name;
   const free = names.filter((f) => !fieldOf(f));
-  const org = p.org === false ? {} : orgAutofill(free).values;
+  // 내 양식은 받는 사람마다 다른 문서라 명부에 없는 칸(직위·연락처·일자)에 내 정보가 들어가면 틀린 문서가 된다 → 켤 때만.
+  // 내장 서식(기안문 등)의 기관 칸은 결문·발신명의(보내는 쪽 = 나)라 받는 사람과 상관없이 내 정보가 맞다 → 기본 켬
+  const org = (p.org ?? !p.template_path) ? orgAutofill(free).values : {};
   return {
     rows: rows.length,
     columns,
     fields: names.map((name) => ({ name, ...(fieldOf(name) ? { column: fieldOf(name) } : org[name] ? { org: org[name] } : {}) })),
     rejected,
+    ...(hidden ? { hidden_rows: hidden } : {}),
   };
 }
 
 /** 명부와 양식을 보고 어느 열이 어느 칸에 들어가는지 미리 (mail_merge_plan) */
 export async function mailMergePlan(p: MergeParams): Promise<MailMergePlan> {
   const t = await loadTemplate(p.template, p.template_path);
-  const { header, rows } = await readRoster(p.data_path);
-  return planMerge(p, t, header, rows);
+  const { header, rows, hidden } = await readRoster(p.data_path);
+  return planMerge(p, t, header, rows, hidden);
 }
 
 export async function mailMerge(
@@ -174,8 +219,12 @@ export async function mailMerge(
   const outputs: string[] = [];
   const failed: Array<{ row: number; error: string }> = [];
   const rejected = new Set<string>();
+  const dirExisted = existsSync(dir);
   for (const [i, r] of rows.entries()) {
-    signal.throwIfAborted();
+    if (signal.aborted) {
+      await dropCancelled(outputs, dirExisted ? '' : dir);
+      signal.throwIfAborted();
+    }
     sendProgress({ current: i + 1, total: rows.length, message: `${i + 1}/${rows.length}번째 문서 만드는 중` });
     try {
       const cells = Object.fromEntries(header.map((h, c) => [h, formatCell(h, r.cells[c] ?? '')]).filter(([h]) => used.includes(h))) as Record<string, string>;
@@ -193,9 +242,18 @@ export async function mailMerge(
       await writeFile(outPath, Buffer.from(res.buffer));
       outputs.push(outPath);
     } catch (err) {
-      if (signal.aborted) throw err;
+      if (signal.aborted) {
+        await dropCancelled(outputs, dirExisted ? '' : dir);
+        throw err;
+      }
       failed.push({ row: r.row, error: errorText(err) });
     }
   }
   return { outputs, failed, output_dir: outputs.length ? dir : '', rejected: [...rejected] };
+}
+
+/** 취소한 명부 합치기의 뒷정리: 이번 실행이 만든 문서만 지우고, 이번 실행이 만든 폴더는 비었을 때만 지운다 (원래 있던 파일·폴더는 그대로) */
+async function dropCancelled(outputs: string[], createdDir: string): Promise<void> {
+  for (const f of outputs) await rm(f, { force: true });
+  if (createdDir) await rmdir(createdDir).catch(() => undefined); // 비어 있지 않거나(사용자가 그새 넣은 파일) 만들지 않았으면 그대로
 }

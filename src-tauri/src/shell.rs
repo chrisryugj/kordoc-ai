@@ -636,6 +636,12 @@ fn is_network_path(a: &str) -> bool {
 
 /// 실행 인자 → (동작, 파일들). `--shell <동작> <파일…>` 또는 파일만(= open)
 pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
+    parse_args_in(args, &std::env::current_dir().unwrap_or_default())
+}
+
+/// 상대 경로는 그 실행을 띄운 쪽의 현재 폴더(cwd)로 푼다. 앱이 이미 켜져 있으면 single-instance 가 넘겨준 두 번째 실행의 폴더다
+/// (풀지 않고 넘기면 Rust 는 앱 폴더, 엔진은 엔진 폴더 기준으로 읽어 서로 다른 파일을 가리킨다)
+pub fn parse_args_in(args: &[String], cwd: &std::path::Path) -> Option<(String, Vec<String>)> {
     let rest: Vec<&String> = args.iter().skip(1).collect();
     if rest.is_empty() {
         return None;
@@ -654,8 +660,22 @@ pub fn parse_args(args: &[String]) -> Option<(String, Vec<String>)> {
     // 찔러 보지 않고 그대로 넘긴다: 엔진이 열지 않고 "네트워크 경로는 쓸 수 없습니다"로 알린다 (말없이 버리면 빈 창만 뜬다)
     let files: Vec<String> = rest
         .iter()
-        .filter(|a| !a.starts_with("-") && (is_network_path(a) || std::path::Path::new(a.as_str()).is_file()))
-        .map(|s| s.to_string())
+        .filter(|a| !a.starts_with("-"))
+        .filter_map(|a| {
+            if is_network_path(a) {
+                return Some(a.to_string());
+            }
+            let p = std::path::Path::new(a.as_str());
+            let abs = if p.is_absolute() {
+                p.to_path_buf()
+            } else if p.components().next().is_some_and(|c| matches!(c, std::path::Component::Prefix(_))) {
+                // "C:a.hwp" 처럼 드라이브만 붙은 상대 경로
+                std::path::absolute(p).ok()?
+            } else {
+                cwd.join(p)
+            };
+            abs.is_file().then(|| abs.to_string_lossy().into_owned())
+        })
         .collect();
     (!files.is_empty()).then(|| ("open".to_string(), files))
 }
@@ -1052,6 +1072,16 @@ mod tests {
         for local in ["\\\\?\\C:\\a\\b.hwp", "C:\\a\\b.hwp", "/Users/a/b.hwp", "Z:\\share\\a.hwp"] {
             assert!(!is_network_path(local), "{local}");
         }
+    }
+
+    #[test]
+    fn relative_paths_resolve_against_the_launching_folder() {
+        let me = std::env::current_exe().unwrap();
+        let (dir, name) = (me.parent().unwrap(), me.file_name().unwrap().to_string_lossy().into_owned());
+        // 두 번째 실행의 폴더 기준으로 풀어 절대 경로로 넘긴다
+        assert_eq!(parse_args_in(&["app".into(), name.clone()], dir), Some(("open".into(), vec![me.to_string_lossy().into_owned()])));
+        // 다른 폴더 기준이면 그 파일이 없다
+        assert_eq!(parse_args_in(&["app".into(), name], dir.parent().unwrap()), None);
     }
 
     #[test]

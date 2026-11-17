@@ -1,7 +1,7 @@
 /** 편집기 AI 대화 기록 덜어내기 — 지난 요청의 문서 맥락은 빼고, 길면 오래된 요청부터 통째로 */
 
 import { describe, it, expect, vi } from "vitest";
-import { runAgent, trimHistory, type AgentEvent } from "./loop";
+import { failSummary, runAgent, trimHistory, wireEvents, type AgentEvent } from "./loop";
 import type { AgentSkill } from "./types";
 
 const step = vi.hoisted(() => vi.fn());
@@ -93,5 +93,61 @@ describe("runAgent — 헛도는 모델", () => {
     const r = await runAgent({ skill: skill(async (c) => ({ output: `못 찾음 ${String(c.input.path)}`, summary: "실패", isError: true })), events: [], request: "읽어", signal: ac(), hooks: hooks() });
     expect(step).toHaveBeenCalledTimes(5);
     expect(r.text).toMatch(/계속 실패/);
+  });
+});
+
+describe("차례 교대 — 사용자 차례가 연달아 가지 않게", () => {
+  const skill = (executeTool: AgentSkill["executeTool"]): AgentSkill => ({ systemPrompt: "", tools: [], executeTool } as unknown as AgentSkill);
+  const hooks = () => ({ onText: vi.fn(), onTool: vi.fn() });
+  const ac = () => new AbortController().signal;
+  const call = () => ({ text: "", redacted: 0, calls: [{ id: "1", name: "read_document", input: {} }] });
+  /** 엔진이 도구 결과를 사용자 차례로 싣는 것과 같이 본 역할 */
+  const roles = (ev: AgentEvent[]) => ev.map((e) => (e.role === "assistant" ? "assistant" : "user"));
+  const alternates = (ev: AgentEvent[]) => roles(ev).every((r, i, a) => i === 0 || r !== a[i - 1]);
+
+  it("헛돌아 멈춘 요청 뒤 다음 요청을 보내도 차례가 번갈아 간다", async () => {
+    const ev: AgentEvent[] = [];
+    step.mockReset().mockResolvedValue(call());
+    const r = await runAgent({ skill: skill(async () => ({ output: "같은 글", summary: "읽음" })), events: ev, request: "읽어", signal: ac(), hooks: hooks() });
+    expect(ev[ev.length - 1]).toEqual({ role: "assistant", text: r.text, calls: [] });
+    step.mockReset().mockResolvedValue({ text: "알겠습니다", redacted: 0, calls: [] });
+    await runAgent({ skill: skill(vi.fn()), events: ev, request: "다시 해", signal: ac(), hooks: hooks() });
+    expect(alternates(step.mock.calls[0][1].events)).toBe(true);
+  });
+
+  it("되돌리기 알림 뒤 새 요청은 사용자 차례 하나로 합쳐 보낸다", async () => {
+    const ev: AgentEvent[] = [ask("고쳐"), say("고쳤습니다"), ask("(사용자가 바로 앞 요청의 변경을 모두 되돌렸습니다.)")];
+    step.mockReset().mockResolvedValue({ text: "네", redacted: 0, calls: [] });
+    await runAgent({ skill: skill(vi.fn()), events: ev, request: "제목만 고쳐", signal: ac(), hooks: hooks() });
+    const sent: AgentEvent[] = step.mock.calls[0][1].events;
+    expect(sent).toHaveLength(3);
+    expect(sent[2]).toEqual({ role: "user", text: "(사용자가 바로 앞 요청의 변경을 모두 되돌렸습니다.)\n\n제목만 고쳐" });
+    // 부른 쪽이 쥔 대화는 그대로 (합치는 것은 보낼 때만)
+    expect(ev[2]).toEqual(ask("(사용자가 바로 앞 요청의 변경을 모두 되돌렸습니다.)"));
+  });
+
+  it("wireEvents 는 합친 차례에 새 요청의 문서 맥락을 남긴다", () => {
+    expect(wireEvents([ask("앞"), ask("뒤", "문서 글")])).toEqual([ask("앞\n\n뒤", "문서 글")]);
+    expect(wireEvents([ask("하나"), say("답"), ask("둘")])).toHaveLength(3);
+  });
+});
+
+describe("활동 줄의 실패 글", () => {
+  it("도구가 던진 오류에 내부 도구 이름을 붙이지 않고, 영어 원문은 내지 않는다", () => {
+    expect(failSummary(new Error("편집기가 답하지 않습니다"))).toBe("하지 못함 · 편집기가 답하지 않습니다");
+    expect(failSummary(new Error("Cannot read properties of undefined"))).toBe("하지 못함");
+  });
+
+  it("도구가 던지거나 인자가 틀려도 진행 줄에 도구 이름이 나오지 않는다", async () => {
+    step.mockReset()
+      .mockResolvedValueOnce({ text: "", redacted: 0, calls: [{ id: "1", name: "replace_text", input: {}, inputError: "replace_text 에 꼭 필요한 인자가 빠졌습니다: find" }] })
+      .mockResolvedValueOnce({ text: "", redacted: 0, calls: [{ id: "2", name: "replace_text", input: { find: "가", replace: "나" } }] })
+      .mockResolvedValueOnce({ text: "못 했습니다", redacted: 0, calls: [] });
+    const h = { onText: vi.fn(), onTool: vi.fn() };
+    const sk = { systemPrompt: "", tools: [], executeTool: async () => { throw new Error("boom"); } } as unknown as AgentSkill;
+    await runAgent({ skill: sk, events: [], request: "바꿔", signal: new AbortController().signal, hooks: h });
+    const lines = h.onTool.mock.calls.map(([t]) => t.summary as string);
+    expect(lines).toHaveLength(2);
+    expect(lines.some((s) => /replace_text|boom/.test(s))).toBe(false);
   });
 });

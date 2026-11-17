@@ -18,7 +18,7 @@ export function SealTool({ doc }: ToolProps) {
   const [picked, setImage] = useState("");
   const image = picked || settings?.org.seal_image || "";
   const [anchor, setAnchor] = useState("(인)");
-  const task = useTask<{ output_path: string; placed: number }>();
+  const task = useTask<{ output_path: string; placed: number; others?: number; reason?: string }>();
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,8 +43,11 @@ export function SealTool({ doc }: ToolProps) {
       )}
       <ErrorLine message={task.error} />
       {task.result && (task.result.placed > 0
-        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다`} />
-        : <Note tone="warn">“{anchor}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.</Note>)}
+        ? <>
+            <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다`} />
+            {!!task.result.others && <Note tone="info">문서의 첫 서명 자리에만 찍었습니다. 남은 (인) {task.result.others}곳은 다른 사람의 자리일 수 있어 비워 두었습니다. 더 찍을 곳은 찍을 자리 글자를 그 칸의 글(예: 담당 이두리)로 바꿔 한 번 더 찍으세요.</Note>}
+          </>
+        : <Note tone="warn">{task.result.reason ?? `“${anchor}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.`}</Note>)}
     </div>
   );
 }

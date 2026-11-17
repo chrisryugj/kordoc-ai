@@ -132,26 +132,44 @@ export function requestText(sentence: string): string {
   return t.length > 160 ? `${t.slice(0, 159)}…` : t;
 }
 
-/** 표의 기한 칸 — 머리줄 "…기한" 칸 아래 값, 또는 "| 제출기한 | 날짜 |" */
+/** 제출 기한 머리 칸: 기한·마감, 제출·회신·보고·신청·접수 + 기한·마감·일. 추진기한·완료기한(일정표)은 요청이 아니다 */
+const DUE_HEAD = /^(?:(?:제출|회신|보고|신청|접수|등록|송부|납부)(?:기한|마감|마감일|일|일자|기일)|기한|마감|마감일)$/;
+/** 서류 이름이 든 열의 머리 (구분 열의 "필수"·제출처 열의 "총무과"는 이름이 아니다) */
+const NAME_HEAD = /서류|자료|항목|내용|과제|사업|명칭|제목|건명|품명|양식|서식/;
+/** 표 칸 글만: 굵게·줄바꿈 표시를 걷는다 */
+const plainCell = (c: string) => c.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim();
+
+/** 표의 기한 칸 — 머리줄 "제출기한" 칸 아래 값, 또는 "| 제출기한 | 날짜 |". 한 표의 기한은 가장 이른 것 하나로 묶는다 */
 function tableDeadlines(lines: string[], ref: string, items: number[]): Deadline[] {
   const out: Deadline[] = [];
-  const LABEL = /기\s*한|마\s*감/;
+  const isDueHead = (c: string) => DUE_HEAD.test(c.replace(/\([^)]*\)|\[[^\]]*\]|\s/g, ''));
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].startsWith('|')) continue;
     const start = i;
     const rows: string[][] = [];
     for (; i < lines.length && lines[i].startsWith('|'); i++) {
-      const cells = lines[i].replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const cells = lines[i].replace(/^\||\|$/g, '').split('|').map(plainCell);
       if (!cells.every((c) => c === '' || /^:?-{2,}:?$/.test(c))) rows.push(cells);
     }
+    const found: Array<{ label: string; name: string; due: string }> = [];
     const add = (label: string, cell?: string, name = '') => {
       const due = cell ? dateAtStart(cell, ref) : undefined;
-      if (due) out.push({ label: `${name} ${label.replace(/\s+/g, '')}`.trim(), due, line: start, item: items[start] ?? 0 });
+      if (due) found.push({ label: label.replace(/\s+/g, ''), name, due });
     };
-    // 기한 열 아래 행마다 기한이 다르면(서류별 제출기한) 그 행의 이름 칸을 이름표에 붙인다: "사업계획서 제출기한"
-    const nameOf = (r: string[], j: number) => r.find((c, k) => k !== j && c && c.length <= 30 && !/^\d+$/.test(c) && !dateAtStart(c, ref)) ?? '';
-    rows[0]?.forEach((h, j) => { if (LABEL.test(h)) rows.slice(1).forEach((r) => add(h, r[j], nameOf(r, j))); });
-    rows.forEach((r) => r.forEach((c, j) => { if (LABEL.test(c)) add(c, r[j + 1]); }));
+    // 행마다 서류 이름이 있으면 이름표에 붙인다: "사업계획서 제출기한"
+    const nameCol = rows[0]?.findIndex((h) => NAME_HEAD.test(h) && !isDueHead(h)) ?? -1;
+    rows[0]?.forEach((h, j) => { if (isDueHead(h)) rows.slice(1).forEach((r) => add(h, r[j], nameCol >= 0 ? r[nameCol] ?? '' : '')); });
+    rows.forEach((r) => r.forEach((c, j) => { if (isDueHead(c)) add(c, r[j + 1]); }));
+    if (!found.length) continue;
+    // 행마다 한 줄씩이면 같은 날 내는 서류 12행이 요청 12건이 된다 → 같은 기한끼리 묶고 이름은 "신청서 외 2건".
+    // 기한이 다른 서류는 따로 둔다 (늦은 기한을 빼면 그 서류를 잊는다). 차례는 표에 나온 차례
+    for (const due of [...new Set(found.map((f) => f.due))]) {
+      const group = found.filter((f) => f.due === due);
+      const first = group[0];
+      const names = new Set(group.map((f) => f.name).filter(Boolean));
+      const name = first.name && names.size > 1 ? `${first.name} 외 ${names.size - 1}건` : first.name;
+      out.push({ label: `${name} ${first.label}`.trim(), due, line: start, item: items[start] ?? 0 });
+    }
   }
   return out;
 }

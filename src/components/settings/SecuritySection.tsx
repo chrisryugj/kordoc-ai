@@ -4,7 +4,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FolderOpen, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Eraser, FolderOpen, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Modal } from "../ui/Modal";
+import { wipeTraces } from "../../lib/wipe";
 import type { SecurityStatus } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { useSectionMark } from "./marks";
@@ -32,6 +34,22 @@ export function SecuritySection({ active }: { active: boolean }) {
   const [error, setError] = useState("");
   const [checkedAt, setCheckedAt] = useState(0);
   const lk = useLocked();
+  const [wipeAsk, setWipeAsk] = useState(false);
+  const [wiping, setWiping] = useState(false);
+  const [wipeError, setWipeError] = useState("");
+
+  const wipe = async () => {
+    setWiping(true);
+    setWipeError("");
+    try {
+      await wipeTraces();
+      // 화면에 떠 있는 대화·최근 목록·열린 문서도 비운다
+      window.location.reload();
+    } catch (e) {
+      setWipeError(`지우지 못했습니다: ${errorText(e)}`);
+      setWiping(false);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try { setSt(await rpc("security_status", {})); setError(""); setCheckedAt(Date.now()); }
@@ -86,6 +104,22 @@ export function SecuritySection({ active }: { active: boolean }) {
           </div>
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-3 mt-5">
+        <div className="min-w-0 flex-1">
+          <h3 className="kd-label">이 PC의 작업 흔적</h3>
+          <p className="kd-small kd-muted">AI 대화, 최근 문서, 복구·작업 사본, 임시 파일, 편집기 자동 저장을 지웁니다. 공용 PC를 쓰거나 PC를 반납하기 전에 씁니다.</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setWipeAsk(true)}><Eraser size={13} /> 모두 지우기</Button>
+      </div>
+      <ErrorLine message={wipeError} />
+      <Modal isOpen={wipeAsk} onClose={() => { if (!wiping) setWipeAsk(false); }} title="작업 흔적 모두 지우기" size="sm"
+        footer={<div className="flex justify-end gap-2"><Button variant="secondary" disabled={wiping} onClick={() => setWipeAsk(false)}>취소</Button><Button variant="danger" disabled={wiping} onClick={() => void wipe()}>{wiping ? "지우는 중" : "지우기"}</Button></div>}>
+        <div className="kd-text flex flex-col gap-2">
+          <p>이 PC에 남은 AI 대화, 최근 문서 목록, 저장하지 않은 문서의 복구 사본, 새로 쓰기 작업 사본, 임시 파일을 지웁니다. 지우면 되돌리지 못합니다.</p>
+          <p>열려 있는 문서와 대화는 닫힙니다. 저장하지 않은 문서는 먼저 저장하세요.</p>
+          <p className="kd-small kd-muted">설정(기관 정보·AI 키), 서식·문체, 내 지시문, 받은 공문 목록, 저장한 결과 파일은 남깁니다.</p>
+        </div>
+      </Modal>
     </Section>
   );
 }

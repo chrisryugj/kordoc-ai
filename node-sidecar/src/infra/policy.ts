@@ -7,7 +7,7 @@
  * 파일 자체가 깨졌으면(못 읽음·UTF-8 아님·JSON 아님·version 다름) 통째로 무시하고 error 로 화면에 알린다.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { logger } from './logger.js';
@@ -109,16 +109,66 @@ export function writableByOthers(sddl: string, folder = false): boolean {
   return false;
 }
 
-/** 파일·폴더의 SDDL 을 읽는다 (Windows). 경로는 환경 변수로 넘겨 따옴표·특수 문자 문제를 피한다 */
+const SDDL_ARGS = ['-NoProfile', '-NonInteractive', '-Command', '(Get-Acl -LiteralPath $env:KORDOC_POLICY_FILE).Sddl'];
+
+/** 파일·폴더의 SDDL 을 읽는다 (Windows). 경로는 환경 변수로 넘겨 따옴표·특수 문자 문제를 피한다.
+ *  엔진이 설정을 처음 정할 때만 쓴다(그 전에 요청을 받으면 안 된다). 그 뒤의 다시 보기는 readOwnerSddlAsync */
 function readOwnerSddl(path: string): string {
-  return execFileSync(winTool('powershell'), ['-NoProfile', '-NonInteractive', '-Command', '(Get-Acl -LiteralPath $env:KORDOC_POLICY_FILE).Sddl'], {
+  return execFileSync(winTool('powershell'), SDDL_ARGS, {
     env: { ...process.env, KORDOC_POLICY_FILE: path }, encoding: 'utf-8', timeout: 15_000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
   });
 }
 
+/** readOwnerSddl 의 비동기판: PowerShell 이 15초를 다 써도 엔진(AI 글 흘리기·편집기 서버·다른 호출)은 멈추지 않는다 */
+function readOwnerSddlAsync(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(winTool('powershell'), SDDL_ARGS, {
+      env: { ...process.env, KORDOC_POLICY_FILE: path }, encoding: 'utf-8', timeout: 15_000, windowsHide: true,
+    }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    child.stdin?.end();
+  });
+}
+
+type OwnerState = 'ok' | 'bad' | 'unknown';
 /** 판정 기억 — 소유자·권한은 파일 수정 시각을 바꾸지 않으므로 잠깐만 기억한다(오래 떠 있는 MCP 서버가 고친 권한을 다시 본다) */
-const ownerSeen = new Map<string, { ok: boolean; at: number }>();
+const ownerSeen = new Map<string, { state: OwnerState; at: number }>();
 const SEEN_MS = 60_000;
+const ownerKey = (path: string, st: { mtimeMs: number; size: number }) => `${path}|${st.mtimeMs}|${st.size}`;
+const judge = (file: string, dir: string): OwnerState => (adminOwned(file) && !writableByOthers(file) && adminOwned(dir) && !writableByOthers(dir, true) ? 'ok' : 'bad');
+
+/** 뒤에서 다시 본 판정이 바뀌었을 때 부를 것 (config 가 설정을 다시 짠다) */
+let changedHook: (() => void) | null = null;
+export function onMachinePolicyChange(fn: (() => void) | null): void { changedHook = fn; }
+const checking = new Map<string, Promise<void>>();
+
+/** 소유자·권한을 비동기로 다시 보고 기억을 바꾼다. 판정이 바뀌면 onMachinePolicyChange 로 알린다 */
+function recheck(path: string, read: (p: string) => Promise<string>): Promise<void> {
+  const running = checking.get(path);
+  if (running) return running;
+  const p = (async () => {
+    const st = statSync(path, { throwIfNoEntry: false });
+    if (!st) return;
+    const key = ownerKey(path, st);
+    const prev = ownerSeen.get(key)?.state ?? 'unknown';
+    let state: OwnerState;
+    try {
+      const [file, dir] = await Promise.all([read(path), read(win32.dirname(path))]);
+      state = judge(file, dir);
+    } catch {
+      state = 'unknown';
+    }
+    ownerSeen.set(key, { state, at: Date.now() });
+    if (state !== prev) changedHook?.();
+  })().finally(() => checking.delete(path));
+  checking.set(path, p);
+  return p;
+}
+
+/** 기계 전체 자리의 정책 파일을 엔진을 멈추지 않고 다시 본다 (미뤄 둔 정책 다시 보기). Windows 만 */
+export async function recheckMachinePolicies(read: (p: string) => Promise<string> = readOwnerSddlAsync, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (platform !== 'win32') return;
+  await Promise.all(policyCandidates().filter((p) => isMachineSpot(p) && existsSync(p)).map((p) => recheck(p, read)));
+}
 
 /** 기계 전체 자리(%ProgramData%·/Library)의 정책 파일을 믿어도 되는가 — 파일과 그 폴더의 소유자가 관리자·시스템이고,
  *  관리자 쪽이 아닌 계정이 고칠 수 없을 때만.
@@ -129,19 +179,25 @@ export function machinePolicyTrusted(path: string, platform: NodeJS.Platform = p
   return machinePolicyState(path, platform, readSddl, now) === 'ok';
 }
 
-/** ok: 믿는다 · bad: 소유자·권한이 나쁘다 · unknown: 확인하지 못했다(확인 도구가 막히거나 응답이 늦음. 믿지 않되, 나중에 다시 본다) */
-export function machinePolicyState(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl, now = Date.now()): 'ok' | 'bad' | 'unknown' {
+/** ok: 믿는다 · bad: 소유자·권한이 나쁘다 · unknown: 확인하지 못했다(확인 도구가 막히거나 응답이 늦음. 믿지 않되, 나중에 다시 본다).
+ *  background 를 주면 PowerShell 을 기다리지 않는다(엔진이 요청을 받는 중). 기억한 판정을 쓰고(없으면 unknown: 조이는 값만 적용),
+ *  기억이 없거나 오래됐으면 background 로 뒤에서 다시 본다 */
+export function machinePolicyState(path: string, platform: NodeJS.Platform = process.platform, readSddl: (p: string) => string = readOwnerSddl, now = Date.now(), background?: (p: string) => Promise<string>): OwnerState {
+  const cachedOnly = background !== undefined;
   try {
     const st = statSync(path);
     if (platform !== 'win32') return st.uid === 0 && (st.mode & 0o022) === 0 ? 'ok' : 'bad';
-    const key = `${path}|${st.mtimeMs}|${st.size}`;
+    const key = ownerKey(path, st);
     const hit = ownerSeen.get(key);
-    if (hit && now - hit.at < SEEN_MS) return hit.ok ? 'ok' : 'bad';
-    const file = readSddl(path);
-    const dir = readSddl(win32.dirname(path));
-    const ok = adminOwned(file) && !writableByOthers(file) && adminOwned(dir) && !writableByOthers(dir, true);
-    ownerSeen.set(key, { ok, at: now });
-    return ok ? 'ok' : 'bad';
+    // 확인 못 한 판정은 동기 확인 때는 쓰지 않는다(다시 확인해 본다)
+    if (hit && now - hit.at < SEEN_MS && (cachedOnly || hit.state !== 'unknown')) return hit.state;
+    if (background) {
+      void recheck(path, background);
+      return hit?.state ?? 'unknown';
+    }
+    const state = judge(readSddl(path), readSddl(win32.dirname(path)));
+    ownerSeen.set(key, { state, at: now });
+    return state;
   } catch {
     return 'unknown';
   }
@@ -219,10 +275,10 @@ function leafPaths(o: Obj, prefix = ''): string[] {
 /** 정책 파일을 찾아 읽는다. 없으면 null. shape 는 정할 수 있는 구획의 기본값.
  *  앞 자리의 파일을 못 쓰면(믿지 못하는 소유자·권한, 깨진 파일) 다음 자리로 넘어간다: 일반 사용자가 %ProgramData% 에 아무 파일이나
  *  만들어 두는 것만으로 설치 폴더의 기관 정책(폐쇄망 모드·AI 서버 주소 고정)이 통째로 풀리면 안 된다 */
-export function loadPolicy(shape: Obj): Policy | null {
+export function loadPolicy(shape: Obj, opts: { cachedOnly?: boolean } = {}): Policy | null {
   let failed: Policy | null = null;
   for (const source of policyCandidates().filter((p) => existsSync(p))) {
-    const one = readPolicy(source, shape);
+    const one = readPolicy(source, shape, opts.cachedOnly ?? false);
     if (!one.error) return one;
     failed ??= one;
   }
@@ -243,11 +299,11 @@ function tightenOnly(source: string): Obj {
   return out;
 }
 
-function readPolicy(source: string, shape: Obj): Policy {
+function readPolicy(source: string, shape: Obj, cachedOnly: boolean): Policy {
   let raw: Obj;
   let unverified = false;
   try {
-    const state = isMachineSpot(source) ? machinePolicyState(source) : 'ok';
+    const state = isMachineSpot(source) ? machinePolicyState(source, process.platform, readOwnerSddl, Date.now(), cachedOnly ? readOwnerSddlAsync : undefined) : 'ok';
     if (state === 'unknown') {
       unverified = true;
       throw new Error('파일의 소유자·권한을 확인하지 못해 아직 적용하지 않았습니다(확인에 쓰는 PowerShell 이 막혔거나 응답이 늦습니다). 잠시 뒤 다시 확인합니다. 계속 이 문장이 보이면 배포 안내 문서대로 설치 폴더에 정책 파일을 두세요');

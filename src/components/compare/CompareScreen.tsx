@@ -15,6 +15,7 @@ import { Check, Seg } from "../common/Field";
 import { Empty, ErrorLine, Note, SavedFile, Working } from "../common/Status";
 import { FormatBadge } from "../common/FormatBadge";
 import { ComparePane } from "./ComparePane";
+import { wordDiff } from "./wordDiff";
 
 type Row = CompareVisualResult["rows"][number];
 const TYPE: Record<Row["type"], { label: string; tone: string }> = {
@@ -24,24 +25,6 @@ const TYPE: Record<Row["type"], { label: string; tone: string }> = {
   unchanged: { label: "같음", tone: "" },
 };
 
-/** 낱말 단위 차이 (LCS) — 너무 길면 강조 없이 */
-function wordDiff(a: string, b: string): { old: Array<[string, boolean]>; next: Array<[string, boolean]> } | null {
-  const x = a.split(/(\s+)/);
-  const y = b.split(/(\s+)/);
-  if (x.length * y.length > 60000) return null;
-  const dp = Array.from({ length: x.length + 1 }, () => new Array<number>(y.length + 1).fill(0));
-  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) dp[i][j] = x[i] === y[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  const old: Array<[string, boolean]> = [];
-  const next: Array<[string, boolean]> = [];
-  let i = 0;
-  let j = 0;
-  while (i < x.length || j < y.length) {
-    if (i < x.length && j < y.length && x[i] === y[j]) { old.push([x[i], false]); next.push([y[j], false]); i++; j++; }
-    else if (j < y.length && (i >= x.length || dp[i][j + 1] >= dp[i + 1][j])) { next.push([y[j], !/^\s+$/.test(y[j])]); j++; }
-    else { old.push([x[i], !/^\s+$/.test(x[i])]); i++; }
-  }
-  return { old, next };
-}
 
 /** 비교는 쪽 구조가 있는 문서만 (글 파일·그림은 엔진 비교가 읽지 못한다) */
 const COMPARE_FORMATS: DocFormat[] = ["hwp", "hwpx", "hwpml", "pdf", "docx", "xlsx", "xls", "pptx"];

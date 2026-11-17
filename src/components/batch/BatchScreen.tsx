@@ -255,7 +255,7 @@ export function BatchScreen({ active }: { active: boolean }) {
                         </div>
                       </div>
                     ) : ordered ? (
-                      <div className="mt-2"><OrderList items={usable.map((f) => f.path)} notes={Object.fromEntries(usable.filter((f) => rows[f.path]?.status === "fail").map((f) => [f.path, `넣지 못함: ${rows[f.path]?.error ?? "읽지 못했습니다"}`]))} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
+                      <div className="mt-2"><OrderList disabled={run.busy} items={usable.map((f) => f.path)} notes={Object.fromEntries(usable.filter((f) => rows[f.path]?.status === "fail").map((f) => [f.path, `넣지 못함: ${rows[f.path]?.error ?? "읽지 못했습니다"}`]))} onChange={(order) => setFiles((prev) => [...order.map((p) => prev.find((f) => f.path === p)!), ...prev.filter((f) => !order.includes(f.path) && !accepts(def, f.format))])} /></div>
                     ) : (
                       <ul className="kd-filetable">
                         {files.map((f) => {
@@ -344,7 +344,8 @@ export function BatchScreen({ active }: { active: boolean }) {
         <MergeOrderDialog files={usable.map(toImported)} uniformType={(() => {
           const t = usable.map((f) => (f.format === "hwp" ? "hwpx" : f.format));
           return t.every((x) => x === t[0]) && ["hwpx", "docx", "xlsx", "pdf"].includes(t[0]) ? t[0] : null;
-        })()} outputDir={opts.outDir} onConfirm={runMerge} onCancel={() => setDialog("")} />
+        })()} outputDir={opts.outDir || settings?.convert.output_dir || ""}
+          outputSource={opts.outDir ? "이 화면에서 고른 폴더" : settings?.convert.output_dir ? "설정의 저장 폴더" : undefined} onConfirm={runMerge} onCancel={() => setDialog("")} />
       )}
     </div>
   );

@@ -62,6 +62,8 @@ export interface BatchOpts {
   templatePath: string;
   dataPath: string;
   nameColumn: string;
+  /** 명부로 여러 장: 명부에 없는 칸을 내 기관 정보로 채우기. null 이면 기본값(mergeOrgOn) */
+  mergeOrg: boolean | null;
   /** 문서 수합: 부서 명단 (한 줄에 하나) */
   roster: string;
   /** 문서 수합: 독촉 글에 넣을 제출 기한 */
@@ -94,6 +96,7 @@ export const DEFAULT_OPTS: BatchOpts = {
   templatePath: "",
   dataPath: "",
   nameColumn: "",
+  mergeOrg: null,
   roster: "",
   deadline: "",
   gatherAi: true,
@@ -104,6 +107,9 @@ export const DEFAULT_OPTS: BatchOpts = {
   pdfSplit: "each",
   pdfEvery: 2,
 };
+
+/** 명부로 여러 장의 기관 정보 채우기: 고른 값, 아니면 내장 서식(기안문 결문 = 보내는 쪽)은 켬, 내 양식(받는 사람마다 다른 문서)은 끔 */
+export const mergeOrgOn = (o: Pick<BatchOpts, "mergeOrg" | "templatePath">): boolean => o.mergeOrg ?? !o.templatePath;
 
 export function accepts(def: TaskDef, f: DocFormat): boolean {
   return (!def.accepts || def.accepts.includes(f)) && !def.skips?.includes(f);

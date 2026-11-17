@@ -13,9 +13,9 @@ import { FILTERS, pickFiles } from "../../lib/native";
 import { baseName, joinPath } from "../../lib/format";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
-import { Field, Seg, SelectField } from "../common/Field";
+import { Check, Field, Seg, SelectField } from "../common/Field";
 import { ErrorLine, Note, SavedFile, StatusLine, Working } from "../common/Status";
-import type { BatchOpts } from "./tasks";
+import { mergeOrgOn, type BatchOpts } from "./tasks";
 import { mergeFailed } from "./runners";
 
 const BUILTIN: Record<string, string> = { gian: "일반 기안문", "gian-simple": "간이 기안문" };
@@ -34,7 +34,7 @@ export function MailMergeOptions({ opts, set }: { opts: BatchOpts; set: (p: Part
     if (!opts.dataPath) return;
     let stop = false;
     setPlanBusy(true);
-    rpc("mail_merge_plan", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }) })
+    rpc("mail_merge_plan", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }), org: mergeOrgOn(opts) })
       .then((p) => {
         if (stop) return;
         setPlan(p);
@@ -43,9 +43,9 @@ export function MailMergeOptions({ opts, set }: { opts: BatchOpts; set: (p: Part
       }, (e) => { if (!stop) setPlanError(errorText(e)); })
       .finally(() => { if (!stop) setPlanBusy(false); });
     return () => { stop = true; };
-    // 양식·명부가 바뀔 때만 (이름 열은 그때의 값으로 본다)
+    // 양식·명부·기관 정보 채우기가 바뀔 때만 (이름 열은 그때의 값으로 본다)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.dataPath, opts.template, opts.templatePath]);
+  }, [opts.dataPath, opts.template, opts.templatePath, opts.mergeOrg]);
 
   const pickMine = async () => {
     const p = await pickFiles({ multiple: false, filters: FILTERS.hwpx });
@@ -78,6 +78,11 @@ export function MailMergeOptions({ opts, set }: { opts: BatchOpts; set: (p: Part
         </div>
       </Field>
 
+      <Check label="명부에 없는 칸은 내 기관 정보로 채우기" checked={mergeOrgOn(opts)}
+        desc={opts.templatePath
+          ? "받는 사람마다 다른 문서라 기본은 비워 둡니다. 직위·연락처·일자 같은 칸에 내 정보가 들어가도 될 때만 켜세요"
+          : "내장 서식의 기관명·기안자 칸은 보내는 쪽(내 기관) 정보라 기본으로 채웁니다"}
+        onChange={(v) => set({ mergeOrg: v })} />
       {planBusy && <StatusLine tone="busy">명부 열과 양식 칸을 맞춰 보는 중</StatusLine>}
       <ErrorLine message={planError} />
       {plan && (
@@ -86,6 +91,7 @@ export function MailMergeOptions({ opts, set }: { opts: BatchOpts; set: (p: Part
             <h3 className="kd-label">어느 열이 어느 칸에 들어가나</h3>
             <span className="kd-small kd-muted kd-num">명부 {plan.rows}줄 → 문서 {plan.rows}장</span>
           </div>
+          {(plan.hidden_rows ?? 0) > 0 && <Note tone="info">엑셀에서 숨긴 행 {plan.hidden_rows}줄은 문서로 만들지 않습니다. 넣으려면 엑셀에서 숨기기를 취소하고 명부를 다시 고르세요.</Note>}
           {!used.length ? (
             <Note tone="err">명부 열 이름이 양식 칸과 하나도 맞지 않습니다. 명부 첫 줄을 양식 칸 이름({plan.fields.slice(0, 4).map((f) => f.name).join(", ")} 등)으로 고친 뒤 명부를 다시 고르세요.</Note>
           ) : (
