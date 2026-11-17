@@ -10,6 +10,7 @@ import { TOO_MANY_FILES } from '../files/index.js';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { RpcMethod, RpcParams, RpcResult, LintFinding } from '../../types/rpc-contract.js';
 import { MARKDOWN_RULES, PRESET_GUIDE, PRESET_LABEL } from '../ai/draft-guides.js';
+import { PRESETS as GONGMUN_PRESETS } from '../gongmun/index.js';
 
 export type Dispatch = <M extends RpcMethod>(method: M, params: RpcParams<M>) => Promise<RpcResult<M>>;
 
@@ -146,13 +147,20 @@ export const WORK_TOOLS: WorkTool[] = [
       org_kind: { type: 'string', description: '우리 기관 문서 모음의 갈래 (선택)' },
     }, ['markdown', 'preset']),
     async run(a, d) {
-      const kind = s(a.org_kind).trim();
+      const preset = s(a.preset);
+      const asked = s(a.org_kind).trim();
+      // 이름표("보고서")로 주면 갈래 id 로 바꾼다 (그대로 찾으면 늘 못 찾아 말없이 견본 없이 만들었다).
+      // 이름표는 두 가지다: 초안 지침의 이름(PRESET_LABEL)과 org_format·문서 모음이 보이는 서식 이름("통지문"·"방침서")
+      const named = [...Object.entries(PRESET_LABEL), ...GONGMUN_PRESETS.map((x) => [x.id, x.label] as const)];
+      const kind = named.find(([, label]) => label === asked)?.[0] ?? asked;
+      // 갈래가 다른 견본은 쓰지 않는다: 보고서 견본으로 기안문을 만들면 견본 모드라 "1. 가." 가 □ 로 바뀌고 결문이 빠졌다
+      if (kind && kind !== preset) throw new Error(`org_kind(${asked})는 preset(${preset})과 같은 갈래여야 합니다. 같은 갈래로 주거나 org_kind 를 빼세요.`);
       const ref = kind ? await d('org_corpus_reference', { kind }) : null;
-      const r = await d('generate_hwpx', { markdown: s(a.markdown), preset: s(a.preset), ...(ref?.apply ?? {}) });
+      const r = await d('generate_hwpx', { markdown: s(a.markdown), preset, ...(ref?.apply ?? {}) });
       if (!r.output_path) throw new Error('문서를 저장하지 못했습니다.');
       const lint = r.lint.filter((f) => f.severity !== 'info');
       return saved(r.output_path, '한글 문서 만듦', [
-        ref ? `우리 기관 ${ref.label} 견본을 따름` : '',
+        ref ? `우리 기관 ${ref.label} 견본을 따름` : kind ? `우리 기관 문서 모음에 ${PRESET_LABEL[kind as keyof typeof PRESET_LABEL] ?? kind} 견본이 없어 공문 규격 서식으로 만듦` : '',
         r.warnings.length ? `알림: ${r.warnings.join(' / ')}` : '',
         lint.length ? `표기 검사 ${lint.length}건:\n${findingLines(lint, 20)}` : '표기 검사: 걸린 것 없음',
       ].filter(Boolean).join('\n'));

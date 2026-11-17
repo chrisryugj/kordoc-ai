@@ -137,3 +137,31 @@ describe("runAgent — 헛도는 모델", () => {
     expect(r.cut).toBeFalsy();
   });
 });
+
+describe("runAgent — 번호를 바꾸는 호출", () => {
+  it("같은 차례에서 문단을 넣은 뒤의 자리 호출은 옛 번호라 실행하지 않고 다시 읽게 한다", async () => {
+    let n = 0;
+    step.mockReset().mockImplementation(async () => (n++ === 0
+      ? { text: "", redacted: 0, calls: [{ id: "1", name: "insert_paragraphs", input: { after: "0.2" } }, { id: "2", name: "rewrite_paragraph", input: { id: "0.6" } }] }
+      : { text: "끝", redacted: 0, calls: [] }));
+    const run = vi.fn(async () => ({ output: "넣음", summary: "넣음", mutated: true }));
+    const skill = { systemPrompt: "", tools: [], executeTool: run, reshapes: new Set(["insert_paragraphs"]) } as unknown as AgentSkill;
+    const events: AgentEvent[] = [];
+    await runAgent({ skill, events, request: "넣고 고쳐", signal: new AbortController().signal, hooks: { onText: vi.fn(), onTool: vi.fn() } });
+    expect(run).toHaveBeenCalledTimes(1);
+    const tool = events.find((e) => e.role === "tool") as { results: Array<{ name: string; output: string; isError?: boolean }> };
+    expect(tool.results[1]).toMatchObject({ name: "rewrite_paragraph", isError: true });
+    expect(tool.results[1].output).toMatch(/번호가 바뀌어/);
+  });
+});
+
+describe("runAgent — 막힌 묶음 되풀이", () => {
+  it("넣기 + 자리 호출 묶음을 그대로 다시 보내도 넣기가 거듭 돌지 않고 되풀이로 멈춘다", async () => {
+    step.mockReset().mockResolvedValue({ text: "", redacted: 0, calls: [{ id: "1", name: "insert_paragraphs", input: { after: "0.2" } }, { id: "2", name: "rewrite_paragraph", input: { id: "0.6" } }] });
+    const run = vi.fn(async () => ({ output: "넣음", summary: "넣음", mutated: true }));
+    const skill = { systemPrompt: "", tools: [], executeTool: run, reshapes: new Set(["insert_paragraphs"]) } as unknown as AgentSkill;
+    const r = await runAgent({ skill, events: [], request: "넣고 고쳐", signal: new AbortController().signal, hooks: { onText: vi.fn(), onTool: vi.fn() } });
+    expect(r.cut).toBe(true);
+    expect(run.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+});

@@ -15,6 +15,7 @@ import { Check, Field, Section, Seg } from "../common/Field";
 import { ErrorLine, Note, StatusLine, Working } from "../common/Status";
 import { MCPSetupDialog } from "../mcp/MCPSetupDialog";
 import { Advanced } from "./dirty";
+import { lockProps, useLocked } from "./PolicyLock";
 
 /** 엔진 점검 단계 이름 (엔진은 기록·CI 용 영어 식별자를 준다) */
 const STEP_LABEL: Record<string, string> = {
@@ -108,6 +109,9 @@ export function EngineSection() {
 export function StorageSection() {
   const mark = useSectionMark("set-store");
   const { settings, saveSettings } = useApp();
+  const lk = useLocked();
+  const dirLocked = lk("convert.output_dir");
+  const ocrLocked = lk("convert.ocr");
   const [mcp, setMcp] = useState(false);
   const [shell, setShell] = useState<{ supported: boolean; installed: boolean; kind: string } | null>(null);
   const [shellErr, setShellErr] = useState("");
@@ -142,17 +146,18 @@ export function StorageSection() {
 
   return (
     <Section id="set-store" mark={mark} title="저장과 연결">
-      <Field label="저장 위치" hint="만든 문서를 담을 폴더. 원본은 고치지 않고 결과는 늘 새 파일입니다. 원본 옆으로 하면 원본과 같은 폴더에 새 파일로 저장합니다.">
+      {/* 기관이 고정한 칸은 바꾸기 단추를 감춘다 (골라도 엔진이 저장에서 버려 그대로인데 까닭이 안 보였다) */}
+      <Field label={lockProps("저장 위치", dirLocked).label} hint="만든 문서를 담을 폴더. 원본은 고치지 않고 결과는 늘 새 파일입니다. 원본 옆으로 하면 원본과 같은 폴더에 새 파일로 저장합니다.">
         <div className="kd-inset flex items-center gap-2 px-3 py-2">
           <FolderOpen size={14} className="kd-muted flex-none" />
           <span className="kd-path flex-1">{settings!.convert.output_dir || "원본 파일 옆"}</span>
-          {settings!.convert.output_dir && <button type="button" className="kd-link kd-small" onClick={() => void saveSettings({ convert: { output_dir: "" } })}>원본 옆으로</button>}
-          <button type="button" className="kd-link kd-small" onClick={() => void pickFolder().then((d) => { if (d) void saveSettings({ convert: { output_dir: d } }); })}>바꾸기</button>
+          {!dirLocked && settings!.convert.output_dir && <button type="button" className="kd-link kd-small" onClick={() => void saveSettings({ convert: { output_dir: "" } })}>원본 옆으로</button>}
+          {!dirLocked && <button type="button" className="kd-link kd-small" onClick={() => void pickFolder().then((d) => { if (d) void saveSettings({ convert: { output_dir: d } }); })}>바꾸기</button>}
         </div>
       </Field>
       <div className="mt-4">
-        <Field label="스캔한 쪽 글자 읽기 기본값">
-          <Seg label="글자 읽기 기본값" value={settings!.convert.ocr} onChange={(v) => void saveSettings({ convert: { ocr: v } })}
+        <Field label={lockProps("스캔한 쪽 글자 읽기 기본값", ocrLocked).label}>
+          <Seg label="글자 읽기 기본값" disabled={ocrLocked} value={settings!.convert.ocr} onChange={(v) => void saveSettings({ convert: { ocr: v } })}
             options={[{ value: "auto", label: "필요한 쪽만" }, { value: "force", label: "모든 쪽" }, { value: "off", label: "안 함" }]} />
         </Field>
       </div>

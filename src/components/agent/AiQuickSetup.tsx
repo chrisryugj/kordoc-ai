@@ -4,13 +4,14 @@
  * 모델 이름·용량은 작은 글 한 줄로만.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Cloud, Cpu, Server } from "lucide-react";
 import { useApp } from "../../state/app";
 import { errorText, isAbort, rpc } from "../../lib/rpc";
 import { downloadModel, stopModelDownload, useModelDownload } from "../../lib/model-download";
 import type { LlmCatalogItem, LocalModelServer } from "../../lib/contract";
 import { firstChatModel } from "../settings/LocalServerPanel";
+import { useLocked } from "../settings/PolicyLock";
 import { Button } from "../ui/Button";
 import { ErrorLine } from "../common/Status";
 import "./agent.css";
@@ -29,6 +30,15 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
   const [error, setError] = useState("");
   const offline = !!settings?.privacy.offline;
   const toSettings = onSettings ?? (() => openSettings("set-ai"));
+  // 기관이 AI 공급자를 고정했으면 다른 공급자로는 바꿀 수 없다(엔진이 저장에서 버린다: 수 GB 를 받고도 AI 가 켜지지 않았다).
+  // 고정한 것이 내장 AI·켜 둔 AI 프로그램이면 그 단추만 둔다(모델 파일·주소만 채우면 켜진다)
+  const pinned = useLocked()("ai.provider");
+  const pinnedTo = pinned ? settings?.ai.provider : undefined;
+  const allowServer = !pinned || pinnedTo === "local";
+  const allowEmbedded = !pinned || pinnedTo === "embedded";
+  /** 받기(수 분)가 끝난 때의 설정: 그사이 설정 화면에서 저장한 AI 연결을 누를 때 값으로 덮지 않게 */
+  const latest = useRef(settings);
+  latest.current = settings;
 
   useEffect(() => {
     if (!ready) return;
@@ -54,15 +64,29 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
     try {
       let path = have;
       if (!path) path = (await downloadModel(model.id)).path;
-      await saveSettings({ ai: { provider: "embedded", embedded: { ...settings.ai.embedded, model_path: path } } });
+      const now = latest.current ?? settings;
+      if (now.ai.provider !== settings.ai.provider) {
+        setError("받는 동안 다른 AI 연결을 저장해 두어 그대로 둡니다. 내장 AI를 쓰려면 설정 › AI 연결에서 고르세요.");
+      } else {
+        await saveSettings({ ai: { provider: "embedded", embedded: { ...now.ai.embedded, model_path: path } } });
+      }
     } catch (e) { if (!isAbort(e)) setError(errorText(e)); }
     setBusy(false);
   };
 
   const pct = down?.p && down.p.total ? Math.round((down.p.current / down.p.total) * 100) : 0;
   // 세부는 작은 글 한 줄: 찾은 프로그램의 모델, 없으면 내장 AI 크기
-  const detail = server ? `이 PC에서 · ${firstChatModel(server.models)}`
+  const detail = server && allowServer ? `이 PC에서 · ${firstChatModel(server.models)}`
     : model ? `이 PC에서 · ${model.name}${have ? "" : ` (${model.size_gb}GB, 메모리 ${model.ram_gb}GB 이상)`}` : "";
+
+  if (pinned && !allowServer && !allowEmbedded) {
+    return (
+      <div className="kd-aion" role="region" aria-label="AI 켜기">
+        <div className="kd-aion-title">AI 켜기</div>
+        <p className="kd-small kd-muted">AI 연결은 기관에서 정했습니다. 바꾸려면 정보통신 담당자에게 문의하세요.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="kd-aion" role="region" aria-label="AI 켜기">
@@ -72,13 +96,13 @@ export function AiQuickSetup({ onSettings }: { onSettings?: () => void } = {}) {
           <span className="kd-aiq-head"><Cpu size={16} /> 이 PC에서</span>
           <span className="kd-aiq-desc">문서가 PC 밖으로 나가지 않습니다</span>
           <span className="kd-aiq-acts">
-            {server && (
+            {server && allowServer && (
               <Button size="sm" disabled={busy} onClick={() => void useServer()} data-tip="이 PC에 켜 둔 AI 프로그램(Ollama 등)을 바로 씁니다">
                 켜 둔 AI 프로그램 쓰기
               </Button>
             )}
-            {model && (
-              <Button size="sm" variant={server ? "secondary" : "primary"} disabled={busy || (offline && !have)} onClick={() => void useEmbedded()}
+            {model && allowEmbedded && (
+              <Button size="sm" variant={server && allowServer ? "secondary" : "primary"} disabled={busy || (offline && !have)} onClick={() => void useEmbedded()}
                 data-tip={have ? "받아 둔 내장 AI로 바로 켭니다" : offline ? "인터넷이 막힌 PC라 받을 수 없습니다. 설정에서 모델 파일을 가져오세요" : "한 번 받으면 인터넷 없이 됩니다"}>
                 {have ? "내장 AI 켜기" : "내장 AI 받기"}
               </Button>

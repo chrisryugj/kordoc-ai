@@ -328,6 +328,25 @@ export function insertFootnote(doc, { id, after, text }) {
   return { id, number: r.footnoteNumber };
 }
 
+/** 문단 끝의 캐럿 자리: 글자 수에 글자 자리를 차지하는 컨트롤(구역·단 정의·각주·표 등) 수를 더한다.
+ *  splitParagraph 는 캐럿 축이라 글자 수만 주면 끝보다 앞에서 갈라져, 끝 글자가 새 문단으로 넘어가 지워지고("추진한다" → "추진한")
+ *  문단 끝의 각주·표가 새 문단으로 옮겨졌다. 끝을 넘는 값은 엔진이 끝으로 맞춘다(실측) */
+function paraEnd(doc, sec, para) {
+  let ctrls = 0;
+  try { ctrls = j(doc.getControlTextPositions(sec, para))?.length ?? 0; } catch { /* 못 읽으면 글자 수만 */ }
+  return doc.getParagraphLength(sec, para) + ctrls;
+}
+
+/** 문단 끝에서 갈라 빈 새 문단을 만든다. 새 문단에 무엇이 넘어왔으면 거절(트랜잭션째 되돌린다): 지우면 앞 문단의 글·개체를 잃는다 */
+function splitAtEnd(doc, sec, para) {
+  doc.splitParagraph(sec, para, paraEnd(doc, sec, para));
+  const next = para + 1;
+  let moved = 0;
+  try { moved = j(doc.getControlTextPositions(sec, next))?.length ?? 0; } catch { /* 없음 */ }
+  if (doc.getParagraphLength(sec, next) || moved) fail('문단 끝을 찾지 못해 넣지 않았습니다. 그 문단 끝에 커서를 두고 Enter 로 새 문단을 만든 뒤 다시 시도하세요.');
+  return next;
+}
+
 /** 문단 뒤에 새 문단들 (앞 문단 모양을 이어받는다) */
 export function insertParagraphs(doc, { after, texts }) {
   const p = parsePara(after);
@@ -336,10 +355,7 @@ export function insertParagraphs(doc, { after, texts }) {
   if (texts.some((t) => /\n/.test(t))) fail('문단 글 하나에 줄바꿈을 넣지 마세요. 문단마다 배열 항목 하나입니다.');
   let at = p.para;
   for (const t of texts) {
-    doc.splitParagraph(p.sec, at, doc.getParagraphLength(p.sec, at));
-    at += 1;
-    const len = doc.getParagraphLength(p.sec, at);
-    if (len) doc.deleteText(p.sec, at, 0, len);
+    at = splitAtEnd(doc, p.sec, at);
     if (t) doc.insertText(p.sec, at, 0, t);
   }
   return { first: `${p.sec}.${p.para + 1}`, count: texts.length };
@@ -429,10 +445,7 @@ export function insertTable(doc, { after, rows }) {
   if (!Array.isArray(rows) || !rows.length || !rows.every(Array.isArray)) fail('rows 는 줄마다 칸 글 배열입니다. 예: [["항목","금액"],["인건비","100"]]');
   const cols = Math.max(...rows.map((r) => r.length));
   if (cols < 1 || cols > 20 || rows.length > 200) fail('표는 1~20열, 200줄까지 넣을 수 있습니다.');
-  doc.splitParagraph(p.sec, p.para, doc.getParagraphLength(p.sec, p.para));
-  const at = p.para + 1;
-  const len = doc.getParagraphLength(p.sec, at);
-  if (len) doc.deleteText(p.sec, at, 0, len);
+  const at = splitAtEnd(doc, p.sec, p.para);
   const r = j(doc.createTableEx(JSON.stringify({ sectionIdx: p.sec, paraIdx: at, charOffset: 0, rowCount: rows.length, colCount: cols, treatAsChar: false })));
   if (!r?.ok) fail('표를 넣지 못했습니다.');
   const t = { sec: p.sec, para: r.paraIdx ?? at, ctrl: r.controlIdx ?? 0 };

@@ -227,6 +227,10 @@ describe('convert 그림 형식', () => {
     const src = /<img[^>]*\bsrc="([^"]+)"/.exec(html.content)?.[1] ?? '';
     expect(decodeURIComponent(src)).toBe('images/보고서#2 (2)/image_001.png');
     expect(readdirSync(join(env.out, 'images'))).toEqual(expect.arrayContaining(['보고서#2', '보고서#2 (2)']));
+    // 짝 없는 괄호도 바꿔 적는다 (마크다운 링크 주소가 ")" 에서 끊겼다)
+    const odd = join(env.work, '붙임1) 계획.hwpx');
+    writeFileSync(odd, Buffer.from(await markdownToHwpx('# 그림\n\n![로고](logo.png)', { images: { 'logo.png': await makePng(120, 60, 'B') } })));
+    expect((await call('convert', { path: odd, format: 'md' })).content).toContain('images/붙임1%29%20계획/');
   }, 60_000);
 });
 

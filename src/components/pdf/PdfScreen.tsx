@@ -212,10 +212,12 @@ export function PdfScreen({ active }: { active: boolean }) {
     setFinding(true);
     try {
       await thumbs.ensure(pages);
+      // 그림 주소는 다 받은 바로 그때 모아 둔다: 아래 판정(쪽마다 await) 도중 다른 쪽 그림이 오면 캐시 상한이 앞쪽 그림을 버려,
+      // 빈 쪽이어도 말없이 빠졌다
+      const urls = b.items.map((it) => { const f = fileOf(b, it); return f ? thumbs.get(f.source, it.page) : undefined; });
       const found: string[] = [];
-      for (const it of b.items) {
-        const f = fileOf(b, it);
-        const url = f && thumbs.get(f.source, it.page);
+      for (const [i, it] of b.items.entries()) {
+        const url = urls[i];
         if (it.blank || (url && (await blankImage(url)))) found.push(it.key);
       }
       setSel(selectKeys(found, found[0] ?? null));

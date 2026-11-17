@@ -192,6 +192,14 @@ fn newer_owner(reg_query_out: &str, ours: &str, exists: impl Fn(&str) -> bool) -
     version_newer(&ver, ours) && reg_sz(reg_query_out, "KorDocExe").and_then(|m| exe_of_mark(&m)).is_some_and(|p| exists(&p))
 }
 
+/// newer_owner 의 exists: 그 실행 파일이 아직 있고 지금 도는 이 실행 파일이 아니다.
+/// 같은 폴더에 옛 판을 다시 깔면 적힌 exe 가 곧 나 자신이라, "더 새 판이 건 것"으로 보고 손을 떼면 새 판 동작 id 가 든 메뉴를 옛 exe 가 받았다
+#[cfg_attr(not(windows), allow(dead_code))]
+fn other_exe_exists(p: &str) -> bool {
+    let me = std::env::current_exe().ok().map(|e| e.to_string_lossy().trim_start_matches(r"\\?\").to_lowercase());
+    me.as_deref() != Some(p) && std::path::Path::new(p).exists()
+}
+
 /// 메뉴를 지우고 새로 넣는 .reg 글. reg add 를 항목마다 부르면 수백 번이라 10초 넘게 걸려 reg import 한 번으로 깐다.
 /// 계단식 메뉴: 부모(이름·아이콘·여러 개 골라도 보이게·판) + 항목마다 하위 키 (이름 앞 두 자리 숫자로 차례, 묶음 사이 구분선은 CommandFlags)
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -580,8 +588,31 @@ fn build_card(app: AppHandle, label: String, action: String, paths: Vec<String>,
     }
 }
 
-/// 완전 종료가 카드 창들의 답을 기다리는 중 (본창은 이미 물었고 끄라고 했다)
-static QUIT_AFTER_CARDS: AtomicBool = AtomicBool::new(false);
+/// 완전 종료가 카드 창들의 답을 기다리기 시작한 때(초, 0 = 아님). 본창은 이미 물었고 끄라고 했다.
+/// 시각을 둔 까닭: 카드가 물음을 받지 못해(막 뜬 창·멈춘 웹뷰) 답이 없으면 깃발이 남아, 한참 뒤 그 카드를 닫을 때 묻지 않고 앱이 꺼졌다
+static QUIT_AFTER_CARDS_AT: AtomicU64 = AtomicU64::new(0);
+/// 카드 답을 기다리는 시간. 넘으면 완전 종료는 없던 일로 본다 (다시 누르면 처음부터 묻는다)
+const QUIT_CARDS_WAIT_SECS: u64 = 120;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// 완전 종료가 아직 카드 답을 기다리는 중인가 (시각이 지났으면 깃발을 내린다)
+fn quit_after_cards() -> bool {
+    let at = QUIT_AFTER_CARDS_AT.load(Ordering::SeqCst);
+    if at == 0 {
+        return false;
+    }
+    // 물음을 받았다고 답한 카드(묻는 상자를 띄움)가 있으면 시간이 지나도 기다린다: 사용자가 상자 앞에서 2분 넘게 고민한 뒤
+    // 「닫기」를 골랐는데 완전 종료가 없던 일이 되어 앱이 남았다. 시간은 물음을 받지 못한 카드에만 건다
+    let asking = CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(_, _, asking)| *asking);
+    if asking || now_secs().saturating_sub(at) < QUIT_CARDS_WAIT_SECS {
+        return true;
+    }
+    QUIT_AFTER_CARDS_AT.store(0, Ordering::SeqCst);
+    false
+}
 
 /// 완전 종료(트레이·⌘Q): 카드 창이 있으면 카드마다 저장 안 한 것을 먼저 묻는다(본창 묻기는 본창 화면의 가드만 돌아,
 /// 영수증 카드에서 고치던 표·도는 AI 카드가 말없이 사라졌다). 카드가 다 닫히면 card_closed 가 끄고, 하나라도 남기로 하면 그만둔다.
@@ -592,7 +623,7 @@ pub fn quit_asks_cards(app: &AppHandle) -> bool {
     if cards.is_empty() {
         return true;
     }
-    QUIT_AFTER_CARDS.store(true, Ordering::SeqCst);
+    QUIT_AFTER_CARDS_AT.store(now_secs(), Ordering::SeqCst);
     for label in cards {
         if card_close_requested(app, &label) {
             if let Some(w) = app.get_webview_window(&label) {
@@ -603,17 +634,22 @@ pub fn quit_asks_cards(app: &AppHandle) -> bool {
     false
 }
 
-/// 완전 종료가 카드의 답을 기다리는 중인가 (그동안 또 누른 완전 종료가 묻는 카드를 두고 끄지 않게)
+/// 완전 종료가 카드의 답을 기다리는 중이고, 물음을 받았다고 답한(묻는 상자를 띄운) 카드가 아직 있는가.
+/// 그동안 또 누른 완전 종료가 묻는 카드를 두고 끄지 않게. 물음을 받았다는 답이 없는 카드(멈춘 창)는 기다리지 않는다
 pub fn quit_waiting_cards(app: &AppHandle) -> bool {
     use tauri::Manager;
-    QUIT_AFTER_CARDS.load(Ordering::SeqCst) && app.webview_windows().keys().any(|l| l.starts_with("card-"))
+    if !quit_after_cards() {
+        return false;
+    }
+    let windows = app.webview_windows();
+    CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(l, _, asking)| *asking && windows.contains_key(l))
 }
 
 /// 카드 창이 닫혔다: 완전 종료가 카드를 기다리던 중이면 마지막 카드가 닫힐 때 끈다.
 /// 아니면 앱이 우클릭으로 켜졌고 본창을 한 번도 안 띄웠고 남은 카드도 도는 빠른 동작도 없을 때 끈다
 pub fn card_closed(app: &AppHandle) {
     use tauri::Manager;
-    if QUIT_AFTER_CARDS.load(Ordering::SeqCst) {
+    if quit_after_cards() {
         if !app.webview_windows().keys().any(|l| l.starts_with("card-")) {
             app.exit(0);
         }
@@ -697,7 +733,7 @@ pub fn card_close(window: tauri::WebviewWindow, answer: String) {
     }
     if card_close_answer(&mut CARD_CLOSING.lock().unwrap_or_else(|e| e.into_inner()), &label, &answer) {
         let _ = window.destroy();
-    } else if answer != "asking" && QUIT_AFTER_CARDS.swap(false, Ordering::SeqCst) {
+    } else if answer != "asking" && QUIT_AFTER_CARDS_AT.swap(0, Ordering::SeqCst) != 0 {
         // 완전 종료 중에 카드가 남기로 했다: 끄지 않고, 다음 완전 종료도 처음부터 다시 묻게
         crate::reset_quit_clock();
     }
@@ -997,7 +1033,7 @@ mod platform {
         let _lock = MENU_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let base = key(".hwpx");
         let Ok(out) = reg_out(&["query", &base]) else { return };
-        if newer_owner(&out, APP_VERSION, |p| std::path::Path::new(p).exists()) {
+        if newer_owner(&out, APP_VERSION, other_exe_exists) {
             return;
         }
         let current = out.lines().any(|l| l.contains("KorDocMenu") && l.split_whitespace().last() == Some(MENU_VERSION));
@@ -1069,7 +1105,7 @@ mod platform {
 
     pub fn may_claim_links() -> bool {
         // 키가 없거나 못 읽으면 건다
-        reg_out(&["query", LINK_KEY]).map(|out| !newer_owner(&out, APP_VERSION, |p| std::path::Path::new(p).exists())).unwrap_or(true)
+        reg_out(&["query", LINK_KEY]).map(|out| !newer_owner(&out, APP_VERSION, other_exe_exists)).unwrap_or(true)
     }
 
     pub fn mark_links_claimed() {

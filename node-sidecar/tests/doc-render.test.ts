@@ -194,6 +194,11 @@ describe('pdf_stamp·PDF 나누기·합치기 (Chromium 불필요)', () => {
     expect((await PDFDocument.load(readFileSync(merged.output_path))).getPageCount()).toBe(2);
     const picked = await call('pdf_extract_pages', { input_path: merged.output_path, pages: '2' });
     expect(picked.extracted_pages).toBe(1);
+    // 문서에 없는 쪽·거꾸로 적은 범위는 말없이 빼지 않고 오류 ("_쪽빼기.pdf" 가 원본 그대로 나가던 것)
+    for (const pages of ['15', '2-1', '0']) {
+      await expect(call('pdf_extract_pages', { input_path: merged.output_path, pages, mode: 'exclude' }), pages).rejects.toThrow(/이 문서\(2쪽\)에 없습니다/);
+    }
+    expect((await call('pdf_extract_pages', { input_path: merged.output_path, pages: '2-', mode: 'exclude' })).extracted_pages).toBe(1);
     const split = await call('split_pdf', { input_path: merged.output_path });
     expect(split.output_files).toHaveLength(2);
     // 같은 자리에 다시 나누면 전 결과를 덮어쓰지 않고 (2) 폴더, 응답에 실제 폴더

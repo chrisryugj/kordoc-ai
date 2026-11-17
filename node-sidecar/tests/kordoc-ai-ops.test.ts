@@ -91,6 +91,22 @@ describe('고치기', () => {
     expect(() => ops.insertParagraphs(doc, { after: '0.0', texts: ['a\nb'] })).toThrow(/줄바꿈/);
   });
 
+  it('각주·표가 든 문단 뒤에 넣어도 앞 문단의 끝 글자와 개체가 그대로다 (나누기 자리는 캐럿 축)', () => {
+    const doc = blank(['전자정부법에 따라 추진한다']);
+    ops.insertFootnote(doc, { id: '0.0', after: '전자정부법', text: '법률 제1호' });
+    ops.insertParagraphs(doc, { after: '0.0', texts: ['새 문단'] });
+    expect(ops.outline(doc).blocks.map((b: { text: string }) => b.text)).toEqual(['전자정부법에 따라 추진한다', '새 문단']);
+    // 각주는 앞 문단에 남는다 (새 문단으로 옮겨지지 않음)
+    expect(JSON.parse(doc.getControlTextPositions(0, 1))).toEqual([]);
+    // 표만 든 문단 뒤의 새 표·문단은 그 표 뒤에 선다
+    const t = blank(['앞']);
+    ops.insertTable(t, { after: '0.0', rows: [['a', 'b']] });
+    ops.insertParagraphs(t, { after: '0.1', texts: ['※ 단위: 원'] });
+    const blocks = ops.outline(t).blocks as Array<{ id: string; text: string; tables?: Array<{ id: string }> }>;
+    const tableAt = blocks.findIndex((b) => b.tables?.length);
+    expect(blocks.findIndex((b) => b.text === '※ 단위: 원')).toBeGreaterThan(tableAt);
+  });
+
   it('표 넣기·칸 채우기·줄 넣고 빼기, 저장해도 남는다', () => {
     const doc = blank(['앞 문단']);
     const r = ops.insertTable(doc, { after: '0.0', rows: [['항목', '금액'], ['인건비', '100'], ['운영비', '']] });

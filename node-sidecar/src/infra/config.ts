@@ -133,14 +133,19 @@ function migrateV1(): Obj | null {
 }
 
 let lastRetry = 0;
+/** 다시 읽기 간격: 3초에서 시작해 실패할 때마다 두 배, 1분까지 (권한이 깨져 계속 못 읽는 PC 에서 3초마다 경고 줄이 쌓였다) */
+let retryGap = 3000;
 
 export function getSettings(): Readonly<Settings> {
-  // 처음 읽을 때 설정 파일을 잠깐 못 읽어(백신이 쥠 등) 기본값으로 열렸으면 몇 초마다 다시 읽는다. 앱 엔진은 reloadIfChanged 를
+  // 처음 읽을 때 설정 파일을 잠깐 못 읽어(백신이 쥠 등) 기본값으로 열렸으면 간격을 두고 다시 읽는다. 앱 엔진은 reloadIfChanged 를
   // 부르지 않아, 이것이 없으면 사용자가 켠 폐쇄망 모드·기관 정보가 빠진 기본값으로 앱을 끌 때까지 돌았다
-  if (cached && loadedAt === -1 && Date.now() - lastRetry > 3000) {
+  if (cached && loadedAt === -1 && Date.now() - lastRetry > retryGap) {
     lastRetry = Date.now();
     reload();
-    if (loadedAt !== -1) void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
+    if (loadedAt !== -1) {
+      retryGap = 3000;
+      void import('./net-guard.js').then((m) => m.syncOfflineEnv()).catch(() => undefined);
+    } else retryGap = Math.min(retryGap * 2, 60_000);
   }
   if (cached) return cached;
   return reload();
@@ -195,6 +200,7 @@ export function reload(): Settings {
   } else {
     loaded = migrateV1() ?? {};
   }
+  if (loadedAt !== -1) retryGap = 3000;
   user = isObj(loaded) ? loaded : {};
   const migrate = openSecrets(user);
   policy = loadPolicy(POLICY_SHAPE);

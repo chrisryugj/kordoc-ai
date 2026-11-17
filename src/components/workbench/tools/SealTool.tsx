@@ -24,7 +24,8 @@ export function SealTool({ doc }: ToolProps) {
   const [picked, setImage] = useState("");
   const image = picked || settings?.org.seal_image || "";
   const [anchor, setAnchor] = useState("(인)");
-  const task = useTask<{ output_path: string; placed: number; anchor?: string; reason?: string }>();
+  /** wanted: 찍을 때 적었던 자리 글자 (그 뒤 칸을 고쳐도 결과 안내는 그때 값으로) */
+  const task = useTask<{ output_path: string; placed: number; anchor?: string; reason?: string; wanted: string }>();
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,15 +44,15 @@ export function SealTool({ doc }: ToolProps) {
         <input className="kd-input" value={anchor} onChange={(e) => setAnchor(e.target.value)} aria-label="찍을 자리 글자" />
       </Field>
       {task.busy ? <Working label="도장을 찍는 중" /> : (
-        <Button size="lg" disabled={!image || !anchor.trim()} data-tip="문서에서 찍을 자리 글자를 찾아 그 위에 도장 그림을 얹은 사본을 만듭니다. 원본은 그대로 둡니다." onClick={() => void task.run(() => rpc("seal", { path: doc.path, image_path: image, anchor: anchor.trim() }))}>
+        <Button size="lg" disabled={!image || !anchor.trim()} data-tip="문서에서 찍을 자리 글자를 찾아 그 위에 도장 그림을 얹은 사본을 만듭니다. 원본은 그대로 둡니다." onClick={() => { const wanted = anchor.trim(); void task.run(async () => ({ ...(await rpc("seal", { path: doc.path, image_path: image, anchor: wanted })), wanted })); }}>
           <Stamp size={15} /> 도장 찍기
         </Button>
       )}
       <ErrorLine message={task.error} />
       {task.result && (task.result.placed > 0
         // 고른 글자가 없어 엔진이 다른 자리(발신명의 끝 등)에 찍었으면 그 자리를 밝힌다
-        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다${task.result.anchor && sameAnchor(task.result.anchor, anchor) ? "" : task.result.anchor ? ` (“${anchor.trim()}”이 없어 “${task.result.anchor}” 자리에 찍음)` : ""}`} />
-        : <Note tone="warn">{task.result.reason ?? `“${anchor}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.`}</Note>)}
+        ? <SavedFile path={task.result.output_path} label={`${task.result.placed}곳에 찍은 사본을 저장했습니다${task.result.anchor && sameAnchor(task.result.anchor, task.result.wanted) ? "" : task.result.anchor ? ` (“${task.result.wanted}”이 없어 “${task.result.anchor}” 자리에 찍음)` : ""}`} />
+        : <Note tone="warn">{task.result.reason ?? `“${task.result.wanted}” 글자를 찾지 못했습니다. 문서에 쓰인 글자 그대로 넣어 보세요.`}</Note>)}
     </div>
   );
 }

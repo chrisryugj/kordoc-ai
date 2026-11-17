@@ -80,9 +80,12 @@ export interface SplitPdfResult {
  *  (말없이 버리면 "7-" 로 쪽 빼기를 했을 때 한 쪽도 안 뺀 원본 사본을 성공으로 냈다) */
 function parseRanges(rangeStr: string, maxPage: number): number[][] {
   assertPageSpec(rangeStr);
-  return rangeStr.split(/[,，、]/)
-    .map((part) => parsePageSpec(part, maxPage).filter((p) => p <= maxPage).map((p) => p - 1))
-    .filter((pages) => pages.length > 0);
+  return rangeStr.split(/[,，、]/).map((s) => s.trim()).filter(Boolean).map((part) => {
+    const pages = parsePageSpec(part, maxPage).filter((p) => p <= maxPage).map((p) => p - 1);
+    // 문서에 없는 쪽("15"·"0")·거꾸로 적은 범위("5-3")도 말없이 빼지 않는다
+    if (!pages.length) throw new Error(`쪽 "${part}"이(가) 이 문서(${maxPage}쪽)에 없습니다. 1부터 ${maxPage} 사이로, 범위는 작은 쪽을 앞에 적으세요.`);
+    return pages;
+  });
 }
 
 /** PDF 페이지 수 조회 */

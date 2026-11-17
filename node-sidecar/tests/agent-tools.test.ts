@@ -71,6 +71,10 @@ describe('도구 실행 (합성 예제)', () => {
     expect(dirname(r.files![0])).toBe(env.out);
     expect(readFileSync(r.files![0]).subarray(0, 2).toString()).toBe('PK');
     expect(r.output).toMatch(/표기 검사/);
+    // 갈래가 다른 기관 견본은 쓰지 않는다 (보고서 견본으로 기안문을 만들면 견본 모드라 항목 기호·결문이 깨졌다)
+    const mixed = await runWorkTool('write_document', { markdown: '# 알림\n\n1. 알립니다.  끝.', preset: 'official', org_kind: 'report' }, dispatch);
+    expect(mixed.isError).toBe(true);
+    expect(mixed.output).toMatch(/같은 갈래/);
   }, 60_000);
 
   it('precheck → 원본은 바뀌지 않는다', async () => {

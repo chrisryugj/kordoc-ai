@@ -65,13 +65,20 @@ jobs:
       - run: node scripts/sync-rpc-whitelist.mjs --check
 
       # 입력한 버전과 앱 버전이 다르면 다른 판 설치 파일이 그 릴리스에 올라간다
+      # 입력값은 셸 글에 바로 넣지 않고 env 로 (따옴표·$( ) 가 섞인 값이 명령이 되지 않게)
       - name: 버전 대조
         shell: bash
+        env:
+          WANT: ${{ github.event.inputs.version }}
         run: |
           app=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          if [ "$app" != "${{ github.event.inputs.version }}" ]; then
-            echo "::error::입력 버전 ${{ github.event.inputs.version }} 과 tauri.conf.json 의 $app 이 다릅니다"; exit 1
-          fi
+          pkg=$(node -p "require('./package.json').version")
+          eng=$(node -e "const m=/APP_VERSION = '([^']+)'/.exec(require('fs').readFileSync('node-sidecar/src/core/system/index.ts','utf8'));process.stdout.write(m?m[1]:'')")
+          for v in "$app" "$pkg" "$eng"; do
+            if [ "$v" != "$WANT" ]; then
+              echo "::error::입력 버전 $WANT 과 tauri.conf.json($app)·package.json($pkg)·엔진 APP_VERSION($eng) 이 모두 같아야 합니다"; exit 1
+            fi
+          done
 
       - name: 동봉 Node·사이드카·편집기 빌드
         run: |
@@ -82,7 +89,7 @@ jobs:
       # 운영체제마다 실리는 크레이트·네이티브 모듈이 달라 고지를 그 자리에서 다시 만든다
       - name: 제3자 고지 만들기
         run: |
-          cargo fetch --manifest-path src-tauri/Cargo.toml
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
           node scripts/third-party-notices.mjs
 
       # 깨진 엔진이 설치 파일로 넘어가기 전에 여기서 끊는다
@@ -118,13 +125,14 @@ jobs:
         # beforeBuildCommand(build:all) 가 위 단계를 다시 돌지 않게 프론트만 빌드.
         # Windows 기본 셸(PowerShell)은 인라인 JSON 의 따옴표를 벗겨 버려서 bash 로
         shell: bash
+        # 애플 비밀값은 macOS 잡에만 (Windows 빌드 중에 도는 프로그램이 받을 까닭이 없다)
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         run: |
           config=$(node -e '
             const c = { build: { beforeBuildCommand: "pnpm build" }, bundle: {} };
@@ -156,9 +164,11 @@ jobs:
       - name: 릴리스에 올리기
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.version }}
+          OVERWRITE: ${{ github.event.inputs.overwrite }}
         run: |
           # 같은 이름 파일이 이미 있으면 기본은 실패: 받아 간 설치 파일을 말없이 다른 빌드로 바꾸지 않는다
           clobber=""
-          if [ "${{ github.event.inputs.overwrite }}" = "true" ]; then clobber="--clobber"; fi
+          if [ "$OVERWRITE" = "true" ]; then clobber="--clobber"; fi
           find out -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" \) -print0 \
-            | xargs -0 gh release upload "v${{ github.event.inputs.version }}" --repo ${{ github.repository }} $clobber
+            | xargs -0 gh release upload "v$VERSION" --repo ${{ github.repository }} $clobber

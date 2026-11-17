@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { call, makePng, sample, setupEnv } from './doc-helpers.js';
 import { sendNotification } from '../src/infra/progress.js';
-import { ocrModelsReady } from '../src/core/system/index.js';
+import { APP_VERSION, ocrModelsReady } from '../src/core/system/index.js';
 import { kordocMcpPath } from '../src/core/kordoc-cli.js';
 import { withTomlServer } from '../src/core/mcp-setup/index.js';
 
@@ -137,6 +137,8 @@ describe('watch_start·watch_stop·watch_list', () => {
     try {
       expect((await call('watch_list')).map((w: { id: string }) => w.id)).toContain(id);
       await expect(call('watch_start', { dir })).rejects.toThrow(/이미 지켜보는/);
+      // 안쪽 폴더를 또 걸면 그 안 문서가 두 번 변환된다
+      await expect(call('watch_start', { dir: join(dir, 'sub') })).rejects.toThrow(/안팎으로 겹칩니다/);
       copyFileSync(sample('1-받은공문_도민체육대회 참가 협조 요청.hwpx'), join(dir, 'sub', '공문.hwpx'));
       writeFileSync(join(dir, '메모.txt'), '무시되는 글자 파일');
       const mock = vi.mocked(sendNotification);
@@ -211,5 +213,15 @@ describe('메서드 목록', () => {
 
   it('파일 시스템 오류는 할 일까지 적은 한국어', async () => {
     await expect(call('list_files', { path: join(env.base, '없는폴더') })).rejects.toThrow(/찾을 수 없습니다.*확인하세요/);
+  });
+});
+
+describe('앱 판 정본', () => {
+  it('엔진의 APP_VERSION 은 tauri.conf.json·루트 package.json 판과 같다 (빠뜨리면 설정 화면·MCP 서버가 옛 판을 알린다)', () => {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const tauri = JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf-8')) as { version: string };
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as { version: string };
+    expect(APP_VERSION).toBe(tauri.version);
+    expect(APP_VERSION).toBe(pkg.version);
   });
 });

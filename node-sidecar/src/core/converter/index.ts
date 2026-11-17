@@ -180,7 +180,8 @@ export async function convert(p: ConvertParams & { path: string; save?: boolean 
   const imgDir = outPath && images.length ? uniquePath(join(dirname(outPath), 'images', docStem)) : undefined;
   const folder = imgDir ? basename(imgDir) : docStem;
   // 링크에서 뜻이 갈리는 글자(빈칸·괄호·#·%·?)만 바꾼다: 한글 이름은 메모장으로 열어도 읽히게 그대로
-  const link = `images/${folder.replace(/[ ()#%?]/g, (ch) => encodeURIComponent(ch))}/`;
+  // encodeURIComponent 는 괄호를 바꾸지 않아 직접 적는다(짝 없는 ")" 에서 마크다운 링크 주소가 끊겼다: "붙임1) 계획")
+  const link = `images/${folder.replace(/[ ()#%?]/g, (ch) => ({ '(': '%28', ')': '%29' } as Record<string, string>)[ch] ?? encodeURIComponent(ch))}/`;
   const linked = (t: string) => (images.length
     ? t.replace(/!\[image\]\(image_/g, `![image](${link}image_`).replace(/(<img\b[^>]*\bsrc=")image_/g, `$1${link}image_`)
     : t);

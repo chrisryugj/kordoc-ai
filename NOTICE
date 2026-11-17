@@ -72,13 +72,12 @@ sharp · libvips (이미지 처리)
 https://github.com/lovell/sharp: Apache License 2.0
 libvips (동적 라이브러리로 동봉): LGPL-3.0-or-later. 사용자는 동봉된 libvips 를 호환 버전으로
 바꿔 쓸 수 있다 (node-sidecar/dist/node_modules/@img/sharp-libvips-*).
-@img/sharp-wasm32 (WebAssembly 판, libvips 포함): Apache-2.0 AND LGPL-3.0-or-later AND MIT
 
 ---
 
 PDFium (@hyzyla/pdfium, PDF 쪽 그리기): BSD-3-Clause / Apache-2.0
-pdf.js (pdfjs-dist, PDF 글 읽기): Apache License 2.0
-@napi-rs/canvas (pdf.js 의 Node 쪽 그리기, Skia 포함): MIT License
+hayro (kordoc 에 든 WebAssembly, PDF 글 읽기): Apache-2.0 OR MIT 중 Apache-2.0, 일부는 PDFBox·pdf.js(Apache-2.0)에서 옮긴 코드. 묶인 Rust 크레이트 목록과 라이선스 전문은
+kordoc/THIRD_PARTY/hayro-pdf.txt (설치본 node-sidecar/dist/node_modules/kordoc 안)
 pdf-lib (PDF 합치기·쪽 나누기): MIT License
 JSZip: MIT License 또는 GPLv3 중 MIT 선택
 puppeteer-core (인쇄용 PDF): Apache License 2.0

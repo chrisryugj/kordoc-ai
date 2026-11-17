@@ -449,12 +449,16 @@ export function installHangulKeys(win) {
 
   win.addEventListener('keydown', (e) => {
     if (!isEditBox(e.target)) { state.chord = null; return; }
+    // 겹글쇠의 둘째 글쇠인지는 풀기 전에 본다 (풀고 나면 대기가 지워진다)
+    const second = !!state.chord;
     const r = resolveKey(e, state, mac, where());
     if (!r || r.wait) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     if (r.chord) return;
-    if (e.key === 'Process' || e.isComposing || e.keyCode === 229) swallowIme = Date.now() + 800;
+    // 조합 막기는 겹글쇠 둘째 글쇠가 새 조합을 연 때만. 한 글쇠 단축키(Ctrl+Shift+C·F2·Ctrl+2 등)에 켜면
+    // 치던 글자("결과"의 "과")의 조합 확정이 막혀 글자가 사라지거나, 0.8초 안에 친 다음 글자가 막혔다
+    if (second && (e.key === 'Process' || e.isComposing || e.keyCode === 229)) swallowIme = Date.now() + 800;
     if (!r.commands) return;
     for (const id of r.commands) {
       const res = auto.execute(id, r.params, { allowDialog: true });

@@ -13,6 +13,7 @@ describe("결재 전 점검 → 편집기 AI 요청", () => {
     { severity: "error", rule: "WEEKDAY_MISMATCH", category: "날짜와 요일", message: "날짜와 요일이 맞지 않습니다.", fix: { from: "(목)", to: "(금)" } },
     { severity: "error", rule: "SUM_MISMATCH", category: "표 합계", message: "합계가 맞지 않습니다", fix: { from: "1,500,000", to: "1,450,000" } },
     { severity: "error", rule: "MONEY_HANGUL_MISMATCH", category: "금액 표기", message: "괄호 안 한글 금액이 숫자와 다릅니다." },
+    { severity: "warning", rule: "PLACEHOLDER", category: "빈 자리", message: "실제 내용으로 바꾸세요.", excerpt: "○○○" },
     { severity: "warning", rule: "EMPTY_FIELD", category: "빈칸 안내 글자", message: "칸을 채우지 않았습니다" },
     { severity: "warning", rule: "PRIVACY_PHONE", category: "개인정보", message: "휴대전화 번호가 있습니다", excerpt: "010-●●●●-6789" },
     { severity: "warning", category: "K팀장 · 숫자", message: "합계가 이상합니다" },
@@ -39,5 +40,17 @@ describe("결재 전 점검 → 편집기 AI 요청", () => {
     expect(t).toContain(`${MAX_POINTS}. [살필 것] 지적 ${MAX_POINTS - 1}`);
     expect(t).not.toContain(`지적 ${MAX_POINTS}\n`);
     expect(t).toContain("표기 지적이 5건 더 있습니다");
+  });
+
+  it("같은 낱말도 자리(앞뒤 글)가 다르면 따로 싣고, 낱말뿐인 원문에는 앞뒤 글을 같이 준다", () => {
+    const two: PrecheckPoint[] = [
+      { severity: "warning", rule: "PLAIN_LANGUAGE", category: "쉬운 말", message: "더 쉬운 말로", excerpt: "금번", context: "금번 행사는 시청에서" },
+      { severity: "warning", rule: "PLAIN_LANGUAGE", category: "쉬운 말", message: "더 쉬운 말로", excerpt: "금번", context: "금번 예산은 줄여" },
+    ];
+    expect(actionablePoints(two)).toHaveLength(2);
+    const text = precheckTask(two);
+    expect(text).toContain('앞뒤: "금번 행사는 시청에서"');
+    expect(text).toContain('앞뒤: "금번 예산은 줄여"');
+    expect(text).toMatch(/occurrence/);
   });
 });

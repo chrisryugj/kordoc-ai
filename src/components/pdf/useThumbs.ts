@@ -29,6 +29,8 @@ export interface Thumbs {
 export function useThumbs(cssWidth: number): Thumbs {
   const width = Math.min(640, Math.ceil((cssWidth * (window.devicePixelRatio || 1)) / 64) * 64);
   const cache = useRef(new Map<string, Entry>());
+  /** ensure 가 기다리는 쪽 (키 → 기다리는 ensure 수): 상한을 넘어도 버리지 않는다. 버리면 빈 쪽 찾기가 버린 쪽을 다시 받고 또 버리며 끝나지 않았다 */
+  const pinned = useRef(new Map<string, number>());
   /** 그리지 못한 쪽: 문서에 없는 쪽은 끝까지(Infinity), 엔진 오류는 잠깐 뒤 다시 (언제까지 안 묻는지) */
   const failed = useRef(new Map<string, number>());
   /** 받는 중인 쪽 (같은 쪽을 또 묻지 않게) */
@@ -67,7 +69,7 @@ export function useThumbs(cssWidth: number): Thumbs {
           }
           for (const old of cache.current.keys()) {
             if (cache.current.size <= KEEP) break;
-            cache.current.delete(old);
+            if (!pinned.current.has(old)) cache.current.delete(old);
           }
           // 문서에 없는 쪽(원본이 바뀜)은 다시 묻지 않는다
           for (const p of pages) if (!r.pages.some((x) => x.page === p)) failed.current.set(key(source, p), Infinity);
@@ -97,11 +99,19 @@ export function useThumbs(cssWidth: number): Thumbs {
   }, [pump]);
 
   const ensure = useCallback((list: Array<{ source: string; page: number }>) => {
+    const keys = list.map((x) => key(x.source, x.page));
+    keys.forEach((k) => pinned.current.set(k, (pinned.current.get(k) ?? 0) + 1));
+    const unpin = () => keys.forEach((k) => {
+      const n = (pinned.current.get(k) ?? 1) - 1;
+      if (n > 0) pinned.current.set(k, n);
+      else pinned.current.delete(k);
+    });
     list.forEach((x) => want(x.source, x.page));
     return new Promise<void>((resolve) => {
       const check = () => {
         if (list.every((x) => fresh(x.source, x.page))) {
           waiters.current.delete(check);
+          unpin();
           resolve();
           return;
         }

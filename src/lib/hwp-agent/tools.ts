@@ -17,6 +17,7 @@ const SYSTEM = [
   "자리 표기:",
   "- 문단은 \"구역.문단\" (예: 0.12). 문서 문맥과 read_document 결과의 [ ] 안 값을 그대로 씁니다.",
   "- 표는 \"구역.문단.번호\" (예: 0.5.0). 칸 안의 표는 read_table 이 알려 주는 \"0.5.0>3.0.0\" 꼴. 칸은 행·열 번호(0부터)로 가리킵니다.",
+  "- 문단·표·줄을 넣거나 지우면 그 뒤 번호가 바뀝니다. 그런 호출(insert_paragraphs·delete_paragraphs·insert_table·add_rows·remove_rows) 뒤에는 같은 차례에 다른 자리 호출을 넣지 말고, 다음 차례에 read_document·read_table 로 자리를 다시 확인합니다.",
   "",
   "일하는 순서:",
   "1. 고칠 곳이 문맥에 없으면 read_document·find_text·read_table 로 먼저 확인합니다.",
@@ -49,6 +50,9 @@ const paraFmt = {
   before_pt: { type: "number", description: "문단 위 간격(pt)" }, after_pt: { type: "number", description: "문단 아래 간격(pt)" },
 };
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
+
+/** 성공하면 문단·줄 번호가 바뀌는 도구 (loop.ts 가 같은 차례의 뒤 호출을 막는다) */
+const RESHAPES: ReadonlySet<string> = new Set(["insert_paragraphs", "delete_paragraphs", "insert_table", "add_rows", "remove_rows"]);
 
 export const TOOLS: AgentToolDef[] = [
   { name: "read_document", description: "문서의 본문 문단(자리와 글)과 표 목록을 읽습니다. 긴 문서는 from 으로 이어 읽습니다.", inputSchema: obj({ from: { type: "integer", description: "몇 번째 문단부터(0부터)" } }) },
@@ -191,6 +195,7 @@ export function createHwpSkill(deps: { bridge: AgentBridge; onChange?: (change: 
   const skill: AgentSkill = {
     systemPrompt: SYSTEM,
     tools: TOOLS,
+    reshapes: RESHAPES,
     buildContext: () => context,
     verifyResponse(text: string, executed: ExecutedToolCall[]) {
       if (executed.some((e) => e.ok && RUN[e.name]?.mutates)) return null;

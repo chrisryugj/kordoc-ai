@@ -5,6 +5,7 @@ import { PlugZap, Save } from "lucide-react";
 import type { RpcResult } from "../../lib/contract";
 import { useApp } from "../../state/app";
 import { useSectionMark } from "./marks";
+import { lockProps, useLocked } from "./PolicyLock";
 import { rpc } from "../../lib/rpc";
 import { useTask } from "../../hooks/useTask";
 import { Button } from "../ui/Button";
@@ -18,12 +19,14 @@ export function LawSection() {
   const saved = settings?.law?.oc ?? "";
   const offline = settings?.privacy.offline ?? false;
   const [oc, setOc] = useState(saved);
+  // 기관이 고정했으면 고칠 수 없게: 저장해도 엔진이 버려 「저장했습니다」 뒤에도 「저장 안 함」이 남고 떠날 때마다 물었다
+  const ocLocked = useLocked()("law.oc");
   const [saving, setSaving] = useState(false);
   const test = useTask<RpcResult<"law_test">>();
 
   useEffect(() => setOc(saved), [saved]);
 
-  const changed = oc.trim() !== saved;
+  const changed = !ocLocked && oc.trim() !== saved;
   const save = async () => {
     setSaving(true);
     const next = await saveSettings({ law: { oc: oc.trim() } });
@@ -43,7 +46,7 @@ export function LawSection() {
       <div className="flex flex-col gap-4">
         {offline && <Note tone="info">폐쇄망 모드라 법제처에 묻지 않습니다. 문서 속 법령 인용을 찾는 것까지만 합니다.</Note>}
         <div className="kd-fieldgrid">
-          <TextField label="법제처 아이디" hint="법제처 공동활용 누리집에 가입한 이메일의 @ 앞부분" value={oc} onChange={setOc} placeholder="예: hong" />
+          <TextField {...lockProps("법제처 아이디", ocLocked)} hint="법제처 공동활용 누리집에 가입한 이메일의 @ 앞부분" value={oc} onChange={setOc} placeholder="예: hong" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => void save()} disabled={saving || !changed}><Save size={14} /> {saving ? "저장하는 중" : "저장"}</Button>

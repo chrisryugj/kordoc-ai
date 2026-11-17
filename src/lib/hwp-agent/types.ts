@@ -33,4 +33,6 @@ export interface AgentSkill {
   buildContext?(): string;
   /** 도구 없이 끝낸 답이 하지 않은 편집을 했다고 말하면, 모델에게 다시 보낼 한 줄 */
   verifyResponse?(text: string, executed: ExecutedToolCall[]): string | null;
+  /** 성공하면 문단·줄 번호가 바뀌는 도구. 한 차례에 이것 뒤로 온 호출은 옛 번호라 실행하지 않고 다시 읽게 한다 */
+  reshapes?: ReadonlySet<string>;
 }

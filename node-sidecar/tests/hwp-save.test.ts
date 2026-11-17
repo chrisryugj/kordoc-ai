@@ -1,5 +1,5 @@
 /** HWP 저장 보정 (core/hwp-save) — 합성 레코드로 보정 규칙, 실제 엔진으로 열기·저장, 코퍼스가 있으면 한컴 문서 왕복 */
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -178,6 +178,9 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     expect((await editorWrite({ path, data_b64: Buffer.from(blankHwp('편집기 2')).toString('base64'), token: o2.token, overwrite: true })).backup_path).toBeUndefined();
     // 그 뒤 한글에서 고쳐 저장(바깥 변경) → 다시 열어 저장하면 그 판을 날짜 백업으로
     writeFileSync(path, blankHwp('한글에서 한 달 고친 판'));
+    // 빈 HWP 는 글과 상관없이 크기가 같아(12,800바이트) 빨리 돌면 수정 시각도 2ms 안이라 「앱이 쓴 판」으로 보였다(시험이 흔들림).
+    // 실제 바깥 편집처럼 수정 시각을 뒤로 옮긴다
+    utimesSync(path, new Date(), new Date(Date.now() + 5000));
     const o3 = await editorOpen(path);
     const w3 = await editorWrite({ path, data_b64: Buffer.from(blankHwp('편집기 3')).toString('base64'), token: o3.token, overwrite: true });
     expect(w3.backup_path).toMatch(/보고\.hwp\.\d{8}-\d{6}\.bak$/);

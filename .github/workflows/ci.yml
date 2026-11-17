@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# 읽기만: 의존 패키지 설치 스크립트가 저장소 토큰으로 쓰지 못하게 (토큰은 .git 에도 남기지 않는다)
+permissions:
+  contents: read
+
 jobs:
   # 문서 엔진: 테스트 + 설치본 조건 셀프테스트 (Windows·macOS 각각 — 네이티브 모듈이 OS 마다 다르다)
   engine:
@@ -17,6 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -47,6 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -69,6 +77,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -81,5 +91,5 @@ jobs:
       - name: cargo check · test
         working-directory: src-tauri
         run: |
-          cargo check --lib
-          cargo test --lib
+          cargo check --lib --locked
+          cargo test --lib --locked

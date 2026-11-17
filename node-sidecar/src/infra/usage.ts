@@ -125,31 +125,41 @@ function keep(sent: Unsaved): void {
   if (sent.cleared) cleared = true;
 }
 
-function scheduleSave(): void {
+/** 아직 파일에 쓰지 못한 몫이 있는가 (저장이 미뤄졌거나 실패한 것) */
+const unsaved = () => cleared || Object.keys(pending).length > 0;
+/** 이어진 저장 실패 수: 다시 예약하는 간격을 늘리고(2초 → 1분) 경고는 처음 한 번만 (권한이 깨진 PC 에서 2초마다 경고 줄이 쌓였다) */
+let failStreak = 0;
+const retryDelay = () => Math.min(2000 * 2 ** failStreak, 60_000);
+
+function scheduleSave(delay = 2000): void {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
     const sent = mergeDisk();
-    if (!sent) return;
+    // 파일을 잠깐 못 읽었다: 더한 몫은 pending 에 남으니 다시 예약한다 (안 하면 그 뒤 기록 없이 꺼질 때 사라졌다)
+    if (!sent) { failStreak++; scheduleSave(retryDelay()); return; }
     try {
       mkdirSync(dataDir(), { recursive: true });
       // 앱 엔진과 MCP 엔진이 같이 저장할 수 있다 — 임시 이름이 같으면 덜 쓴 파일이 바꿔 넣어져 다음 읽기가 기록을 지웠다
       const tmp = `${file()}.${process.pid}.tmp`;
       await writeFile(tmp, JSON.stringify(data), 'utf-8');
       await renameRetry(tmp, file());
+      failStreak = 0;
     } catch (err) {
       keep(sent);
-      logger.warn(`[usage] 저장 실패: ${err}`);
+      if (!failStreak) logger.warn(`[usage] 저장 실패(다시 해 봅니다): ${err}`);
+      failStreak++;
+      scheduleSave(retryDelay());
     }
-  }, 2000);
+  }, delay);
   saveTimer.unref();
 }
 
 /** 미뤄 둔 저장을 기다리지 않고 지금 한다. 엔진이 꺼지는 길에서 부른다 (기록 2초 안에 꺼지면 그 건수가 사라졌다).
  *  시험도 임시 폴더를 지우기 전에 부른다: 2초 뒤 저장이 지운 폴더를 다시 만들지 않게 */
 export function flushUsage(): void {
-  if (!saveTimer) return;
-  clearTimeout(saveTimer);
+  if (!saveTimer && !unsaved()) return;
+  if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   const sent = mergeDisk();
   if (!sent) return;

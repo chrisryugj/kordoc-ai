@@ -182,6 +182,12 @@ export async function watchStart(p: { dir: string; out_dir?: string; format?: Wa
   // 글자열이 아니라 같은 폴더인지로: 맥 자소 분리(NFD)·대소문자만 다른 경로로 두 번 걸면 두 감시가 같은 결과 파일에 동시에 썼다
   const same = (d: string) => sameFile(d, p.dir);
   if ([...starting].some(same) || [...watchers.values()].some((w) => same(w.dir))) throw new Error('이미 지켜보는 폴더입니다.');
+  // 바깥·안쪽 폴더를 함께 걸면 안쪽 폴더의 문서가 두 감시에 잡혀 두 번 변환된다.
+  // 같은 폴더 판정처럼 자소 분리(NFD)·대소문자(Windows·macOS)를 맞춰 견준다
+  const norm = (d: string) => { const n = resolve(d).normalize('NFC'); return process.platform === 'linux' ? n : n.toLowerCase(); };
+  const within = (outer: string, inner: string) => { const r = relative(norm(outer), norm(inner)); return !!r && !r.startsWith('..') && !isAbsolute(r); };
+  const nested = [...starting, ...[...watchers.values()].map((w) => w.dir)].find((d) => within(d, p.dir) || within(p.dir, d));
+  if (nested) throw new Error(`이미 지켜보는 폴더(${nested})와 안팎으로 겹칩니다. 바깥 폴더 하나만 지켜보면 안쪽 폴더도 같이 봅니다.`);
   if (watchers.size + starting.size >= MAX_WATCHERS) throw new Error(`폴더 지켜보기는 ${MAX_WATCHERS}곳까지 됩니다. 쓰지 않는 폴더는 그만 보기를 누르세요.`);
   starting.add(p.dir);
   try {

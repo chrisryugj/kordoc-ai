@@ -37,7 +37,8 @@ export function LocalServerPanel({ value, onChange, keyInput, onKey, masked, key
 
   const pick = (s: LocalModelServer) => {
     setModels({ url: s.base_url, items: s.models });
-    onChange({ base_url: s.base_url, model: s.models.includes(value.model) ? value.model : firstChatModel(s.models) });
+    // 기관이 모델을 고정했으면 주소만 바꾼다(잠긴 모델 값이 바뀌어 보이고 저장해도 「저장 안 함」이 남았다)
+    onChange({ base_url: s.base_url, ...(lk("ai.local.model") ? {} : { model: s.models.includes(value.model) ? value.model : firstChatModel(s.models) }) });
   };
 
   const loadModels = () => void list.run(async ({ signal }) => {

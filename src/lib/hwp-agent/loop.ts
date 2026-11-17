@@ -78,8 +78,20 @@ export async function runAgent(opts: {
       }
       const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
       let changed = false;
+      /** 이 차례에 문단·줄 번호를 바꾼 도구 (뒤 호출은 모델이 그 전 번호로 적었다) */
+      let shiftedBy = "";
+      /** 번호가 바뀌어 막은 호출이 있었다: 문서를 바꾼 차례라도 되풀이로 센다 (같은 묶음을 다시 보내면 넣기만 거듭 돌았다) */
+      let blocked = false;
       for (const call of turn.calls) {
         if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
+        if (shiftedBy) {
+          // 같은 차례의 뒤 호출을 옛 번호대로 돌리면 엉뚱한 문단·줄을 고친다("0.2 뒤에 두 문단 넣고 0.6 고쳐" → 원래 0.4 를 고침)
+          const why = `앞의 ${shiftedBy} 는 이미 했고(다시 부르지 마세요), 그 때문에 문단·줄 번호가 바뀌어 이 호출은 하지 않았습니다. read_document·read_table 로 자리를 다시 확인한 뒤 이 호출만 다음 차례에 부르세요.`;
+          blocked = true;
+          results.push({ id: call.id, name: call.name, output: why, isError: true });
+          hooks.onTool({ name: call.name, summary: "번호가 바뀌어 다음 차례로 미룸", isError: true });
+          continue;
+        }
         if (call.inputError) {
           results.push({ id: call.id, name: call.name, output: call.inputError, isError: true });
           hooks.onTool({ name: call.name, summary: call.inputError, isError: true });
@@ -95,12 +107,13 @@ export async function runAgent(opts: {
         }
         executed.push({ name: call.name, ok: !out.isError });
         if (out.mutated) changed = true;
+        if (!out.isError && skill.reshapes?.has(call.name)) shiftedBy = call.name;
         results.push({ id: call.id, name: call.name, output: out.output, ...(out.isError ? { isError: true } : {}) });
         hooks.onTool({ name: call.name, summary: out.summary, isError: !!out.isError });
       }
       events.push({ role: "tool", results });
       // 되풀이: 같은 호출에 같은 결과가 왔고 바뀐 것도 없다 (한 곳씩 차례로 바꾸는 편집처럼 문서를 바꾼 차례는 세지 않는다)
-      const sig = changed ? "" : JSON.stringify([turn.calls.map((c) => [c.name, c.input]), results.map((r) => r.output)]);
+      const sig = changed && !blocked ? "" : JSON.stringify([turn.calls.map((c) => [c.name, c.input]), results.map((r) => r.output)]);
       sameCalls = sig && sig === lastCalls ? sameCalls + 1 : 1;
       lastCalls = sig;
       failedSteps = results.every((r) => r.isError) ? failedSteps + 1 : 0;
