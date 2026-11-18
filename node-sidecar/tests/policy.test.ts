@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getSettings, maskSecrets, reload, updateSettings } from '../src/infra/config.js';
@@ -13,6 +14,12 @@ import { RpcRouter } from '../src/rpc/router.js';
 import { registerSystem } from '../src/rpc/methods/system.js';
 
 const root = mkdtempSync(join(tmpdir(), 'kordoc-policy-'));
+// CI가 관리자 계정이어도 이 임시 시험 파일은 일반 사용자가 수정할 수 있게 한다.
+function makePolicyUserWritable(base: string): void {
+  const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
+  execFileSync(icacls, [join(base, 'KorDoc AI', 'policy.json'), '/grant', '*S-1-5-32-545:(W)'], { windowsHide: true });
+}
+
 let n = 0;
 let data = '';
 let policyPath = '';
@@ -267,7 +274,7 @@ describe('정책: 공유 폴더 저장 위치', () => {
 });
 
 describe('정책: 믿지 못하는 파일이어도 조이는 고정값은 적용', () => {
-  it.runIf(process.platform === 'win32')('일반 사용자 소유의 기계 전체 정책: 폐쇄망 모드·가리기·구독 금지만 적용하고 나머지(AI 서버 주소)는 버린다', async () => {
+  it.runIf(process.platform === 'win32')('일반 사용자가 고칠 수 있는 기계 전체 정책: 폐쇄망 모드·가리기·구독 금지만 적용하고 나머지(AI 서버 주소)는 버린다', async () => {
     const { loadPolicy } = await import('../src/infra/policy.js');
     const base = mkdtempSync(join(tmpdir(), 'kordoc-policy-pd-'));
     mkdirSync(join(base, 'KorDoc AI'));
@@ -280,6 +287,7 @@ describe('정책: 믿지 못하는 파일이어도 조이는 고정값은 적용
     process.env.ProgramData = base;
     delete process.env.KORDOC_AI_POLICY;
     try {
+      makePolicyUserWritable(base);
       const p = loadPolicy({ privacy: { offline: false }, ai: { allow_subscription: false, redact_before_cloud: true, provider: '', openai: { base_url: '' } }, org: { name: '' } })!;
       expect(p.error).toMatch(/적용하지 않았습니다.*조이는 고정값.*적용했습니다/);
       expect(p.locked).toEqual({ privacy: { offline: true }, ai: { allow_subscription: false, redact_before_cloud: true } });
@@ -395,12 +403,13 @@ describe('기계 전체 자리의 정책 파일은 소유자가 관리자일 때
     try {
       reload(); // 처음 설정을 정한다(정책 파일 없음). 그 뒤의 다시 읽기는 동기 확인을 하지 않는다
       writeFileSync(join(base, 'KorDoc AI', 'policy.json'), JSON.stringify({ version: 1, locked: { privacy: { offline: true }, org: { name: '심은 기관' } } }));
+      makePolicyUserWritable(base);
       // 동기로 확인했다면 바로 "나쁨"이 나온다. "확인 못 함"이면 PowerShell 을 기다리지 않은 것이다
       const first = reload();
       expect(first.policy?.error).toMatch(/확인하지 못해 아직 적용하지 않았습니다/);
       expect(first.privacy.offline).toBe(true);
       expect(first.org.name).not.toBe('심은 기관');
-      // 뒤에서 실제 PowerShell 로 본 판정(이 임시 파일은 일반 사용자 소유라 "나쁨")이 오면 설정이 다시 짜인다
+      // 뒤에서 실제 PowerShell 로 본 판정(이 임시 파일은 일반 사용자가 쓸 수 있어 "나쁨")이 오면 설정이 다시 짜인다
       const deadline = Date.now() + 40_000;
       while (/확인하지 못해/.test(getSettings().policy?.error ?? '') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
       expect(getSettings().policy?.error).toMatch(/소유자가 관리자/);
