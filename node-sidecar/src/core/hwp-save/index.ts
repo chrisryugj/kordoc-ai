@@ -113,6 +113,6 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
   }
   // 백업은 열 때 받은 표가 없어도(엔진이 다시 켜짐) 편집기가 쓴 판 기록으로 가린다
   const data_b64 = Buffer.from(bytes).toString('base64');
-  const backup = await writeWithBackup(p.path, () => writeFileB64({ path: p.path, data_b64, overwrite: p.overwrite }), p.backup !== false);
+  const backup = await writeWithBackup(p.path, bytes, () => writeFileB64({ path: p.path, data_b64, overwrite: p.overwrite }), p.backup !== false);
   return { path: p.path, ...(backup ? { backup_path: backup } : {}), ...(lost ? { tails_lost: true } : {}) };
 }

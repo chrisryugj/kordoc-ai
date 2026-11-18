@@ -1,5 +1,5 @@
 /** HWP 저장 보정 (core/hwp-save) — 합성 레코드로 보정 규칙, 실제 엔진으로 열기·저장, 코퍼스가 있으면 한컴 문서 왕복 */
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -222,6 +222,17 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     expect(readFileSync(path, 'utf-8')).toBe('PK고친 것');
     // 편집기가 쓴 판을 다시 덮을 때는 더 만들지 않는다
     expect((await editorWrite({ path, data_b64: b64('PK또 고침'), token: 'gone-after-restart', overwrite: true })).backup_path).toBeUndefined();
+  });
+
+  it('수정 시각과 크기가 같은 외부 수정도 백업한다', async () => {
+    const path = join(dir, '동기화된 파일.hwpx');
+    await editorWrite({ path, data_b64: b64('PKabc') });
+    const saved = statSync(path);
+    writeFileSync(path, 'PKxyz');
+    utimesSync(path, saved.atimeMs / 1000, saved.mtimeMs / 1000);
+    const next = await editorWrite({ path, data_b64: b64('PKnew'), overwrite: true });
+    expect(next.backup_path).toBe(path + '.bak');
+    expect(readFileSync(path + '.bak', 'utf8')).toBe('PKxyz');
   });
 
   it('같은 초에 바깥에서 두 번 고친 판을 각각 백업한다', async () => {
