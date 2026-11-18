@@ -1,5 +1,5 @@
 /** 한글 편집기 복구 사본 — 경로마다 하나, 이 실행에서 쓴 것은 "꺼진 문서" 목록에서 빠지고, 되살리면 사본 바이트에 원본의 저장 보정 정보 */
-import { readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -112,6 +112,15 @@ describe('recovery', () => {
     expect(w.backup_path).toBe(`${path}.bak`);
     (await mod()).recoveryDiscard(path);
     await expect(editorOpen(path, true)).rejects.toThrow(RECOVERY_GONE);
+  });
+
+  it('원본 자리가 폴더로 바뀌어도 복구 사본을 열 수 있다', async () => {
+    const path = join(work, '복구.hwpx');
+    await (await mod()).recoveryWrite({ path, data_b64: b64('PK복구 문서') });
+    mkdirSync(path);
+    const { editorOpen } = await import('../src/core/hwp-save/index.js');
+    await expect(editorOpen(path)).rejects.toThrow();
+    expect((await editorOpen(path, true)).data_b64).toBe(b64('PK복구 문서'));
   });
 
   it('원본이 사라졌어도 사본으로 연다', async () => {

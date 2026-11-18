@@ -14,6 +14,7 @@ import { concatXlsx } from './concat-xlsx.js';
 import { concatPdf, splitPdf } from './concat-pdf.js';
 import type { MergeFilesParams, MergeFilesResult, MergeFailure } from './types.js';
 import { errorText } from '../errors.js';
+import { atomicWriteFile } from '../files/io.js';
 import { dropPartial, resultDir, stemOf } from '../output/index.js';
 import { checkZipSize, entryText } from '../files/zip-read.js';
 
@@ -120,7 +121,8 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
   const r = await splitHwpx(bytes, p.mode ?? 'auto', signal);
   signal.throwIfAborted();
   // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
-  const output_dir = resultDir(p.output_dir);
+  const folder = resultDir(p.output_dir);
+  const output_dir = folder.path;
   const stem = stemOf(p.path);
   const width = String(r.parts.length).length;
   const output_files: string[] = [];
@@ -129,14 +131,16 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
       // 멈춘(시간 초과 포함) 뒤에는 파일을 더 쓰지 않는다
       signal.throwIfAborted();
       const out = join(output_dir, `${stem}_${String(i + 1).padStart(width, '0')}.hwpx`);
+      await atomicWriteFile(out, part, false);
       output_files.push(out);
-      await writeFile(out, part);
     }
   } catch (err) {
     // 반쯤 쓴 결과는 지운다 — 멈췄을 때도, 쓰다 실패했을 때도(디스크 가득·공유 폴더 끊김)
-    await dropPartial(output_files, output_dir);
+    await dropPartial(output_files);
+    folder.release(true);
     throw err;
   }
+  folder.release(false);
   return { output_dir, output_files, sections: r.sections, page_breaks: r.pageBreaks };
 }
 

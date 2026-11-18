@@ -66,8 +66,8 @@ async function copyNew(from: string, to: string): Promise<boolean> {
   }
 }
 
-/** 백업 하나 만들기 — 만든 경로, 이 초의 날짜 백업이 이미 있으면 undefined. 둘 다 못 만들면 던진다(원본을 지키려고 저장하지 않는다) */
-async function makeBackup(path: string): Promise<string | undefined> {
+/** 백업 하나 만들기. 같은 초에 이미 남긴 판이 있으면 번호를 붙인다. */
+async function makeBackup(path: string): Promise<string> {
   const bak = `${path}.bak`;
   try {
     // 이미 있으면 처음 원본이라 두고 날짜 백업으로
@@ -77,12 +77,16 @@ async function makeBackup(path: string): Promise<string | undefined> {
     logger.warn(`[backup] ${bak} 를 만들지 못해 날짜 백업으로: ${err}`);
   }
   // 이름 한도(255바이트)에 맞춘다 — 긴 이름에 날짜 꼬리(20바이트)를 붙이면 넘어 저장 자체가 실패했다
-  const dated = join(dirname(path), fitFileName(`${basename(path)}.${stamp()}.bak`));
-  try {
-    return (await copyNew(path, dated)) ? dated : undefined;
-  } catch (err) {
-    logger.warn(`[backup] ${dated} 도 만들지 못함: ${err}`);
-    throw new Error(BACKUP_FAILED);
+  const dated = `${basename(path)}.${stamp()}`;
+  for (let n = 1; ; n++) {
+    const suffix = n === 1 ? '' : ` (${n})`;
+    const candidate = join(dirname(path), fitFileName(`${dated}${suffix}.bak`));
+    try {
+      if (await copyNew(path, candidate)) return candidate;
+    } catch (err) {
+      logger.warn(`[backup] ${candidate} 도 만들지 못함: ${err}`);
+      throw new Error(BACKUP_FAILED);
+    }
   }
 }
 

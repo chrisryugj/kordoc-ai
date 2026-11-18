@@ -171,7 +171,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     if (!same()) return;
     r.busy = true;
     try {
-      await rpc("recovery_write", { path, data_b64, title, working: true });
+      const result = await rpc("recovery_write", { path, data_b64, title, working: true });
+      if (!result.ok) return;
       // 쓰는 사이에 지웠다면 방금 쓴 것도 지운다
       if (!same()) { void rpc("recovery_discard", { path }).catch(() => undefined); return; }
       if (seq !== undefined) r.seq = seq;
@@ -394,6 +395,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     if (entering.current) { toast("앞 문서를 여는 중입니다. 잠시 뒤 다시 누르세요.", "info"); return false; }
     entering.current = true;
     let recover = !!opts?.recover;
+    let discardAfterOpen = false;
     try {
       // 쪽이 아주 많은 문서는 열기 전에 묻는다 (rhwp 는 쪽 수에 따라 여는 시간이 가파르게 는다)
       const pages = await rpc("doc_info", { path }).then((d) => d.page_count ?? 0, () => 0);
@@ -414,7 +416,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
             choices: [{ id: "cancel", label: "취소", variant: "ghost" }, { id: "original", label: "원본 열기", variant: "secondary" }, { id: "recover", label: "고친 내용으로 열기" }],
           });
           if (a === "cancel") return false;
-          if (a === "original") dropRecovery(path);
+          discardAfterOpen = a === "original";
           recover = a === "recover";
         }
       }
@@ -438,7 +440,10 @@ export function CreateProvider({ children }: { children: ReactNode }) {
     /** 이 문서가 지금 세션으로 남았나 (돌려줄 값: 취소·실패로 앞 세션으로 되돌리거나 비우면 false) */
     let held = true;
     try {
-      if (!(await ensureEditor())) return true;
+      if (!(await ensureEditor())) {
+        if (recover || extOf(path) === "pdf") throw new Error("편집기를 준비하지 못했습니다. 편집기를 다시 연 뒤 시도하세요.");
+        return true;
+      }
       const ed = client.current!;
       const file = await rpc("editor_open", { path, ...(recover ? { recover: true } : {}) });
       setSession((s) => (s && s.path === path ? { ...s, token: file.token } : s));
@@ -454,6 +459,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         throw e;
       }
       loaded = true;
+      if (discardAfterOpen) dropRecovery(path);
       if (fields) await ed.call("put_fields", { values: fields });
       // 연 뒤 상태를 직접 확인한다 (칸을 넣었으면 디스크 파일과 달라졌다)
       const st = await ed.call("state", {}).catch(() => null);
@@ -475,7 +481,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       } else {
         if (!loaded && client.current) stopEditor(OPEN_FAILED);
         // 가져오지 못한 PDF 는 "고치지 않은 그대로 저장"할 한글 문서가 없다: 세션을 남기지 않고 작성 단계로
-        if (!loaded && extOf(path) === "pdf") { setSession(null); setStep("compose"); held = false; }
+        if (!loaded && (recover || extOf(path) === "pdf")) { setSession(null); setStep("compose"); held = false; }
         toast(`문서를 편집기로 열지 못했습니다: ${errorText(e)}`, "error");
       }
     } finally {
@@ -507,7 +513,8 @@ export function CreateProvider({ children }: { children: ReactNode }) {
         const bytes = await ed.save(format);
         // 그사이 저장·버리기·다른 문서 열기가 있었다
         if (opening.current || r.gen !== gen) return;
-        await rpc("recovery_write", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), title, ...(working ? { working: true } : {}) });
+        const result = await rpc("recovery_write", { path, data_b64: bytesToB64(bytes.buffer as ArrayBuffer), title, ...(working ? { working: true } : {}) });
+        if (!result.ok) return;
         // 쓰는 사이에 지웠다면 방금 쓴 것도 지운다
         if (r.gen !== gen) { void rpc("recovery_discard", { path }).catch(() => undefined); return; }
         r.seq = st.changeSeq;

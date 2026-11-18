@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as CFB from 'cfb';
 import init, { HwpDocument } from '@rhwp/core';
 import { TAG, ctrlId, inlineControls, readHwp5, readRecords, writeHwp5, writeRecord, type Hwp5 } from '../src/core/hwp-save/hwp5.js';
@@ -222,6 +222,26 @@ describe('editor_open·editor_write (실제 엔진)', () => {
     expect(readFileSync(path, 'utf-8')).toBe('PK고친 것');
     // 편집기가 쓴 판을 다시 덮을 때는 더 만들지 않는다
     expect((await editorWrite({ path, data_b64: b64('PK또 고침'), token: 'gone-after-restart', overwrite: true })).backup_path).toBeUndefined();
+  });
+
+  it('같은 초에 바깥에서 두 번 고친 판을 각각 백업한다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 18, 12, 34, 56));
+    try {
+      const path = join(dir, '빠른 변경.hwpx');
+      writeFileSync(path + '.bak', '최초 원본');
+      const backups: string[] = [];
+      for (const text of ['PK첫 판', 'PK두 번째 외부 수정']) {
+        writeFileSync(path, text);
+        const result = await editorWrite({ path, data_b64: b64('PK앱'), overwrite: true });
+        expect(result.backup_path).toBeDefined();
+        backups.push(result.backup_path!);
+      }
+      expect(backups.map(p => readFileSync(p, 'utf8'))).toEqual(['PK첫 판', 'PK두 번째 외부 수정']);
+      expect(readFileSync(path + '.bak', 'utf8')).toBe('최초 원본');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('쓰기가 실패하면 이번에 만든 백업을 지운다: 다시 눌러도 날짜 백업이 쌓이지 않는다', async () => {

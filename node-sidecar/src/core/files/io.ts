@@ -1,7 +1,8 @@
 /** 바이트 저장·읽기 (write_file·read_file_b64) — 편집기 내보내기 등. 확장자 허용 목록 + 크기 상한 */
 
-import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import { chmod, copyFile, link, lstat, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { renameRetry } from '../../infra/rename.js';
 import { showFieldGuides } from '../render/guides.js';
@@ -15,21 +16,31 @@ function checkExt(path: string, allowed: Set<string>, verb: string): void {
   if (!allowed.has(ext)) throw new Error(`${ext || '확장자 없는'} 파일은 ${verb} 수 없습니다. 허용: ${[...allowed].join(' ')}`);
 }
 
-let tmpSeq = 0;
 /** 옆에 다 쓴 뒤 바꿔 넣는다 — 제자리로 쓰다 끊기면(매핑 드라이브 끊김·디스크 참) 원래 파일까지 잃는다. 임시 이름은 호출마다 달라
  *  같은 파일을 잇달아 저장해도(검토 받기 → PDF 로 저장) 두 쓰기가 한 임시 파일에 섞이지 않는다. 못 바꿔 넣으면 임시 파일을 남기지 않는다.
  *  임시 이름은 파일 이름에 꼬리로 붙이지 않고 짧게 따로 짓는다: 한도에 맞춘 긴 이름(240바이트)에 19바이트를 붙이면 255바이트를 넘어
  *  저장이 실패했다(SMB NAS 등). 덮는 파일의 권한(0600 등)은 그대로 두고, 심볼릭 링크면 가리키는 파일 자리에 쓴다(링크가 일반 파일이 되지 않게) */
-export async function atomicWriteFile(path: string, data: Uint8Array | string): Promise<void> {
-  const link = await lstat(path).then((s) => s.isSymbolicLink(), () => false);
-  const target = link ? await realpath(path).catch(() => path) : path;
-  const mode = await stat(target).then((s) => s.mode & 0o777, () => undefined);
-  const tmp = join(dirname(target), `.kordoc-${process.pid}-${++tmpSeq}.tmp`);
+export async function atomicWriteFile(path: string, data: Uint8Array | string, overwrite = true): Promise<void> {
+  const symlink = overwrite && await lstat(path).then((s) => s.isSymbolicLink(), () => false);
+  const target = symlink ? await realpath(path).catch(() => path) : path;
+  const mode = overwrite ? await stat(target).then((s) => s.mode & 0o777, () => undefined) : undefined;
+  const tmp = join(dirname(target), `.kordoc-${randomUUID()}.tmp`);
   try {
     await writeFile(tmp, data, mode === undefined ? undefined : { mode });
     // 만들 때 준 권한은 umask 가 깎는다 (0664 → 0644)
     if (mode !== undefined) await chmod(tmp, mode);
-    await renameRetry(tmp, target);
+    if (overwrite) {
+      await renameRetry(tmp, target);
+    } else {
+      // 완성된 파일을 빈 이름에만 붙인다. 하드 링크를 지원하지 않는 공유 폴더·USB에서도 기존 파일을 보호한다.
+      try {
+        await link(tmp, target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw err;
+        await copyFile(tmp, target, constants.COPYFILE_EXCL);
+      }
+      await rm(tmp, { force: true }).catch(() => undefined);
+    }
   } catch (err) {
     // 바꿔치기를 못 하면(파일이 한글에서 열려 있음 등) 임시 파일을 폴더에 남기지 않는다
     await rm(tmp, { force: true }).catch(() => undefined);
@@ -44,10 +55,16 @@ export async function writeFileB64(p: { path: string; data_b64: string; overwrit
   checkExt(p.path, WRITE_EXT, '저장할');
   if (typeof p.data_b64 !== 'string') throw new Error('저장할 내용이 없습니다.');
   if (p.data_b64.length > (MAX_BYTES / 3) * 4 + 4) throw new Error('파일이 너무 큽니다 (200MB까지).');
-  if (existsSync(p.path) && !p.overwrite) throw new Error('같은 이름의 파일이 이미 있습니다. 덮어쓰려면 덮어쓰기를 고르세요.');
   const data = Buffer.from(p.data_b64, 'base64');
   await mkdir(dirname(p.path), { recursive: true });
-  await atomicWriteFile(p.path, data);
+  try {
+    await atomicWriteFile(p.path, data, !!p.overwrite);
+  } catch (err) {
+    if (!p.overwrite && (err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error('같은 이름의 파일이 이미 있습니다. 덮어쓰려면 덮어쓰기를 고르세요.');
+    }
+    throw err;
+  }
   return { path: p.path };
 }
 

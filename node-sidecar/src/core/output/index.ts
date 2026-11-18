@@ -5,7 +5,7 @@
  * (예외: 폴더 감시는 같은 원본의 변환 결과를 갱신하므로 덮어쓴다 — core/watch)
  */
 
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmdirSync, statSync } from 'node:fs';
 import { rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -54,21 +54,47 @@ export function uniquePath(p: string): string {
 }
 
 /** 결과 여러 개를 담을 폴더 — 이미 있고 비어 있지 않으면 `이름 (2)` … 새 폴더 (전에 만든 결과를 덮어쓰지 않게). 만들어서 돌려준다 */
-export function resultDir(dir: string): string {
-  const used = (d: string) => {
-    try { return readdirSync(d).length > 0; } catch { return existsSync(d); }
-  };
-  let out = dir;
-  for (let n = 2; used(out); n++) out = join(dirname(dir), `${basename(dir)} (${n})`);
-  mkdirSync(out, { recursive: true });
-  return out;
+export function resultDir(dir: string) {
+  mkdirSync(dirname(dir), { recursive: true });
+  for (let n = 1; ; n++) {
+    const path = n === 1 ? dir : join(dirname(dir), `${basename(dir)} (${n})`);
+    let created = false;
+    try {
+      mkdirSync(path);
+      created = true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      if (!statSync(path).isDirectory() || readdirSync(path).length) continue;
+    }
+    // 첫 조각을 쓰기 전에도 다른 나누기 작업이 이 폴더를 고르지 못하게 한다.
+    const marker = join(path, '.kordoc-split.lock');
+    try {
+      mkdirSync(marker);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw err;
+    }
+    if (readdirSync(path).length > 1) {
+      rmdirSync(marker);
+      continue;
+    }
+    return {
+      path,
+      release(failed: boolean) {
+        rmdirSync(marker);
+        if (failed && created) {
+          try { rmdirSync(path); } catch { /* 다른 파일이 생겼으면 남긴다 */ }
+        }
+      },
+    };
+  }
 }
 
 /** 여러 파일을 쓰다 멈추거나 실패했을 때 — 이번에 쓴 파일만 지우고, 폴더는 비었을 때만 지운다.
  *  남겨 두면 다시 할 때 resultDir·uniquePath 가 "(2)" 폴더로 보낸다 */
-export async function dropPartial(files: string[], dir: string): Promise<void> {
+export async function dropPartial(files: string[], dir?: string): Promise<void> {
   await Promise.all(files.map((f) => rm(f, { force: true }).catch(() => {})));
-  await rmdir(dir).catch(() => {});
+  if (dir) await rmdir(dir).catch(() => {});
 }
 
 /** 나누기 결과 폴더 자리 — parent 를 주면 그 안의 name 폴더(parent 이름이 이미 name 이면 그 폴더), 없으면 저장 폴더의 name */
