@@ -7,6 +7,7 @@ import { assertPageSpec, parsePageSpec } from '../render/index.js';
 import { sendProgress } from '../../infra/progress.js';
 import { logger } from '../../infra/logger.js';
 import type { MergeFilesParams, MergeFilesResult } from './types.js';
+import { atomicWriteFile } from '../files/io.js';
 import { dropPartial, resultDir, stemOf } from '../output/index.js';
 import { loadPdf } from '../export/index.js';
 
@@ -184,7 +185,8 @@ export async function splitPdf(
   const baseName = stemOf(file);
 
   // 전에 나눈 결과가 든 폴더면 덮어쓰지 않고 (2) 폴더에
-  const output_dir = resultDir(params.output_dir);
+  const folder = resultDir(params.output_dir);
+  const output_dir = folder.path;
 
   logger.info(`[split-pdf] ${file} (${totalPages}p) → ${mode} 모드`);
 
@@ -197,8 +199,8 @@ export async function splitPdf(
         const pages = await doc.copyPages(srcDoc, groups[gi]);
         for (const page of pages) doc.addPage(page);
         const outPath = join(output_dir, `${baseName}_${gi + 1}.pdf`);
+        await atomicWriteFile(outPath, await doc.save(), false);
         outputFiles.push(outPath);
-        await writeFile(outPath, await doc.save());
       }
     } else {
       for (let i = 0; i < totalPages; i++) {
@@ -214,15 +216,17 @@ export async function splitPdf(
         const [page] = await doc.copyPages(srcDoc, [i]);
         doc.addPage(page);
         const outPath = join(output_dir, `${baseName}_p${String(i + 1).padStart(3, '0')}.pdf`);
+        await atomicWriteFile(outPath, await doc.save(), false);
         outputFiles.push(outPath);
-        await writeFile(outPath, await doc.save());
       }
     }
   } catch (err) {
     // 멈추거나 쓰다 실패하면 반쯤 만든 조각을 남기지 않는다
-    await dropPartial(outputFiles, output_dir);
+    await dropPartial(outputFiles);
+    folder.release(true);
     throw err;
   }
+  folder.release(false);
 
   logger.info(`[split-pdf] done → ${outputFiles.length}개 파일`);
 

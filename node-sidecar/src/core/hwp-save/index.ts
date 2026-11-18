@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { logger } from '../../infra/logger.js';
 import { basename } from 'node:path';
 import { writeWithBackup } from '../files/backup.js';
 import { readFileB64, writeFileB64 } from '../files/io.js';
@@ -40,21 +40,25 @@ export function nameByBytes(name: string, bytes: Uint8Array): string {
 export async function editorOpen(path: string, recover = false): Promise<{ data_b64: string; name: string; size: number; token: string; tracked: boolean }> {
   const copy = recover ? recoveryBytes(path) : null;
   if (recover && !copy) throw new Error(RECOVERY_GONE);
-  const file = copy
-    ? (existsSync(path) ? await readFileB64(path) : { data_b64: '', name: basename(path), size: 0 })
-    : await readFileB64(path);
-  const original = Buffer.from(file.data_b64, 'base64');
-  const hwp = isHwp5(original);
-  const tracked = hwp && (headerFlags(original) & TRACKED) !== 0;
+  let original: Buffer | null = null;
+  let tracked = false;
+  try {
+    original = Buffer.from((await readFileB64(path)).data_b64, 'base64');
+    tracked = isHwp5(original) && (headerFlags(original) & TRACKED) !== 0;
+  } catch (err) {
+    if (!copy) throw err;
+    logger.warn(`[recovery] 원본의 저장 보정 정보를 읽지 못해 사본으로 엽니다: ${err}`);
+    original = null;
+  }
   const token = randomUUID();
-  opened.set(token, { original: hwp && !tracked ? original : null });
+  opened.set(token, { original: original && isHwp5(original) && !tracked ? original : null });
   while (opened.size > KEEP) opened.delete(opened.keys().next().value!);
-  const shown = copy ?? original;
+  const shown = (copy ?? original)!;
   return {
     data_b64: Buffer.from(shown).toString('base64'),
     // 복구 사본은 편집기가 내보낸 한글 문서다. PDF 를 가져와 고치던 문서면 원본 이름이 .pdf 라,
     // 그 이름으로 주면 편집기가 PDF 가져오기 창을 띄워 사본(HWPX)을 PDF 로 읽으려다 실패한다: 바이트에 맞는 확장자로
-    name: copy ? nameByBytes(file.name, copy) : file.name,
+    name: copy ? nameByBytes(basename(path), copy) : basename(path),
     size: shown.length,
     token,
     tracked,
@@ -109,6 +113,6 @@ export async function editorWrite(p: { path: string; data_b64: string; token?: s
   }
   // 백업은 열 때 받은 표가 없어도(엔진이 다시 켜짐) 편집기가 쓴 판 기록으로 가린다
   const data_b64 = Buffer.from(bytes).toString('base64');
-  const backup = await writeWithBackup(p.path, () => writeFileB64({ path: p.path, data_b64, overwrite: p.overwrite }), p.backup !== false);
+  const backup = await writeWithBackup(p.path, bytes, () => writeFileB64({ path: p.path, data_b64, overwrite: p.overwrite }), p.backup !== false);
   return { path: p.path, ...(backup ? { backup_path: backup } : {}), ...(lost ? { tails_lost: true } : {}) };
 }

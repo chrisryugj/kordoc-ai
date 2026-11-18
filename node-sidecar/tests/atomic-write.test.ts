@@ -3,13 +3,24 @@
 import { describe, it, expect } from 'vitest';
 import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { atomicWriteFile } from '../src/core/files/io.js';
+import { atomicWriteFile, writeFileB64 } from '../src/core/files/io.js';
 import { fitFileName, uniquePath } from '../src/core/output/index.js';
 import { tempDir } from './tmp-dirs.js';
 
 const posix = process.platform !== 'win32';
 
 describe('atomicWriteFile', () => {
+  it('덮어쓰기 없이 동시에 같은 이름으로 저장하면 먼저 만든 파일만 남는다', async () => {
+    const dir = tempDir('kordoc-save-');
+    const path = join(dir, '결과.md');
+    const contents = ['첫 문서', '다른 문서'];
+    const writes = await Promise.allSettled(contents.map(text =>
+      writeFileB64({ path, data_b64: Buffer.from(text).toString('base64') })));
+    expect(writes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(readFileSync(path, 'utf8')).toBe(contents[writes.findIndex(result => result.status === 'fulfilled')]);
+    expect(readdirSync(dir)).toEqual(['결과.md']);
+  });
+
   it.skipIf(!posix)('덮는 파일의 권한(0600)을 그대로 둔다', async () => {
     const dir = tempDir('kordoc-atomic-');
     const p = join(dir, '토큰.json');

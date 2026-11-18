@@ -1,7 +1,7 @@
 /** 나누기·합치기 결과 이름 — 맥 Finder 경로는 자소가 갈라진(NFD) 이름이라, 그대로 쓰면 윈도에서 "ㅂㅗㄱㅗㅅㅓ_1.hwpx" 처럼 보인다 */
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import JSZip from 'jszip';
@@ -89,6 +89,31 @@ describe('나누다 멈추면 반쯤 만든 결과를 남기지 않는다 (남�
     const again = await splitPdf({ file: src, output_dir: out }, signal);
     expect(again.output_dir).toBe(out);
     expect(again.output_files).toHaveLength(6);
+  });
+
+  it('같은 폴더로 함께 나눠도 각 결과가 독립된 폴더에 남는다', async () => {
+    const src = join(dir, '동시.pdf');
+    writeFileSync(src, await pdf(3));
+    const out = join(dir, '동시_나누기');
+    const results = await Promise.all([1, 2].map(() => splitPdf({ file: src, output_dir: out }, signal)));
+    expect(results.map(result => result.output_dir).sort()).toEqual([out, out + ' (2)']);
+    for (const result of results) {
+      expect(result.output_files).toHaveLength(3);
+      for (const path of result.output_files) expect((await PDFDocument.load(readFileSync(path))).getPageCount()).toBe(1);
+    }
+  });
+
+  it('PDF 나누기를 취소해도 사용자가 만든 빈 출력 폴더를 보존한다', async () => {
+    const src = join(dir, '기존폴더.pdf');
+    writeFileSync(src, await pdf(3));
+    const out = join(dir, '기존폴더_나누기');
+    mkdirSync(out);
+    try {
+      await expect(splitPdf({ file: src, output_dir: out }, stopAt(2))).rejects.toThrow();
+      expect(existsSync(out)).toBe(true);
+    } finally {
+      vi.mocked(sendProgress).mockReset();
+    }
   });
 
   it('PDF 를 그림으로', async () => {

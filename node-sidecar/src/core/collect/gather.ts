@@ -264,7 +264,7 @@ export async function collectGather(p: CollectGatherParams, signal: AbortSignal)
   const outPath = outputFile({ output_path: p.output_path, output_dir: p.output_dir, source: p.paths[0], name, overwrite: p.overwrite });
   // "같은 파일 바꾸기"(overwrite)는 앞서 만든 엑셀을 덮는다: 그 뒤 엑셀에서 고쳐 저장했으면(크기·수정 시각이 우리가 쓴 것과 다름) 백업을 남긴다
   const xlsx = await buildXlsx(book.sheets);
-  const backup = await writeWithBackup(outPath, () => atomicWriteFile(outPath, xlsx));
+  const backup = await writeWithBackup(outPath, xlsx, () => atomicWriteFile(outPath, xlsx));
   sendProgress({ current: total, total, message: `${rows.length}줄을 모았습니다` });
 
   const missing = status.filter((s) => s.in_roster && !s.submitted).map((s) => s.dept);

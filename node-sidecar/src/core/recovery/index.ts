@@ -38,6 +38,7 @@ const files = (path: string) => {
 };
 
 export async function recoveryWrite(p: { path: string; data_b64: string; title?: string; working?: boolean }): Promise<{ ok: boolean }> {
+  if (p.data_b64.length > 4 * Math.ceil(MAX_BYTES / 3)) return { ok: false };
   const bytes = Buffer.from(p.data_b64, 'base64');
   if (!bytes.length || bytes.length > MAX_BYTES) return { ok: false };
   const format: 'hwp' | 'hwpx' = /\.hwp$/i.test(p.path) ? 'hwp' : 'hwpx';
