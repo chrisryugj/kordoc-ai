@@ -5,7 +5,7 @@ import type { BatchTaskId } from "../../state/app";
 import type { TaskCtx } from "../../hooks/useTask";
 import { rpc, errorText, isAbort, type Progress } from "../../lib/rpc";
 import { dirName, joinPath, stem } from "../../lib/format";
-import { joinTo, type BatchOpts } from "./tasks";
+import { joinTo, mergeOrgOn, type BatchOpts } from "./tasks";
 import { shrinkParams, shrinkSummary } from "../workbench/tools/ShrinkTool";
 
 export interface RowState {
@@ -296,7 +296,7 @@ async function runOne(task: BatchTaskId, env: RunEnv): Promise<Outcome | null> {
       return { kind: "receipt", message, result: r, ...(opts.outDir ? { outDir: opts.outDir } : {}) };
     }
     case "mailmerge": {
-      const r = await rpc("mail_merge", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }), ...(opts.nameColumn.trim() ? { name_column: opts.nameColumn.trim() } : {}), ...outDirOf(opts) }, o);
+      const r = await rpc("mail_merge", { data_path: opts.dataPath, ...(opts.templatePath ? { template_path: opts.templatePath } : { template: opts.template }), ...(opts.nameColumn.trim() ? { name_column: opts.nameColumn.trim() } : {}), org: mergeOrgOn(opts), ...outDirOf(opts) }, o);
       const message = r.outputs.length
         ? `${r.outputs.length}장을 만들었습니다${r.failed.length ? `. ${r.failed.length}줄은 만들지 못했습니다` : ""}`
         : "한 장도 만들지 못했습니다. 아래 줄마다 이유를 보고 명부를 고친 뒤 다시 하세요.";

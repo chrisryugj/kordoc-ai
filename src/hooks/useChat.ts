@@ -13,6 +13,20 @@ export interface ChatItem {
   pending?: boolean;
 }
 
+/** 이어 보낼 앞 대화. 답이 실패·멈춘 질문 뒤에는 같은 역할 차례가 연달아 남는다 → 하나로 합친다
+ *  (차례가 번갈아 와야 받는 서버가 거절하지 않게). 답을 못 받은 마지막 질문은 뺀다: 엔진이 새 질문을 사용자 차례로 붙인다 */
+export function chatHistory(items: ChatItem[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const i of items) {
+    if (i.error || i.pending || !i.content.trim()) continue;
+    const prev = out[out.length - 1];
+    if (prev?.role === i.role) out[out.length - 1] = { role: i.role, content: `${prev.content}\n\n${i.content}` };
+    else out.push({ role: i.role, content: i.content });
+  }
+  if (out[out.length - 1]?.role === "user") out.pop();
+  return out;
+}
+
 /** 문서와 대화 (ai_chat) — 토큰을 받는 대로 마지막 답에 이어 붙인다 */
 export function useChat(paths: string[]) {
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -29,9 +43,7 @@ export function useChat(paths: string[]) {
     const q = question.trim();
     // 답을 받는 중 Enter 를 또 누르면 요청이 둘 돌고 토큰이 섞인다
     if (!q || !paths.length || ctrl.current) return false;
-    const history: ChatMessage[] = itemsRef.current
-      .filter((i) => !i.error && !i.pending && i.content)
-      .map((i) => ({ role: i.role, content: i.content }));
+    const history = chatHistory(itemsRef.current);
     setItems((prev) => [...prev, { role: "user", content: q }, { role: "assistant", content: "", pending: true }]);
     const ac = new AbortController();
     ctrl.current = ac;

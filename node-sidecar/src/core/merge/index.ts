@@ -46,6 +46,21 @@ async function checkHwpx(bytes: Uint8Array): Promise<void> {
   }
 }
 
+/** 0바이트 파일 (변환기에 넘기면 영어 오류 코드가 섞인 문장이나 빈 오류가 나온다) */
+const EMPTY = '내용이 없는 빈 파일(0바이트)입니다. 저장이 끝나지 않았을 수 있으니 원본을 다시 받아 넣으세요.';
+
+/** HWP → HWPX. 변환기의 오류 문장(영어 오류 코드·변환기 이름이 섞이거나 문장이 없는 오류)은 한국어 안내로 바꾼다. 암호 안내 같은 한국어 문장은 그대로 */
+async function hwpToHwpx(bytes: Uint8Array, signal: AbortSignal): Promise<Uint8Array> {
+  try {
+    return await rhwpConvert(bytes, 'hwpx', signal);
+  } catch (err) {
+    if (signal.aborted) throw err;
+    if (err instanceof Error && !/[A-Za-z]{6,}/.test(err.message)) throw err;
+    logger.warn(`[merge] HWP 변환 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error('한글(HWP) 문서로 읽을 수 없습니다. 파일이 손상됐거나 한글 문서가 아닐 수 있습니다. 한글에서 열리는지 확인하세요.');
+  }
+}
+
 /** HWPX·HWP 서식 유지 수합 — 한컴오피스 없이 XML 수준으로 이어 붙인다 (HWP 는 rhwp 로 HWPX 로 바꿔서) */
 async function mergeHangul(params: MergeFilesParams, signal: AbortSignal): Promise<MergeFilesResult> {
   const inputs: Uint8Array[] = [];
@@ -55,10 +70,11 @@ async function mergeHangul(params: MergeFilesParams, signal: AbortSignal): Promi
     sendProgress({ current: i, total: params.files.length + 1, message: `${basename(f)} 읽는 중` });
     try {
       const bytes = new Uint8Array(await readFile(f));
+      if (!bytes.length) throw new Error(EMPTY);
       if (extname(f).toLowerCase() === '.hwp') {
         const big = await tooBigForRhwp(bytes);
         if (big) throw new Error(`문서가 너무 큽니다(약 ${big}쪽)`);
-        inputs.push(await rhwpConvert(bytes, 'hwpx', signal));
+        inputs.push(await hwpToHwpx(bytes, signal));
       } else {
         await checkHwpx(bytes);
         inputs.push(bytes);
@@ -96,7 +112,8 @@ export async function splitHangul(p: { path: string; output_dir: string; mode?: 
   if (ext !== '.hwp' && ext !== '.hwpx') throw new Error('한글 문서(HWP·HWPX)만 나눌 수 있습니다.');
   sendProgress({ current: 0, total: 2, message: `${basename(p.path)} 읽는 중` });
   let bytes: Uint8Array = new Uint8Array(await readFile(p.path));
-  if (ext === '.hwp') bytes = await rhwpConvert(bytes, 'hwpx', signal);
+  if (!bytes.length) throw new Error(`${basename(p.path)}: ${EMPTY}`);
+  if (ext === '.hwp') bytes = await hwpToHwpx(bytes, signal);
   else await checkHwpx(bytes);
   signal.throwIfAborted();
   sendProgress({ current: 1, total: 2, message: '서식 그대로 나누는 중' });

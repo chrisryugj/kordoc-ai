@@ -34,6 +34,9 @@ tauri-plugin-notification = "~2.7"
 keyring = { version = "3", features = ["windows-native"] }
 getrandom = "0.3"
 base64 = "0.22"
+# 웹뷰 프로필 저장소 지우기 (commands/web_storage.rs). tauri(wry)가 쓰는 판과 같게
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [features]
 default = ["custom-protocol"]

@@ -11,6 +11,8 @@ import { readPref, writePref } from "./recent";
 export const ZOOM_STEPS = [0.9, 1, 1.1, 1.25, 1.5];
 const KEY = "kordoc-zoom";
 const MIN_APP_WIDTH = 960;
+/** 창 최소 높이(tauri.conf.json minHeight). 키워서 이보다 낮아지면 아래 단추·입력창이 잘린다 */
+const MIN_APP_HEIGHT = 560;
 /** 지금 웹뷰에 걸린 배율 — 창 폭을 배율 1 기준으로 되돌려 재는 데 쓴다 (브라우저 미리보기는 늘 1) */
 let applied = 1;
 
@@ -22,7 +24,7 @@ export function savedZoom(): number {
 
 /** 이 배율로 키워도 앱이 창 안에 다 들어가는가 (100% 이하는 늘 된다) */
 export function zoomFits(z: number): boolean {
-  return z <= 1 || (window.innerWidth * applied) / z >= MIN_APP_WIDTH;
+  return z <= 1 || ((window.innerWidth * applied) / z >= MIN_APP_WIDTH && (window.innerHeight * applied) / z >= MIN_APP_HEIGHT);
 }
 
 /** 지금 창 폭에서 고를 수 있는 가장 큰 단계 */

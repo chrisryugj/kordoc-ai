@@ -49,9 +49,17 @@ try {
   await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('어느 열이 어느 칸에 들어가나'), { timeout: 30000 });
   const plan = await mainText();
   check('짝: 제목 칸 ← 명부 제목 열', /제목\s+명부 '제목' 열/.test(plan));
-  check('짝: 기관 정보로 채우는 칸은 접혀 있음', plan.includes('내 기관 정보로 채우는 칸') && !/행정기관명\s+내 기관 정보/.test(plan));
+  // 내장 기안문의 기관 칸(결문)은 보내는 쪽이라 기관 정보 채우기가 기본 켬
+  check('짝: 내장 서식은 기관 정보 채우기 기본 켬', plan.includes('내 기관 정보로 채우는 칸'));
+  check('짝: 기관 정보로 채우는 칸은 접혀 있음', !/행정기관명\s+내 기관 정보/.test(plan));
   await ui.click('내 기관 정보로 채우는 칸', { within: '.kd-batch-opts' });
   check('짝: 펼치면 행정기관명 ← 내 기관 정보', /행정기관명\s+내 기관 정보 \(가온시\)/.test(await mainText()));
+  // 끄면 다시 재고 기관 정보 칸이 빠진다
+  await ui.click('명부에 없는 칸은 내 기관 정보로 채우기', { within: '.kd-batch-opts' });
+  await page.waitForFunction(() => !document.querySelector('.kd-batch-opts')?.innerText.includes('내 기관 정보로 채우는 칸') && document.querySelector('.kd-batch-opts')?.innerText.includes('어느 열이 어느 칸에 들어가나'), { timeout: 30000 });
+  check('짝: 끄면 기관 정보로 채우는 칸이 없음', !(await mainText()).includes('내 기관 정보로 채우는 칸'));
+  await ui.click('명부에 없는 칸은 내 기관 정보로 채우기', { within: '.kd-batch-opts' });
+  await page.waitForFunction(() => document.querySelector('.kd-batch-opts')?.innerText.includes('내 기관 정보로 채우는 칸'), { timeout: 30000 });
   check('짝: 양식에 없는 열 표시 (성명·비고)', plan.includes("쓰지 않는 명부 열: '성명', '비고'"));
   check('짝: 명부 3줄 → 문서 3장', plan.includes('명부 3줄 → 문서 3장'));
   await ui.shot(join(OUT, '21-mailmerge-plan.png'));

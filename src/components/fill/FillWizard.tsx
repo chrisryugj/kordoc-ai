@@ -190,6 +190,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
 
   /** 새 문서 바이트로 미리보기 교체 (초기 로드 + dry_run 갱신). 일꾼이 제때(8초) 못 열면 사이드카 렌더로 */
   const loadPreviewDoc = useCallback(async (b64: string) => {
+    // 창을 닫은 뒤 늦게 온 미리보기·저장 응답이 일꾼을 새로 만들면 아무도 끄지 않는다
     if (closed.current) return;
     docB64Ref.current = b64;
     const bytes = b64ToBytes(b64);
@@ -210,6 +211,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
   // ── 초기 로드: form_schema ──
   useEffect(() => {
     let cancelled = false;
+    closed.current = false;
     (async () => {
       try {
         const res = await sidecarCall("form_schema", { input_path: file.path, include_doc: true }) as FormSchemaRes;
@@ -238,6 +240,7 @@ export function FillWizard({ file, sidecarCall, outputDir, saveDir, showToast, o
     })();
     return () => {
       cancelled = true;
+      closed.current = true;
       rhwpRef.current?.dispose();
       rhwpRef.current = null;
       rhwpReady.current = false;

@@ -165,6 +165,17 @@ describe('보안·취소 (검증에서 나온 것)', () => {
       expect((await read(inner, { files: [], said: [`${join(work, '2026 budget plan.hwpx')} 를 요약해 줘`] })).isError).toBe(true);
       expect((await read(inner, { files: [], said: [`${join(work, '2026')} 폴더의 공문을 요약해 줘`] })).isError).toBeFalsy();
       expect((await read(inner, { files: [], said: [`${join(work, '2026')} 예산 자료를 모아 줘`] })).isError).toBeFalsy();
+      // 아직 없는 더 긴 경로·파일 이름(새로 저장할 곳), 빈칸을 둘 적은 이웃 이름도 앞부분 폴더를 맡긴 것이 아니다
+      expect((await read(inner, { files: [], said: [`${join(work, '2026 draft', 'plan.hwpx')} 로 저장해 줘`] })).isError).toBe(true);
+      expect((await read(inner, { files: [], said: [`${join(work, '2026 final.hwpx')} 로 저장해 줘`] })).isError).toBe(true);
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}  budget\\plan.hwpx 요약해 줘`] })).isError).toBe(true);
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}  budget 폴더를 봐 줘`] })).isError).toBe(true);
+      // 폴더 경로 바로 뒤의 조사는 떼고 본다
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}에 있는 문서를 요약해 줘`] })).isError).toBeFalsy();
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}의 공문을 요약해 줘`] })).isError).toBeFalsy();
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}에서 찾아 줘`] })).isError).toBeFalsy();
+      // 조사처럼 보여도 더 이어지면 다른 이름이다
+      expect((await read(inner, { files: [], said: [`${join(work, '2026')}의\\plan.hwpx 요약해 줘`] })).isError).toBe(true);
     } finally {
       rmSync(work, { recursive: true, force: true });
     }

@@ -64,6 +64,17 @@ describe('to_hwpx_batch 경고', () => {
     }
   }, 120_000);
 
+  it('같은 결과 이름으로 동시에 변환해도 두 파일을 각각 보존한다', async () => {
+    fail.on = false;
+    const options = { path: hwp, output_dir: join(dir, 'concurrent') };
+    const [first, second] = await Promise.all([toHwpx(options), toHwpx(options)]);
+    expect(first.output_path).not.toBe(second.output_path);
+    for (const result of [first, second]) {
+      expect(result.style).toBe('서식 그대로');
+      expect(readFileSync(result.output_path).subarray(0, 2).toString()).toBe('PK');
+    }
+  }, 120_000);
+
   it('경고가 없으면 싣지 않는다', async () => {
     fail.on = false;
     const r = await toHwpxBatch({ paths: [hwp], output_dir: join(dir, 'clean') }, new AbortController().signal);

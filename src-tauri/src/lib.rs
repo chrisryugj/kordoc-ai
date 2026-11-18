@@ -152,6 +152,53 @@ use tauri_plugin_deep_link::DeepLinkExt;
 
 use shell::show_main;
 
+/// 창(바깥 자리·크기)을 작업 영역(작업 표시줄을 뺀 화면) 안으로 줄이고 옮긴다. 모두 물리 화소.
+/// 처음 뜨는 1280x720 과 지난 실행에서 남긴 크기가 FHD 150% 노트북(작업 영역 높이 약 672)에서는 아래가 작업 표시줄 밑으로 들어간다
+fn fit_rect(area: (i32, i32, u32, u32), pos: (i32, i32), size: (u32, u32)) -> Option<((i32, i32), (u32, u32))> {
+    let (ax, ay, aw, ah) = area;
+    let w = size.0.min(aw);
+    let h = size.1.min(ah);
+    let x = pos.0.clamp(ax, ax + (aw - w) as i32);
+    let y = pos.1.clamp(ay, ay + (ah - h) as i32);
+    if (x, y, w, h) == (pos.0, pos.1, size.0, size.1) {
+        None
+    } else {
+        Some(((x, y), (w, h)))
+    }
+}
+
+fn fit_to_work_area(window: &tauri::WebviewWindow) {
+    if window.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let (Ok(Some(monitor)), Ok(pos), Ok(size)) = (window.current_monitor(), window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    let a = monitor.work_area();
+    if let Some(((x, y), (w, h))) = fit_rect((a.position.x, a.position.y, a.size.width, a.size.height), (pos.x, pos.y), (size.width, size.height)) {
+        // outer 크기에서 제목 줄·테두리만큼을 빼 안쪽 크기로 건다
+        let inner = window.inner_size().unwrap_or(size);
+        let (dw, dh) = (size.width.saturating_sub(inner.width), size.height.saturating_sub(inner.height));
+        let _ = window.set_size(tauri::PhysicalSize::new(w.saturating_sub(dw), h.saturating_sub(dh)));
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::fit_rect;
+
+    #[test]
+    fn window_taller_than_laptop_work_area_shrinks_and_moves_up() {
+        // FHD 150%: 화면 1920x1080 물리, 작업 표시줄 72 물리 → 작업 영역 높이 1008. 창 바깥 1920x1068
+        assert_eq!(fit_rect((0, 0, 1920, 1008), (0, 6), (1920, 1068)), Some(((0, 0), (1920, 1008))));
+        // 오른쪽 아래로 밀려난 창은 안으로 옮긴다
+        assert_eq!(fit_rect((0, 0, 1920, 1008), (1000, 600), (1280, 720)), Some(((640, 288), (1280, 720))));
+        // 다른 모니터(왼쪽, 음수 자리)도 그 영역 기준
+        assert_eq!(fit_rect((-1920, 0, 1920, 1040), (-1900, 10), (800, 600)), None);
+    }
+}
+
 /// kordoc:// 주소 하나 처리 — 동작 주소(우클릭 메뉴 동작)·묶음 주소는 묶음 수집기로, 그 밖은 창만 연다
 fn route_url(app: &tauri::AppHandle, url: &str) {
     // 이 PC 의 Finder 빠른 동작(표지)이 아니면 링크일 수 있다: 문서 카드는 띄우기만 하고 일은 누를 때 시작
@@ -226,6 +273,7 @@ pub fn run() {
             commands::settings::update_settings,
             commands::clipboard::save_clipboard_image,
             commands::clipboard::save_clipboard_text,
+            commands::web_storage::wipe_web_storage,
             shell::shell_menu_status,
             shell::shell_menu_install,
             shell::shell_menu_uninstall,
@@ -243,6 +291,7 @@ pub fn run() {
             let window = app.get_webview_window("main").ok_or("main 윈도우를 찾을 수 없습니다")?;
             #[cfg(debug_assertions)]
             window.open_devtools();
+            fit_to_work_area(&window);
 
             let handle = app.handle().clone();
 

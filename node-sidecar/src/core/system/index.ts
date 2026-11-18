@@ -13,6 +13,8 @@ import { dataDir, getSettings } from '../../infra/config.js';
 import { logger } from '../../infra/logger.js';
 import { cliErrorMessage, runKordocCli } from '../kordoc-cli.js';
 import { parseInWorker } from '../converter/index.js';
+import { runJob } from '../../infra/worker.js';
+import '../comparator/index.js';
 import { pdfCompose, pdfThumbs } from '../pdf-pages/index.js';
 
 export const OCR_MODEL_FILES = ['det.onnx', 'rec_korean.onnx', 'rec_korean.yml'];
@@ -162,6 +164,14 @@ export async function selftest(opts: { ocr?: boolean; llama?: boolean } = {}): P
   await step(steps, 'worker_parse', async () => {
     const r = await parseInWorker(tinyPdf(), { ocr: false });
     if (!r.success || !r.markdown.includes('KORDOC')) throw new Error(r.success ? `글자 없음: ${r.markdown.slice(0, 60)}` : r.error);
+  });
+
+  // 문서 비교도 작업자에서 돈다 (등록한 일이 작업자 쪽 번들에도 있는지)
+  await step(steps, 'worker_compare', async () => {
+    if (!hwpx) throw new Error('앞 단계 실패');
+    const other = new Uint8Array(await markdownToHwpx('# 셀프테스트\n\n| 항목 | 값 |\n| --- | --- |\n| 엔진 | 바뀜 |'));
+    const r = await runJob<{ stats: { modified: number } }>('compare', { a: hwpx, b: other }).result;
+    if (!r.stats.modified) throw new Error('바뀐 곳을 찾지 못함');
   });
 
   await step(steps, 'render_png', async () => {

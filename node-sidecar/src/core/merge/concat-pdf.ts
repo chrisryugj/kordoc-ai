@@ -177,7 +177,7 @@ export async function splitPdf(
   const { file, mode = 'each', ranges } = params;
   const buffer = await readFile(file);
   // 보안 설정만 걸린 PDF(발급 서류)는 쪽 그림으로 바꿔 나눈다 — 합본·PDF 작업 화면과 같게
-  const srcDoc = await loadPdf(buffer, signal);
+  const srcDoc = await loadPdf(buffer, { signal });
   const totalPages = srcDoc.getPageCount();
   const outputFiles: string[] = [];
   // 맥 경로의 자소 갈라진 이름은 완성형으로, 대문자 .PDF 도 뺀다

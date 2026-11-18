@@ -17,7 +17,21 @@ permissions:
   actions: read
 
 jobs:
+  source:
+    name: Resolve release commit
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          persist-credentials: false
+      - id: tag
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: source
     name: Build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -35,7 +49,7 @@ jobs:
       # 실행한 브랜치 머리가 아니라 그 버전의 태그를 빌드한다. 토큰은 .git 에 남기지 않는다
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/v${{ github.event.inputs.version }}
+          ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -150,14 +164,23 @@ jobs:
         with:
           name: kordoc-ai-${{ matrix.os }}
           path: ${{ matrix.artifacts }}
+          if-no-files-found: error
 
   upload:
     name: Upload to Release
-    needs: build
+    needs: [source, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          persist-credentials: false
+      - name: 빌드한 커밋과 릴리스 태그 대조
+        env:
+          BUILT_SHA: ${{ needs.source.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$BUILT_SHA"
       - uses: actions/download-artifact@v4
         with:
           path: out

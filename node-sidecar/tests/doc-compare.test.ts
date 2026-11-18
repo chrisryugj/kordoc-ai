@@ -3,11 +3,12 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { markdownToHwpx, parse } from 'kordoc';
+import JSZip from 'jszip';
+import { diffBlocks, markdownToHwpx, parse, type IRBlock } from 'kordoc';
 import { call, corpus, hasCorpus, sample, setupEnv } from './doc-helpers.js';
 import { buildXlsx } from '../src/core/excel/xlsx.js';
 import { parseCsv, toCsv } from '../src/core/excel/csv.js';
-import { markSegs, wordDiff } from '../src/core/comparator/index.js';
+import { diffBlockLists, markSegs, wordDiff } from '../src/core/comparator/index.js';
 
 vi.mock('../src/infra/progress.js', async (orig) => ({ ...(await orig<typeof import('../src/infra/progress.js')>()), sendProgress: vi.fn(), sendNotification: vi.fn() }));
 
@@ -97,6 +98,46 @@ describe('compare', () => {
     expect(markSegs([{ text: '앞 ', changed: false }, { text: '새1\n새2', changed: true }], br, '**', '**')).toBe('앞 **새1**<br>**새2**');
     expect(markSegs([{ text: ' 새 ', changed: true }], br, '**', '**')).toBe(' **새** ');
   });
+
+  it('블록이 아주 많아도 끼운 문단·고친 문단만 짚는다 (엔진이 차례대로만 짝지어 뒤가 모두 "변경"이 되지 않게)', () => {
+    const para = (i: number): IRBlock => ({ type: 'paragraph', text: `제${i}조 가온시장은 ${i}번째 사업의 추진 상황을 분기마다 점검하고 그 결과를 의회에 보고하여야 한다.` });
+    const A = Array.from({ length: 4000 }, (_, i) => para(i + 1));
+    const B = [...A.slice(0, 10), { type: 'paragraph', text: '제10조의2 새로 넣은 조문이다.' } as IRBlock, ...A.slice(10, 1999),
+      { type: 'paragraph', text: `${A[1999].text} 다만, 긴급한 경우에는 그러하지 아니하다.` } as IRBlock, ...A.slice(2000, 3990),
+      { type: 'paragraph', text: '제3990조의2 새로 넣은 조문이다.' } as IRBlock, ...A.slice(3990)];
+    // 재현: 엔진 혼자 비교하면 끼운 자리 뒤가 줄줄이 "변경"
+    expect(diffBlocks(A, B).stats.modified).toBeGreaterThan(1000);
+    const d = diffBlockLists(A, B);
+    expect(d.stats).toEqual({ added: 2, removed: 0, modified: 1, unchanged: 3999 });
+    expect(d.diffs.length).toBe(4002);
+    expect(d.diffs.find((x) => x.type === 'modified')?.after?.text).toContain('다만, 긴급한 경우');
+    // 블록이 적으면 엔진 비교 그대로
+    expect(diffBlockLists(A.slice(0, 20), B.slice(0, 21))).toEqual(diffBlocks(A.slice(0, 20), B.slice(0, 21)));
+  });
+
+  it('큰 표(60행 8열)에서 세 칸만 바뀌면 그 세 칸만 짚는다 (표 전체 "변경" 아님)', async () => {
+    const grid = (edit: boolean) => [Array.from({ length: 8 }, (_, c) => `항목${c + 1}`), ...Array.from({ length: 60 }, (_, r) => Array.from({ length: 8 }, (_, c) =>
+      (edit && ((r === 5 && c === 3) || (r === 30 && c === 7) || (r === 55 && c === 1)) ? `바뀐값 ${r}-${c}` : `가온 ${r + 1}행 ${c + 1}열 사업 내용 설명 글 ${r * 8 + c}`)))];
+    const md = (rows: string[][]) => `# 계획\n\n| ${rows[0].join(' | ')} |\n| ${rows[0].map(() => '---').join(' | ')} |\n${rows.slice(1).map((r) => `| ${r.join(' | ')} |`).join('\n')}\n`;
+    const a = join(env.work, '큰표_현행.hwpx');
+    const b = join(env.work, '큰표_개정안.hwpx');
+    writeFileSync(a, Buffer.from(await markdownToHwpx(md(grid(false)))));
+    writeFileSync(b, Buffer.from(await markdownToHwpx(md(grid(true)))));
+    const r = await call('compare', { old_path: a, new_path: b, export: 'md' });
+    const bolds = [...readFileSync(r.output_path, 'utf-8').matchAll(/\*\*([^*]+)\*\*/g)].map((m) => m[1]);
+    expect(bolds).toEqual(['가온 6행 4열 사업 내용 설명 글 43', '가온 31행 8열 사업 내용 설명 글 247', '가온 56행 2열 사업 내용 설명 글 441', '바뀐값 5-3', '바뀐값 30-7', '바뀐값 55-1']);
+  });
+
+  it('여러 줄 글의 어절 차이는 줄을 넘지 않는다 (줄 끝 칸과 다음 줄 첫 칸이 함께 바뀜)', () => {
+    const d = wordDiff('구분 · 금액\n인건비 · 1,000\n운영비 · 2,000', '구분 · 금액\n인건비 · 1,500\n관리비 · 2,000');
+    expect(d.old.filter((s) => s.changed).map((s) => s.text)).toEqual(['1,000', '운영비']);
+    expect(d.new.filter((s) => s.changed).map((s) => s.text)).toEqual(['1,500', '관리비']);
+    expect(d.old.map((s) => s.text).join('')).toBe('구분 · 금액\n인건비 · 1,000\n운영비 · 2,000');
+    // 줄이 늘면 늘어난 줄만 통째로
+    const e = wordDiff('가 · 1\n나 · 2', '가 · 1\n새 · 9\n나 · 2');
+    expect(e.new.filter((s) => s.changed).map((s) => s.text)).toEqual(['새 · 9']);
+    expect(e.old.some((s) => s.changed)).toBe(false);
+  });
 });
 
 describe('compare_hwpx', () => {
@@ -110,6 +151,21 @@ describe('compare_hwpx', () => {
     expect(back.markdown).toContain('<삭 제>');
     expect(back.markdown).toContain('**주민등록을 한**');
     expect(r.stats.unchanged).toBeGreaterThanOrEqual(1);
+  });
+
+  it('바뀐 표에서 줄 끝 칸과 다음 줄 첫 칸이 함께 바뀌어도 별표가 글자로 남지 않는다', async () => {
+    const md = (rows: string[][]) => `# 계획\n\n| 구분 | 금액 |\n| --- | --- |\n${rows.map((r) => `| ${r.join(' | ')} |`).join('\n')}\n`;
+    const a = join(env.work, '표칸_현행.hwpx');
+    const b = join(env.work, '표칸_개정안.hwpx');
+    writeFileSync(a, Buffer.from(await markdownToHwpx(md([['인건비', '1,000'], ['운영비', '2,000'], ['사업비', '3,000']]))));
+    writeFileSync(b, Buffer.from(await markdownToHwpx(md([['인건비', '1,500'], ['관리비', '2,000'], ['사업비', '3,000']]))));
+    const r = await call('compare_hwpx', { old_path: a, new_path: b });
+    const zip = await JSZip.loadAsync(readFileSync(r.output_path));
+    expect(await zip.file('Contents/section0.xml')!.async('string')).not.toContain('**');
+    const back = await parse(readFileSync(r.output_path));
+    if (!back.success) throw new Error(back.error);
+    expect(back.markdown).toContain('**1,500**');
+    expect(back.markdown).toContain('**관리비**');
   });
 
   it('같은 문서는 안내', async () => {

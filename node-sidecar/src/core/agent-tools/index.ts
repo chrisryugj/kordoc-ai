@@ -430,24 +430,38 @@ function mentioned(raw: string, said: string): boolean {
   for (let dir = p.slice(0, p.lastIndexOf('/')); dir.split('/').length > 1 && dir.length > 3; dir = dir.slice(0, dir.lastIndexOf('/'))) {
     real = dirname(real);
     for (let at = said.indexOf(dir); at >= 0; at = said.indexOf(dir, at + 1)) {
-      const rest = said.slice(at + dir.length);
+      let rest = said.slice(at + dir.length);
       if (!rest || rest === '/' || /^\/?["'’”`)\]>]/.test(rest)) return true;
-      // 뒤에 빈칸이 오면 폴더를 적은 것으로 본다("… 폴더의 한글/PDF 문서를 11/20 까지"). 다만 그 자리에 빈칸이 든 더 긴 이름의
-      // 폴더·파일이 실제로 있고 적은 글이 그 이름으로 이어지면("2026 예산/계획.hwp"·"2026 예산 계획.hwp") 그쪽을 적은 것이다.
-      // 글자 모양("/"·".확장자")으로 짐작하면 평범한 문장이 다 걸린다 → 디스크에 있는 이름으로 본다
-      if (/^\/?[,.]?(?:\s|$)/.test(rest) && !longerSibling(real, dir, said.slice(at), flat)) return true;
+      // 폴더 이름 바로 뒤의 조사는 뗀다("…\reports에 있는 문서")
+      rest = rest.replace(PARTICLE, '');
+      // 뒤에 빈칸이 오면 폴더를 적은 것으로 본다("… 폴더의 한글/PDF 문서를 11/20 까지"). 다만 빈칸 바로 뒤 낱말이 경로나 파일 이름이면
+      // ("2026 예산\계획.hwpx 로 저장"·"2026 정리본.hwpx", 아직 없는 곳이어도) 더 긴 경로를 적은 것이고, 그 자리에 더 긴 이름의
+      // 폴더·파일이 실제로 있고 적은 글이 그 이름으로 이어져도("2026 budget 폴더") 그쪽을 적은 것이다
+      const m = /^\/?[,.!?"'’”`)\]>]*(?:\s+|$)/.exec(rest);
+      if (m && !pathWord(rest.slice(m[0].length)) && !longerSibling(real, dir, said.slice(at), flat)) return true;
     }
   }
   return false;
 }
 
-/** 폴더 옆에 "<폴더 이름> …" 으로 시작하는 더 긴 이름이 있고, 적은 글이 그 이름으로 이어지는가 */
+/** 폴더 이름 바로 뒤에 붙는 조사 (뒤에 빈칸·문장부호·끝이 올 때만) */
+const PARTICLE = /^(?:에서는|에서|에는|에도|에|의|을|를|은|는|이|가|으로|로|와|과|도|만|까지|부터)(?=[\s,.!?"'’”`)\]>]|$)/;
+
+/** 낱말이 경로 조각이거나 확장자가 붙은 파일 이름인가 */
+function pathWord(text: string): boolean {
+  const word = text.split(/\s/, 1)[0];
+  return word.includes('/') || /\.[a-z][a-z0-9]{1,4}(?![a-z0-9])/.test(word);
+}
+
+/** 폴더 옆에 "<폴더 이름>…" 으로 시작하는 더 긴 이름이 있고, 적은 글이 그 이름으로 이어지는가 (빈칸 수는 가리지 않는다).
+ *  위 폴더를 읽지 못하면 있을지도 모른다고 본다(맡긴 것으로 넓히지 않는다) */
 function longerSibling(realDir: string, dir: string, head: string, flat: (t: string) => string): boolean {
   let names: string[];
-  try { names = readdirSync(dirname(realDir)); } catch { return false; }
+  try { names = readdirSync(dirname(realDir)); } catch { return true; }
+  const one = (t: string) => t.replace(/\s+/g, ' ');
   return names.some((n) => {
     const full = flat(join(dirname(realDir), n));
-    return full.length > dir.length && full.startsWith(dir) && /\s/.test(full[dir.length]) && head.startsWith(full);
+    return full.length > dir.length && full.startsWith(dir) && one(head).startsWith(one(full));
   });
 }
 

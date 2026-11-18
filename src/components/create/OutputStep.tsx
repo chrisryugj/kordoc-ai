@@ -351,7 +351,7 @@ export function OutputStep({ active }: { active: boolean }) {
             </Row>
 
             <Row mark="바." title="붙임 합본 PDF" desc="본문과 붙임을 PDF 한 권으로">
-              <OrderList items={attach} onChange={setAttach} />
+              <OrderList items={attach} onChange={setAttach} disabled={bundle.busy} />
               <div className="flex flex-wrap items-end gap-3">
                 <Button variant="ghost" size="sm" data-tip="본문 뒤에 넣은 순서대로 잇습니다. 끌어서 순서를 바꿀 수 있습니다" onClick={() => void pickFiles().then((p) => setAttach([...new Set([...attach, ...p])]))}><FilePlus2 size={13} /> 붙임 추가</Button>
                 <div style={{ width: 150 }}>

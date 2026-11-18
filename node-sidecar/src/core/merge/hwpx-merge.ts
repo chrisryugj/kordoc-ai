@@ -160,6 +160,12 @@ function mergeHeader(base: Document, add: Document, bin: IdMap): Maps {
         case 'borderFill':
           remapDeep(clone, 'binaryItemIDRef', bin);
           break;
+        // 번호·글머리표 머리의 글자 모양(번호 글자의 크기·색)과 그림 글머리표의 그림도 합본의 id 로
+        case 'numbering':
+        case 'bullet':
+          remapDeep(clone, 'charPrIDRef', maps.list.charPr);
+          remapDeep(clone, 'binaryItemIDRef', bin);
+          break;
         case 'charPr': {
           remapDeep(clone, 'borderFillIDRef', maps.list.borderFill);
           for (const fr of kids(clone, 'fontRef')) {
@@ -227,6 +233,42 @@ function freeNo(from: number, used: (n: number) => boolean): number {
   return n;
 }
 
+/** 구역 XML 에 든 머리말·꼬리말(쪽 종류별)과 쪽 번호 컨트롤 — 한글은 앞 구역의 것을 뒤 구역에도 이어 찍는다 */
+function pageCtrls(xml: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of xml.matchAll(/<hp:(header|footer|pageNum)\b([^>]*)>/g)) {
+    out.add(m[1] === 'pageNum' ? 'pageNum' : `${m[1]}:${/\bapplyPageType="([A-Z]+)"/.exec(m[2])?.[1] ?? 'BOTH'}`);
+  }
+  return out;
+}
+
+/** 붙이는 문서 첫 구역의 맨 앞에, 앞 문서에서 이어 올 머리말·꼬리말·쪽 번호를 끊는 빈 컨트롤을 넣는다.
+ *  자기 것이 있는 종류는 그대로 둔다. 빈 머리말·꼬리말은 아무것도 찍지 않는 새 머리말이고, 쪽 번호는 위치 "없음"(NONE) */
+function cutPageCtrls(xml: string, before: Set<string>): string {
+  const own = pageCtrls(xml);
+  const end = xml.indexOf('</hp:secPr>');
+  const close = end < 0 ? -1 : xml.indexOf('</hp:run>', end);
+  if (close < 0) return xml;
+  const num = (re: RegExp) => Number(re.exec(xml)?.[1] ?? 0);
+  const width = Math.max(0, num(/<hp:pagePr\b[^>]*\bwidth="(\d+)"/) - num(/<hp:margin\b[^>]*\bleft="(\d+)"/) - num(/<hp:margin\b[^>]*\bright="(\d+)"/));
+  const para = /<hp:p\b[^>]*>/.exec(xml)?.[0] ?? '';
+  const paraPr = /\bparaPrIDRef="(\d+)"/.exec(para)?.[1] ?? '0';
+  const style = /\bstyleIDRef="(\d+)"/.exec(para)?.[1] ?? '0';
+  const charPr = /<hp:run\b[^>]*\bcharPrIDRef="(\d+)"/.exec(xml)?.[1] ?? '0';
+  const add: string[] = [];
+  for (const key of before) {
+    if (key === 'pageNum') {
+      if (!own.has('pageNum')) add.push('<hp:ctrl><hp:pageNum pos="NONE" formatType="DIGIT" sideChar=""/></hp:ctrl>');
+      continue;
+    }
+    const [kind, type] = key.split(':');
+    if (own.has(key) || own.has(`${kind}:BOTH`)) continue;
+    const height = num(new RegExp(`<hp:margin\\b[^>]*\\b${kind}="(\\d+)"`));
+    add.push(`<hp:ctrl><hp:${kind} id="0" applyPageType="${type}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="${kind === 'header' ? 'TOP' : 'BOTTOM'}" linkListIDRef="0" linkListNextIDRef="0" textWidth="${width}" textHeight="${height}" hasTextRef="0" hasNumRef="0"><hp:p id="0" paraPrIDRef="${paraPr}" styleIDRef="${style}" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="${charPr}"><hp:t/></hp:run></hp:p></hp:subList></hp:${kind}></hp:ctrl>`);
+  }
+  return add.length ? xml.slice(0, close) + add.join('') + xml.slice(close) : xml;
+}
+
 export interface Manifest {
   xml: string;
   items: Array<{ id: string; href: string; attrs: string }>;
@@ -264,6 +306,9 @@ export async function mergeHwpx(inputs: Uint8Array[], signal?: AbortSignal): Pro
   let hpf = (await entryText(zip, hpfPath))!;
   let manifest = readManifest(hpf);
   let sectionNo = sectionHrefs(manifest).length;
+  /** 앞 문서들에 나온 머리말·꼬리말·쪽 번호 (뒤 문서가 자기 것이 없으면 끊어 준다) */
+  const seen = new Set<string>();
+  for (const href of sectionHrefs(manifest)) for (const key of pageCtrls((await zip.file(href)?.async('string')) ?? '')) seen.add(key);
 
   for (let k = 1; k < inputs.length; k++) {
     signal?.throwIfAborted();
@@ -336,16 +381,41 @@ export async function mergeHwpx(inputs: Uint8Array[], signal?: AbortSignal): Pro
       }
     }
 
-    // 구역
-    const newRefs: string[] = [];
+    const sections: string[] = [];
     for (const href of sectionHrefs(addManifest)) {
       const xml = await entryText(add, href);
-      if (!xml) continue;
-      // 이름은 바탕에 없는 번호로: 옛 판으로 나눈 조각은 Contents/section0.xml 의 id 가 section1 일 수 있어, 구역 수로만 매기면
-      // 같은 id 가 둘이 되고 한 조각이 두 번 나오고 다른 조각은 빠진다
+      if (xml) sections.push(xml);
+    }
+
+    // 구역이 가리키는 그 밖의 부품(바탕쪽 등)도 그림처럼 이름 머리를 붙여 옮긴다. 안 옮기면 구역이 합본에 없는 부품을 가리킨다
+    const partIds: IdMap = new Map();
+    const partHrefs: IdMap = new Map();
+    const secHrefs = new Set(sectionHrefs(addManifest));
+    for (const it of addManifest.items) {
+      if (!it.id || /^BinData\//i.test(it.href) || secHrefs.has(it.href) || it.href === headerPath || maps.master.has(it.id) || maps.chart.has(it.href) || it.href === exItem?.href) continue;
+      const file = add.file(it.href);
+      if (!file || !sections.some((x) => x.includes(`="${it.id}"`) || x.includes(`="${it.href}"`))) continue;
+      const newId = `m${tagNo}_${it.id}`;
+      const newHref = it.href.replace(/[^/]+$/, (name) => `m${tagNo}_${name}`);
+      partIds.set(it.id, newId);
+      partHrefs.set(it.href, newHref);
+      if (/\.xml$/i.test(it.href)) {
+        const xml = remapSection((await entryText(add, file))!, maps).replace(new RegExp(`(<[^?!][^>]*?\\sid=")${it.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`), (_, a: string) => `${a}${newId}"`);
+        zip.file(newHref, xml);
+      } else zip.file(newHref, (await entryBytes(add, file))!);
+      newItems.push(`<opf:item ${it.attrs.replace(/\bid="[^"]*"/, `id="${newId}"`).replace(/\bhref="[^"]*"/, `href="${newHref}"`)}/>`);
+    }
+    const remapParts = (xml: string) => (partIds.size ? xml.replace(/(\b\w*(?:Ref|ref)=")([^"]*)"/g, (m, a: string, v: string) => (partIds.has(v) ? `${a}${partIds.get(v)}"` : partHrefs.has(v) ? `${a}${partHrefs.get(v)}"` : m)) : xml);
+
+    // 구역
+    const newRefs: string[] = [];
+    for (const [si, raw] of sections.entries()) {
+      // 앞 문서의 머리말·쪽 번호가 이 문서 쪽에도 찍히지 않게, 첫 구역에 자기 것이 없으면 끊는다
+      const xml = si === 0 ? cutPageCtrls(raw, seen) : raw;
+      for (const key of pageCtrls(xml)) seen.add(key);
       const id = `section${freeNo(sectionNo, (n) => !!zip.file(`Contents/section${n}.xml`) || manifest.items.some((i) => i.id === `section${n}`))}`;
       const path = `Contents/${id}.xml`;
-      zip.file(path, remapSection(xml, maps));
+      zip.file(path, remapParts(remapSection(xml, maps)));
       newItems.push(`<opf:item id="${id}" href="${path}" media-type="application/xml"/>`);
       newRefs.push(`<opf:itemref idref="${id}" linear="yes"/>`);
       sectionNo++;

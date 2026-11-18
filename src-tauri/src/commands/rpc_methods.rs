@@ -144,6 +144,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "watch_list",
     "watch_start",
     "watch_stop",
+    "wipe_traces",
     "working_path",
     "write_file",
 ];

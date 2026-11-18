@@ -52,7 +52,10 @@ export function clean(s: string): string {
 }
 
 const cut = (s: string, n = PIECE) => (s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
-const sigOf = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 16);
+/** 견줄 때 보지 않는 띄어쓰기·문장부호(가운뎃점·온점·따옴표·괄호)를 뺀 글. 당시 조문과 현행의 비교(sameText)와 지문이 같은 기준을 쓴다 */
+export const normText = (s: string) => s.replace(/[\s.,·ㆍ'"“”‘’()]/g, '');
+/** 지문: normText 기준 (바꾸면 drf.ts 의 조문 캐시 키 판을 올린다: 옛 지문과 섞이면 같은 글을 "개정"으로 본다) */
+const sigOf = (s: string) => createHash('sha1').update(normText(s)).digest('hex').slice(0, 16);
 /** 한 칸 글: 잘라 담고, 잘렸으면 전체 글의 지문을 함께 */
 const piece = (s: string) => ({ text: cut(s), ...(s.length > PIECE ? { sig: sigOf(s) } : {}) });
 /** 견줄 때 쓰는 그 칸의 온전한 값 (잘렸으면 지문, 아니면 글) */

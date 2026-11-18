@@ -441,13 +441,50 @@ describe('기관 서식 학습·채우기', () => {
     const t = (await parse(readFileSync(r.output_path))).markdown.split('\n').filter((l: string) => l.startsWith('| ') && !l.startsWith('| ---'));
     expect(t).toEqual([
       '| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 확인 |',
+      '| 합계 |  |  |  | 96,800 |  |',
       '| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |',
       '| 2 | 2026. 11. 2. | 가온문구 | 복사지 | 45,100 |  |',
-      '| 합계 |  |  |  | 96,800 |  |',
     ]);
     expect(r.warnings).toEqual([]);
-    // 미리보기·복사 표도 합계가 맨 아래 (못 맞춘 칸은 표에 없다)
-    expect(r.tsv.split('\r\n')[3]).toBe('합계\t\t\t\t96,800');
+    // 미리보기·복사 표에서도 서식의 머리 바로 아래 합계 위치를 유지한다.
+    expect(r.tsv.split('\r\n')[1]).toBe('합계\t\t\t\t96,800');
+    await call('receipt_template_clear');
+  });
+
+  it('서식 D: 지난달에 채운 조서를 서식으로 쓰면 옛 줄을 새 값으로 바꾸고, 남는 옛 줄은 비운다 (옛 금액·사본 줄이 남지 않게)', async () => {
+    const { parse } = await import('kordoc');
+    const H = '| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 비고 |\n| --- | --- | --- | --- | --- | --- |\n';
+    const path = await makeTemplate('지출조서_라.hwpx', `# 지출조서\n\n${H}| 1 | 2026. 10. 1. | 옛가게1 | 옛품목1 | 10,000 | 옛비고 |\n| 2 | 2026. 10. 2. | 옛가게2 | 옛품목2 | 20,000 |  |\n| 합계 |  |  |  | 30,000 |  |\n\n위와 같이 지출함.\n`);
+    await call('receipt_template_learn', { path, save: true });
+    for (const n of [1, 2, 3]) {
+      const r = await call('receipt_report', { rows: rows.slice(0, n), output_dir: env.out });
+      const md = (await parse(readFileSync(r.output_path))).markdown;
+      expect(md).not.toMatch(/옛가게|옛품목|옛비고|10,000|20,000/);
+      const t = tableRows(md, /./);
+      expect(t).toHaveLength(Math.max(n, 2) + 2);
+      expect(t[1]).toBe('| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |');
+      expect(t[t.length - 1]).toBe(`| 합계 |  |  |  | ${r.tsv.split('\r\n').pop()!.split('\t')[4]} |  |`);
+      // 미리보기·복사 표도 합계가 맨 아래
+      expect(r.tsv.split('\r\n').pop()!.startsWith('합계')).toBe(true);
+    }
+    await call('receipt_template_clear');
+  });
+
+  it('서식 E: 머리줄과 합계만 있으면 필요한 줄만 더하고 머리줄 사본이 남지 않는다', async () => {
+    const { parse, validateHwpx } = await import('kordoc');
+    const path = await makeTemplate('지출조서_마.hwpx', '# 지출조서\n\n| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 비고 |\n| --- | --- | --- | --- | --- | --- |\n| 합계 |  |  |  |  |  |\n');
+    await call('receipt_template_learn', { path, save: true });
+    const r = await call('receipt_report', { rows: rows.slice(0, 2), output_dir: env.out });
+    const buf = readFileSync(r.output_path);
+    expect((await validateHwpx(buf)).ok).toBe(true);
+    const t = tableRows((await parse(buf)).markdown, /./);
+    expect(t).toEqual([
+      '| 번호 | 사용일자 | 사용처 | 사용내역 | 지출금액(원) | 비고 |',
+      '| 합계 |  |  |  | 96,800 |  |',
+      '| 1 | 2026. 11. 1. | 가온25 시청점 | 사무용품 | 51,700 |  |',
+      '| 2 | 2026. 11. 2. | 가온문구 | 복사지 | 45,100 |  |',
+    ]);
+    expect(r.tsv.split('\r\n')[1]).toBe('합계\t\t\t\t96,800\t');
     await call('receipt_template_clear');
   });
 

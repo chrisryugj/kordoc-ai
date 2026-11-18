@@ -299,13 +299,19 @@ export function sumFindings(blocks: IRBlock[], markdown: string): Array<LintFind
 /** 시행문·기안문 모양인가 (수신·제목 줄, 또는 붙임 줄) */
 function officialLike(text: string): boolean {
   const head = text.slice(0, 4000);
-  return (/^\s*수신\s*[:：]?\s*\S/m.test(head) && /^\s*(제목|제\s+목)\s*[:：]?\s*\S/m.test(head)) || /^\s*(\*\*)?붙\s*임(?=[\s:：*]|$)/m.test(text);
+  // 붙임 줄만으로 볼 때는 "붙임  계획서 1부." 꼴만 (보고서 본문의 "붙임 자료는 별도 송부" 같은 문장은 붙임 표시가 아니다)
+  if (/^\s*수신\s*[:：]?\s*\S/m.test(head) && /^\s*(제목|제\s+목)\s*[:：]?\s*\S/m.test(head)) return true;
+  const lines = text.split('\n');
+  return lines.some((l, i) => /^\s*(\*\*)?붙\s*임(?=[\s:：*]|$)/.test(l) && lines.slice(i, i + 9).some((x) => /\d+\s*부/.test(x)));
 }
+
+/** "끝." 표시: 굵게(**끝.**)·전각 마침표(끝．)·마크다운 이스케이프(끝.\)로 읽혀도 있는 것으로 */
+const END_MARK = /(^|[\s.*_(])끝\s*[.．](?=[\s*_)\\|<]|$)/m;
 
 /** 파싱한 글에서 "끝." 표시가 있는가 — 붙임이 있으면 붙임 줄들 끝에, 없으면 본문 어딘가에 */
 export function endMarkFindings(text: string): LintFinding[] {
   if (!officialLike(text)) return [];
-  if (/(^|[\s.])끝\s*\.(?=\s|$)/m.test(text)) return [];
+  if (END_MARK.test(text)) return [];
   const lines = text.split('\n');
   const bunim = lines.reduce((last, l, i) => (/^\s*(\*\*)?붙\s*임(?=[\s:：*]|$)/.test(l) ? i : last), -1);
   // 붙임 다음에 이어지는 "2. …" 붙임 목록 줄까지
@@ -327,11 +333,24 @@ export function endMarkFindings(text: string): LintFinding[] {
   }];
 }
 
+const SURNAME = /[김이박최정강조윤장임한오서신권황안송류유전홍고문양손배백허남심노하곽성차주우구민진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹모탁국어은편용예봉경]/;
+
+/** 일부러 가린 이름 (민원인 김○○·이OOO): 성 한 글자 바로 뒤의 ○○·○○○ 이고, 뒤에 글자가 이어지지 않을 때(씨·님·조사는 된다).
+ *  "제○○호"·"○○시장"은 채울 자리로 본다 */
+function maskedName(line: string, at: number, mark: string): boolean {
+  if (/[□XＸ]/.test(mark) || mark.length > 3) return false;
+  const before = line.slice(0, at);
+  if (!/(?:^|[^가-힣])[가-힣]$/.test(before) || !SURNAME.test(before.slice(-1))) return false;
+  const after = line.slice(at + mark.length);
+  return !/^[가-힣]/.test(after) || /^(?:씨|님|은|는|이|가|을|를|의|과|와|외|에게|께)(?![가-힣])/.test(after);
+}
+
 /** 채우지 않은 자리 표시 (○○○·OOO·□□) — 서식에서 옮겨 와 그대로 남은 곳 */
 export function placeholderFindings(text: string): LintFinding[] {
   const out: LintFinding[] = [];
   text.split('\n').forEach((line, i) => {
     for (const m of line.matchAll(/(?<![○◯OＯ□])(?:[○◯]{2,}|[OＯ]{3,}|[□]{2,}|[XＸ]{3,})(?![○◯OＯ□])/g)) {
+      if (maskedName(line, m.index!, m[0])) continue;
       out.push({
         rule: 'PLACEHOLDER', severity: 'warning', category: '채우지 않은 자리',
         message: `'${m[0]}'처럼 채우지 않은 자리 표시가 남아 있습니다. 실제 내용으로 바꾸세요.`,

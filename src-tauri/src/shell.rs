@@ -874,6 +874,9 @@ fn absolutize(base: &std::path::Path, a: &str) -> String {
     if drive || is_network_path(a) || std::path::Path::new(a).is_absolute() {
         return a.to_string();
     }
+    if std::path::Path::new(a).components().next().is_some_and(|c| matches!(c, std::path::Component::Prefix(_))) {
+        if let Ok(p) = std::path::absolute(a) { return p.to_string_lossy().into_owned(); }
+    }
     base.join(a).to_string_lossy().into_owned()
 }
 
@@ -1404,6 +1407,16 @@ mod tests {
         for local in ["\\\\?\\C:\\a\\b.hwp", "C:\\a\\b.hwp", "/Users/a/b.hwp", "Z:\\share\\a.hwp"] {
             assert!(!is_network_path(local), "{local}");
         }
+    }
+
+    #[test]
+    fn relative_paths_resolve_against_the_launching_folder() {
+        let me = std::env::current_exe().unwrap();
+        let (dir, name) = (me.parent().unwrap(), me.file_name().unwrap().to_string_lossy().into_owned());
+        // 두 번째 실행의 폴더 기준으로 풀어 절대 경로로 넘긴다
+        assert_eq!(parse_args(&["app".into(), name.clone()], dir), Some(("open".into(), vec![me.to_string_lossy().into_owned()])));
+        // 다른 폴더 기준이면 그 파일이 없다
+        assert_eq!(parse_args(&["app".into(), name], dir.parent().unwrap()), None);
     }
 
     #[test]

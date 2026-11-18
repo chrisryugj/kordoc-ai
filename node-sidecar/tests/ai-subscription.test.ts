@@ -4,7 +4,10 @@
  * 시간 제한·취소 때 프로세스 트리 끝내기, 로그인 상태(계정 정보를 옮기지 않음), 프로그램 찾기
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
+
+// 시험마다 가짜 프로그램을 여러 번 띄운다. 백신·문서보안이 프로세스 시작을 검사하는 PC는 한 번에 1초 가까이 걸려(실측 0.9초) 10초 기본 제한을 넘는다
+vi.setConfig({ testTimeout: 30_000 });
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -154,6 +157,16 @@ describe('Claude Code', () => {
   it('다시 시도한 답이면 마지막 시도의 답 전체', async () => {
     const { deps } = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'retry' });
     expect(await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, deps).chat(req())).toBe('다시 쓴 답입니다');
+  });
+
+  it('출력 한도에서 끊긴 답은 onTruncated 로 알린다 (끝까지 쓴 답은 알리지 않는다)', async () => {
+    let cut = 0;
+    const { deps } = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'maxtokens' });
+    expect(await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, deps).chat(req({ onTruncated: () => { cut++; } }))).toBe('끊긴 답');
+    expect(cut).toBe(1);
+    const ok = rig(FAKE_CLAUDE, 'claude-code', { FAKE_CLAUDE_MODE: 'ok' });
+    await createClaudeCodeProvider({ model: '', cli_path: '' }, 5000, ok.deps).chat(req({ onTruncated: () => { cut++; } }));
+    expect(cut).toBe(1);
   });
 
   it('너무 긴 문서·사용량 한도(다시 쓸 시각)', async () => {

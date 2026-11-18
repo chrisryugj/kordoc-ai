@@ -6,12 +6,16 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, type Stats } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { atomicWriteFile } from '../files/io.js';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { PDFDocument, degrees, type PDFEmbeddedPage, type PDFPage } from 'pdf-lib';
+import { basename, dirname, join, resolve } from 'node:path';
+import {
+  PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFStream, concatTransformationMatrix, degrees, drawObject, popGraphicsState, pushGraphicsState,
+  type PDFEmbeddedPage, type PDFObject, type PDFOperator, type PDFPage,
+} from 'pdf-lib';
+import { validatePath } from '../../infra/pathGuard.js';
 import type { PDFiumDocument } from '@hyzyla/pdfium';
 import type { PdfComposePage, PdfComposeParams, PdfComposeResult, PdfWorkSource } from '../../types/rpc-contract.js';
 import { sendProgress } from '../../infra/progress.js';
@@ -32,31 +36,60 @@ const norm = (deg: number) => (((Math.round(deg / 90) * 90) % 360) + 360) % 360;
 // ── 원본 열기 ──
 
 let swept = false;
-/** 하루 지난 임시 PDF(문서 사본) 지우기 (켤 때마다 한 번). 엔진이 뜰 때도 부른다: PDF 작업을 다시 하지 않는 PC 에 사본이 계속 남지 않게 */
+/** 하루 지난 임시 PDF(문서 사본) 지우기 (켤 때마다 한 번). 엔진이 뜰 때도 부른다: PDF 작업을 다시 하지 않는 PC 에 사본이 계속 남지 않게.
+ *  원래 파일 경로만 적은 .src 는 7일 둔다: 화면을 켜 둔 채 엔진이 다시 켜져 사본이 지워져도 원래 파일에서 다시 만들 수 있게 */
 export function sweepWorkDir() {
   if (swept) return;
   swept = true;
   try {
     for (const f of readdirSync(WORK_DIR)) {
       const p = join(WORK_DIR, f);
-      if (Date.now() - statSync(p).mtimeMs > DAY) rmSync(p, { force: true });
+      if (Date.now() - statSync(p).mtimeMs > (f.endsWith('.src') ? 7 * DAY : DAY)) rmSync(p, { force: true });
     }
   } catch { /* 폴더가 없으면 지울 것도 없다 */ }
 }
+
+const workName = (path: string, st: Stats) => `${createHash('sha1').update(`${path}\0${st.size}\0${st.mtimeMs}`).digest('hex').slice(0, 20)}.pdf`;
+/** 임시 PDF 이름 → 원래 파일. 엔진이 다시 켜져도 알게 사본 옆 <이름>.src 에도 적어 둔다 */
+const origins = new Map<string, string>();
+const originNote = (pdf: string) => pdf.replace(/\.pdf$/, '.src');
 
 /** PDF 가 아닌 원본 → 임시 PDF. 같은 파일·같은 수정 시각이면 앞서 바꾼 것을 다시 쓴다 */
 async function convertedPdf(path: string, signal?: AbortSignal): Promise<string> {
   sweepWorkDir();
   const st = await stat(path);
-  const key = createHash('sha1').update(`${path}\0${st.size}\0${st.mtimeMs}`).digest('hex').slice(0, 20);
-  const out = join(WORK_DIR, `${key}.pdf`);
+  const out = join(WORK_DIR, workName(path, st));
+  origins.set(basename(out), path);
   try {
     if (statSync(out).size > 0) return out;
   } catch { /* 없으면 만든다 */ }
   const bytes = await docToPdf(path, signal);
   mkdirSync(WORK_DIR, { recursive: true });
   await atomicWriteFile(out, bytes);
+  await writeFile(originNote(out), path, 'utf8').catch(() => undefined);
   return out;
+}
+
+const restoring = new Map<string, Promise<void>>();
+/** 화면이 들고 있는 임시 PDF 가 청소(하루 지난 사본 지우기: 다른 엔진·다시 켠 엔진)로 지워졌으면 원래 파일에서 다시 만든다.
+ *  원래 파일이 그 사이 바뀌었으면 화면에 놓인 쪽과 어긋나므로 다시 넣게 한다 */
+function restoreWorkCopy(path: string, signal?: AbortSignal): Promise<void> {
+  const name = basename(path);
+  if (!/^[0-9a-f]{20}\.pdf$/.test(name) || resolve(dirname(path)).toLowerCase() !== resolve(WORK_DIR).toLowerCase() || existsSync(path)) return Promise.resolve();
+  let job = restoring.get(name);
+  if (!job) {
+    job = (async () => {
+      const noted = origins.get(name) ?? (await readFile(originNote(path), 'utf8').catch(() => '')).trim();
+      if (!noted) throw new Error('PDF 작업에 쓰던 임시 사본이 지워졌습니다. 원본 파일을 다시 넣으세요.');
+      const origin = validatePath(noted);
+      const st = await stat(origin).catch(() => null);
+      if (!st?.isFile()) throw new Error(`원래 파일(${basename(origin)})을 찾을 수 없습니다. 옮겼으면 다시 넣으세요.`);
+      if (workName(origin, st) !== name) throw new Error(`원래 파일(${basename(origin)})이 그 사이 바뀌었습니다. 바뀐 쪽과 섞이지 않게 파일을 다시 넣으세요.`);
+      await convertedPdf(origin, signal);
+    })().finally(() => restoring.delete(name));
+    restoring.set(name, job);
+  }
+  return job;
 }
 
 export async function pdfOpen(p: { path: string }, signal?: AbortSignal): Promise<PdfWorkSource> {
@@ -131,7 +164,8 @@ function closeIdle(idleMs: number, keep = 0) {
   }
 }
 
-async function hold(path: string): Promise<Held> {
+async function hold(path: string, signal?: AbortSignal): Promise<Held> {
+  await restoreWorkCopy(path, signal);
   const st = await stat(path);
   const key = `${path}\0${st.size}\0${st.mtimeMs}`;
   let h = held.get(key);
@@ -152,7 +186,7 @@ async function hold(path: string): Promise<Held> {
 /** 쪽 그림(JPEG) — width 는 그림 폭(px). 고른 쪽이 많으면 앞 40쪽만 */
 export async function pdfThumbs(p: { path: string; pages?: string; width?: number }, signal?: AbortSignal): Promise<{ page_count: number; pages: Array<{ page: number; data_url: string }> }> {
   const width = Math.round(Math.min(Math.max(p.width ?? 240, 80), 1600));
-  const h = await hold(p.path);
+  const h = await hold(p.path, signal);
   try {
     const count = h.doc.getPageCount();
     const wanted = (p.pages?.trim() ? parsePageSpec(p.pages, count) : [1]).filter((n) => n <= count).slice(0, 40);
@@ -175,21 +209,28 @@ export async function pdfThumbs(p: { path: string; pages?: string; width?: numbe
 
 // ── 쪽 조립 ──
 
-/** 원본마다 한 번만 연다 (보안 PDF 는 쪽 그림으로 다시 만든 것, 멈추면 그만 그린다) */
-function sources(signal?: AbortSignal) {
+/** 쪽 목록에서 원본마다 쓰는 쪽(0부터) */
+function neededPages(pages: PdfComposePage[]): Map<string, Set<number>> {
+  const need = new Map<string, Set<number>>();
+  for (const it of pages) if (!('blank' in it)) need.set(it.path, (need.get(it.path) ?? new Set()).add(it.page - 1));
+  return need;
+}
+
+/** 원본마다 한 번만 연다 (보안 PDF 는 쪽 그림으로 다시 만든 것: need 에 든 쪽만 그린다) */
+function sources(signal?: AbortSignal, need?: Map<string, Set<number>>) {
   const docs = new Map<string, Promise<PDFDocument>>();
   const secured: string[] = [];
   const open = (path: string) => {
     let d = docs.get(path);
     if (!d) {
-      d = readFile(path).then(async (buf) => {
+      d = restoreWorkCopy(path, signal).then(() => readFile(path)).then(async (buf) => {
         const bytes = new Uint8Array(buf);
         try {
           return await PDFDocument.load(bytes, { updateMetadata: false });
         } catch (err) {
           if (!isEncrypted(err)) throw err;
           secured.push(path);
-          return loadPdf(bytes, signal);
+          return loadPdf(bytes, { pages: need?.get(path), signal });
         }
       });
       docs.set(path, d);
@@ -203,7 +244,7 @@ const A4 = { w: 595.28, h: 841.89 };
 
 /** 쪽 차례대로 새 PDF. 원본 하나에서 쪽을 한 번에 옮겨야 글꼴·그림을 쪽마다 따로 싣지 않는다.
  *  fitA4: 모든 쪽을 A4(보이는 방향대로 세로·가로)에 맞춰 가운데 놓는다 (크기가 제각각인 스캔·영수증) */
-async function buildPdf(pages: PdfComposePage[], src: ReturnType<typeof sources>, fitA4 = false): Promise<PDFDocument> {
+async function buildPdf(pages: PdfComposePage[], src: ReturnType<typeof sources>, fitA4 = false, annots?: AnnotCount): Promise<PDFDocument> {
   const out = await PDFDocument.create();
   const order = new Map<string, number[]>();
   for (const it of pages) {
@@ -212,7 +253,7 @@ async function buildPdf(pages: PdfComposePage[], src: ReturnType<typeof sources>
     if (!Number.isInteger(it.page) || it.page < 1 || it.page > doc.getPageCount()) throw new Error(`없는 쪽입니다 (${it.page}쪽). 원본이 바뀌었으면 다시 넣으세요.`);
     order.set(it.path, [...(order.get(it.path) ?? []), it.page - 1]);
   }
-  if (fitA4) return buildFitted(out, pages, src, order);
+  if (fitA4) return buildFitted(out, pages, src, order, annots);
   // 같은 쪽을 두 번 넣으면(복제) 한 copyPages 안에서 /Contents 배열을 같이 써서 쪽 번호·워터마크가 두 쪽에 겹쳐 찍힌다
   // → 같은 쪽의 n 번째는 n 회차 copyPages 로 (회차 안에서는 원본마다 한 번)
   const seen = new Map<string, number>();
@@ -247,12 +288,89 @@ async function buildPdf(pages: PdfComposePage[], src: ReturnType<typeof sources>
   return out;
 }
 
-/** A4 에 맞추기: 원본 쪽을 그림처럼 넣고(embedPages, 원본마다 한 번) 돌린 각까지 반영해 가운데에 */
-async function buildFitted(out: PDFDocument, pages: PdfComposePage[], src: ReturnType<typeof sources>, order: Map<string, number[]>): Promise<PDFDocument> {
+export interface AnnotCount { drawn: number; dropped: number; links: number }
+const flattened = new WeakMap<PDFPage, AnnotCount>();
+const nameOf = (o: PDFObject | undefined) => (o instanceof PDFName ? o.decodeText() : undefined);
+const numsOf = (o: PDFObject | undefined) => (o instanceof PDFArray ? o.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : NaN)) : []);
+
+/** 입력 칸 값이 있는가 (값은 칸 자신이나 위 칸에 든다) */
+function hasValue(d: PDFDict): boolean {
+  for (let cur: PDFDict | undefined = d, n = 0; cur && n < 8; cur = cur.lookupMaybe(PDFName.of('Parent'), PDFDict), n++) {
+    const v = cur.lookup(PDFName.of('V'));
+    if (v) return nameOf(v) !== 'Off' && v.toString() !== '()' && v.toString() !== '<>';
+  }
+  return false;
+}
+
+/** 쪽의 주석(입력 칸·체크·메모·도장 …)을 쪽 내용으로 굳힌다. embedPages 는 쪽 내용만 옮겨 주석을 버리기 때문이다.
+ *  주석마다 보이는 모양(/AP /N, 체크는 /AS 상태)을 주석 자리(/Rect)에 맞춰 그린다(모양의 BBox·Matrix → Rect).
+ *  숨긴 것(Hidden·NoView)과 펼친 메모 창(Popup)은 원래 안 보여 넘긴다. 모양이 없어 못 그린 것·링크는 세어 알린다 */
+function flattenAnnots(page: PDFPage): AnnotCount {
+  const done = flattened.get(page);
+  if (done) return done;
+  const count: AnnotCount = { drawn: 0, dropped: 0, links: 0 };
+  flattened.set(page, count);
+  const annots = page.node.Annots();
+  if (!annots?.size()) return count;
+  const ctx = page.doc.context;
+  const ops: PDFOperator[] = [];
+  for (let i = 0; i < annots.size(); i++) {
+    const a = annots.lookup(i);
+    if (!(a instanceof PDFDict)) continue;
+    const sub = nameOf(a.lookup(PDFName.of('Subtype')));
+    const flags = a.lookup(PDFName.of('F'));
+    if ((flags instanceof PDFNumber ? flags.asNumber() : 0) & (2 | 32) || sub === 'Popup') continue;
+    if (sub === 'Link') { count.links++; continue; }
+    const ap = a.lookup(PDFName.of('AP'));
+    let ref = ap instanceof PDFDict ? ap.get(PDFName.of('N')) : undefined;
+    let obj = ref instanceof PDFRef ? ctx.lookup(ref) : ref;
+    if (obj instanceof PDFDict) {
+      // 체크·단추: 상태(/AS)마다 모양이 따로. 그 상태의 모양이 없으면 원래 아무것도 안 보인다
+      const state = a.lookup(PDFName.of('AS'));
+      ref = state instanceof PDFName ? obj.get(state) : undefined;
+      obj = ref instanceof PDFRef ? ctx.lookup(ref) : ref;
+      if (!obj) continue;
+    }
+    const rect = numsOf(a.lookup(PDFName.of('Rect')));
+    if (!(obj instanceof PDFStream) || rect.length !== 4 || rect.some((v) => !Number.isFinite(v))) {
+      // 모양이 없는 빈 입력 칸은 원래 아무것도 안 보인다
+      if (sub === 'Widget' && !ap && !hasValue(a)) continue;
+      count.dropped++;
+      continue;
+    }
+    const box = numsOf(obj.dict.lookup(PDFName.of('BBox')));
+    const m = numsOf(obj.dict.lookup(PDFName.of('Matrix')));
+    const [ma, mb, mc, md, me, mf] = m.length === 6 && m.every(Number.isFinite) ? m : [1, 0, 0, 1, 0, 0];
+    if (box.length !== 4 || box.some((v) => !Number.isFinite(v))) { count.dropped++; continue; }
+    const corners = [[box[0], box[1]], [box[2], box[1]], [box[0], box[3]], [box[2], box[3]]].map(([x, y]) => [ma * x + mc * y + me, mb * x + md * y + mf]);
+    const bx0 = Math.min(...corners.map((c) => c[0])), bx1 = Math.max(...corners.map((c) => c[0]));
+    const by0 = Math.min(...corners.map((c) => c[1])), by1 = Math.max(...corners.map((c) => c[1]));
+    const [rx0, rx1] = [Math.min(rect[0], rect[2]), Math.max(rect[0], rect[2])];
+    const [ry0, ry1] = [Math.min(rect[1], rect[3]), Math.max(rect[1], rect[3])];
+    if (bx1 - bx0 <= 0 || by1 - by0 <= 0 || rx1 - rx0 <= 0 || ry1 - ry0 <= 0) continue; // 넓이가 없으면 보이는 것도 없다
+    if (!obj.dict.has(PDFName.of('Subtype'))) obj.dict.set(PDFName.of('Subtype'), PDFName.of('Form'));
+    const key = page.node.newXObject('Annot', ref instanceof PDFRef ? ref : ctx.register(obj));
+    const sx = (rx1 - rx0) / (bx1 - bx0);
+    const sy = (ry1 - ry0) / (by1 - by0);
+    ops.push(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, rx0 - bx0 * sx, ry0 - by0 * sy), drawObject(key), popGraphicsState());
+    count.drawn++;
+  }
+  // 앞 내용은 pdf-lib 이 q … Q 로 감싸 둔다(불러온 쪽은 autoNormalizeCTM): 원래 내용이 바꿔 둔 좌표계가 주석 자리를 밀지 않는다
+  if (ops.length) page.pushOperators(...ops);
+  return count;
+}
+
+/** A4 에 맞추기: 원본 쪽을 그림처럼 넣고(embedPages, 원본마다 한 번) 돌린 각까지 반영해 가운데에.
+ *  embedPages 는 주석을 옮기지 않아 입력 칸 값·체크·메모가 사라진다 → 넣기 전에 쪽 내용으로 굳힌다(annots 에 센다) */
+async function buildFitted(out: PDFDocument, pages: PdfComposePage[], src: ReturnType<typeof sources>, order: Map<string, number[]>, annots?: AnnotCount): Promise<PDFDocument> {
   const embedded = new Map<string, PDFEmbeddedPage[]>();
   for (const [path, idx] of order) {
     const doc = await src.open(path);
     const pgs = idx.map((i) => doc.getPage(i));
+    for (const pg of new Set(pgs)) {
+      const c = flattenAnnots(pg);
+      if (annots) { annots.drawn += c.drawn; annots.dropped += c.dropped; annots.links += c.links; }
+    }
     const boxes = pgs.map((pg) => { const c = pg.getCropBox(); return { left: c.x, bottom: c.y, right: c.x + c.width, top: c.y + c.height }; });
     embedded.set(path, await out.embedPages(pgs, boxes));
   }
@@ -277,9 +395,18 @@ async function buildFitted(out: PDFDocument, pages: PdfComposePage[], src: Retur
   return out;
 }
 
+/** A4 에 맞추며 굳히거나 못 넣은 주석 → 화면 알림 */
+function annotNotice(c: AnnotCount): string | undefined {
+  const s: string[] = [];
+  if (c.drawn) s.push(`입력 칸·메모 ${c.drawn}개는 A4에 맞추며 쪽에 그려 넣어, 결과 PDF에서는 고쳐 쓸 수 없습니다`);
+  if (c.dropped) s.push(`모양 정보가 없는 입력 칸·메모 ${c.dropped}개는 결과에 들어가지 않았습니다. 그대로 두려면 "A4로 맞추기"를 끄고 저장하세요`);
+  if (c.links) s.push(`누르면 열리던 링크 ${c.links}개는 결과에서 눌리지 않습니다`);
+  return s.length ? `${s.join('. ')}.` : undefined;
+}
+
 export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Promise<PdfComposeResult> {
   if (!p.outputs.length || p.outputs.some((o) => !o.pages.length)) throw new Error('저장할 쪽이 없습니다. 쪽을 하나 이상 남기세요.');
-  const src = sources(signal);
+  const src = sources(signal, neededPages(p.outputs.flatMap((o) => o.pages)));
   const dir = p.output_dir ? outputDir({ output_dir: p.output_dir }) : undefined;
   const results: PdfComposeResult['outputs'] = [];
   /** 이번에 새로 만든 파일만 (덮어쓰기로 바꾼 기존 파일은 지우면 옛 내용도 새 내용도 없어진다) */
@@ -288,7 +415,8 @@ export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Prom
     for (const [i, o] of p.outputs.entries()) {
       signal.throwIfAborted();
       if (p.outputs.length > 1) sendProgress({ current: i + 1, total: p.outputs.length, message: `PDF 만드는 중 (${i + 1}/${p.outputs.length})` });
-      const out = await buildPdf(o.pages, src, p.fit_a4);
+      const annots: AnnotCount = { drawn: 0, dropped: 0, links: 0 };
+      const out = await buildPdf(o.pages, src, p.fit_a4, annots);
       if (p.watermark?.trim() || p.page_numbers) await stampPdf(out, p);
       let bytes = await out.save();
       if (p.shrink) {
@@ -301,9 +429,11 @@ export async function pdfCompose(p: PdfComposeParams, signal: AbortSignal): Prom
         ? outputFile({ output_path: o.output_path, name, overwrite: p.overwrite })
         : outputFile({ output_dir: dir, source: p.source, name });
       const fresh = !existsSync(path);
+      signal.throwIfAborted();
       await atomicWriteFile(path, bytes);
       if (fresh) created.push(path);
-      results.push({ output_path: path, page_count: out.getPageCount(), bytes: bytes.length });
+      const notice = annotNotice(annots);
+      results.push({ output_path: path, page_count: out.getPageCount(), bytes: bytes.length, ...(notice ? { notice } : {}) });
     }
   } catch (err) {
     // 여러 파일로 나눠 저장하다 멈추거나 실패하면 이번에 쓴 파일을 지운다 (화면은 응답을 못 받아 모르고, 다시 하면 "_01 (2)" 가 섞였다).
@@ -326,7 +456,7 @@ export async function pdfToImages(
   const original = p.source ?? p.path;
   if (!original) throw new Error('그림으로 바꿀 문서를 고르세요.');
   let bytes: Uint8Array;
-  if (p.items?.length) bytes = await (await buildPdf(p.items, sources(signal))).save();
+  if (p.items?.length) bytes = await (await buildPdf(p.items, sources(signal, neededPages(p.items)))).save();
   else if (p.path) bytes = new Uint8Array(await readFile(formatOf(p.path) === 'pdf' ? p.path : await convertedPdf(p.path, signal)));
   else throw new Error('그림으로 바꿀 쪽이 없습니다.');
   const doc = await openPdf(bytes).catch((err: unknown) => {

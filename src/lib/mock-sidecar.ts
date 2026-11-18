@@ -526,6 +526,7 @@ const handlers: Handlers = {
   recovery_write: async () => ({ ok: true }),
   recovery_list: async () => ({ entries: [] }),
   recovery_discard: async () => true,
+  wipe_traces: async () => ({ removed: 0, skipped: 0 }),
   editor_write: (p) => ({ path: p.path }),
   ai_agent_step: async () => { await wait(600); return { text: "미리보기에서는 문서를 고치지 않습니다. 앱에서 AI 연결을 고른 뒤 써 보세요.", calls: [], redacted: 0 }; },
   agent_tools: () => ({ system: "미리보기", tools: [{ name: "list_documents", description: "문서 목록", inputSchema: { type: "object", properties: { paths: { type: "array" } }, required: ["paths"] } }] }),
