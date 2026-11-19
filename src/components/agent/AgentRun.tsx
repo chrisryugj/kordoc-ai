@@ -120,7 +120,12 @@ export function AgentRun({ turns, onSend, busy }: { turns: AgentTurn[]; onSend: 
         const next = last && t.state === "done" && !busy ? nextOf(t.files) : [];
         return (
           <section key={i} className="kd-job" aria-label={`요청 ${i + 1}`}>
-            <div className="kd-job-req">{t.request}</div>
+            <div className="kd-job-req">
+              {t.request}
+              {!!t.attachments?.length && <span className="kd-job-attachments" role="group" aria-label="이 요청의 첨부 파일">
+                {t.attachments.map((p) => <span key={p} title={p}><FormatBadge format={formatOf(p)} /> {baseName(p)}</span>)}
+              </span>}
+            </div>
             {(t.steps.length > 0 || t.state === "running") && (
               <ol className="kd-tl">
                 {t.steps.map((s, k) => (

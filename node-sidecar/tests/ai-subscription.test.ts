@@ -240,6 +240,8 @@ describe('Codex', () => {
     expect(a.join(' ')).not.toMatch(/가온시|공문 비서/);
     expect(exec.env).toMatchObject({ OPENAI_API_KEY: null, CODEX_API_KEY: null, NODE_OPTIONS: null, KORDOC_SECRET: null });
     const stdin = readLog(log).find((e) => e.kind === 'stdin')!.text!;
+    expect(stdin).toContain('Codex에서 파일·명령·웹을 직접 사용하지 마세요.');
+    expect(stdin).toContain('KorDoc AI 지시문에 앱 도구 목록이 있으면 지정된 답 형식으로 호출을 요청하세요.');
     expect(stdin).toContain('<instructions>\n공문 비서');
     expect(stdin).toContain('가온시 민원 처리 현황');
     await p.chat(req());

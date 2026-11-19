@@ -69,7 +69,8 @@ export async function runAgent(opts: {
   hooks: RunHooks;
 }): Promise<RunResult> {
   const { skill, events, signal, hooks } = opts;
-  const context = skill.buildContext?.() ?? "";
+  const prepared = skill.prepareTurn?.(opts.request);
+  const context = prepared?.context ?? skill.buildContext?.() ?? "";
   trimHistory(events);
   const mark = events.length;
   events.push({ role: "user", text: opts.request, ...(context ? { context } : {}) });
@@ -83,19 +84,25 @@ export async function runAgent(opts: {
   let sameCalls = 0;
   let failedSteps = 0;
   const steps = async (): Promise<RunResult> => {
-    for (let step = 0; step < MAX_STEPS; step++) {
+    for (let step = prepared?.firstTool ? -1 : 0; step < MAX_STEPS; step++) {
       if (signal.aborted) throw new DOMException("멈췄습니다", "AbortError");
-      const turn = await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events: wireEvents(events) }, { signal });
+      const firstTool = step === -1 ? prepared?.firstTool : undefined;
+      const turn = firstTool
+        ? { text: "", calls: [{ ...firstTool, inputError: undefined }], redacted: 0 }
+        : await rpc("ai_agent_step", { system: skill.systemPrompt, tools: skill.tools, events: wireEvents(events) }, { signal });
       redacted += turn.redacted;
-      if (turn.text) { text = turn.text; hooks.onText(text); }
       events.push({ role: "assistant", text: turn.text, calls: turn.calls.map(({ id, name, input }) => ({ id, name, input })) });
       if (!turn.calls.length) {
-        const fix = corrected ? null : skill.verifyResponse?.(text, executed) ?? null;
-        if (!fix) return { text, redacted };
-        corrected = true;
-        events.push({ role: "user", text: fix, auto: true });
-        continue;
+        const fix = skill.verifyResponse?.(turn.text || text, executed) ?? null;
+        if (fix && !corrected) {
+          corrected = true;
+          events.push({ role: "user", text: typeof fix === "string" ? fix : fix.retry, auto: true });
+          continue;
+        }
+        if (fix && typeof fix !== "string") return stop(fix.failure);
       }
+      if (turn.text) { text = turn.text; hooks.onText(text); }
+      if (!turn.calls.length) return { text, redacted };
       const results: Array<{ id: string; name: string; output: string; isError?: boolean }> = [];
       let changed = false;
       /** 이 차례에 문단·줄 번호를 바꾼 도구 (뒤 호출은 모델이 그 전 번호로 적었다) */
@@ -133,6 +140,10 @@ export async function runAgent(opts: {
         hooks.onTool({ name: call.name, summary: out.summary, isError: !!out.isError });
       }
       events.push({ role: "tool", results });
+      if (firstTool) {
+        if (results[0]?.isError) return stop("첨부 문서를 읽지 못했습니다. 위에 나온 파일 오류를 확인한 뒤 다시 보내세요.");
+        continue;
+      }
       // 되풀이: 같은 호출에 같은 결과가 왔고 바뀐 것도 없다 (한 곳씩 차례로 바꾸는 편집처럼 문서를 바꾼 차례는 세지 않는다)
       const sig = changed && !blocked ? "" : JSON.stringify([turn.calls.map((c) => [c.name, c.input]), results.map((r) => r.output)]);
       sameCalls = sig && sig === lastCalls ? sameCalls + 1 : 1;
