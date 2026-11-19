@@ -1,6 +1,6 @@
 /** 잠깐 붐벼서 온 거절은 다시 보내고(503·분당 한도), 하루 한도·서버 오류는 바로 알린다. 구독 한도가 풀리는 때, 구독 연결 상태 */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tempDir } from './tmp-dirs.js';
@@ -8,7 +8,7 @@ import { tempDir } from './tmp-dirs.js';
 process.env.KORDOC_AI_DATA_DIR = tempDir('kordoc-ai-retry-');
 
 import { createOpenAiProvider } from '../src/infra/llm/openai.js';
-import { retryPolicy } from '../src/infra/llm/types.js';
+import { retryPolicy, sendRetrying } from '../src/infra/llm/types.js';
 import { resetWhen } from '../src/infra/llm/subscription/errors.js';
 import { checkLogin, forgetLogins } from '../src/infra/llm/subscription/login.js';
 import { aiStatus } from '../src/core/ai/status.js';
@@ -78,15 +78,20 @@ describe('잠깐 붐빈 서버', () => {
   });
 
   it('기다리는 동안 멈추면 바로 멈춘다', async () => {
-    retryPolicy.waits = [60_000, 60_000];
-    plan = [503];
-    const ac = new AbortController();
-    const pending = chat(ac.signal);
-    setTimeout(() => ac.abort(), 50);
-    const t = Date.now();
-    await expect(pending).rejects.toBeDefined();
-    expect(Date.now() - t).toBeLessThan(5000);
-    expect(hits).toBe(1);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const ac = new AbortController();
+      const send = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+      const retryListener = vi.spyOn(ac.signal, 'addEventListener');
+      const pending = sendRetrying(send, ac.signal);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(retryListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+      ac.abort();
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -273,17 +273,20 @@ await section('사', async () => {
     await ui.shot(join(OUT, 'g1-ask.png'));
   } else check('사-2 이 문서에 묻기 입력칸이 있다', false);
   await ui.click('이 공문에 회신 쓰기', { exact: true, within: SCR });
+  // 앞 문서의 부탁 글부터 보호한다. 확인을 누른 뒤 실제 회신 초안이 생성돼야 한다.
+  await ui.waitText('쓰던 초안이 있습니다', T);
+  await ui.click('새 내용으로 바꾸기', { exact: true, within: '[role=dialog]' });
   await draftReady();
-  await sleep(REAL ? 8000 : 2500);
-  check('사-3 회신 쓰기가 받은 공문을 붙여 초안을 쓴다', /초안 미리보기 \d+쪽/.test(await screenText()), flat(await screenText()).slice(0, 160));
+  await page.waitForFunction((s) => /초안 미리보기 \d+쪽/.test(document.querySelector(s)?.innerText ?? ''), { timeout: T }, SCR);
+  const inst = await page.$eval(`${SCR} textarea[aria-label="AI에게 부탁할 내용"]`, (e) => e.value);
+  check('사-3c 회신으로 넘어오면 앞 초안의 부탁 글이 남지 않는다', inst === '', inst.slice(0, 60));
+  check('사-3 회신 쓰기가 받은 공문을 붙여 초안을 쓴다', (await screenText()).includes('도민체육대회'), flat(await screenText()).slice(0, 160));
   await ui.shot(join(OUT, 'g2-reply-draft.png'));
   await ui.click('한글 문서로 만들어 편집하기');
-  // 앞 문서(안전교육)에 저장 안 한 고침이 있으니 묻는다 → 버리기
-  const asked = await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog]')].some((d) => d.innerText.includes('저장하지 않은 문서')), { timeout: 60000 }).then(() => true, () => false);
-  check('사-3b 앞 문서에 저장 안 한 고침이 있으면 새 문서를 열기 전에 묻는다', asked);
-  const inst = await page.$eval(`${SCR} textarea[aria-label="AI에게 부탁할 내용"]`, (e) => e.value).catch(() => '?');
-  check('사-3c 회신으로 넘어오면 앞 초안의 부탁 글이 남지 않는다', inst === '', inst.slice(0, 60));
-  if (asked) await ui.click('버리기', { exact: true, within: '[role=dialog]' });
+  // 앞 문서(안전교육)에 저장 안 한 고침이 있으니 별도로 묻는다.
+  await ui.waitText('저장하지 않은 문서', T);
+  check('사-3b 앞 문서에 저장 안 한 고침이 있으면 새 문서를 열기 전에 묻는다', true);
+  await ui.click('버리기', { exact: true, within: '[role=dialog]' });
   await waitEditor();
   await sleep(2500);
   const n = REAL ? await probe('(w) => w.getParagraphCount(0)') : await count('참가 신청서');

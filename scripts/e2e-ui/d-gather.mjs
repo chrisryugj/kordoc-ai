@@ -143,7 +143,7 @@ try {
   await page.click('.kd-taskitem[data-task="convert"]');
   await sleep(300);
   const segs = await page.$$eval('.kd-batch-opts .kd-seg button', (bs) => bs.map((b) => b.textContent));
-  check('글로: 쉬운 이름 (마크다운·HTML 없음)', segs.join('|') === '제목·표 살린 글|웹 페이지|글자만', segs.join('|'));
+  check('글로: 저장 형식 네 가지', segs.join('|') === '제목·표 살린 글|구조 자료(JSON)|웹 페이지|글자만', segs.join('|'));
   const out = await page.$eval('.kd-batch-opts .kd-path', (e) => ({ t: e.textContent, title: e.getAttribute('title') }));
   check('저장할 곳: 폴더 이름만', !/[\\/]/.test(out.t), JSON.stringify(out));
   await page.click('.kd-taskitem[data-task="print"]');

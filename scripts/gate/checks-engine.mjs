@@ -43,7 +43,7 @@ const CLAIM = '3-민원서류_정보공개 청구서.hwpx';
 const REPORT = '4-보고서_디지털 행정 혁신 추진계획.hwpx';
 
 /** 도구마다 입력과 기대 — ok: 성공해야 함, any: 실패해도 되지만 엔진이 죽거나 원본을 건드리면 안 됨 */
-function cases(s, written) {
+function cases(s, notation) {
   return [
     ['list_documents', { paths: [s.docs] }, 'ok'],
     ['read_document', { path: P(s, REPORT) }, 'ok'],
@@ -60,8 +60,8 @@ function cases(s, written) {
     ['collect_submissions', { paths: [P(s, '취합')], roster: ['총무과', '기획예산과', '감사과'] }, 'ok'],
     ['compare_documents', { old_path: P(s, REPORT), new_path: P(s, LETTER) }, 'ok'],
     ['extract_tables', { path: P(s, REPORT) }, 'ok'],
-    ['precheck', { path: P(s, REPORT) }, 'ok'],
-    ['fix_notation', { path: P(s, REPORT), fixes: [{ from: '추진계획', to: '추진 계획' }] }, 'ok'], // 실제로 바꾸는 값이어야 패치(keep 출력)까지 본다
+    ['precheck', { path: notation.path }, 'ok'],
+    ['fix_notation', notation, 'ok'],
     ['check_law_citations', { path: P(s, REPORT) }, 'ok'],
     ['redact_personal_info', { path: P(s, CLAIM) }, 'ok'],
     ['make_pdf', { path: P(s, REPORT) }, 'ok'],
@@ -73,12 +73,18 @@ function cases(s, written) {
 async function toolSweep() {
   const s = sandbox((out) => ({ convert: { output_dir: out, ocr: 'off' }, privacy: { offline: true } }));
   writeFileSync(join(s.base, '명부.csv'), '성명,주소\n홍길동,가온시 1\n김가온,가온시 2\n');
-  const before = hashTree(s.docs);
   const e = startEngine({ dataDir: s.data, env: s.env });
   try {
+    const path = P(s, '표기 점검.hwpx');
+    await e.call('generate_hwpx', {
+      markdown: '# 사업 계획\n\n1. 사업비는 1,000만원입니다.\n  가. 일시: 2026년 11월 2일(수) 14:00  끝.',
+      preset: 'official', output_path: path,
+    });
+    const before = hashTree(s.docs);
+    const { items } = await e.call('precheck', { path });
+    const fixes = items.flatMap((f) => f.fix ? [f.fix] : []);
     const { tools } = await e.call('agent_tools', {});
-    let written = null;
-    const list = cases(s, () => written);
+    const list = cases(s, { path, fixes });
     const missing = tools.map((t) => t.name).filter((n) => n !== 'open_result' && !list.some(([c]) => c === n));
     record(A, '도구 전수 목록이 도구 정의와 맞음', missing.length ? 'FAIL' : 'PASS', missing.length ? `시험 안 한 도구: ${missing.join(', ')}` : `${list.length}개`);
     const outside = [];
@@ -89,7 +95,10 @@ async function toolSweep() {
         record(A, `도구 ${name}`, 'FAIL', `엔진 응답 없음: ${err.message}`, Date.now() - t0);
         continue;
       }
-      if (name === 'write_document' && r.files?.[0]) written = r.files[0];
+      if (name === 'fix_notation' && !r.isError && (!r.files?.[0] || !existsSync(r.files[0]) || !/표기 [1-9]\d*곳 고침/.test(r.summary))) {
+        record(A, `도구 ${name}`, 'FAIL', '표기를 고친 사본이 없습니다.', Date.now() - t0);
+        continue;
+      }
       for (const f of r.files ?? []) if (!f.startsWith(s.out)) outside.push(`${name}: ${f}`);
       const status = r.isError ? (want === 'ok' ? 'FAIL' : 'WARN') : 'PASS';
       // 심사위원이 누르고 기다리는 시간: 한 도구가 30초를 넘으면 경고 (PDF 가 대체 경로로 빠져도 여기서 보인다)
