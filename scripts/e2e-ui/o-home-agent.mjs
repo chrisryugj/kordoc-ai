@@ -2,6 +2,7 @@
  * 홈 "AI에게 맡기기" → AI 대화(세션 저장·예시·내 프롬프트)·문서 카드·최종본 찾기 화면 검증 — 가짜 OpenAI 호환 서버가 정해진 차례로 도구를 부른다
  *  - AI 꺼짐: 입력창 아래 AI 켜기 패널
  *  - 예제 칩 → 받은 공문 읽기 → 기안문 만들기 → 결과 카드(원본 그대로), 원본 바이트 불변 → 이어서 "결재 전 점검"
+ *  - 첨부 본문 보강 → 도구를 안 쓴 답변 재시도 → 한 쪽 HWPX 결과 파일
  *  - 문서 화면 "AI에게 시키기" → 홈 입력창에 그 문서가 붙음
  *  - 문서 카드(?card=, 최종본 찾기): 다른 판 3개, 최종은 "교육계획_최종 (2)", 이름의 '최종'보다 나중 판을 짚음
  *
@@ -31,10 +32,40 @@ const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 // ── 가짜 AI: 붙인 파일 → 받은 공문 읽기 → 기안문 쓰기 → 끝 / 이어서 점검 → 끝 ──
 let turn = 0;
 let made = '';
+const revisionRequest = '이거 내용좀 한페이지 꽉채워줘';
+const sourceText = '도서 교환 행사는 주민센터에서 운영한다.';
+const addedText = '책의 상태를 살펴 다음 참가자가 읽기 좋은 도서를 골라 교환합니다.';
+const revisedMarkdown = [
+  '# 도서 교환 행사 안내',
+  sourceText,
+  '□ 행사 취지',
+  '○ 이번 행사는 가정에서 더 이상 읽지 않는 책을 이웃과 나누고 도서를 다시 활용하는 자리입니다. 주민센터에서 책을 교환하며 참가자들은 평소 접하지 못한 분야의 책을 살펴볼 수 있습니다.',
+  '□ 참가 준비',
+  '○ 교환할 책은 가져오기 전에 겉표지와 책 속의 상태를 확인해 주시기 바랍니다. 책 사이에 개인정보가 적힌 메모나 문서가 남아 있는지도 살펴 주십시오.',
+  '□ 이용 안내',
+  '○ ' + addedText + ' 여러 참가자가 함께 이용하는 공간인 만큼 통로를 막지 않도록 서로 배려해 주시기 바랍니다.',
+  '○ 교환하지 않기로 한 책은 다른 사람도 쉽게 확인할 수 있도록 제자리에 놓아 주십시오. 교환을 마친 뒤에는 주변 자리를 정리해 주시기 바랍니다.',
+].join('\n\n');
+let revisionTurns = 0;
+let readBeforeModel = false;
+let retried = false;
+
 function reply(body) {
   const user = body.messages.filter((m) => m.role === 'user');
   const last = user.at(-1)?.content ?? '';
   const attached = /- (.+\.hwpx)\s*$/m.exec(user.map((m) => m.content).join('\n'))?.[1]?.trim() ?? '';
+  if (user.some((m) => m.content.includes(revisionRequest))) {
+    revisionTurns++;
+    if (revisionTurns === 1) {
+      readBeforeModel = last.startsWith('도구 결과:\n### read_document') && last.includes(sourceText);
+      return '문서 본문을 여기에 붙여 주세요.';
+    }
+    if (revisionTurns === 2) {
+      retried = last.includes('본문이 read_document 결과에 이미 있습니다');
+      return { say: '', calls: [{ tool: 'write_document', args: { preset: 'report', markdown: revisedMarkdown } }] };
+    }
+    return { say: '첨부 내용을 보강한 파일을 만들었습니다.', calls: [] };
+  }
   const n = turn++;
   if (n === 0) return { say: '받은 공문을 먼저 읽겠습니다.', calls: [{ tool: 'read_incoming_letter', args: { paths: [attached] } }] };
   if (n === 1) return { say: '', calls: [{ tool: 'write_document', args: { preset: 'official', markdown: '# 도민체육대회 참가 회신\n\n1. 귀 기관의 협조 요청에 따라 아래와 같이 회신합니다.\n  가. 참가 인원: 20명  끝.' } }] };
@@ -51,7 +82,8 @@ const ai = createServer((req, res) => {
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
     if (!req.url?.includes('/chat/completions') || !raw) { res.writeHead(404); res.end(); return; }
-    const text = JSON.stringify(reply(JSON.parse(raw)));
+    const result = reply(JSON.parse(raw));
+    const text = typeof result === 'string' ? result : JSON.stringify(result);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text } }] })}\n\n`);
     res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
@@ -70,6 +102,10 @@ const samples = (await invoke('samples_list', {})).result;
 const letter = samples.scenarios.find((s) => s.id === 'reply').files.find((f) => f.endsWith('.hwpx'));
 const versions = samples.scenarios.find((s) => s.id === 'versions').files;
 const letterHash = sha(letter);
+const revisionSource = join(DATA, 'result.hwpx');
+const source = await invoke('generate_hwpx', { preset: 'report', markdown: '# 도서 교환 행사\n\n' + sourceText, output_path: revisionSource });
+if (!source.ok || !existsSync(revisionSource)) throw new Error('첨부 시험용 문서를 만들지 못함');
+const revisionHash = sha(revisionSource);
 
 let ui = await openUi({ relay: RELAY, width: 1366, height: 768, prefs: { 'kordoc-first-run-done': true } });
 let { page } = ui;
@@ -133,6 +169,32 @@ try {
   await ui.click('새 대화');
   await sleep(300);
   check('새 대화: 빈 대화', await page.evaluate(() => document.querySelectorAll('.kd-convo .kd-job').length === 0));
+
+  // 새 대화에서 실제 첨부 → 본문 읽기 → 일반 답변 거부 후 재시도 → 한 쪽 HWPX 결과
+  await ui.dialog([[revisionSource]]);
+  await ui.click('파일 첨부', { within: '.kd-convo' });
+  await ui.waitText('result.hwpx');
+  await page.focus('.kd-convo .kd-ask-input');
+  await page.keyboard.sendCharacter(revisionRequest);
+  await ui.click('보내기', { within: '.kd-convo .kd-ask-bar' });
+  await ui.waitText('첨부 내용을 보강한 파일을 만들었습니다.', 60000);
+  check('첨부 보강: 첫 AI 요청에 원본 본문이 실림', readBeforeModel);
+  check('첨부 보강: 본문을 붙여 달라는 응답을 재시도', retried && revisionTurns === 3);
+  const revision = await page.evaluate(() => {
+    const job = document.querySelector('.kd-convo .kd-job');
+    return {
+      attached: job.querySelector('.kd-job-attachments')?.textContent ?? '',
+      path: job.querySelector('.kd-result-meta')?.title ?? '',
+      text: job.innerText,
+    };
+  });
+  check('첨부 보강: 보낸 파일 이름과 읽기·쓰기 기록', revision.attached.includes('result.hwpx') && revision.text.includes('읽음 · result.hwpx') && revision.text.includes('한글 문서 만듦'));
+  check('첨부 보강: 본문을 달라는 응답을 완료로 표시하지 않음', !revision.text.includes('문서 본문을 여기에 붙여 주세요.'));
+  check('첨부 보강: 원본은 바이트 같고 수정본은 새 파일', sha(revisionSource) === revisionHash && revision.path.startsWith(RESULTS) && existsSync(revision.path), revision.path);
+  const rendered = await ui.call('render_pages', { path: revision.path, pages: '1', max_width: 480 });
+  const revisionBody = await ui.call('convert', { path: revision.path, format: 'md', save: false });
+  check('첨부 보강: 수정본이 한 쪽으로 렌더되고 원문과 추가 내용이 있음', rendered.page_count === 1 && rendered.pages.length === 1 && revisionBody.content.includes(sourceText) && revisionBody.content.includes(addedText));
+  await ui.shot(join(OUT, '04-chat-attachment-revision.png'));
 
   // 문서 화면 → AI에게 시키기 → 그 문서를 붙인 새 대화
   await fetch(`${RELAY}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event: 'open-files', payload: [versions[0]] }) });

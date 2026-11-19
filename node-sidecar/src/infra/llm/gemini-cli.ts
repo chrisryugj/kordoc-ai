@@ -31,7 +31,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertProgramEgress } from '../net-guard.js';
-import { claudeSystemText, MODEL_NAME, SUBSCRIPTION_CONTEXT_TOKENS, type CliModel, type SubscriptionDeps } from './claude-code.js';
+import { subscriptionSystemText, MODEL_NAME, SUBSCRIPTION_CONTEXT_TOKENS, type CliModel, type SubscriptionDeps } from './claude-code.js';
 import { SubscriptionError, type FailKind } from './subscription/errors.js';
 import { forgetLogins, requireSubscription, type Login } from './subscription/login.js';
 import { findProgram, removeDir, runProgram, workDir, type Program, type SpawnFn } from './subscription/program.js';
@@ -183,7 +183,7 @@ type Ev = Record<string, unknown>;
 const obj = (v: unknown): Ev | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Ev) : undefined);
 
 async function ask(program: Program, cfg: GeminiCliConfig, req: ChatRequest, timeoutMs: number, deps: SubscriptionDeps): Promise<string> {
-  const input = agyInput(req.messages, claudeSystemText(req));
+  const input = agyInput(req.messages, subscriptionSystemText(req));
   const env = deps.baseEnv ?? process.env;
   const dir = await workDir();
   const cwd = await fixedCwd();

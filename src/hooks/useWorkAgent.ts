@@ -16,6 +16,7 @@ export interface AgentStep { tool: string; summary: string; isError: boolean }
 
 export interface AgentTurn {
   request: string;
+  attachments?: string[];
   steps: AgentStep[];
   text: string;
   files: string[];
@@ -151,7 +152,8 @@ export function useWorkAgent({ from, notify }: { from?: "card"; notify?: (messag
     setRunningId(id);
     const startedAt = Date.now();
     l.meta ??= { id, title: titleOf(request), createdAt: startedAt, updatedAt: startedAt, ...(from ? { from } : {}) };
-    l.body = { ...l.body, turns: [...l.body.turns, { request, steps: [], text: "", files: [], saved: 0, state: "running", startedAt }] };
+    const attachments = [...l.body.paths];
+    l.body = { ...l.body, turns: [...l.body.turns, { request, attachments, steps: [], text: "", files: [], saved: 0, state: "running", startedAt }] };
     redraw();
     persist(l);
     const patch = (fn: (t: AgentTurn) => AgentTurn, save = false) => {
@@ -162,7 +164,7 @@ export function useWorkAgent({ from, notify }: { from?: "card"; notify?: (messag
     };
     try {
       l.skill ??= await createWorkSkill({
-        files: () => l.body.paths,
+        files: () => l.body.turns[l.body.turns.length - 1]?.attachments ?? l.body.paths,
         said: () => l.body.turns.map((t) => t.request),
         outputs: l.body.turns.flatMap((t) => t.files),
         onFiles: (f) => patch((t) => ({ ...t, files: [...new Set([...t.files, ...f])] }), true),
