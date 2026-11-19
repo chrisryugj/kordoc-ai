@@ -43,10 +43,10 @@ export function claudeArgs(model: string, systemFile: string): string[] {
   return [...FIXED, '--system-prompt-file', systemFile, ...(model ? ['--model', model] : [])];
 }
 
-/** CLI 도구 제한과 KorDoc AI 앱 도구 응답 형식을 안내한다 */
-export function claudeSystemText(req: Pick<ChatRequest, 'system' | 'json' | 'schema' | 'maxTokens'>): string {
+/** Claude Code와 Antigravity에 CLI 도구 제한과 앱 도구 응답 형식을 안내한다 */
+export function subscriptionSystemText(req: Pick<ChatRequest, 'system' | 'json' | 'schema' | 'maxTokens'>): string {
   const parts = [
-    '이 요청은 KorDoc AI가 보냈습니다. Claude Code에서 파일·명령·웹을 직접 사용하지 마세요. KorDoc AI 지시문에 앱 도구 목록이 있으면 지정된 답 형식으로 호출을 요청하세요. 해당 도구는 앱에서 실행하고 결과를 다음 차례에 보내 줍니다.',
+    '이 요청은 KorDoc AI가 보냈습니다. 이 프로그램에서 파일·명령·웹을 직접 사용하지 마세요. KorDoc AI 지시문에 앱 도구 목록이 있으면 지정된 답 형식으로 호출을 요청하세요. 해당 도구는 앱에서 실행하고 결과를 다음 차례에 보내 줍니다.',
   ];
   if (req.schema) parts.push(`답은 아래 JSON 스키마에 맞는 JSON 객체 하나만 쓰세요. 코드 블록·설명을 붙이지 마세요.\n<response_schema>\n${JSON.stringify(req.schema)}\n</response_schema>`);
   else if (req.json) parts.push('답은 JSON 객체 하나만 쓰세요. 코드 블록·설명을 붙이지 마세요.');
@@ -97,7 +97,7 @@ async function ask(program: Program, cfg: ClaudeCodeConfig, req: ChatRequest, ti
   const dir = await workDir();
   try {
     const systemFile = join(dir, 'system.txt');
-    await writeFile(systemFile, claudeSystemText(req), { encoding: 'utf-8', mode: 0o600 });
+    await writeFile(systemFile, subscriptionSystemText(req), { encoding: 'utf-8', mode: 0o600 });
     const args = claudeArgs(cfg.model, systemFile);
     let streamed = '';
     let answer: string | null = null;

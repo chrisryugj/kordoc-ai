@@ -93,7 +93,7 @@ describe('Claude Code', () => {
     expect(run.env).toEqual({ ANTHROPIC_API_KEY: null, OPENAI_API_KEY: null, CODEX_API_KEY: null, NODE_OPTIONS: null, KORDOC_SECRET: null, DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
     expect(run.cwd).toMatch(/kordoc-sub-/);
     const system = readLog(log).find((e) => e.kind === 'system')!.text!;
-    expect(system).toContain('Claude Code에서 파일·명령·웹을 직접 사용하지 마세요.');
+    expect(system).toContain('이 프로그램에서 파일·명령·웹을 직접 사용하지 마세요.');
     expect(system).toContain('KorDoc AI 지시문에 앱 도구 목록이 있으면 지정된 답 형식으로 호출을 요청하세요.');
     expect(system).toContain('당신은 공문 비서입니다');
     const user = JSON.parse(readLog(log).find((e) => e.kind === 'stdin')!.line!);
@@ -391,7 +391,8 @@ describe('Antigravity CLI (agy, 예전 Gemini CLI 자리)', () => {
     const msg = JSON.parse(line);
     expect(msg.event).toBe('user');
     expect(msg.message.content.startsWith('[KorDoc AI 요청]\n<instructions>\n')).toBe(true); // 슬래시 명령이 되지 않게 머리말부터
-    expect(msg.message.content).toMatch(/도구는 없습니다/);
+    expect(msg.message.content).toContain('이 프로그램에서 파일·명령·웹을 직접 사용하지 마세요.');
+    expect(msg.message.content).toContain('KorDoc AI 지시문에 앱 도구 목록이 있으면 지정된 답 형식으로 호출을 요청하세요.');
     expect(msg.message.content).toContain('당신은 공문 비서입니다');
     expect(msg.message.content).toContain('/model 가온시 민원');
     expect(existsSync(agyDir(home, 'conversations', 'a1b2c3d4-0000-4000-8000-000000000000.db'))).toBe(false);
