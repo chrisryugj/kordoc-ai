@@ -1,6 +1,6 @@
 /**
  * 편집기 AI 대화 화면 검증 — 가짜 OpenAI 호환 서버가 정해진 차례로 답한다
- *  1차: read_document → 2차: replace_text(모두)·insert_table·create_style·apply_style → 3차: 끝
+ *  글을 바꾸고 표를 넣은 뒤 문단 번호를 다시 읽어 스타일과 각주를 적용한다.
  *  - 활동 줄에 도구 요약, 편집기 문서에 실제로 반영(찾기·표·스타일), 되돌리기 한 번에 요청 전으로
  *
  * 사용: node scripts/e2e-ui/i-agent.mjs --port 7729 --out <스크린샷 폴더>
@@ -39,6 +39,16 @@ function reply(body) {
       calls: [
         { tool: 'replace_text', args: { find: '가온시', replace: '나온시', all: true } },
         { tool: 'insert_table', args: { after: target, rows: [['항목', '목표'], ['처리 시간', '삼십 퍼센트 줄임']] } },
+      ],
+    };
+  }
+  // 표 삽입 뒤에는 문단 번호가 바뀔 수 있으므로 다시 읽는다.
+  if (n === 2) return { say: '', calls: [{ tool: 'read_document', args: {} }] };
+  if (n === 3) {
+    target = /\[(\d+\.\d+)\][^\n]*반복 문서 업무/.exec(last)?.[1] ?? '';
+    return {
+      say: '',
+      calls: [
         { tool: 'create_style', args: { name: '강조 문단', based_on: '바탕글', bold: true } },
         { tool: 'apply_style', args: { ids: [target], style: '강조 문단' } },
         { tool: 'insert_footnote', args: { id: target, after: '반복 문서 업무', text: '2026년 상반기 자체 조사' } },

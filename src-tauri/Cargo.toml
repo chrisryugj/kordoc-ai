@@ -37,6 +37,7 @@ base64 = "0.22"
 # 웹뷰 프로필 저장소 지우기 (commands/web_storage.rs). tauri(wry)가 쓰는 판과 같게
 webview2-com = "0.39"
 windows-core = "0.62"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [features]
 default = ["custom-protocol"]

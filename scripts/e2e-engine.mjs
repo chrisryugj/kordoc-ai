@@ -5,21 +5,25 @@
  * 사용: node scripts/e2e-engine.mjs [--only 그룹,그룹] [--ai] [--keep]
  *   --ai     AI 기능까지 (로컬 Ollama gemma4:e4b + 내장 GGUF — 무료, 유료 클라우드는 부르지 않는다)
  *   --keep   작업 폴더를 지우지 않음
+ *   KORDOC_E2E_CORPUS 를 주면 일부 형식에 합성 문서 대신 지정 폴더의 코퍼스를 쓴다.
  * 앞서 필요: node scripts/build-sidecar.mjs (dist/bundle.mjs·dist/node_modules·models), 편집기는 build-rhwp-studio.mjs
  */
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir, tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve('.');
 const SIDECAR = join(ROOT, 'node-sidecar');
 const requireSidecar = createRequire(join(SIDECAR, 'package.json'));
 const k = await import(pathToFileURL(requireSidecar.resolve('kordoc')).href);
 const { PDFDocument } = await import(pathToFileURL(requireSidecar.resolve('pdf-lib')).href);
+const rhwpPath = requireSidecar.resolve('@rhwp/core');
+const { HwpDocument, initSync } = await import(pathToFileURL(rhwpPath).href);
+const JSZip = requireSidecar('jszip');
 const sharp = (await import(pathToFileURL(requireSidecar.resolve('sharp')).href)).default;
 
 const argv = process.argv.slice(2);
@@ -32,7 +36,8 @@ const FIX = join(WORK, 'fixtures');
 const OUT = join(WORK, 'out');
 mkdirSync(FIX, { recursive: true });
 mkdirSync(OUT, { recursive: true });
-const CORPUS = join(homedir(), 'workspace', 'kordoc', 'bench', 'corpus');
+const CORPUS = process.env.KORDOC_E2E_CORPUS;
+const FORMAT_FIXTURES = fileURLToPath(new URL('./e2e-engine/fixtures/', import.meta.url));
 const SAMPLES = join(SIDECAR, 'samples');
 
 // ── 사이드카 ──
@@ -98,9 +103,10 @@ async function pdfPages(p) { return (await PDFDocument.load(readFileSync(p))).ge
 async function makeFixtures() {
   cpSync(SAMPLES, join(FIX, 'samples'), { recursive: true });
   const pick = (dir, re) => {
+    if (!CORPUS) return null;
     const d = join(CORPUS, dir);
     if (!existsSync(d)) return null;
-    const f = readdirSync(d).find((n) => re.test(n));
+    const f = readdirSync(d).sort().find((n) => re.test(n));
     return f ? join(d, f) : null;
   };
   const files = {
@@ -109,24 +115,13 @@ async function makeFixtures() {
     collect: readdirSync(join(FIX, 'samples', '취합')).map((f) => join(FIX, 'samples', '취합', f)),
     pii: join(FIX, 'samples', '3-민원서류_정보공개 청구서.hwpx'),
     report: join(FIX, 'samples', '4-보고서_디지털 행정 혁신 추진계획.hwpx'),
-    hwp5: pick('hwp5', /\.hwp$/),
-    hwp_small: pick('korea-kr-pairs2', /AI_기반_사이버보안.*\.hwp$/),
-    pdf_text: pick('korea-kr', /\.pdf$/),
-    hwpx_real: pick('korea-kr', /\.hwpx$/),
-    docx: pick(join('formats', 'docx'), /\.docx$/),
-    xlsx: pick(join('formats', 'xlsx'), /\.xlsx$/),
-    xls: pick(join('formats', 'xls'), /\.xls$/),
-    hml: pick(join('formats', 'hml'), /\.hml$/),
+    docx: pick(join('formats', 'docx'), /\.docx$/) ?? join(FORMAT_FIXTURES, 'document.docx'),
+    xlsx: pick(join('formats', 'xlsx'), /\.xlsx$/) ?? join(FORMAT_FIXTURES, 'spreadsheet.xlsx'),
+    xls: pick(join('formats', 'xls'), /\.xls$/) ?? join(FORMAT_FIXTURES, 'spreadsheet.xls'),
+    pptx: pick(join('formats', 'pptx'), /\.pptx$/) ?? join(FORMAT_FIXTURES, 'presentation.pptx'),
   };
-  // PPTX: LibreOffice 로 받은 공문 PDF → PPTX
-  const soffice = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
-  if (existsSync(soffice)) {
-    try {
-      execFileSync(soffice, ['--headless', '--infilter=impress_pdf_import', '--convert-to', 'pptx', files.received_pdf, '--outdir', FIX], { stdio: 'ignore', timeout: 120_000 });
-      const p = join(FIX, `${basename(files.received_pdf, '.pdf')}.pptx`);
-      if (existsSync(p)) files.pptx = p;
-    } catch { /* PPTX 없이 */ }
-  }
+  files.pdf_text = pick('korea-kr', /\.pdf$/) ?? files.received_pdf;
+  files.hwpx_real = pick('korea-kr', /\.hwpx$/) ?? files.report;
   // 스캔본: 보고서 1쪽을 PNG 로 그려 이미지만 든 PDF 로
   const r = await k.renderDocument(readFileSync(files.collect[0]), { format: 'png', pages: '1' });
   const png = Buffer.from(r.assets[0].data ?? r.assets[0].bytes);
@@ -141,6 +136,30 @@ async function makeFixtures() {
   // 도장 이미지
   files.seal = join(FIX, 'seal.png');
   await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><circle cx="100" cy="100" r="90" fill="none" stroke="#c00" stroke-width="12"/><text x="100" y="125" font-size="80" text-anchor="middle" fill="#c00">印</text></svg>')).png().toFile(files.seal);
+  // HWP는 샘플 원고를 편집 엔진으로 내보내 만든다.
+  initSync({ module: readFileSync(new URL('./rhwp_bg.wasm', pathToFileURL(rhwpPath))) });
+  const illustrated = Buffer.from(await k.markdownToHwpx(
+    '# 가온시 문서 엔진 통합 검증\n\n가상의 가온시는 접수 문서의 제목과 본문을 읽어 결과를 확인합니다.\n\n![도장](seal.png)',
+    { images: { 'seal.png': readFileSync(files.seal) } },
+  ));
+  files.hwpx_image = join(FIX, '그림 있는 문서.hwpx');
+  writeFileSync(files.hwpx_image, illustrated);
+  files.hwp_small = join(FIX, '가온시 문서 엔진.hwp');
+  const hmlFixture = join(FIX, '가온시 문서 엔진.hml');
+  const hwp = new HwpDocument(illustrated);
+  try {
+    writeFileSync(files.hwp_small, hwp.exportHwp());
+  } finally {
+    hwp.free();
+  }
+  writeFileSync(hmlFixture, [
+    '<?xml version="1.0" encoding="UTF-8"?><HWPML Version="2.9">',
+    '<HEAD><MAPPINGTABLE></MAPPINGTABLE></HEAD><BODY><SECTION Id="0">',
+    '<P ParaShape="0"><TEXT CharShape="0"><CHAR>가상의 가온시는 접수 문서의 제목과 본문을 읽어 결과를 확인합니다.</CHAR></TEXT></P>',
+    '</SECTION></BODY></HWPML>',
+  ].join(''));
+  files.hwp5 = pick('hwp5', /\.hwp$/) ?? files.hwp_small;
+  files.hml = pick(join('formats', 'hml'), /\.hml$/) ?? hmlFixture;
   // CP949 글 (한국어 윈도우 엑셀 CSV 저장본) — '제목,본문,파일명\n똠양꿍 행사 협조,안내 본문,셋째\n', 똠 = 0x8C63 (EUC-KR 밖 확장 한글)
   files.cp949_csv = join(FIX, 'cp949.csv');
   writeFileSync(files.cp949_csv, Buffer.from('c1a6b8f12cbabbb9ae2cc6c4c0cfb8ed0a8c63bee7b2e120c7e0bbe720c7f9c1b62cbec8b3bb20babbb9ae2cbcc2c2b00a', 'hex'));
@@ -193,7 +212,12 @@ function defineChecks(f, sc) {
   });
   check('system', 'samples_list', async () => {
     const r = await sc.call('samples_list');
-    assert(r.scenarios.length === 4 && r.scenarios.every((s) => s.files.length > 0), '시나리오 파일 누락');
+    const { scenarios } = JSON.parse(readFileSync(join(SAMPLES, 'index.json'), 'utf-8'));
+    assert(r.scenarios.length === scenarios.length && scenarios.every((s, i) => {
+      const copied = r.scenarios[i];
+      return copied.id === s.id && copied.files.length === s.files.length
+        && copied.files.every((p, j) => p === join(r.dir, s.files[j]) && existsSync(p));
+    }), '시나리오 또는 파일 누락');
     return r.scenarios.map((s) => `${s.id}:${s.files.length}`).join(' ');
   });
 
@@ -268,6 +292,18 @@ function defineChecks(f, sc) {
     assert(v.ok, `구조 검증 실패: ${JSON.stringify(v.issues).slice(0, 200)}`);
     assert(norm((await parseFile(r.output_path)).markdown).includes(norm('구민체육센터')), '본문 누락');
     return `기관 ${agency}, 경고 ${r.warnings.length}, 표기법 ${r.lint.length}`;
+  });
+  check('create', 'generate_hwpx (보고서·계획서 목차)', async () => {
+    const markdown = '# 가온시 문서 처리 계획\n\n## 현황과 대책\n\n- 문서 처리 절차를 정리함\n\n## 기대 효과\n\n- 반복 업무를 줄임';
+    for (const preset of ['보고서', '계획서']) {
+      const { output_path } = await sc.call('generate_hwpx', {
+        markdown, preset, cover: { org: '가온시' }, toc: true, output_path: join(OUT, `목차-${preset}.hwpx`),
+      });
+      const zip = await JSZip.loadAsync(readFileSync(output_path));
+      const section = await zip.file('Contents/section0.xml')?.async('text');
+      assert(section && /<hp:t>목\s+차<\/hp:t>[\s\S]*<hp:t>현황과 대책<\/hp:t>[\s\S]*<hp:t>기대 효과<\/hp:t>/.test(section), `${preset} 목차 제목 또는 항목 누락`);
+    }
+    return '보고서·계획서의 실제 HWPX 목차 항목 확인';
   });
   check('create', 'template_fields·template_fill (표준 기안문)', async () => {
     const fl = await sc.call('template_fields', { template: 'gian' });
@@ -417,7 +453,7 @@ function defineChecks(f, sc) {
     return `${r.results.length}개 문서에서 ${r.results.reduce((s, x) => s + x.hits.length, 0)}곳`;
   });
   check('compare', 'extract_images', async () => {
-    const r = await sc.call('extract_images', { path: f.hwpx_real, output_dir: join(OUT, 'images') });
+    const r = await sc.call('extract_images', { path: f.hwpx_image, output_dir: join(OUT, 'images') });
     assert(r.count >= 1, '그림 없음');
     return `${r.count}개`;
   });
@@ -440,13 +476,12 @@ function defineChecks(f, sc) {
     return `합본 ${n}쪽`;
   });
   check('output', 'merge_files·split_pdf·pdf_page_count·pdf_extract_pages', async () => {
-    assert(f.hwp_small, 'HWP 픽스처 없음');
     const m = await sc.call('merge_files', { files: [f.received_hwpx, f.hwp_small, f.pii], output_path: join(OUT, 'merged.hwpx'), mode: 'native' });
     const mp = m.output_path ?? join(OUT, 'merged.hwpx');
     assert(mp.endsWith('.hwpx'), `서식 유지 HWPX 가 아님: ${mp}`);
     assert((await k.validateHwpx(readFileSync(mp))).ok, '합본 구조 검증 실패');
     const md = (await parseFile(mp)).markdown;
-    assert(md.includes('한마음 체육대회') && md.includes('사이버보안') && md.includes('정보공개 청구서'), '합친 문서에 세 문서가 다 없음');
+    assert(md.includes('한마음 체육대회') && md.includes('가온시 문서 엔진 통합 검증') && md.includes('정보공개 청구서'), '합친 문서에 세 문서가 다 없음');
     const pc = await sc.call('pdf_page_count', { input_path: join(OUT, 'bundle.pdf') });
     const ex = await sc.call('pdf_extract_pages', { input_path: join(OUT, 'bundle.pdf'), pages: '1-2', mode: 'include', output_path: join(OUT, 'extract.pdf') });
     const ep = ex.output_path ?? join(OUT, 'extract.pdf');
@@ -619,19 +654,30 @@ function defineAiChecks(f, sc) {
 
 async function mcpCheck() {
   const fakeHome = mkdtempSync(join(WORK, 'home-'));
-  mkdirSync(join(fakeHome, 'Library', 'Application Support', 'Claude'), { recursive: true });
-  mkdirSync(join(fakeHome, '.cursor'), { recursive: true });
-  const sc = new Sidecar({ HOME: fakeHome, USERPROFILE: fakeHome, APPDATA: join(fakeHome, 'AppData', 'Roaming') });
+  const sc = new Sidecar({
+    HOME: fakeHome, USERPROFILE: fakeHome, XDG_CONFIG_HOME: join(fakeHome, '.config'),
+    APPDATA: join(fakeHome, 'AppData', 'Roaming'), LOCALAPPDATA: join(fakeHome, 'AppData', 'Local'),
+  });
   try {
+    const targets = ['claude-desktop', 'cursor'];
     const env = await sc.call('detect_mcp_env');
-    const ids = env.clients.map((c) => c.id);
-    const target = ids.filter((id) => /claude|cursor/.test(id)).slice(0, 2);
-    const r = await sc.call('install_mcp_config', { clients: target });
-    assert(r.installed.length >= 1, `설치 ${JSON.stringify(r)}`);
-    const conf = env.clients.filter((c) => r.installed.includes(c.id)).map((c) => c.config_path.replace(homedir(), fakeHome));
-    const text = conf.map((p) => (existsSync(p) ? readFileSync(p, 'utf-8') : '')).join('\n');
-    assert(/mcp\.js/.test(text) && !/npx/.test(text), `설정에 동봉 mcp.js 경로가 없음: ${text.slice(0, 200)}`);
-    return `${r.installed.join(',')} 등록, 설정에 mcp.js 절대경로`;
+    const clients = targets.map((id) => env.clients.find((c) => c.id === id));
+    for (const c of clients) {
+      assert(c, 'MCP 대상 프로그램을 찾지 못했습니다.');
+      const path = relative(fakeHome, c.config_path);
+      assert(path && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path), 'MCP 시험 설정이 가짜 홈 밖입니다.');
+    }
+    const r = await sc.call('install_mcp_config', { clients: targets });
+    assert(r.installed.length === targets.length && !r.failed.length, `설치 ${JSON.stringify(r)}`);
+    for (const { config_path } of clients) {
+      const config = JSON.parse(readFileSync(config_path, 'utf-8'));
+      const entry = config.mcpServers?.['kordoc-ai'];
+      const node = existsSync(bundledNode) ? bundledNode : process.execPath;
+      assert(entry?.command === node && entry?.args?.length === 2
+        && entry.args[0] === join(SIDECAR, 'dist', 'bundle.mjs') && entry.args[1] === '--mcp',
+        '설정에 동봉 Node와 엔진 번들 실행 명령이 없습니다.');
+    }
+    return `${targets.join(', ')}: 동봉 Node + bundle.mjs --mcp`;
   } finally {
     sc.kill();
   }

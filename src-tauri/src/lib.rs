@@ -3,6 +3,8 @@ mod error;
 mod secrets;
 mod shell;
 mod sidecar;
+#[cfg(windows)]
+mod windows_startup;
 
 use shell::ShellCollector;
 use sidecar::manager::SidecarManager;
@@ -227,6 +229,10 @@ pub fn run() {
     if let Some(code) = shell::cli_shell_menu(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(code);
     }
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    let startup = windows_startup::lock(&context.config().identifier)
+        .expect("KorDoc AI의 Windows 시작 잠금을 열 수 없습니다");
     let manager = SidecarManager::new();
     let mgr_for_setup = Arc::clone(&manager);
     let mgr_for_exit = Arc::clone(&manager);
@@ -239,7 +245,7 @@ pub fn run() {
             request_quit(app);
         }
     });
-    builder
+    let app = builder
         // 두 번째 실행(우클릭 메뉴·파일 더블클릭) → 첫 인스턴스로 인자 전달.
         // features=["deep-link"] 라 kordoc:// 인자는 deep-link 플러그인 on_open_url 로 간다.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -326,10 +332,11 @@ pub fn run() {
                 || (!first_urls.is_empty() && first_urls.iter().all(|u| shell::routed_action(u).map(|(a, _)| shell::is_quick(&a)).unwrap_or(false)));
             // 문서 카드(우클릭 "KorDoc AI에게 맡기기…"·"최종본 찾기")로 켜졌으면 본창은 띄우지 않고 작은 창만
             let card_start = first.as_ref().map(|(a, _)| shell::is_card(a)).unwrap_or(false);
+            let compare_start = first.as_ref().is_some_and(|(action, _)| action == "compare");
             if quick_start {
                 shell::mark_cold_quick();
-            } else if card_start {
-                // 카드 창은 묶음 뒤 open_card 가 띄운다. 마지막 카드를 닫으면 card_closed 가 앱을 끈다
+            } else if card_start || compare_start {
+                // 카드와 비교 화면은 고른 파일이 함께 도착한 뒤 연다.
             } else if cfg!(target_os = "macos") {
                 // macOS Finder 빠른 동작은 주소가 켜진 뒤(RunEvent::Opened)에 온다 → 잠깐 기다려 빠른 동작이 아니면 연다
                 let h = handle.clone();
@@ -411,8 +418,12 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("error while building KorDoc AI")
+        .build(context)
+        .expect("error while building KorDoc AI");
+    // 플러그인의 수신 창이 만들어졌다. 후속 실행이 인자를 보낼 수 있도록 먼저 잠금을 놓는다.
+    #[cfg(windows)]
+    drop(startup);
+    app
         .run(move |app, event| match event {
             tauri::RunEvent::Exit => {
                 let mgr = mgr_for_exit.clone();
